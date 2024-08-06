@@ -6,16 +6,6 @@
 
 version: "latest"
 
-#! Settings for customizing namespace, API group and resource naming conventions
-#! for the operator. This is used internally for development and experimentation
-#! and should not be overridden through a values file in normal use.
-
-operator:
-  namespace: "educates"
-  apiGroup: "educates.dev"
-  statusKey: "educates"
-  namePrefix: "educates"
-
 #! Image registry where Educates container images and workshop content is
 #! stored. This is used internally for development, experimentation and when
 #! working on workshop content in a local Educates environment, and should not

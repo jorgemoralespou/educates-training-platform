@@ -3,14 +3,28 @@
 
 #@ def addKappAnnotations(packageName, valuesToApply, orderedPackagesList):
 
+#@ educatesPackages = ["educates", "lookup-service"]
+
 #@ activatedPackagesList = []
+#@ alreadyActivated = False
 #@ for name in orderedPackagesList:
 #@   if name in valuesToApply.clusterPackages:
 #@     package = valuesToApply.clusterPackages[name]
 #@     if package.enabled == True:
-#@       activatedPackagesList.append(name)
+#@       if name in educatesPackages: 
+#@         if not alreadyActivated:
+#@           activatedPackagesList.append(name)
+#@           alreadyActivated = True
+#@         end
+#@       else:
+#@         activatedPackagesList.append(name)
+#@       end
 #@     end
 #@   end
+#@ end
+
+#@ if packageName in educatesPackages:
+#@   packageName = "educates"
 #@ end
 
 #@ index = activatedPackagesList.index(packageName)

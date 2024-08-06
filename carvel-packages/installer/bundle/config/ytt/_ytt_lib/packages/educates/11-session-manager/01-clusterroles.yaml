@@ -3,7 +3,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: #@ "{}-view-session-role".format(data.values.operator.namePrefix)
+  name: educates-view-session-role
 rules:
   - apiGroups:
       - ""
@@ -128,7 +128,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: #@ "{}-edit-session-role".format(data.values.operator.namePrefix)
+  name: educates-edit-session-role
 rules:
   - apiGroups:
       - ""
@@ -379,7 +379,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: #@ "{}-admin-session-role".format(data.values.operator.namePrefix)
+  name: educates-admin-session-role
 rules:
   - apiGroups:
       - ""
@@ -650,7 +650,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: #@ "{}-training-portal".format(data.values.operator.namePrefix)
+  name: educates-training-portal
 rules:
   - apiGroups:
       - ""
@@ -670,7 +670,7 @@ rules:
       - watch
       - create
   - apiGroups:
-      -  #@ "training.{}".format(data.values.operator.apiGroup)
+      -  training.educates.dev
     resources:
       - workshops
       - workshopenvironments
@@ -682,7 +682,7 @@ rules:
       - list
       - watch
   - apiGroups:
-      -  #@ "training.{}".format(data.values.operator.apiGroup)
+      -  training.educates.dev
     resources:
       - trainingportals/finalizers
       - workshopenvironments/finalizers
@@ -690,7 +690,7 @@ rules:
     verbs:
       - update
   - apiGroups:
-      -  #@ "training.{}".format(data.values.operator.apiGroup)
+      -  training.educates.dev
     resources:
       - workshopenvironments
       - workshopsessions
@@ -704,7 +704,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: #@ "{}-tunnel-manager".format(data.values.operator.namePrefix)
+  name: educates-tunnel-manager
 rules:
 - apiGroups:
   - ""
@@ -744,7 +744,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - #@ "training.{}".format(data.values.operator.apiGroup)
+  - training.educates.dev
   resources:
   - workshopsessions
   verbs:

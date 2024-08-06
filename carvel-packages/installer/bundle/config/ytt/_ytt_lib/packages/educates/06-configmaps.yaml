@@ -11,7 +11,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: node-injector
-  namespace: #@ data.values.operator.namespace
+  namespace: educates
 data:
   inject-ca.sh: |
     echo "$CA_CERTIFICATE" > /usr/local/share/ca-certificates/Cluster_Ingress_CA.crt && update-ca-certificates && systemctl restart containerd

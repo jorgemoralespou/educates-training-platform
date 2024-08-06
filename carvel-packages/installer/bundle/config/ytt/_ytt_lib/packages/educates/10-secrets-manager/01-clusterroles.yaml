@@ -4,7 +4,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: #@ "{}-secrets-manager".format(data.values.operator.namePrefix)
+  name: educates-secrets-manager
 rules:
 - apiGroups:
   - ""
@@ -44,7 +44,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - #@ "secrets.{}".format(data.values.operator.apiGroup)
+  - secrets.educates.dev
   resources:
   - secretcopiers
   - secretexporters
@@ -57,7 +57,7 @@ rules:
   - patch
   - update
 - apiGroups:
-    -  #@ "secrets.{}".format(data.values.operator.apiGroup)
+    -  secrets.educates.dev
   resources:
     - secretcopiers/finalizers
     - secretimporters/finalizers

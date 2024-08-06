@@ -121,5 +121,5 @@ directories:
           url: https://github.com/GrahamDumpleton/lab-platform-operator
           ref: origin/main
         includePaths:
-          - exercises/resources/*.yaml
-        newRootPath: exercises/resources
+          - exercises/resources-v2/*.yaml
+        newRootPath: exercises/resources-v2

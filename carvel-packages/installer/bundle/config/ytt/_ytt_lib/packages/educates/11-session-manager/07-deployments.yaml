@@ -8,7 +8,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: session-manager
-  namespace: #@ data.values.operator.namespace
+  namespace: educates
+  annotations:
+    kapp.k14s.io/change-rule.token: "upsert after upserting educates-sessions/service-accounts-with-token"
 spec:
   replicas: 1
   selector:
@@ -64,7 +66,7 @@ spec:
       volumes:
       - name: config
         secret:
-          secretName: #@ "{}-config".format(data.values.operator.namePrefix)
+          secretName: educates-config
       - name: token
         secret:
           secretName: session-manager-token

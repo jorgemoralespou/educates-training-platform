@@ -4,22 +4,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: lookup-service-poc
-  namespace: educates-platform
+  name: lookup-service
+  namespace: educates
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: lookup-service-poc
+      app: lookup-service
   template:
     metadata:
       labels:
-        app: lookup-service-poc
+        app: lookup-service
     spec:
-      serviceAccountName: lookup-service-poc
+      serviceAccountName: lookup-service
       containers:
-      - name: lookup-service-poc
+      - name: lookup-service
         image: #@ data.values.lookupServiceImage
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
+        volumeMounts:
+        - name: cluster-access-token
+          mountPath: /opt/cluster-access-token
+      volumes:
+      - name: cluster-access-token
+        secret:
+          secretName: remote-access-token

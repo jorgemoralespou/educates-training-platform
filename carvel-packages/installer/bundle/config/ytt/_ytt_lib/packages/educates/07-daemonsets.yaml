@@ -12,7 +12,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: node-injector
-  namespace: #@ data.values.operator.namespace
+  namespace: educates
 spec:
   selector:
     matchLabels:

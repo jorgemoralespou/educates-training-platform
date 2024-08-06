@@ -14,7 +14,7 @@ clusterIngress:
   clusterIssuer: "letsencrypt-prod"
 
 image: 
-  name: ghcr.io/grahamdumpleton/lookup-service-poc:latest
+  name: localhost:5001/educates-lookup-service:latest
   pullPolicy: Always
 
 #! TODO: Rename these when upstream is fixed

@@ -2,12 +2,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: lookup-service-poc
-  namespace: educates-platform
+  name: lookup-service
+  namespace: educates
 spec:
   type: ClusterIP
   ports:
   - port: 8080
     targetPort: 8080
   selector:
-    app: lookup-service-poc
+    app: lookup-service
