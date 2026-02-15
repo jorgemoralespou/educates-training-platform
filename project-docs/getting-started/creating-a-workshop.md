@@ -13,6 +13,14 @@ To generate a new workshop run the `educates new-workshop` command, passing it a
 educates new-workshop lab-new-workshop
 ```
 
+If you want to manage multiple workshops in one repository, create a workshop bundle project instead:
+
+```
+educates new-bundle lab-workshops --workshop lab-workshop-one --workshop lab-workshop-two
+```
+
+This creates a top-level `resources/trainingportal.yaml` plus a `workshops/` directory containing one sub-directory per workshop.
+
 The last component of the supplied path will be used as the workshop name.
 
 As the workshop name must conform to what is valid for a RFC 1035 label name, as detailed in [Kubernetes object name and ID](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/), the last component of the supplied path should:
@@ -107,6 +115,15 @@ If you are using the `classic` renderer for workshop instructions you would need
 If your workshop instructions use images, if using the `classic` renderer, the images can be placed in the same directory as the Markdown or AsciiDoc files. If using the `hugo` renderer, you should follow the Hugo convention and place images in the `workshop/static` directory, or use page bundles and include the image for a page in the directory for the page bundle.
 
 A workshop may consist of other configuration files, and directories with other types of content, but this is the minimal set of files to get you started.
+
+Workshop bundle layout
+----------------------
+
+When using `educates new-bundle`, the generated project layout is:
+
+* ``resources`` - Directory containing ``trainingportal.yaml`` for the bundle.
+* ``workshops`` - Directory containing all workshop sub-directories.
+* ``workshops/<name>`` - Each workshop follows the same layout as a single workshop created with `educates new-workshop`.
 
 Root directory for exercises
 ----------------------------

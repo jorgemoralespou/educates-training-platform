@@ -34,6 +34,18 @@ educates publish-workshop
 
 the value of `$(image_repository)` in the destination for publishing the workshop as specified by `publish.image` will be replaced with `localhost:5001` and `$(workshop_version)` will be replaced with `latest`.
 
+If you are working in a multi-workshop bundle repository, use:
+
+```
+educates publish-bundle
+```
+
+You can target specific workshops by name:
+
+```
+educates publish-bundle --workshop lab-one --workshop lab-two
+```
+
 If you subsequently run:
 
 ```
@@ -66,6 +78,12 @@ If you need to generate the modified workshop definition separate to publishing 
 
 ```
 educates export-workshop --image-repository docker.io/username --workshop-version 1.0 > published-workshop.yaml
+```
+
+For a multi-workshop bundle repository, export all resources (including `trainingportal.yaml`) using:
+
+```
+educates export-bundle --image-repository docker.io/username --workshop-version 1.0
 ```
 
 The recipient of the modified workshop definition could use:

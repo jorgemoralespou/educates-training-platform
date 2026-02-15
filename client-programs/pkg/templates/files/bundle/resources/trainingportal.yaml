@@ -1,0 +1,9 @@
+apiVersion: training.educates.dev/v1beta1
+kind: TrainingPortal
+metadata:
+  name: "{{ .BundleName }}"
+spec:
+  portal:
+    sessions:
+      maximum: 5
+  workshops: []

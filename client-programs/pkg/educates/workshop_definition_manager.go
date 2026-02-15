@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/constants"
 	"github.com/educates/educates-training-platform/client-programs/pkg/logger"
 	"github.com/educates/educates-training-platform/client-programs/pkg/templates"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	"go.yaml.in/yaml/v2"
 	"k8s.io/apimachinery/pkg/apis/meta/internalversion/scheme"
@@ -23,7 +25,6 @@ import (
 )
 
 type WorkshopDefinitionManager struct {
-
 }
 
 type NewWorkshopDefinitionConfig struct {
@@ -61,11 +62,45 @@ type PublishWorkshopDefinitionConfig struct {
 	DataValuesFlags yttcmd.DataValuesFlags
 }
 
+type NewWorkshopBundleConfig struct {
+	Name                  string
+	Template              string
+	Title                 string
+	Description           string
+	Image                 string
+	Overwrite             bool
+	WorkshopNames         []string
+	WithGitHubAction      bool
+	WithKubernetesAccess  bool
+	WithVirtualCluster    bool
+	WithDockerDaemon      bool
+	WithImageRegistry     bool
+	WithKubernetesConsole bool
+	WithEditor            bool
+	WithTerminal          bool
+}
+
+type BundleWorkshop struct {
+	Name      string
+	Directory string
+}
+
+type PublishWorkshopBundleConfig struct {
+	PublishWorkshopDefinitionConfig
+	Workshops []string
+	FailFast  bool
+}
+
+type ExportWorkshopBundleConfig struct {
+	ExportWorkshopDefinitionConfig
+	Workshops []string
+}
+
 func NewWorkshopDefinitionManager() *WorkshopDefinitionManager {
 	return &WorkshopDefinitionManager{}
 }
 
-func (m *WorkshopDefinitionManager) New(directory string,o *NewWorkshopDefinitionConfig) error {
+func (m *WorkshopDefinitionManager) New(directory string, o *NewWorkshopDefinitionConfig) error {
 	var err error
 
 	parameters := map[string]string{
@@ -98,7 +133,7 @@ func (m *WorkshopDefinitionManager) New(directory string,o *NewWorkshopDefinitio
 	return err
 }
 
-func (m *WorkshopDefinitionManager) Export(directory string,o *ExportWorkshopDefinitionConfig) (string, error) {
+func (m *WorkshopDefinitionManager) Export(directory string, o *ExportWorkshopDefinitionConfig) (string, error) {
 	// If image name hasn't been supplied read workshop definition file and
 	// try to work out image name to Export workshop as.
 
@@ -121,9 +156,6 @@ func (m *WorkshopDefinitionManager) Export(directory string,o *ExportWorkshopDef
 		return "", errors.Wrap(err, "unable to process workshop definition as template")
 	}
 
-	workshopFileData = []byte(strings.ReplaceAll(string(workshopFileData), "$(image_repository)", o.Repository))
-	workshopFileData = []byte(strings.ReplaceAll(string(workshopFileData), "$(workshop_version)", o.WorkshopVersion))
-
 	decoder := serializer.NewCodecFactory(scheme.Scheme).UniversalDecoder()
 
 	workshop := &unstructured.Unstructured{}
@@ -138,17 +170,10 @@ func (m *WorkshopDefinitionManager) Export(directory string,o *ExportWorkshopDef
 		return "", errors.New("invalid type for workshop definition")
 	}
 
-	// Insert workshop version property if not specified.
-
-	_, found, _ := unstructured.NestedString(workshop.Object, "spec", "version")
-
-	if !found && o.WorkshopVersion != "latest" {
-		unstructured.SetNestedField(workshop.Object, o.WorkshopVersion, "spec", "version")
-	}
-
-	// Remove the publish section as will not be accurate after publising.
-
-	unstructured.RemoveNestedField(workshop.Object, "spec", "publish")
+	workshop = utils.SanitizeWorkshopResourceForExport(workshop, &utils.WorkshopResourceExportConfig{
+		Repository:      o.Repository,
+		WorkshopVersion: o.WorkshopVersion,
+	})
 
 	// Export modified workshop definition file.
 
@@ -161,7 +186,7 @@ func (m *WorkshopDefinitionManager) Export(directory string,o *ExportWorkshopDef
 	return string(workshopFileData), nil
 }
 
-func (m *WorkshopDefinitionManager) Publish(directory string,o *PublishWorkshopDefinitionConfig) error {
+func (m *WorkshopDefinitionManager) Publish(directory string, o *PublishWorkshopDefinitionConfig) error {
 	// If image name hasn't been supplied read workshop definition file and
 	// try to work out image name to publish workshop as.
 
@@ -206,7 +231,7 @@ func (m *WorkshopDefinitionManager) Publish(directory string,o *PublishWorkshopD
 		return errors.Wrap(err, "couldn't parse workshop definition")
 	}
 
-		// Extract vendir snippet describing subset of files to package up as the
+	// Extract vendir snippet describing subset of files to package up as the
 	// workshop image.
 
 	carvelUI := logger.NewCarvelUI()
@@ -337,17 +362,10 @@ func (m *WorkshopDefinitionManager) Publish(directory string,o *PublishWorkshopD
 	exportWorkshop := o.ExportWorkshop
 
 	if exportWorkshop != "" {
-		// Insert workshop version property if not specified.
-
-		_, found, _ := unstructured.NestedString(workshop.Object, "spec", "version")
-
-		if !found && o.WorkshopVersion != "latest" {
-			unstructured.SetNestedField(workshop.Object, o.WorkshopVersion, "spec", "version")
-		}
-
-		// Remove the publish section as will not be accurate after publising.
-
-		unstructured.RemoveNestedField(workshop.Object, "spec", "publish")
+		workshop = utils.SanitizeWorkshopResourceForExport(workshop, &utils.WorkshopResourceExportConfig{
+			Repository:      o.Repository,
+			WorkshopVersion: o.WorkshopVersion,
+		})
 
 		workshopFileData, err = yaml.Marshal(&workshop.Object)
 
@@ -375,4 +393,241 @@ func (m *WorkshopDefinitionManager) Publish(directory string,o *PublishWorkshopD
 	}
 
 	return nil
+}
+
+func (m *WorkshopDefinitionManager) NewBundle(directory string, o *NewWorkshopBundleConfig) error {
+	parameters := map[string]string{
+		"BundleName": o.Name,
+	}
+
+	template := templates.InternalTemplate("bundle")
+
+	if err := template.ApplyFiles(directory, parameters); err != nil {
+		return errors.Wrap(err, "unable to apply bundle template")
+	}
+
+	if o.WithGitHubAction {
+		githubTemplate := templates.InternalTemplate("bundle")
+		if err := githubTemplate.ApplyGitHubAction(directory, parameters); err != nil {
+			return errors.Wrap(err, "unable to apply bundle GitHub action template")
+		}
+	}
+
+	for _, workshopName := range o.WorkshopNames {
+		workshopDirectory := filepath.Join(directory, constants.DefaultWorkshopsDirectoryName, workshopName)
+
+		if err := m.New(workshopDirectory, &NewWorkshopDefinitionConfig{
+			Template:              o.Template,
+			Name:                  workshopName,
+			Title:                 o.Title,
+			Description:           o.Description,
+			Image:                 o.Image,
+			Overwrite:             o.Overwrite,
+			WithGitHubAction:      false,
+			WithKubernetesAccess:  o.WithKubernetesAccess,
+			WithVirtualCluster:    o.WithVirtualCluster,
+			WithDockerDaemon:      o.WithDockerDaemon,
+			WithImageRegistry:     o.WithImageRegistry,
+			WithKubernetesConsole: o.WithKubernetesConsole,
+			WithEditor:            o.WithEditor,
+			WithTerminal:          o.WithTerminal,
+		}); err != nil {
+			return err
+		}
+	}
+
+	if len(o.WorkshopNames) != 0 {
+		if err := m.updateTrainingPortalWorkshops(directory, o.WorkshopNames); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *WorkshopDefinitionManager) DiscoverBundleWorkshops(directory string, workshopFile string, requested []string) ([]BundleWorkshop, error) {
+	if workshopFile == "" {
+		workshopFile = constants.DefaultWorkshopDefinitionPath
+	}
+
+	workshopsRoot := filepath.Join(directory, constants.DefaultWorkshopsDirectoryName)
+
+	entries, err := os.ReadDir(workshopsRoot)
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to read workshops directory %q", workshopsRoot)
+	}
+
+	workshopByName := map[string]BundleWorkshop{}
+	var workshopNames []string
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		workshopName := entry.Name()
+		workshopDirectory := filepath.Join(workshopsRoot, workshopName)
+		workshopFilePath := filepath.Join(workshopDirectory, workshopFile)
+
+		if fileInfo, err := os.Stat(workshopFilePath); err == nil && !fileInfo.IsDir() {
+			workshopByName[workshopName] = BundleWorkshop{
+				Name:      workshopName,
+				Directory: workshopDirectory,
+			}
+			workshopNames = append(workshopNames, workshopName)
+		}
+	}
+
+	sort.Strings(workshopNames)
+
+	if len(workshopNames) == 0 {
+		return nil, errors.Errorf("no workshops found under %q", workshopsRoot)
+	}
+
+	if len(requested) == 0 {
+		workshops := make([]BundleWorkshop, 0, len(workshopNames))
+		for _, workshopName := range workshopNames {
+			workshops = append(workshops, workshopByName[workshopName])
+		}
+		return workshops, nil
+	}
+
+	selected := make([]BundleWorkshop, 0, len(requested))
+
+	for _, workshopName := range requested {
+		workshop, found := workshopByName[workshopName]
+		if !found {
+			return nil, errors.Errorf("workshop %q was not found in %q", workshopName, workshopsRoot)
+		}
+		selected = append(selected, workshop)
+	}
+
+	return selected, nil
+}
+
+func (m *WorkshopDefinitionManager) PublishBundle(directory string, o *PublishWorkshopBundleConfig) error {
+	workshops, err := m.DiscoverBundleWorkshops(directory, o.WorkshopFile, o.Workshops)
+	if err != nil {
+		return err
+	}
+
+	var publishErrors []string
+
+	for _, workshop := range workshops {
+		config := o.PublishWorkshopDefinitionConfig
+		config.ExportWorkshop = ""
+
+		if o.ExportWorkshop != "" {
+			if err := os.MkdirAll(o.ExportWorkshop, os.ModePerm); err != nil {
+				return errors.Wrapf(err, "unable to create export directory %q", o.ExportWorkshop)
+			}
+			config.ExportWorkshop = filepath.Join(o.ExportWorkshop, fmt.Sprintf("%s-workshop.yaml", workshop.Name))
+		}
+
+		if err := m.Publish(workshop.Directory, &config); err != nil {
+			if o.FailFast {
+				return err
+			}
+
+			publishErrors = append(publishErrors, fmt.Sprintf("%s: %v", workshop.Name, err))
+		} else if len(workshops) > 1 {
+			fmt.Println()
+		}
+	}
+
+	if len(publishErrors) != 0 {
+		return errors.Errorf("failed publishing one or more workshops:\n- %s", strings.Join(publishErrors, "\n- "))
+	}
+
+	return nil
+}
+
+func (m *WorkshopDefinitionManager) ExportBundle(directory string, o *ExportWorkshopBundleConfig) ([]utils.ExportedYAMLDocument, error) {
+	workshops, err := m.DiscoverBundleWorkshops(directory, o.WorkshopFile, o.Workshops)
+	if err != nil {
+		return nil, err
+	}
+
+	documents := []utils.ExportedYAMLDocument{}
+
+	trainingPortalData, err := m.exportTrainingPortalWithWorkshopSelection(directory, workshops)
+	if err != nil {
+		return nil, err
+	}
+
+	documents = append(documents, utils.ExportedYAMLDocument{
+		Name: "trainingportal.yaml",
+		Data: trainingPortalData,
+	})
+
+	for _, workshop := range workshops {
+		config := o.ExportWorkshopDefinitionConfig
+
+		workshopData, err := m.Export(workshop.Directory, &config)
+		if err != nil {
+			return nil, err
+		}
+
+		documents = append(documents, utils.ExportedYAMLDocument{
+			Name: fmt.Sprintf("%s-workshop.yaml", workshop.Name),
+			Data: []byte(workshopData),
+		})
+	}
+
+	return documents, nil
+}
+
+func (m *WorkshopDefinitionManager) exportTrainingPortalWithWorkshopSelection(directory string, workshops []BundleWorkshop) ([]byte, error) {
+	trainingPortalPath := filepath.Join(directory, constants.DefaultTrainingPortalDefinitionPath)
+	trainingPortalData, err := os.ReadFile(trainingPortalPath)
+	if err != nil {
+		return nil, errors.Wrapf(err, "cannot open training portal definition %q", trainingPortalPath)
+	}
+
+	decoder := serializer.NewCodecFactory(scheme.Scheme).UniversalDecoder()
+	trainingPortal := &unstructured.Unstructured{}
+
+	if err := runtime.DecodeInto(decoder, trainingPortalData, trainingPortal); err != nil {
+		return nil, errors.Wrap(err, "couldn't parse training portal definition")
+	}
+
+	if trainingPortal.GetAPIVersion() != constants.EducatesTrainingAPIGroupVersion || trainingPortal.GetKind() != "TrainingPortal" {
+		return nil, errors.New("invalid type for training portal definition")
+	}
+
+	selectedWorkshops := make([]interface{}, 0, len(workshops))
+	for _, workshop := range workshops {
+		selectedWorkshops = append(selectedWorkshops, map[string]interface{}{
+			"name": workshop.Name,
+		})
+	}
+
+	unstructured.SetNestedSlice(trainingPortal.Object, selectedWorkshops, "spec", "workshops")
+
+	return yaml.Marshal(&trainingPortal.Object)
+}
+
+func (m *WorkshopDefinitionManager) updateTrainingPortalWorkshops(directory string, workshopNames []string) error {
+	trainingPortalData, err := m.exportTrainingPortalWithWorkshopSelection(directory, mapWorkshopsFromNames(directory, workshopNames))
+	if err != nil {
+		return err
+	}
+
+	trainingPortalPath := filepath.Join(directory, constants.DefaultTrainingPortalDefinitionPath)
+	if err := os.WriteFile(trainingPortalPath, trainingPortalData, 0644); err != nil {
+		return errors.Wrapf(err, "unable to update training portal definition %q", trainingPortalPath)
+	}
+
+	return nil
+}
+
+func mapWorkshopsFromNames(directory string, workshopNames []string) []BundleWorkshop {
+	workshops := make([]BundleWorkshop, 0, len(workshopNames))
+	for _, workshopName := range workshopNames {
+		workshops = append(workshops, BundleWorkshop{
+			Name:      workshopName,
+			Directory: filepath.Join(directory, constants.DefaultWorkshopsDirectoryName, workshopName),
+		})
+	}
+	return workshops
 }

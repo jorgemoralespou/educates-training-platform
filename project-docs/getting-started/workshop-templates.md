@@ -23,6 +23,18 @@ educates new-workshop lab-new-workshop --template classic
 
 The `classic` renderer is deprecated and will in time be removed so it is recommended that new workshops use the `hugo` renderer.
 
+If you need a repository containing multiple workshops, use:
+
+```
+educates new-bundle labs-workshops
+```
+
+You can scaffold initial workshops at the same time:
+
+```
+educates new-bundle labs-workshops --workshop lab-one --workshop lab-two
+```
+
 In the workshop definition there are additional required fields that need to be filled out. These will be filled out with default values, but you can customize them at the time of workshop creation.
 
 The command line options for customizing the fields and their purpose are:
@@ -117,12 +129,14 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Create release
-        uses: educates/educates-github-actions/publish-workshop@v6
+        uses: educates/educates-github-actions/publish-workshop@v7
         with:
           token: ${{secrets.GITHUB_TOKEN}}
 ```
 
 With the GitHub workflow added, when you are ready to make your workshop available for others to use, use `git` to create a version tag against the commit for the stable version, where the format of the tag is `X.Y`, e.g., `1.0`. Push the tag to GitHub.
+
+For a multi-workshop repository created with `educates new-bundle --with-github-action`, a bundle workflow can be generated as `.github/workflows/publish-workshop-bundle.yaml`.
 
 The tag being pushed to GitHub will trigger the following actions:
 
@@ -141,7 +155,7 @@ In the example above, the value of `{name}` would be the name of your workshop. 
 
 Note that if the GitHub repository is not public, you will need to go to the settings for any images pushed to GitHub container registry and change the visibility from private or internal, to public before anyone can use the workshop.
 
-To use the workshop, you can explicitly load the workshop definition using the `workshop.yaml` file attached to the GitHub release, and then add it to an appropriate training portal, or you could use the Educates command line and run `educates deploy-workshop` supplying the URL for the `workshop.yaml` file attached to the GitHub release: 
+To use the workshop, you can explicitly load the workshop definition using the `workshop.yaml` file attached to the GitHub release, and then add it to an appropriate training portal, or you could use the Educates command line and run `educates deploy-workshop` supplying the URL for the `workshop.yaml` file attached to the GitHub release:
 
 ```
 educates deploy-workshop -f https://github.com/educates/lab-k8s-fundamentals/releases/latest/download/workshop.yaml

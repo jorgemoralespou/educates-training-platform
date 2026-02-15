@@ -14,33 +14,33 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type FilesPublishOptions struct {
+type BundlePublishOptions struct {
 	Image           string
 	Repository      string
 	WorkshopFile    string
 	ExportWorkshop  string
 	WorkshopVersion string
+	Workshops       []string
+	FailFast        bool
 	RegistryFlags   imgpkgcmd.RegistryFlags
 	DataValuesFlags yttcmd.DataValuesFlags
 }
 
-const workshopPublishExample = `
-  # Publish workshop files to repository in current directory
-  educates workshop publish
+const bundlePublishExample = `
+  # Publish all workshops in current workshop bundle directory
+  educates bundle publish
 
-  # Publish workshop files to repository in my-workshop directory
-  educates workshop publish my-workshop
+  # Publish all workshops in a specific bundle directory
+  educates bundle publish my-bundle
 
-  # Publish workshop files to repository with a specific image in my-workshop directory
-  educates workshop publish my-workshop --image=my-workshop-image-files
+  # Publish only selected workshops from the bundle
+  educates bundle publish --workshop lab-one --workshop lab-two
 
-  # Publish workshop files to repository with a specific image and repository in my-workshop directory
-  educates workshop publish my-workshop --image=my-workshop-image-files --image-repository=ghcr.io/educates --workshop-version=1.0.0
+  # Publish workshops and export generated workshop resources to files
+  educates bundle publish --export-workshop ./exported-workshops
 `
 
-func (o *FilesPublishOptions) Run(args []string) error {
-	var err error
-
+func (o *BundlePublishOptions) Run(args []string) error {
 	var directory string
 
 	if len(args) != 0 {
@@ -49,33 +49,41 @@ func (o *FilesPublishOptions) Run(args []string) error {
 		directory = "."
 	}
 
+	var err error
 	if directory, err = filepath.Abs(directory); err != nil {
-		return errors.Wrap(err, "couldn't convert workshop directory to absolute path")
+		return errors.Wrap(err, "couldn't convert bundle directory to absolute path")
 	}
 
 	fileInfo, err := os.Stat(directory)
-
 	if err != nil || !fileInfo.IsDir() {
-		return errors.New("workshop directory does not exist or path is not a directory")
+		return errors.New("bundle directory does not exist or path is not a directory")
 	}
 
-	config := educates.PublishWorkshopDefinitionConfig{
-		Image:           o.Image,
-		Repository:      o.Repository,
-		WorkshopFile:    o.WorkshopFile,
-		ExportWorkshop:  o.ExportWorkshop,
-		WorkshopVersion: o.WorkshopVersion,
-		RegistryFlags:   o.RegistryFlags,
-		DataValuesFlags: o.DataValuesFlags,
+	exportWorkshop := o.ExportWorkshop
+	if exportWorkshop != "" && !filepath.IsAbs(exportWorkshop) {
+		exportWorkshop = filepath.Join(directory, exportWorkshop)
+	}
+
+	config := educates.PublishWorkshopBundleConfig{
+		PublishWorkshopDefinitionConfig: educates.PublishWorkshopDefinitionConfig{
+			Image:           o.Image,
+			Repository:      o.Repository,
+			WorkshopFile:    o.WorkshopFile,
+			ExportWorkshop:  exportWorkshop,
+			WorkshopVersion: o.WorkshopVersion,
+			RegistryFlags:   o.RegistryFlags,
+			DataValuesFlags: o.DataValuesFlags,
+		},
+		Workshops: o.Workshops,
+		FailFast:  o.FailFast,
 	}
 
 	m := educates.NewWorkshopDefinitionManager()
-
-	return m.Publish(directory, &config)
+	return m.PublishBundle(directory, &config)
 }
 
-func (p *ProjectInfo) NewWorkshopPublishCmd() *cobra.Command {
-	var o FilesPublishOptions
+func (p *ProjectInfo) NewBundlePublishCmd() *cobra.Command {
+	var o BundlePublishOptions
 
 	var c = &cobra.Command{
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -85,16 +93,16 @@ func (p *ProjectInfo) NewWorkshopPublishCmd() *cobra.Command {
 			return nil
 		},
 		Use:     "publish [PATH]",
-		Short:   "Publish workshop files to repository",
-		RunE:    func(cmd *cobra.Command, args []string) error { return o.Run(args) },
-		Example: workshopPublishExample,
+		Short:   "Publish all or selected workshops from a workshop bundle",
+		RunE:    func(_ *cobra.Command, args []string) error { return o.Run(args) },
+		Example: bundlePublishExample,
 	}
 
 	c.Flags().StringVar(
 		&o.Image,
 		"image",
 		"",
-		"name of the workshop files image artifact",
+		"name of the workshop files image artifact (overrides all workshops)",
 	)
 	c.Flags().StringVar(
 		&o.Repository,
@@ -106,20 +114,31 @@ func (p *ProjectInfo) NewWorkshopPublishCmd() *cobra.Command {
 		&o.WorkshopFile,
 		"workshop-file",
 		constants.DefaultWorkshopDefinitionPath,
-		"location of the workshop definition file",
+		"location of the workshop definition file relative to each workshop directory",
 	)
 	c.Flags().StringVar(
 		&o.ExportWorkshop,
 		"export-workshop",
 		"",
-		"location to save modified workshop file",
+		"directory where modified workshop files should be written",
 	)
-
 	c.Flags().StringVar(
 		&o.WorkshopVersion,
 		"workshop-version",
 		"latest",
-		"version of the workshop being published",
+		"version of the workshops being published",
+	)
+	c.Flags().StringSliceVar(
+		&o.Workshops,
+		"workshop",
+		nil,
+		"publish only these workshops by name (repeatable)",
+	)
+	c.Flags().BoolVar(
+		&o.FailFast,
+		"fail-fast",
+		false,
+		"stop on first workshop publish error",
 	)
 
 	c.Flags().StringSliceVar(
@@ -140,7 +159,6 @@ func (p *ProjectInfo) NewWorkshopPublishCmd() *cobra.Command {
 		false,
 		"Allow the use of http when interacting with registries",
 	)
-
 	c.Flags().StringVar(
 		&o.RegistryFlags.Username,
 		"registry-username",
@@ -165,7 +183,6 @@ func (p *ProjectInfo) NewWorkshopPublishCmd() *cobra.Command {
 		false,
 		"Set anonymous for registry authentication",
 	)
-
 	c.Flags().DurationVar(
 		&o.RegistryFlags.ResponseHeaderTimeout,
 		"registry-response-header-timeout",
@@ -191,7 +208,6 @@ func (p *ProjectInfo) NewWorkshopPublishCmd() *cobra.Command {
 		nil,
 		"Extract data values (parsed as YAML) from prefixed env vars (format: PREFIX for PREFIX_all__key1=true) (can be specified multiple times)",
 	)
-
 	c.Flags().StringArrayVar(
 		&o.DataValuesFlags.KVsFromStrings,
 		"data-value",

@@ -40,6 +40,9 @@ func (p *ProjectInfo) NewEducatesCmdGroup() *cobra.Command {
 				overrideCommandName(p.NewWorkshopNewCmd(), "new-workshop"),
 				overrideCommandName(p.NewWorkshopPublishCmd(), "publish-workshop"),
 				overrideCommandName(p.NewWorkshopExportCmd(), "export-workshop"),
+				overrideCommandName(p.NewBundleNewCmd(), "new-bundle"),
+				overrideCommandName(p.NewBundlePublishCmd(), "publish-bundle"),
+				overrideCommandName(p.NewBundleExportCmd(), "export-bundle"),
 			},
 		},
 		{
@@ -81,6 +84,7 @@ func (p *ProjectInfo) NewEducatesCmdGroup() *cobra.Command {
 				p.NewAdminCmdGroup(),
 				p.NewProjectCmdGroup(),
 				p.NewWorkshopCmdGroup(),
+				p.NewBundleCmdGroup(),
 				p.NewTemplateCmdGroup(),
 				p.NewClusterCmdGroup(),
 				p.NewDockerCmdGroup(),

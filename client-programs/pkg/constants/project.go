@@ -5,10 +5,14 @@ const (
 
 	PROJECT_DOCS_URL = "https://docs.educates.dev/"
 
-	DefaultPortalName = "educates-cli"
+	DefaultWorkshopDefinitionPath       = "resources/workshop.yaml"
+	DefaultTrainingPortalDefinitionPath = "resources/trainingportal.yaml"
+	DefaultWorkshopsDirectoryName       = "workshops"
+
+	DefaultPortalName     = "educates-cli"
 	DefaultPortalCapacity = 5
 
-	EducatesNamespace        = "educates"
+	EducatesNamespace                  = "educates"
 	EducatesNamespaceLabelMetadataName = "educates"
-	EducatesSecretsNamespace = "educates-secrets"
+	EducatesSecretsNamespace           = "educates-secrets"
 )
