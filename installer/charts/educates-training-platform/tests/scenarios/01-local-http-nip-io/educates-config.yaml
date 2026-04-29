@@ -1,0 +1,29 @@
+# Config for `educates local cluster create --config <this-file>`.
+#
+# Installs the Kubernetes prerequisites (Contour, Kyverno) but skips the
+# Educates package itself, so the v4 Helm chart can install the runtime
+# in its place.
+
+clusterInfrastructure:
+  provider: kind
+
+clusterSecurity:
+  policyEngine: kyverno
+
+clusterIngress:
+  domain: ${DOMAIN}
+  protocol: http
+
+clusterPackages:
+  contour:
+    enabled: true
+  kyverno:
+    enabled: true
+  cert-manager:
+    enabled: false
+  external-dns:
+    enabled: false
+  certs:
+    enabled: false
+  educates:
+    enabled: false

@@ -1,0 +1,65 @@
+# Values for `helm install -f <this>` against the v4 chart.
+#
+# The wildcard TLS Secret was issued by cert-manager via the certs
+# package and lands at `educates-secrets/educateswildcard`. The CA is
+# at `educates-secrets/local-root-ca`. SecretCopier rules in this
+# chart pull both into the operator namespace.
+
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+secrets-manager:
+  image:
+    tag: "3.7.1"
+
+session-manager:
+  image:
+    tag: "3.7.1"
+
+  config:
+    operator:
+      namespace: educates
+    clusterIngress:
+      domain: ${DOMAIN}
+      protocol: https
+      tlsCertificateRef:
+        name: educateswildcard
+        namespace: educates
+      caCertificateRef:
+        name: local-root-ca
+        namespace: educates
+    clusterSecurity:
+      policyEngine: kyverno
+    version: "3.7.1"
+    imageRegistry:
+      host: ghcr.io
+      namespace: educates
+    trainingPortal:
+      credentials:
+        admin:
+          username: educates
+          password: educates
+        robot:
+          username: robot@educates
+          password: robot
+      clients:
+        robot:
+          id: robot-client-id
+          secret: robot-client-secret
+
+  secretPropagation:
+    imagePullSecretNames: []
+    upstream:
+      imagePullSecrets: []
+      websiteThemes: []
+      ingressTLS:
+        name: educateswildcard
+        namespace: educates-secrets
+      ingressCA:
+        name: local-root-ca
+        namespace: educates-secrets
+
+  imagePuller:
+    enabled: false

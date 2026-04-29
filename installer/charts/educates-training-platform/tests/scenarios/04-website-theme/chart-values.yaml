@@ -1,0 +1,76 @@
+# Same as scenario 01 + a custom default website theme. The content
+# here is intentionally trivial — we only verify it lands in the
+# `default-website-theme` Secret in the operator namespace, not that
+# the portal renders it (a runtime concern).
+
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+secrets-manager:
+  image:
+    tag: "3.7.1"
+
+session-manager:
+  image:
+    tag: "3.7.1"
+
+  config:
+    operator:
+      namespace: educates
+    clusterIngress:
+      domain: ${DOMAIN}
+      protocol: http
+      tlsCertificateRef:
+        name: ""
+        namespace: ""
+      caCertificateRef:
+        name: ""
+        namespace: ""
+    clusterSecurity:
+      policyEngine: kyverno
+    version: "3.7.1"
+    imageRegistry:
+      host: ghcr.io
+      namespace: educates
+    trainingPortal:
+      credentials:
+        admin:
+          username: educates
+          password: educates
+        robot:
+          username: robot@educates
+          password: robot
+      clients:
+        robot:
+          id: robot-client-id
+          secret: robot-client-secret
+
+  # The thing under test: a custom training-portal.html with a unique
+  # marker that post-install.sh greps for in the rendered Secret.
+  websiteTheme:
+    training-portal.html: |
+      <!-- educates-test-marker:scenario-04 -->
+      <html>
+        <head><title>Scenario 04 portal</title></head>
+        <body><h1>scenario-04-marker</h1></body>
+      </html>
+    training-portal.css: |
+      /* scenario-04-css-marker */
+      body { font-family: monospace; }
+
+  secretPropagation:
+    imagePullSecretNames: []
+    upstream:
+      imagePullSecrets: []
+      websiteThemes: []
+      ingressTLS:
+        name: ""
+        namespace: ""
+      ingressCA:
+        name: ""
+        namespace: ""
+
+  imagePuller:
+    enabled: false

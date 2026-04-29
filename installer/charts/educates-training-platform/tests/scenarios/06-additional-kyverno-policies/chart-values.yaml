@@ -1,0 +1,121 @@
+# Same as scenario 01 plus a single user-supplied Kyverno ClusterPolicy
+# in `kyvernoPolicies`, on top of the default-bundled baseline + ops set.
+# The post-deploy hook asserts both that the per-environment ClusterPolicy
+# the runtime spawns contains rules from the bundle, and that the
+# user-supplied marker rule is among them.
+
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+secrets-manager:
+  image:
+    tag: "3.7.1"
+
+session-manager:
+  image:
+    tag: "3.7.1"
+
+  config:
+    operator:
+      namespace: educates
+    clusterIngress:
+      domain: ${DOMAIN}
+      protocol: http
+      tlsCertificateRef:
+        name: ""
+        namespace: ""
+      caCertificateRef:
+        name: ""
+        namespace: ""
+    clusterSecurity:
+      policyEngine: kyverno
+    workshopSecurity:
+      rulesEngine: kyverno
+    version: "3.7.1"
+    imageRegistry:
+      host: ghcr.io
+      namespace: educates
+    trainingPortal:
+      credentials:
+        admin:
+          username: educates
+          password: educates
+        robot:
+          username: robot@educates
+          password: robot
+      clients:
+        robot:
+          id: robot-client-id
+          secret: robot-client-secret
+
+  # Default bundled set: cluster-wide ClusterPolicies (baseline +
+  # restricted) plus the workshop-policies feed (operational + the
+  # internal require-ingress-session-name). Defaults are written
+  # explicitly so any future change to the chart default is detected
+  # by this scenario.
+  bundledKyvernoPolicies:
+    clusterPolicies: true
+    workshopPolicies: true
+
+  # User-supplied extras on both paths.
+  additionalKyvernoPolicies:
+    # Cluster-wide: the chart applies these directly. The post-deploy
+    # hook asserts the named ClusterPolicy is present in the cluster.
+    clusterPolicies:
+      - apiVersion: kyverno.io/v1
+        kind: ClusterPolicy
+        metadata:
+          name: scenario-06-cluster-marker
+        spec:
+          validationFailureAction: Audit
+          background: true
+          rules:
+            - name: scenario-06-cluster-marker
+              match:
+                any:
+                  - resources:
+                      kinds: [Pod]
+              validate:
+                message: "scenario-06 cluster placeholder — never matches"
+                cel:
+                  expressions:
+                    - expression: "true"
+    # Workshop-policies: appended to the kyverno-policies.yaml feed and
+    # cloned into educates-environment-<env>. The post-deploy hook
+    # asserts the rule name appears on the per-env ClusterPolicy.
+    workshopPolicies:
+      - apiVersion: kyverno.io/v1
+        kind: ClusterPolicy
+        metadata:
+          name: scenario-06-workshop-marker
+        spec:
+          validationFailureAction: Audit
+          background: true
+          rules:
+            - name: scenario-06-workshop-marker
+              match:
+                any:
+                  - resources:
+                      kinds: [Pod]
+              validate:
+                message: "scenario-06 workshop placeholder — never matches"
+                cel:
+                  expressions:
+                    - expression: "true"
+
+  secretPropagation:
+    imagePullSecretNames: []
+    upstream:
+      imagePullSecrets: []
+      websiteThemes: []
+      ingressTLS:
+        name: ""
+        namespace: ""
+      ingressCA:
+        name: ""
+        namespace: ""
+
+  imagePuller:
+    enabled: false

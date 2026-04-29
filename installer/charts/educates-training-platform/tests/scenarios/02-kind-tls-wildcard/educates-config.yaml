@@ -1,0 +1,28 @@
+# Config for `educates local cluster create --config <this-file>`.
+#
+# Installs kind + Contour + Kyverno only. cert-manager is intentionally
+# off — the wildcard cert for this scenario is generated offline by
+# pre-install.sh and stamped into Secrets after cluster create.
+
+clusterInfrastructure:
+  provider: kind
+
+clusterSecurity:
+  policyEngine: kyverno
+
+clusterIngress:
+  domain: ${DOMAIN}
+
+clusterPackages:
+  contour:
+    enabled: true
+  kyverno:
+    enabled: true
+  cert-manager:
+    enabled: false
+  external-dns:
+    enabled: false
+  certs:
+    enabled: false
+  educates:
+    enabled: false
