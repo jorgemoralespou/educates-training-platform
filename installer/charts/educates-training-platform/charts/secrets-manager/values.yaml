@@ -1,0 +1,30 @@
+# Values for the secrets-manager subchart.
+#
+# In a v4 install the operator derives these values from the SecretsManager
+# CR (and EducatesClusterConfig.status). They can also be set directly when
+# installing the chart standalone.
+
+image:
+  # Container image for the secrets-manager. `tag` defaults to the chart's
+  # appVersion when empty. `pullPolicy` is auto-derived (Always for floating
+  # tags like `latest`/`main`/`develop`, IfNotPresent otherwise) when empty.
+  repository: ghcr.io/educates/educates-secrets-manager
+  tag: ""
+  pullPolicy: ""
+
+# Image pull secret references in the operator namespace. Each entry is a
+# Kubernetes LocalObjectReference: { name: <secret-name> }.
+imagePullSecrets: []
+
+# Pod-level resource requests and limits.
+resources: {}
+
+# OpenShift only. When true, a ClusterRoleBinding is created binding the
+# secrets-manager ServiceAccount to the `educates-baseline-scc` ClusterRole
+# that grants use of the corresponding SCC. Leave false on non-OpenShift
+# clusters.
+openshift:
+  enabled: false
+
+# Operator log level.
+logLevel: info

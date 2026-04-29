@@ -1,0 +1,25 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-secrets-manager
+  labels:
+    {{- include "secrets-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, delete, deletecollection, patch, update]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, list, watch, patch, update]
+  - apiGroups: [secrets.educates.dev]
+    resources: [secretcopiers, secretexporters, secretimporters, secretinjectors]
+    verbs: [get, list, watch, patch, update]
+  - apiGroups: [secrets.educates.dev]
+    resources: [secretcopiers/finalizers, secretimporters/finalizers]
+    verbs: [update]

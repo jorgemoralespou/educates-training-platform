@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lookup-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "lookup-service.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lookup-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lookup-service.labels" . | nindent 8 }}
+        {{- include "lookup-service.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: lookup-service
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.caTrust.secretName }}
+      initContainers:
+        - name: ca-trust-store-initialization
+          image: "{{ .Values.caTrust.initImage.repository }}:{{ include "lookup-service.caTrust.image.tag" . }}"
+          imagePullPolicy: {{ include "lookup-service.caTrust.image.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: false
+            runAsUser: 0
+          command: [/opt/eduk8s/sbin/setup-certificates]
+          volumeMounts:
+            - name: workshop-ca
+              mountPath: /etc/pki/ca-trust/source/anchors/Cluster_Ingress_CA.pem
+              subPath: ca.crt
+            - name: workshop-ca-trust
+              mountPath: /mnt
+      {{- end }}
+      containers:
+        - name: lookup-service
+          image: "{{ .Values.image.repository }}:{{ include "lookup-service.image.tag" . }}"
+          imagePullPolicy: {{ include "lookup-service.image.pullPolicy" . }}
+          ports:
+            - containerPort: 8080
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.remoteAccessTokenMount.enabled .Values.caTrust.secretName }}
+          volumeMounts:
+            {{- if .Values.remoteAccessTokenMount.enabled }}
+            - name: cluster-access-token
+              mountPath: /opt/cluster-access-token
+            {{- end }}
+            {{- if .Values.caTrust.secretName }}
+            - name: workshop-ca-trust
+              mountPath: /etc/pki/ca-trust
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.remoteAccessTokenMount.enabled .Values.caTrust.secretName }}
+      volumes:
+        {{- if .Values.remoteAccessTokenMount.enabled }}
+        - name: cluster-access-token
+          secret:
+            secretName: remote-access-token
+        {{- end }}
+        {{- if .Values.caTrust.secretName }}
+        - name: workshop-ca
+          secret:
+            secretName: {{ .Values.caTrust.secretName }}
+        - name: workshop-ca-trust
+          emptyDir: {}
+        {{- end }}
+      {{- end }}

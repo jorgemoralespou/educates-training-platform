@@ -1,0 +1,24 @@
+# Top-level values for the educates-training-platform umbrella chart.
+#
+# Each subchart can be toggled independently. When disabled, the subchart's
+# resources are not rendered.
+#
+# Subchart-specific configuration goes under the subchart's key. The shape
+# of those subkeys is defined by each subchart's own values.yaml.
+
+secrets-manager:
+  enabled: true
+
+lookup-service:
+  enabled: true
+
+# `remote-access` provides read-only RBAC for external CLI clients
+# (e.g., `educates` CLI) against training.educates.dev resources.
+# lookup-service references the remote-access-token Secret when serving
+# the local cluster as a ClusterConfig target; disable only if neither
+# need applies.
+remote-access:
+  enabled: true
+
+session-manager:
+  enabled: true

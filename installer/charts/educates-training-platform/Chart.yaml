@@ -1,0 +1,30 @@
+apiVersion: v2
+name: educates-training-platform
+description: |
+  Educates training platform runtime. Umbrella chart that deploys the three
+  Educates components (secrets-manager, lookup-service, session-manager) as
+  subcharts. Each subchart can be enabled or disabled independently via its
+  `enabled` value.
+type: application
+version: 4.0.0-alpha.1
+appVersion: "4.0.0-alpha.1"
+kubeVersion: ">=1.31.0-0"
+home: https://educates.dev
+sources:
+  - https://github.com/jorgemoralespou/educates-training-platform
+maintainers:
+  - name: Educates Maintainers
+    url: https://github.com/jorgemoralespou/educates-training-platform/blob/develop/MAINTAINERS.md
+dependencies:
+  - name: secrets-manager
+    version: 4.0.0-alpha.1
+    condition: secrets-manager.enabled
+  - name: lookup-service
+    version: 4.0.0-alpha.1
+    condition: lookup-service.enabled
+  - name: remote-access
+    version: 4.0.0-alpha.1
+    condition: remote-access.enabled
+  - name: session-manager
+    version: 4.0.0-alpha.1
+    condition: session-manager.enabled

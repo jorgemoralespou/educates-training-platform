@@ -1,0 +1,51 @@
+# Values for the lookup-service subchart.
+
+image:
+  # Container image for the lookup-service. `tag` defaults to the chart's
+  # appVersion when empty. `pullPolicy` is auto-derived (Always for floating
+  # tags, IfNotPresent otherwise) when empty.
+  repository: ghcr.io/educates/educates-lookup-service
+  tag: ""
+  pullPolicy: ""
+
+# Image pull secret references in the operator namespace.
+imagePullSecrets: []
+
+resources: {}
+
+ingress:
+  # Fully-qualified hostname for the lookup-service ingress (e.g.
+  # `lookup.workshops.example.com`). The v4 operator computes this from
+  # the LookupService CR's prefix and EducatesClusterConfig.status.domain.
+  host: ""
+  # IngressClass name. Empty leaves the cluster default.
+  className: ""
+  tls:
+    # Name of the kubernetes.io/tls Secret in the release namespace that
+    # backs this Ingress's TLS. Empty disables TLS on the Ingress.
+    secretName: ""
+
+# Cluster CA injection. When `secretName` is set, an init container builds
+# a CA-trust store from the named Secret (which must contain `ca.crt`) and
+# the lookup-service container mounts the resulting trust store. Used when
+# the cluster's ingress is fronted by a self-signed or private CA that the
+# lookup-service must trust when calling out to other clusters.
+caTrust:
+  secretName: ""
+  # Image used to run the trust-store setup. Defaults to the workshop
+  # base-environment image because that's where `setup-certificates`
+  # lives — preserves v3 behaviour. Override if you've relocated the
+  # workshop base image.
+  initImage:
+    repository: ghcr.io/educates/educates-base-environment
+    tag: ""
+    pullPolicy: ""
+
+# When true, the Deployment mounts the `remote-access-token` Secret at
+# /opt/cluster-access-token. Set true automatically by the operator when
+# the umbrella's `remote-access.enabled` is on; can be set explicitly when
+# installing this subchart standalone. The lookup-service runtime only
+# requires this when serving a "local" ClusterConfig target (no kubeconfig
+# secretRef).
+remoteAccessTokenMount:
+  enabled: true

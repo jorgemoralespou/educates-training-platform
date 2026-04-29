@@ -1,0 +1,45 @@
+{{- if .Values.imagePuller.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: image-puller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: image-puller
+  template:
+    metadata:
+      labels:
+        {{- include "session-manager.labels" . | nindent 8 }}
+        app.kubernetes.io/component: image-puller
+        app: image-puller
+    spec:
+      serviceAccountName: image-puller
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      {{- with .Values.imagePuller.prePullImages }}
+      initContainers:
+        {{- range $i, $image := . }}
+        - name: prepull-{{ $i }}
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ include "session-manager.derivedPullPolicy" $image }}
+          command: ["/bin/true"]
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: pause
+          image: "{{ .Values.imagePuller.pauseImage.repository }}:{{ include "session-manager.pause.image.tag" . }}"
+          imagePullPolicy: {{ include "session-manager.pause.image.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

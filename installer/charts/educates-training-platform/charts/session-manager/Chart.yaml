@@ -1,0 +1,11 @@
+apiVersion: v2
+name: session-manager
+description: |
+  Educates session-manager component. Reconciles Workshop, WorkshopEnvironment,
+  WorkshopSession, WorkshopRequest, WorkshopAllocation, and TrainingPortal
+  resources, and ships the supporting services (training-portal, assets-server,
+  image-cache, docker-registry).
+type: application
+version: 4.0.0-alpha.1
+appVersion: "4.0.0-alpha.1"
+kubeVersion: ">=1.31.0-0"

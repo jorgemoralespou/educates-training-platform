@@ -1,0 +1,151 @@
+# Values for the session-manager subchart.
+#
+# In a v4 install, the operator derives these values from the
+# SessionManager CR plus EducatesClusterConfig.status. They can also be
+# set directly when installing the chart standalone.
+
+image:
+  repository: ghcr.io/educates/educates-session-manager
+  tag: ""
+  pullPolicy: ""
+
+imagePullSecrets: []
+
+resources: {}
+
+# Grant the session-manager ServiceAccount the built-in `cluster-admin`
+# ClusterRole. Off by default; enable only when the runtime needs to
+# manage cluster-scoped resources beyond what the aggregated
+# `educates-session-manager` ClusterRole grants. The `admin` binding is
+# always present (preserved from v3 behaviour) and is sufficient for
+# most installs.
+clusterAdmin: false
+
+# OpenShift only. When true, ClusterRoleBindings binding the
+# session-manager and image-puller ServiceAccounts to the
+# `educates-baseline-scc` ClusterRole are created. Leave false on
+# non-OpenShift clusters.
+openshift:
+  enabled: false
+
+# Operator runtime configuration. An opaque map written verbatim into
+# the `educates-config` Secret as `educates-operator-config.yaml`. The
+# v4 operator owns the shape; this chart does not validate it.
+config: {}
+
+# Bundle of v3-vendored Kyverno policies. Two independent paths:
+#
+#   `clusterPolicies` — applied directly as cluster-wide
+#     `kyverno.io/v1.ClusterPolicy` resources, mirroring v3's
+#     `01-clusterpolicies.yaml`. Both Pod Security Standards profiles
+#     (baseline + restricted) are installed; workshops do not pick a
+#     profile, so all must be present. Default action is `Audit`,
+#     inherited from the upstream YAMLs.
+#
+#   `workshopPolicies` — concatenated into the `kyverno-policies.yaml`
+#     key of the `educates-config` Secret. session-manager reads them
+#     as a multi-doc YAML stream and clones each rule per workshop
+#     environment with a namespace selector added (mirrors v3's
+#     `06-secrets.yaml`). Includes the operational best-practices
+#     selection plus the Educates-internal `require-ingress-session-name`.
+#
+# See `files/kyverno-policies/README.md` for the source provenance.
+bundledKyvernoPolicies:
+  clusterPolicies: true
+  workshopPolicies: true
+
+# User-supplied Kyverno ClusterPolicy documents, mirrored on both paths
+# so platform admins can extend either bundle without applying anything
+# out-of-band after `helm install`:
+#
+#   `additionalKyvernoPolicies.clusterPolicies` — installed directly as
+#     cluster-wide ClusterPolicy resources alongside the bundled set.
+#     Use for site-specific guardrails that should apply everywhere.
+#
+#   `additionalKyvernoPolicies.workshopPolicies` — appended to the
+#     `kyverno-policies.yaml` Secret feed. session-manager clones each
+#     rule per workshop environment alongside the bundled feed.
+#
+# Each entry is a full ClusterPolicy object. Leave both lists empty to
+# ship only the curated bundles.
+additionalKyvernoPolicies:
+  clusterPolicies: []
+    # - apiVersion: kyverno.io/v1
+    #   kind: ClusterPolicy
+    #   metadata:
+    #     name: my-cluster-wide-extra
+    #   spec:
+    #     validationFailureAction: Audit
+    #     rules:
+    #       - name: ...
+  workshopPolicies: []
+    # - apiVersion: kyverno.io/v1
+    #   kind: ClusterPolicy
+    #   metadata:
+    #     name: my-per-workshop-extra
+    #   spec:
+    #     rules:
+    #       - name: ...
+
+# Default website theme assets. Each top-level key becomes a stringData
+# entry in the `default-website-theme` Secret (which the runtime looks
+# up by name as the fallback theme). Empty leaves the Secret with no
+# theme keys but still present, so name lookup succeeds.
+# Expected keys (all optional): workshop-dashboard.html,
+# workshop-dashboard.js, workshop-dashboard.css, workshop-instructions.html,
+# workshop-instructions.js, workshop-instructions.css,
+# workshop-started.html, workshop-finished.html, training-portal.html,
+# training-portal.js, training-portal.css.
+websiteTheme: {}
+
+# Image-puller DaemonSet. When enabled, runs an init-container per image
+# in `prePullImages` (each running `/bin/true`) so the kubelet caches
+# them on every node, plus a long-lived pause container to keep the DS
+# alive. Useful for clusters where workshop session start time is
+# dominated by image pull.
+imagePuller:
+  enabled: false
+  # Pause image used as the long-lived "keepalive" container in the
+  # DaemonSet. Tag defaults to chart appVersion when empty.
+  pauseImage:
+    repository: ghcr.io/educates/educates-pause-container
+    tag: ""
+    pullPolicy: ""
+  # Full image references to pre-pull. The chart does not compute these
+  # from short names; the operator (or chart user) supplies fully
+  # qualified refs so any registry mirror or relocation is honoured.
+  prePullImages: []
+    # - ghcr.io/educates/training-portal:4.0.0-alpha.1
+
+# Secret propagation. The session-manager runtime distributes pull
+# secrets, ingress TLS material, CA bundles, and website themes across
+# the namespaces the operator manages, using SecretCopier and
+# SecretInjector resources from secrets.educates.dev. These values
+# describe the inputs.
+secretPropagation:
+  # Names of image-pull Secrets that already exist in the release
+  # namespace and should be (a) copied into every workshop-portal and
+  # workshop-environment namespace, and (b) injected into the
+  # ServiceAccounts in those namespaces.
+  imagePullSecretNames: []
+    # - my-registry-pull-secret
+
+  upstream:
+    # External Secrets to copy INTO the release namespace. Entries with
+    # `namespace` equal to the release namespace are skipped (no copy
+    # needed). The v4 operator computes these from
+    # EducatesClusterConfig.status when the source isn't already local.
+    imagePullSecrets: []
+      # - { name: my-pull-secret, namespace: source-ns }
+    websiteThemes: []
+      # - { name: my-theme, namespace: source-ns }
+    # When set, the wildcard TLS Secret is copied from the named source
+    # into the release namespace. Leave fields empty to skip.
+    ingressTLS:
+      name: ""
+      namespace: ""
+    # When set, the cluster CA Secret is copied from the named source
+    # into the release namespace. Leave fields empty to skip.
+    ingressCA:
+      name: ""
+      namespace: ""

@@ -1,0 +1,6 @@
+{{- range $path, $_ := .Files.Glob "files/kyverno-policies/cluster-policies/*/*.yaml" -}}
+FOUND: {{ $path }}
+{{ end -}}
+{{- range $path, $_ := .Files.Glob "files/kyverno-policies/cluster-policies/baseline/*.yaml" -}}
+LIT: {{ $path }}
+{{ end -}}
