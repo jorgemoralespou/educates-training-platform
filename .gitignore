@@ -34,3 +34,6 @@ vendor
 
 # AI Assistant specific files
 .cursor
+
+# Claude Code user-local config and skills
+/.claude
