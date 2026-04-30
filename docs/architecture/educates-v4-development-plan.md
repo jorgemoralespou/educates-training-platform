@@ -125,120 +125,157 @@ Work proceeds in sequenced phases. Each phase has a definition of done that must
 
 **Note:** This chart is what the Educates project will publish ongoing as the canonical Helm install for the runtime. Even users who don't want the operator can `helm install educates-training-platform`.
 
-### Pre-phase follow-up: typed runtime-config values  *(planned, deferred)*
+### Pre-phase follow-up: bundle v3 Kyverno policies into the chart  *(done — 2026-04)*
 
-**Trigger:** to be done **after** we have a richer set of test scenarios in `installer/charts/educates-training-platform/tests/scenarios/` (TLS-on, BYO ingress class, image-mirror, BYO image-pull secrets, etc.) — so that the refactor can be validated against several shapes at once instead of regressing scenario 01/02 in isolation.
+Vendored into the `session-manager` subchart in commit `8e659b5c` under
+`installer/charts/educates-training-platform/charts/session-manager/files/kyverno-policies/`:
+
+- `cluster-policies/` — applied directly as cluster-wide ClusterPolicy
+  resources (mirrors v3's `01-clusterpolicies.yaml`: PSS baseline +
+  restricted profiles plus operational best-practices).
+- `workshop-policies/` — concatenated into the `kyverno-policies.yaml`
+  key of the `educates-config` Secret; session-manager clones each rule
+  per workshop environment with a namespace selector added (mirrors v3's
+  `06-secrets.yaml` feed).
+
+Source provenance is recorded in `files/kyverno-policies/README.md`.
+Kyverno *engine* installation remains out of scope for the runtime
+chart — that's the operator's job at cluster-services scope (Phase 2/3).
+
+The current toggle shape (`bundledKyvernoPolicies.{cluster,workshop}Policies`,
+`additionalKyvernoPolicies.{cluster,workshop}Policies`, `openshift.enabled`)
+is superseded by `clusterSecurity` / `workshopSecurity` in the typed-values
+follow-up below; the on-disk policy files do not move.
+
+### Pre-phase follow-up: typed runtime-config values  *(planned, ready to start)*
+
+**Trigger met (2026-04):** scenarios 01–06 now cover local-HTTP, TLS
+wildcard, cert-manager issuer, website theme, image-pull secrets, and
+additional Kyverno policies. That's enough validation surface to
+refactor the values shape against without regressing tested behaviour.
+
+**Canonical target shape:**
+
+The full target values surface and JSON schema live as docs-of-record at:
+
+- `docs/architecture/session-manager-chart-values.yaml`
+- `docs/architecture/session-manager-chart-values-schema.json`
+
+These are the source of truth for this follow-up. If something below
+diverges from those documents, the documents win — update the plan, not
+the docs.
 
 **Problem this solves:**
 
-The current pre-phase chart has the well-known runtime config as an opaque map under `session-manager.config`, and a separately-typed `session-manager.secretPropagation` block. Both reference the same things (e.g., the wildcard TLS Secret name + namespace), so users have to specify the same input twice in slightly different forms. Standalone chart users (the audience for the pre-phase chart per its own "Note" above) end up needing to know the v3 schema by heart and write opaque YAML for the runtime config.
+The current pre-phase chart has the well-known runtime config as an
+opaque map under `session-manager.config`, plus a separately-typed
+`session-manager.secretPropagation` block, plus ad-hoc toggles for
+Kyverno bundling and OpenShift. The same input often appears twice in
+slightly different forms (e.g., the wildcard TLS Secret name +
+namespace shows up both as runtime config and as secret-propagation
+upstream). Standalone chart users (the audience for the pre-phase
+chart per its own "Note" above) end up needing to know the v3 schema
+by heart and write opaque YAML for most of the runtime config.
 
 **What to build:**
 
-Promote the well-known fields out of `session-manager.config` into typed top-level subchart values:
+Refactor the `session-manager` subchart `values.yaml` and JSON schema to
+match the docs-of-record. Concretely, promote out of `config` and
+restructure into these top-level blocks (full field list in the doc):
 
-- `clusterIngress` — domain, protocol, className, `tlsCertificateRef`, `caCertificateRef`.
-- `clusterSecurity.policyEngine`.
-- `imageRegistry` — host, namespace.
-- `trainingPortal.credentials.{admin,robot}` and `trainingPortal.clients.robot`.
+- `clusterIngress` — `domain` (required), `class`, `protocol` (auto from
+  TLS ref), `tlsCertificateRef`, `caCertificateRef`, `caNodeInjector.enabled`.
+- `clusterSecurity` — `policyEngine: Kyverno | PodSecurityStandards |
+  OpenShiftSCC | None`, `additionalKyvernoPolicies[]`. Replaces the
+  current `bundledKyvernoPolicies.clusterPolicies` toggle, the
+  `openshift.enabled` toggle, and `additionalKyvernoPolicies.clusterPolicies`.
+- `workshopSecurity` — `rulesEngine: Kyverno | None`,
+  `additionalKyvernoPolicies[]`. Replaces
+  `bundledKyvernoPolicies.workshopPolicies` and
+  `additionalKyvernoPolicies.workshopPolicies`.
+- `imageRegistry` — `host`, `namespace`.
+- `imageVersions[]` — per-image short-name → fully qualified ref overrides
+  (airgap relocation + feature-image variants).
+- Top-level `image`, `imagePullSecrets[]` (chart-pod pull only — distinct
+  from `secretPropagation.imagePullSecretNames`), `resources`,
+  `clusterAdmin` (default `false`, changed from v3 default of `true`).
+- `trainingPortal.credentials.{admin,robot}` and
+  `trainingPortal.clients.robot` — empty-by-default; runtime generates.
+- `sessionCookies.domain`.
+- `clusterStorage` — `class`, `user`, `group`.
+- `clusterRuntime.class`.
+- `clusterNetwork.blockCIDRs[]` — defaults to AWS metadata IPv4 + IPv6.
+- `dockerDaemon` — `networkMTU`, `proxyCache.{remoteURL,username,password}`.
+- `workshopAnalytics` — `google`, `clarity`, `amplitude`, `webhook`.
+- `websiteStyling` — replaces flat `websiteTheme: {}` map. Structured
+  inline blocks (`workshopDashboard`, `workshopInstructions`,
+  `workshopStarted`, `workshopFinished`, `trainingPortal`) plus
+  `defaultTheme`, `themeDataRefs[]`, `frameAncestors[]`.
+- `imagePuller` — unchanged in shape (`enabled`, `pauseImage`, `prePullImages[]`).
+- `secretPropagation` — `imagePullSecretNames[]` and
+  `upstream.{imagePullSecrets,websiteThemes}[]`. The `upstream.ingressTLS`
+  and `upstream.ingressCA` fields are **removed** — auto-derived from
+  `clusterIngress.tlsCertificateRef.namespace` and
+  `clusterIngress.caCertificateRef.namespace` when those differ from the
+  release namespace.
+- `config` — opaque escape hatch, deep-merged on top of the
+  typed-derived `educates-operator-config.yaml` Secret content.
 
-The chart composes the `educates-config` Secret from these typed values. Auto-derive SecretCopiers for ingress TLS/CA when the source namespace ≠ the release namespace, replacing the explicit `secretPropagation.upstream.ingressTLS/ingressCA` block. Keep `imagePullSecretNames` and `secretPropagation.upstream.{imagePullSecrets,websiteThemes}` as separate typed inputs — those don't follow the same single-source pattern.
-
-Retain `session-manager.config` as an opaque escape hatch, deep-merged on top of values derived from the typed inputs. New runtime fields can land there before being promoted.
+The chart composes the `educates-config` Secret from these typed values.
+Auto-creates SecretCopiers for ingress TLS/CA, themes, and pull secrets
+whose source namespace differs from the release namespace.
 
 **Defaulting policy — important note:**
 
-Be deliberate about what the chart defaults vs. what it leaves empty for the session-manager runtime to handle:
+Be deliberate about what the chart defaults vs. what it leaves empty for
+the session-manager runtime to handle:
 
-- **Empty is correct for `trainingPortal.credentials.*` and `trainingPortal.clients.robot.*`** — most installs leave these unset, and the session-manager's `operator_config.py` already has `generate_password(...)` fallbacks that produce the right thing at runtime. The chart **must not** materialise `randAlphaNum`-generated values for these — they would rotate on every `helm upgrade` and break workshops mid-session. The session-manager owns credential generation; the chart only renders user-supplied values when present.
-- **Sensible defaults are fine for** `clusterIngress.protocol` (default `http` when no `tlsCertificateRef`, `https` otherwise — matches the runtime's own derivation), `imageRegistry.host` (default `ghcr.io`), `clusterSecurity.policyEngine` (default `kyverno` per the v4 mode decision).
-- **No defaults — required input** for `clusterIngress.domain`. The chart should fail-fast at template time if it's missing, not silently fall through to the runtime's `educates-local-dev.test` fallback.
+- **Empty is correct for `trainingPortal.credentials.*` and
+  `trainingPortal.clients.robot.*`** — most installs leave these unset,
+  and the session-manager's `operator_config.py` already has
+  `generate_password(...)` fallbacks that produce the right thing at
+  runtime. The chart **must not** materialise `randAlphaNum`-generated
+  values for these — they would rotate on every `helm upgrade` and break
+  workshops mid-session. The session-manager owns credential generation;
+  the chart only renders user-supplied values when present.
+- **Sensible defaults are fine for** `clusterIngress.protocol` (auto
+  `http` when no `tlsCertificateRef`, `https` otherwise — matches the
+  runtime's own derivation), `clusterSecurity.policyEngine` (default
+  `Kyverno` per the v4 mode decision), `workshopSecurity.rulesEngine`
+  (default `Kyverno`), `clusterStorage.group` (default `1`),
+  `clusterNetwork.blockCIDRs` (default AWS metadata IPv4 + IPv6),
+  `clusterAdmin` (default `false`), `dockerDaemon.networkMTU` (default
+  `1400`).
+- **No defaults — required input** for `clusterIngress.domain`. The
+  chart fails fast at template time if missing, not silently fall through
+  to the runtime's `educates-local-dev.test` fallback.
 
-**Done when:**
+**Validation:**
 
-- Existing scenarios `01-local-http-nip-io` and `02-kind-tls-wildcard` work after the refactor with their `chart-values.yaml` files reduced to the typed shape (no `config:` block, no `secretPropagation.upstream.ingressTLS/ingressCA`).
-- A third scenario exists exercising one or more of the still-opaque fields via the `config:` escape hatch, proving the merge semantics.
-- `decisions.md` has an entry that explicitly supersedes the earlier "Runtime chart values shape is operator-driven, not v3-driven" decision, with the reasoning above.
-
-**Why deferred, not immediate:**
-
-The chart is now fully working end-to-end through scenarios 01 and 02. Refactoring the values shape now risks regressing tested behaviour. With more scenarios in place we get a stronger validation surface for the change.
-
-### Pre-phase follow-up: bundle v3 Kyverno workshop policies into the chart  *(planned)*
-
-**Trigger:** can be done independently of the typed-runtime-config
-follow-up above. Either order works; pick whichever has more test
-scenarios queued behind it.
-
-**Problem this solves:**
-
-The v3 installer auto-bundles a curated set of Kyverno policies into
-the `educates-config` Secret as `kyverno-policies.yaml` (vendored from
-upstream `kyverno/policies` per `vendir.yml` — pod-security-cel
-baseline + restricted, operational best-practices). session-manager
-reads them at workshop-environment-creation time and clones each
-ClusterPolicy per environment with a namespace selector added, scoping
-the rules to that workshop's session namespaces.
-
-The current v4 chart leaves `session-manager.config` and
-`session-manager.kyvernoPolicies` empty by default, so this entire
-mechanism is gone — workshops spawned by an Educates-v4 install have
-zero Kyverno enforcement.
-
-**What to build:**
-
-In the `session-manager` subchart:
-
-- `files/kyverno-policies/baseline/*.yaml` — vendored from
-  `pod-security-cel/baseline`.
-- `files/kyverno-policies/restricted/*.yaml` — vendored from
-  `pod-security-cel/restricted`.
-- `files/kyverno-policies/operational/*.yaml` — vendored from the
-  curated `best-practices-cel / nginx-ingress-cel / other-cel` set
-  v3 already picks (see `vendir.yml`).
-
-Add chart values (non-opaque, typed):
-
-```yaml
-session-manager:
-  bundledKyvernoPolicies:
-    enabled: true                # default-on; toggle whole bundle
-    profile: baseline            # baseline | restricted | none
-    operationalPolicies: true    # the disallow-* / restrict-* selection
-  kyvernoPolicies: {}            # user extras, merged on top
-```
-
-The `secret-config.yaml` template uses `.Files.Glob` to read the
-relevant directories under `files/kyverno-policies/`, concatenates
-into a single multi-doc YAML, appends the user-supplied
-`kyvernoPolicies` content, and writes the result into the
-`kyverno-policies.yaml` Secret key. session-manager is unchanged.
+Add a JSON schema (`values.schema.json`) to the subchart, derived from
+`docs/architecture/session-manager-chart-values-schema.json`. Helm
+enforces it on `helm install`/`upgrade`/`template`, catching shape errors
+before they reach the runtime.
 
 **Done when:**
 
-- A fresh chart install with default values produces an
-  `educates-config` Secret whose `kyverno-policies.yaml` contains the
-  baseline + operational ClusterPolicy YAMLs.
-- A workshop deploy followed by `kubectl get clusterpolicy
-  educates-environment-<env>` shows a ClusterPolicy with rules
-  visibly derived from the bundled set.
-- Scenario 06 in `tests/scenarios/` is rewritten to deploy a workshop
-  and assert the per-environment ClusterPolicy appears with at least
-  one rule from the bundle. The current "user-supplied extras" path
-  remains exercised via `kyvernoPolicies` value.
-- A test scenario exists that sets `bundledKyvernoPolicies.enabled:
-  false` and shows the per-environment ClusterPolicy is *not*
-  created.
-
-**Vendoring strategy:**
-
-For v4.0.0-alpha.1 commit the policy YAMLs directly under the chart
-(no vendir for the chart itself — that's open item #2 in this plan
-for upstream-Helm-charts cert-manager / contour / kyverno engine
-install, a different concern). Refresh the policy YAMLs by hand when
-upstream cuts a relevant release; document the source release in a
-header comment in each file. Keep cluster-level Kyverno *engine*
-installation a separate concern (the operator's Phase 2/3 work).
+- The `session-manager` subchart `values.yaml` matches the shape in the
+  docs-of-record.
+- A `values.schema.json` exists in the subchart and matches the schema
+  doc.
+- All six existing scenarios (`01-local-http-nip-io`, `02-kind-tls-wildcard`,
+  `03-kind-cert-manager-issuer`, `04-website-theme`,
+  `05-image-pull-secrets`, `06-additional-kyverno-policies`) pass after
+  their `chart-values.yaml` files are updated to the typed shape (no
+  `config:` block needed for the cases they cover; no
+  `secretPropagation.upstream.ingressTLS/ingressCA`; no
+  `bundledKyvernoPolicies` / `additionalKyvernoPolicies.{cluster,workshop}Policies`
+  / `openshift.enabled`).
+- A new scenario exercises one or more still-opaque fields via the
+  `config:` escape hatch, proving deep-merge semantics.
+- `decisions.md` has an entry that supersedes the earlier "Runtime chart
+  values shape is operator-driven, not v3-driven" decision, with the
+  reasoning above.
 
 ### Phase 0: Foundations (1–2 weeks)
 
