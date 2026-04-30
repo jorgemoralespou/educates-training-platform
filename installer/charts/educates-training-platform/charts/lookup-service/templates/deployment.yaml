@@ -33,6 +33,7 @@ spec:
           image: "{{ include "lookup-service.image.repository" . }}:{{ include "lookup-service.image.tag" . }}"
           imagePullPolicy: {{ include "lookup-service.image.pullPolicy" . }}
           securityContext:
+            runAsNonRoot: false
             runAsUser: 0
             allowPrivilegeEscalation: false
           command: ["/bin/bash", "-c"]

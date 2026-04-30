@@ -83,6 +83,20 @@ IfNotPresent
 {{- end -}}
 {{- end -}}
 
+{{/*
+True when the resolved clusterIngress.caCertificateRef.name is set — drives
+rendering of the chart-side ca-trust-store init container in the
+session-manager Deployment. The init container reuses the main session-manager
+image (Fedora-based: has `update-ca-trust` and `tar`), so no extra image pull
+on the node. Mirrors the runtime-side overlay session-manager already applies
+to spawned pods (workshopsession.py) and v3's overlay-ca-injector.yaml.
+*/}}
+{{- define "session-manager.caTrustEnabled" -}}
+{{- $ci := include "session-manager.resolvedClusterIngress" . | fromYaml -}}
+{{- $caRef := default dict $ci.caCertificateRef -}}
+{{- if $caRef.name }}true{{- end -}}
+{{- end -}}
+
 {{- define "session-manager.pause.image.repository" -}}
 {{- if .Values.imagePuller.pauseImage.repository -}}
 {{ .Values.imagePuller.pauseImage.repository }}
