@@ -381,6 +381,18 @@ silently broke session-manager's spawned children (training-portal,
 base-environment, etc.) with `ErrImagePull` against non-existent
 `4.0.0-alpha.1` images.
 
+**Why `imageRegistry` is the prefix knob:** A chart user working
+against a fork or a locally-built registry should be able to redirect
+every Educates-image reference with one knob. `imageRegistry.host` /
+`.namespace` (defaulting to `ghcr.io` / `educates`) compose the prefix
+for: the chart-pod (when `image.repository` is empty), the pause image
+(when `imagePuller.pauseImage.repository` is empty), and the Educates-
+published entries in the `imageVersions` helper. Upstream pins
+(`docker-in-docker`, `loftsh-*`, `debian-base-image`) are NOT
+relocated by `imageRegistry` — those are public upstream images that
+mirror under different names; relocate them via per-entry
+`imageVersions` overrides instead.
+
 **Why a helper, not a populated `values.yaml` default:** Chart users
 typically don't need to see the full image inventory in their values
 file — they just want overrides for the entries they're changing

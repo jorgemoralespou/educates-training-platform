@@ -8,10 +8,11 @@
     "definitions": {
 
       "imageRef": {
+        "description": "Image reference. Empty `repository` falls through to the imageRegistry-derived default; empty `tag` falls through to Chart.AppVersion.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "repository": { "type": "string", "minLength": 1 },
+          "repository": { "type": "string" },
           "tag":        { "type": "string" },
           "pullPolicy": {
             "type": "string",

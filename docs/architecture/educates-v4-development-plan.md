@@ -193,7 +193,13 @@ restructure into these top-level blocks (full field list in the doc):
   `additionalKyvernoPolicies[]`. Replaces
   `bundledKyvernoPolicies.workshopPolicies` and
   `additionalKyvernoPolicies.workshopPolicies`.
-- `imageRegistry` — `host`, `namespace`.
+- `imageRegistry` — `host` (default `ghcr.io`), `namespace` (default
+  `educates`). Drives the prefix for the chart-pod, the pause image, and
+  the Educates-published entries in the `imageVersions` helper. Override
+  to point at a fork or a locally-built registry — every Educates-image
+  reference moves with it. Upstream pins (docker-in-docker, loftsh-*,
+  debian-base) are NOT relocated; override their `imageVersions` entries
+  directly when mirroring.
 - `imageVersions[]` — empty by default; chart-shipped defaults are
   produced by the `session-manager.imageVersions` template helper,
   mirroring v3's `images.yaml`. Educates-published entries derive their

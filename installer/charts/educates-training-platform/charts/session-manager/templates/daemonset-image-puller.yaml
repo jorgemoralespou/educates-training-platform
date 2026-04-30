@@ -36,7 +36,7 @@ spec:
       {{- end }}
       containers:
         - name: pause
-          image: "{{ .Values.imagePuller.pauseImage.repository }}:{{ include "session-manager.pause.image.tag" . }}"
+          image: "{{ include "session-manager.pause.image.repository" . }}:{{ include "session-manager.pause.image.tag" . }}"
           imagePullPolicy: {{ include "session-manager.pause.image.pullPolicy" . }}
           securityContext:
             allowPrivilegeEscalation: false

@@ -12,6 +12,35 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 deployment: session-manager
 {{- end -}}
 
+{{/*
+Compose the registry+namespace prefix from .Values.imageRegistry. Two forms:
+  host + namespace -> "{host}/{namespace}"
+  host alone       -> "{host}"
+Used as the default prefix for the chart-pod image, the pause image, and the
+Educates-published entries in the `imageVersions` helper. A user that points
+imageRegistry at a fork or a local registry redirects all three at once.
+*/}}
+{{- define "session-manager.imageRegistryPrefix" -}}
+{{- $ir := default dict .Values.imageRegistry -}}
+{{- $host := default "" $ir.host -}}
+{{- $ns := default "" $ir.namespace -}}
+{{- if and $host $ns -}}
+{{ $host }}/{{ $ns }}
+{{- else if $host -}}
+{{ $host }}
+{{- else -}}
+{{- fail "session-manager.imageRegistry.host is required" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "session-manager.image.repository" -}}
+{{- if .Values.image.repository -}}
+{{ .Values.image.repository }}
+{{- else -}}
+{{ include "session-manager.imageRegistryPrefix" . }}/educates-session-manager
+{{- end -}}
+{{- end -}}
+
 {{- define "session-manager.image.tag" -}}
 {{- default .Chart.AppVersion .Values.image.tag -}}
 {{- end -}}
@@ -26,6 +55,14 @@ Always
 {{- else -}}
 IfNotPresent
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "session-manager.pause.image.repository" -}}
+{{- if .Values.imagePuller.pauseImage.repository -}}
+{{ .Values.imagePuller.pauseImage.repository }}
+{{- else -}}
+{{ include "session-manager.imageRegistryPrefix" . }}/educates-pause-container
 {{- end -}}
 {{- end -}}
 
@@ -113,10 +150,15 @@ Each document is separated by `---\n`.
 Default `imageVersions` set the chart ships, mirroring v3's
 carvel-installer `images.yaml`. Two kinds of entries:
 
-  - Educates-published images. Tag derived from `.Chart.AppVersion` so a
-    chart release that bumps the runtime moves these in lock-step.
-  - Upstream pins (docker-in-docker, loftsh-*, debian-base) that aren't
-    Educates-published. Hard-coded to specific upstream tags.
+  - Educates-published images. Repository prefix derived from
+    `imageRegistry.{host,namespace}` so a fork or local registry
+    redirects them in one knob; tag derived from `.Chart.AppVersion`
+    so a chart release that bumps the runtime moves these in lock-
+    step.
+  - Upstream pins (docker-in-docker, loftsh-*, debian-base) that
+    aren't Educates-published. Hard-coded to specific upstream refs;
+    `imageRegistry` does NOT relocate them — override the matching
+    `imageVersions` entry directly when mirroring.
 
 User overrides in `.Values.imageVersions` are merged in BY NAME — each
 user entry replaces the default with the same `name`, but other defaults
@@ -126,7 +168,7 @@ which preserves forward-compat with new runtime images.
 Returns the merged list as a YAML array string (consume via fromYamlArray).
 */}}
 {{- define "session-manager.imageVersions" -}}
-{{- $repo := "ghcr.io/educates" -}}
+{{- $repo := include "session-manager.imageRegistryPrefix" . -}}
 {{- $v := .Chart.AppVersion -}}
 {{- $defaults := list
     (dict "name" "training-portal"         "image" (printf "%s/educates-training-portal:%s" $repo $v))

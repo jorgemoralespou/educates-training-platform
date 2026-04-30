@@ -90,13 +90,18 @@ workshopSecurity:
 # Image registry
 # =============================================================================
 
-# Where Educates images are pulled from. Empty `host` means "use the default
-# registry baked into image refs." `namespace` is the path prefix under host;
-# when empty, images are addressed at the registry root ({host}/{name} rather
-# than {host}/{namespace}/{name}).
+# Where Educates images are pulled from. The chart-shipped defaults compose
+# image refs as `{host}/{namespace}/educates-<name>:<Chart.appVersion>` for
+# Educates-published entries (in the `imageVersions` helper) and the same
+# prefix for the chart's own session-manager + pause-image pods when their
+# `repository` is left empty. Override both when working against a fork or
+# a locally-built registry — every Educates-image reference moves with it.
+#
+# `namespace` set to empty addresses images at the registry root
+# ({host}/educates-<name>) instead of nested under a path prefix.
 imageRegistry:
-  host: ""
-  namespace: ""
+  host: "ghcr.io"
+  namespace: "educates"
 
 # Per-image overrides, merged BY NAME on top of the chart-shipped default
 # `imageVersions` list. The default list is built in the chart's helper
@@ -117,7 +122,11 @@ imageVersions: []
 # =============================================================================
 
 image:
-  repository: ghcr.io/educates/educates-session-manager
+  # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-session-manager`.
+  # Empty `tag` falls through to `Chart.AppVersion`. Override either only
+  # when the chart-pod image diverges from the rest of the runtime (e.g.,
+  # a development build).
+  repository: ""
   tag: ""
   pullPolicy: ""
 
@@ -280,9 +289,10 @@ websiteStyling:
 imagePuller:
   enabled: false
   # Pause image used as the long-lived "keepalive" container in the DaemonSet.
-  # Tag defaults to chart appVersion when empty.
+  # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-pause-container`.
+  # Empty `tag` falls through to `Chart.AppVersion`.
   pauseImage:
-    repository: ghcr.io/educates/educates-pause-container
+    repository: ""
     tag: ""
     pullPolicy: ""
   # Full image references to pre-pull. The chart does not compute these from
