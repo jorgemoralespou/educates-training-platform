@@ -13,12 +13,13 @@ The bundled YAMLs use `validationFailureAction: Audit` so violations are
 logged but workloads aren't blocked. User-supplied policies use whatever
 `validationFailureAction` the admin sets in each entry.
 */ -}}
-{{- if eq .Values.clusterSecurity.policyEngine "Kyverno" -}}
+{{- $cs := include "session-manager.resolvedClusterSecurity" . | fromYaml -}}
+{{- if eq $cs.policyEngine "Kyverno" -}}
 {{- range $path, $_ := .Files.Glob "files/kyverno-policies/cluster-policies/*/*.yaml" }}
 ---
 {{ $.Files.Get $path | trim }}
 {{- end }}
-{{- range default list .Values.clusterSecurity.additionalKyvernoPolicies }}
+{{- range default list $cs.additionalKyvernoPolicies }}
 ---
 {{ toYaml . | trim }}
 {{- end }}

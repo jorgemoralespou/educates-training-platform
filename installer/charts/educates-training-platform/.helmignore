@@ -8,3 +8,4 @@
 *.bak
 *.tgz
 .project
+tests

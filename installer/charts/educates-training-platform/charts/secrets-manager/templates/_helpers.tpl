@@ -19,6 +19,45 @@ deployment: secrets-manager
 {{- end -}}
 
 {{/*
+Resolve cross-cutting blocks (imageRegistry, clusterSecurity) by deep-merging
+the umbrella's `global.<key>` over this subchart's local block. Globals win
+where set; subchart-local defaults pass through otherwise. Returned as a
+YAML string — consume via `fromYaml`.
+*/}}
+{{- define "secrets-manager.resolvedImageRegistry" -}}
+{{- $local := default dict .Values.imageRegistry -}}
+{{- $global := default dict (default dict .Values.global).imageRegistry -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- end -}}
+
+{{- define "secrets-manager.resolvedClusterSecurity" -}}
+{{- $local := default dict .Values.clusterSecurity -}}
+{{- $global := default dict (default dict .Values.global).clusterSecurity -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- end -}}
+
+{{- define "secrets-manager.imageRegistryPrefix" -}}
+{{- $ir := include "secrets-manager.resolvedImageRegistry" . | fromYaml -}}
+{{- $host := default "" $ir.host -}}
+{{- $ns := default "" $ir.namespace -}}
+{{- if and $host $ns -}}
+{{ $host }}/{{ $ns }}
+{{- else if $host -}}
+{{ $host }}
+{{- else -}}
+{{- fail "imageRegistry.host is required (set globally under .global.imageRegistry or locally under secrets-manager.imageRegistry)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "secrets-manager.image.repository" -}}
+{{- if .Values.image.repository -}}
+{{ .Values.image.repository }}
+{{- else -}}
+{{ include "secrets-manager.imageRegistryPrefix" . }}/educates-secrets-manager
+{{- end -}}
+{{- end -}}
+
+{{/*
 Resolve the container image tag, defaulting to .Chart.AppVersion when unset.
 */}}
 {{- define "secrets-manager.image.tag" -}}

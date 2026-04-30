@@ -11,16 +11,9 @@ lookup-service:
 remote-access:
   enabled: false
 
-secrets-manager:
-  image:
-    tag: "3.7.1"
-
-session-manager:
-  # image.tag and imageVersions inherit the chart defaults (runtimeVersion: 3.7.1).
-
+global:
   clusterIngress:
     domain: ${DOMAIN}
-    # protocol auto-derives to "https" because tlsCertificateRef.name is set.
     tlsCertificateRef:
       name: educateswildcard
       namespace: educates-secrets
@@ -28,16 +21,7 @@ session-manager:
       name: local-root-ca
       namespace: educates-secrets
 
-  clusterSecurity:
-    policyEngine: Kyverno
-
-  workshopSecurity:
-    rulesEngine: Kyverno
-
-  imageRegistry:
-    host: ghcr.io
-    namespace: educates
-
+session-manager:
   trainingPortal:
     credentials:
       admin:
@@ -50,6 +34,3 @@ session-manager:
       robot:
         id: robot-client-id
         secret: robot-client-secret
-
-  imagePuller:
-    enabled: false

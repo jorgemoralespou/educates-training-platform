@@ -13,7 +13,32 @@ deployment: session-manager
 {{- end -}}
 
 {{/*
-Compose the registry+namespace prefix from .Values.imageRegistry. Two forms:
+Resolve a cross-cutting values block (imageRegistry, clusterIngress,
+clusterSecurity) by deep-merging the umbrella's `global:` over the subchart's
+local block. Globals win where set; subchart-local defaults pass through
+otherwise. Returned as a YAML string — consume via `fromYaml`.
+*/}}
+{{- define "session-manager.resolvedImageRegistry" -}}
+{{- $local := default dict .Values.imageRegistry -}}
+{{- $global := default dict (default dict .Values.global).imageRegistry -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- end -}}
+
+{{- define "session-manager.resolvedClusterIngress" -}}
+{{- $local := default dict .Values.clusterIngress -}}
+{{- $global := default dict (default dict .Values.global).clusterIngress -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- end -}}
+
+{{- define "session-manager.resolvedClusterSecurity" -}}
+{{- $local := default dict .Values.clusterSecurity -}}
+{{- $global := default dict (default dict .Values.global).clusterSecurity -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- end -}}
+
+{{/*
+Compose the registry+namespace prefix from the resolved imageRegistry.
+Two forms:
   host + namespace -> "{host}/{namespace}"
   host alone       -> "{host}"
 Used as the default prefix for the chart-pod image, the pause image, and the
@@ -21,7 +46,7 @@ Educates-published entries in the `imageVersions` helper. A user that points
 imageRegistry at a fork or a local registry redirects all three at once.
 */}}
 {{- define "session-manager.imageRegistryPrefix" -}}
-{{- $ir := default dict .Values.imageRegistry -}}
+{{- $ir := include "session-manager.resolvedImageRegistry" . | fromYaml -}}
 {{- $host := default "" $ir.host -}}
 {{- $ns := default "" $ir.namespace -}}
 {{- if and $host $ns -}}
@@ -29,7 +54,7 @@ imageRegistry at a fork or a local registry redirects all three at once.
 {{- else if $host -}}
 {{ $host }}
 {{- else -}}
-{{- fail "session-manager.imageRegistry.host is required" -}}
+{{- fail "imageRegistry.host is required (set globally under .global.imageRegistry or locally under session-manager.imageRegistry)" -}}
 {{- end -}}
 {{- end -}}
 
@@ -103,12 +128,12 @@ IfNotPresent
 {{- end -}}
 
 {{/*
-Derive ingress protocol. `clusterIngress.protocol` wins when set; otherwise
-"https" if a tlsCertificateRef.name is provided, "http" otherwise. Mirrors
-the runtime's own derivation in operator_config.py.
+Derive ingress protocol from the resolved clusterIngress. `protocol` wins
+when set; otherwise "https" if a tlsCertificateRef.name is provided, "http"
+otherwise. Mirrors operator_config.py's own derivation.
 */}}
 {{- define "session-manager.derivedProtocol" -}}
-{{- $ci := .Values.clusterIngress -}}
+{{- $ci := include "session-manager.resolvedClusterIngress" . | fromYaml -}}
 {{- $tlsRef := default dict $ci.tlsCertificateRef -}}
 {{- if $ci.protocol -}}
 {{- $ci.protocol -}}
@@ -225,15 +250,15 @@ crash later when encoded as strings (see project_runtime_config_quirks memory).
 Deep-merges .Values.config on top so the escape hatch wins on conflict.
 */}}
 {{- define "session-manager.operatorConfigYAML" -}}
-{{- $ci := .Values.clusterIngress -}}
+{{- $ci := include "session-manager.resolvedClusterIngress" . | fromYaml -}}
 {{- if not $ci.domain -}}
-{{- fail "session-manager.clusterIngress.domain is required" -}}
+{{- fail "clusterIngress.domain is required (set globally under .global.clusterIngress.domain or locally under session-manager.clusterIngress.domain)" -}}
 {{- end -}}
 {{- $tlsRef := default dict $ci.tlsCertificateRef -}}
 {{- $caRef := default dict $ci.caCertificateRef -}}
-{{- $cs := .Values.clusterSecurity -}}
+{{- $cs := include "session-manager.resolvedClusterSecurity" . | fromYaml -}}
 {{- $ws := .Values.workshopSecurity -}}
-{{- $ir := default dict .Values.imageRegistry -}}
+{{- $ir := include "session-manager.resolvedImageRegistry" . | fromYaml -}}
 {{- $tp := default dict .Values.trainingPortal -}}
 {{- $sc := default dict .Values.sessionCookies -}}
 {{- $cstg := default dict .Values.clusterStorage -}}

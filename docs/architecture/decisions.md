@@ -429,3 +429,69 @@ override UX, revisit. Or if `Chart.appVersion` and the runtime version
 need to diverge (a chart that bundles multiple runtime versions for
 selection at install time), promote the runtime version to a typed
 value at that point.
+
+### Cross-cutting values promoted to umbrella `global:`; subchart-local fall-back
+
+**Date:** 2026-04-30.
+**Decision:** `imageRegistry`, `clusterIngress`, and `clusterSecurity`
+are deployment-scope values that should be set once and consumed
+consistently across every subchart that renders affected resources. They
+move to the umbrella's `global:` block, propagated by Helm to every
+subchart as `.Values.global.<key>`. Each subchart retains a local block
+of the same name with sensible defaults (e.g., `imageRegistry.host:
+ghcr.io`); helpers deep-merge the umbrella global over the subchart
+local, with globals winning per-leaf where set. Subcharts remain
+independently installable: a standalone `helm install lookup-service`
+just sets the values at the top level instead of under `global:`.
+
+**Why globals over per-subchart duplication:** Under the umbrella, a
+single `global.clusterSecurity.policyEngine: OpenShiftSCC` now triggers
+SCC ClusterRoleBindings in both session-manager and secrets-manager.
+A single `global.imageRegistry: { host: my-fork, namespace: org }`
+redirects every chart-pod, pause image, and runtime-children entry. A
+single `global.clusterIngress.{tls,ca}CertificateRef` drives both the
+session-manager auto-derived SecretCopier and (in step 2) the lookup-
+service Ingress + chart-rendered ca-trust-store init container in both
+subcharts. Without globals each user would have to set the same value in
+multiple subchart blocks and keep them in sync.
+
+**Why retain subchart locals (not globals-only):** Helm subcharts are
+independently installable by design. A standalone `helm install
+session-manager` user shouldn't have to know the umbrella's `global:`
+convention; they should write `clusterIngress: { domain: ... }` at the
+top level of their values file like any other chart. Globals are a
+multiplier when the umbrella exists; subchart locals are the default
+shape when it doesn't.
+
+**Why deep-merge with globals winning:** The merge runs
+`mergeOverwrite local global`: each leaf in the global block replaces
+the matching leaf in the subchart local; unset globals leave subchart
+locals intact. So a user can set `global.imageRegistry.host: my-fork`
+without also having to set `namespace`; the subchart-local `namespace:
+educates` passes through. Pathological case: an explicit empty string
+in a global key (e.g., `global.imageRegistry.host: ""`) overrides the
+local — document this as "explicit unset is still an override."
+
+**Validation:** subchart schemas can no longer require keys that may
+come from globals. The session-manager schema drops `clusterIngress` and
+`clusterSecurity` from its top-level `required` list; helpers do the
+post-merge `fail` instead. Subchart-local `clusterIngress.domain`'s
+`minLength: 1` constraint is also relaxed for the same reason. The
+helper enforces non-empty resolved values at template time.
+
+**Consequences to be aware of:**
+- Helm's globals propagation only works under an umbrella chart. A
+  user installing a subchart standalone gets the local defaults; their
+  values file uses top-level keys, not `global:`.
+- The local fall-back means there are two valid paths to set the same
+  thing. Document that umbrella users should prefer `global:` and only
+  put cross-cutting values in subchart blocks for per-subchart
+  overrides (atypical).
+- Helpers across subcharts duplicate the merge logic (~10 lines each).
+  Acceptable at this scale; revisit a library chart if duplication
+  exceeds three places of substantial helper logic.
+
+**Reconsider trigger:** if the umbrella is dropped (operator builds
+each component from individual chart installs without the umbrella
+wrapper), or if the duplicated helpers grow significantly, extract a
+shared library chart that all subcharts depend on.

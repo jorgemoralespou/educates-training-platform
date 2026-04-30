@@ -3,7 +3,8 @@
     "title": "Educates session-manager subchart values",
     "type": "object",
     "additionalProperties": false,
-    "required": ["clusterIngress", "clusterSecurity", "workshopSecurity"],
+    "required": ["workshopSecurity"],
+    "description": "Cross-cutting blocks (clusterIngress, clusterSecurity, imageRegistry) may come from the umbrella's `.global` instead of being set here. Subchart-local values pass through when globals are unset; globals win when both are set. Helpers enforce non-empty resolved values at template time.",
 
     "definitions": {
 
@@ -80,12 +81,10 @@
       "clusterIngress": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["domain"],
         "properties": {
           "domain": {
             "type": "string",
-            "minLength": 1,
-            "description": "Wildcard subdomain. Required; chart fails at template time if empty."
+            "description": "Wildcard subdomain. Required after merging with .global.clusterIngress; helper fails at template time if the resolved value is empty."
           },
           "class": { "type": "string" },
           "protocol": {
@@ -108,7 +107,6 @@
       "clusterSecurity": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["policyEngine"],
         "properties": {
           "policyEngine": {
             "type": "string",

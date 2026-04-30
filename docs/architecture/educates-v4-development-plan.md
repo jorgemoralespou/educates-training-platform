@@ -183,23 +183,29 @@ Refactor the `session-manager` subchart `values.yaml` and JSON schema to
 match the docs-of-record. Concretely, promote out of `config` and
 restructure into these top-level blocks (full field list in the doc):
 
-- `clusterIngress` — `domain` (required), `class`, `protocol` (auto from
-  TLS ref), `tlsCertificateRef`, `caCertificateRef`, `caNodeInjector.enabled`.
+- `clusterIngress` — `domain` (required after merging with `.global.clusterIngress`),
+  `class`, `protocol` (auto from TLS ref), `tlsCertificateRef`,
+  `caCertificateRef`, `caNodeInjector.enabled`. Promoted to umbrella
+  `global.clusterIngress` so lookup-service (Ingress) and session-manager
+  (chart-rendered ca-trust-store init container) read a single source of
+  truth.
 - `clusterSecurity` — `policyEngine: Kyverno | PodSecurityStandards |
-  OpenShiftSCC | None`, `additionalKyvernoPolicies[]`. Replaces the
-  current `bundledKyvernoPolicies.clusterPolicies` toggle, the
-  `openshift.enabled` toggle, and `additionalKyvernoPolicies.clusterPolicies`.
+  OpenShiftSCC | None`, `additionalKyvernoPolicies[]`. Promoted to
+  umbrella `global.clusterSecurity` so SCC ClusterRoleBindings in BOTH
+  session-manager and secrets-manager are gated on the same value.
+  Replaces the previous `bundledKyvernoPolicies.clusterPolicies` toggle,
+  the per-subchart `openshift.enabled` toggles, and
+  `additionalKyvernoPolicies.clusterPolicies`.
 - `workshopSecurity` — `rulesEngine: Kyverno | None`,
   `additionalKyvernoPolicies[]`. Replaces
   `bundledKyvernoPolicies.workshopPolicies` and
   `additionalKyvernoPolicies.workshopPolicies`.
 - `imageRegistry` — `host` (default `ghcr.io`), `namespace` (default
-  `educates`). Drives the prefix for the chart-pod, the pause image, and
-  the Educates-published entries in the `imageVersions` helper. Override
-  to point at a fork or a locally-built registry — every Educates-image
-  reference moves with it. Upstream pins (docker-in-docker, loftsh-*,
-  debian-base) are NOT relocated; override their `imageVersions` entries
-  directly when mirroring.
+  `educates`). Promoted to umbrella `global.imageRegistry` so every
+  subchart's chart-pod image, pause image, and runtime children move
+  together when a fork or a locally-built registry is used. Upstream pins
+  (docker-in-docker, loftsh-*, debian-base) are NOT relocated; override
+  their `imageVersions` entries directly when mirroring.
 - `imageVersions[]` — empty by default; chart-shipped defaults are
   produced by the `session-manager.imageVersions` template helper,
   mirroring v3's `images.yaml`. Educates-published entries derive their

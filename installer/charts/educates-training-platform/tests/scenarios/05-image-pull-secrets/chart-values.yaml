@@ -9,32 +9,19 @@ lookup-service:
 remote-access:
   enabled: false
 
-secrets-manager:
-  image:
-    tag: "3.7.1"
+global:
+  clusterIngress:
+    domain: ${DOMAIN}
 
 session-manager:
   # Override the repository to point at the auth'd local registry. Tag
-  # inherits the chart default (= runtimeVersion: 3.7.1) — same as the
+  # inherits the chart default (= Chart.AppVersion = 3.7.1) — same as the
   # upstream image we mirrored in.
   image:
     repository: educates-test-pull-registry:5000/educates/educates-session-manager
   # Wire the pull secret into the Deployment's PodSpec.
   imagePullSecrets:
     - name: test-pull-secret
-
-  clusterIngress:
-    domain: ${DOMAIN}
-
-  clusterSecurity:
-    policyEngine: Kyverno
-
-  workshopSecurity:
-    rulesEngine: Kyverno
-
-  imageRegistry:
-    host: ghcr.io
-    namespace: educates
 
   trainingPortal:
     credentials:
@@ -61,6 +48,3 @@ session-manager:
       # by pre-install.sh.
       imagePullSecrets:
         - { name: test-pull-secret, namespace: educates-secrets }
-
-  imagePuller:
-    enabled: false

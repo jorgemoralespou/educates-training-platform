@@ -40,7 +40,7 @@ spec:
       {{- end }}
       containers:
         - name: lookup-service
-          image: "{{ .Values.image.repository }}:{{ include "lookup-service.image.tag" . }}"
+          image: "{{ include "lookup-service.image.repository" . }}:{{ include "lookup-service.image.tag" . }}"
           imagePullPolicy: {{ include "lookup-service.image.pullPolicy" . }}
           ports:
             - containerPort: 8080

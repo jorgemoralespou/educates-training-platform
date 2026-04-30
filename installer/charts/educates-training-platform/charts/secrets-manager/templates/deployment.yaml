@@ -29,7 +29,7 @@ spec:
         runAsUser: 1001
       containers:
         - name: operator
-          image: "{{ .Values.image.repository }}:{{ include "secrets-manager.image.tag" . }}"
+          image: "{{ include "secrets-manager.image.repository" . }}:{{ include "secrets-manager.image.tag" . }}"
           imagePullPolicy: {{ include "secrets-manager.image.pullPolicy" . }}
           env:
             - name: LOG_LEVEL

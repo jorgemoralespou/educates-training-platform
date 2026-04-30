@@ -12,7 +12,8 @@ subjects:
   - kind: ServiceAccount
     name: secrets-manager
     namespace: {{ .Release.Namespace }}
-{{- if .Values.openshift.enabled }}
+{{- $cs := include "secrets-manager.resolvedClusterSecurity" . | fromYaml }}
+{{- if eq $cs.policyEngine "OpenShiftSCC" }}
 ---
 # OpenShift only. Binds the secrets-manager ServiceAccount to the cluster's
 # baseline SCC ClusterRole. The `educates-baseline-scc` ClusterRole itself

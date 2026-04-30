@@ -3,6 +3,13 @@
 # In a v4 install, the operator derives these values from the SessionManager CR
 # plus EducatesClusterConfig.status. They can also be set directly when
 # installing the chart standalone.
+#
+# Cross-cutting blocks — `imageRegistry`, `clusterIngress`, `clusterSecurity` —
+# can also be set at the umbrella level under `global:`. The chart deep-merges
+# the umbrella's `global.<key>` over the subchart-local block, with globals
+# winning per-leaf where set. Subchart-local defaults below are the standalone-
+# install default; under the umbrella they're typically left at defaults and
+# the cross-cutting values come from `global:`.
 
 # =============================================================================
 # Cluster-wide ingress identity

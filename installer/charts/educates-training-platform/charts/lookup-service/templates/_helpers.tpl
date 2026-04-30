@@ -12,6 +12,38 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 app: lookup-service
 {{- end -}}
 
+{{/*
+Resolve the imageRegistry block by deep-merging the umbrella's
+`global.imageRegistry` over the subchart's local `imageRegistry`. Globals
+win where set; subchart-local defaults pass through otherwise.
+*/}}
+{{- define "lookup-service.resolvedImageRegistry" -}}
+{{- $local := default dict .Values.imageRegistry -}}
+{{- $global := default dict (default dict .Values.global).imageRegistry -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- end -}}
+
+{{- define "lookup-service.imageRegistryPrefix" -}}
+{{- $ir := include "lookup-service.resolvedImageRegistry" . | fromYaml -}}
+{{- $host := default "" $ir.host -}}
+{{- $ns := default "" $ir.namespace -}}
+{{- if and $host $ns -}}
+{{ $host }}/{{ $ns }}
+{{- else if $host -}}
+{{ $host }}
+{{- else -}}
+{{- fail "imageRegistry.host is required (set globally under .global.imageRegistry or locally under lookup-service.imageRegistry)" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "lookup-service.image.repository" -}}
+{{- if .Values.image.repository -}}
+{{ .Values.image.repository }}
+{{- else -}}
+{{ include "lookup-service.imageRegistryPrefix" . }}/educates-lookup-service
+{{- end -}}
+{{- end -}}
+
 {{- define "lookup-service.image.tag" -}}
 {{- default .Chart.AppVersion .Values.image.tag -}}
 {{- end -}}

@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Educates lookup-service subchart values",
+  "type": "object",
+  "additionalProperties": false,
+
+  "definitions": {
+    "imageRef": {
+      "description": "Image reference. Empty `repository` falls through to the imageRegistry-derived default; empty `tag` falls through to Chart.AppVersion.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag":        { "type": "string" },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["", "Always", "IfNotPresent", "Never"]
+        }
+      }
+    }
+  },
+
+  "properties": {
+    "imageRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host":      { "type": "string" },
+        "namespace": { "type": "string" }
+      }
+    },
+
+    "image": { "$ref": "#/definitions/imageRef" },
+
+    "imagePullSecrets": {
+      "description": "Pod-spec imagePullSecrets attached to the lookup-service pod itself. Standard Kubernetes [{name: ...}] shape.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "resources": { "type": "object" },
+
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host":      { "type": "string" },
+        "className": { "type": "string" },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secretName": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "caTrust": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "secretName": { "type": "string" },
+        "initImage":  { "$ref": "#/definitions/imageRef" }
+      }
+    },
+
+    "remoteAccessTokenMount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    },
+
+    "enabled": { "type": "boolean" },
+    "global":  { "type": "object" }
+  }
+}

@@ -6,6 +6,47 @@
 # Subchart-specific configuration goes under the subchart's key. The shape
 # of those subkeys is defined by each subchart's own values.yaml.
 
+# =============================================================================
+# Cross-cutting globals (Helm `global:` propagation)
+# =============================================================================
+#
+# Every subchart sees these as `.Values.global.<key>`. Use these for values
+# that should be consistent across all enabled subcharts:
+#
+#   - `imageRegistry`  — registry host + namespace prefix used to compose
+#     image refs. When set, overrides each subchart's local default.
+#   - `clusterIngress` — domain, ingress class, protocol, and TLS / CA
+#     references. Subcharts that render Pods which need TLS-verify the
+#     cluster's ingress (session-manager, lookup-service) consume the CA
+#     ref to inject a CA trust store. Subcharts that render Ingress
+#     resources (lookup-service) consume the TLS ref + class.
+#   - `clusterSecurity.policyEngine` — `Kyverno`, `PodSecurityStandards`,
+#     `OpenShiftSCC`, or `None`. Drives the Kyverno cluster-policy install
+#     in session-manager AND the SCC ClusterRoleBindings in session-manager
+#     and secrets-manager.
+#
+# Each entry is empty by default — subchart-local defaults apply when a
+# global key is unset. Globals win when set (deep-merged on top of subchart
+# locals; per-leaf override).
+global:
+  imageRegistry: {}
+    # host: "ghcr.io"
+    # namespace: "educates"
+
+  clusterIngress: {}
+    # domain: "workshops.example.com"
+    # class: ""
+    # protocol: ""    # auto-derived from tlsCertificateRef when empty
+    # tlsCertificateRef:
+    #   name: ""
+    #   namespace: ""
+    # caCertificateRef:
+    #   name: ""
+    #   namespace: ""
+
+  clusterSecurity: {}
+    # policyEngine: Kyverno
+
 secrets-manager:
   enabled: true
 
