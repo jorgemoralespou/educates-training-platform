@@ -9,75 +9,42 @@ lookup-service:
 remote-access:
   enabled: false
 
-# secrets-manager
 secrets-manager:
   image:
     repository: ghcr.io/educates/educates-secrets-manager
     tag: "3.7.1"
 
-# session-manager
 session-manager:
   image:
     repository: ghcr.io/educates/educates-session-manager
     tag: "3.7.1"
 
-  # When remote-access is disabled at the umbrella level, the
-  # lookup-service subchart's `remoteAccessTokenMount.enabled` value is
-  # the gate. lookup-service itself is also off here, so this is
-  # informational.
+  clusterIngress:
+    domain: ${DOMAIN}
+    # protocol auto-derives to "http" because tlsCertificateRef.name is empty.
 
-  # Operator runtime config. Mirrors the v3 schema fields
-  # session-manager reads from `educates-config`.
-  config:
-    operator:
-      namespace: educates
-    clusterIngress:
-      domain: ${DOMAIN}
-      protocol: http
-      # The v3 runtime reads these via xget() without a default, so
-      # absent keys become Python None and crash later when used as
-      # strings (e.g. session_variables.ingress_secret.encode(...)).
-      # Explicit empty strings are the documented HTTP-only shape.
-      tlsCertificateRef:
-        name: ""
-        namespace: ""
-      caCertificateRef:
-        name: ""
-        namespace: ""
-    clusterSecurity:
-      policyEngine: kyverno
-    version: "3.7.1"
-    imageRegistry:
-      host: ghcr.io
-      namespace: educates
-    trainingPortal:
-      credentials:
-        admin:
-          username: educates
-          password: educates
-        robot:
-          username: robot@educates
-          password: robot
-      clients:
-        robot:
-          id: robot-client-id
-          secret: robot-client-secret
+  clusterSecurity:
+    policyEngine: Kyverno
 
-  # No upstream secrets to copy in (TLS/CA all absent in this
-  # scenario), no downstream image-pull secrets to distribute.
-  secretPropagation:
-    imagePullSecretNames: []
-    upstream:
-      imagePullSecrets: []
-      websiteThemes: []
-      ingressTLS:
-        name: ""
-        namespace: ""
-      ingressCA:
-        name: ""
-        namespace: ""
+  workshopSecurity:
+    rulesEngine: Kyverno
 
-  # Image-puller off — small local cluster, faster iteration without
-  # the DaemonSet pre-pulling everything.
+  imageRegistry:
+    host: ghcr.io
+    namespace: educates
+
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
+
   imagePuller:
     enabled: false

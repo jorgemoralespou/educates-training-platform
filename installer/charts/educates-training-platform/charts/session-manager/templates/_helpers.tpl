@@ -47,35 +47,6 @@ IfNotPresent
 {{- end -}}
 
 {{/*
-Build the multi-doc YAML stream for the `kyverno-policies.yaml` key of
-the `educates-config` Secret. session-manager reads the result via
-`yaml.load_all` and clones each rule per workshop environment.
-Concatenates:
-  1. Bundled workshop policies under files/kyverno-policies/workshop-policies/
-     (when bundledKyvernoPolicies.workshopPolicies).
-  2. User-supplied ClusterPolicy objects from .Values.kyvernoPolicies.
-Each document is separated by `---\n`.
-*/}}
-{{- define "session-manager.kyvernoPoliciesContent" -}}
-{{- $bundle := default dict .Values.bundledKyvernoPolicies -}}
-{{- $workshopEnabled := dig "workshopPolicies" true $bundle -}}
-{{- $additional := default dict .Values.additionalKyvernoPolicies -}}
-{{- $extras := default list (index $additional "workshopPolicies") -}}
-{{- $output := "" -}}
-{{- if $workshopEnabled -}}
-  {{- range $path, $_ := .Files.Glob "files/kyverno-policies/workshop-policies/*.yaml" -}}
-    {{- $content := $.Files.Get $path | trim -}}
-    {{- $output = printf "%s---\n%s\n" $output $content -}}
-  {{- end -}}
-{{- end -}}
-{{- range $extras -}}
-  {{- $content := toYaml . | trim -}}
-  {{- $output = printf "%s---\n%s\n" $output $content -}}
-{{- end -}}
-{{- $output -}}
-{{- end -}}
-
-{{/*
 Auto-derive imagePullPolicy for an arbitrary fully-qualified image ref
 passed in as a string.
 */}}
@@ -92,4 +63,182 @@ Always
 {{- else -}}
 IfNotPresent
 {{- end -}}
+{{- end -}}
+
+{{/*
+Derive ingress protocol. `clusterIngress.protocol` wins when set; otherwise
+"https" if a tlsCertificateRef.name is provided, "http" otherwise. Mirrors
+the runtime's own derivation in operator_config.py.
+*/}}
+{{- define "session-manager.derivedProtocol" -}}
+{{- $ci := .Values.clusterIngress -}}
+{{- $tlsRef := default dict $ci.tlsCertificateRef -}}
+{{- if $ci.protocol -}}
+{{- $ci.protocol -}}
+{{- else if $tlsRef.name -}}
+https
+{{- else -}}
+http
+{{- end -}}
+{{- end -}}
+
+{{/*
+Build the YAML stream for the `kyverno-policies.yaml` key of the
+`educates-config` Secret. session-manager reads the result via
+`yaml.load_all` and clones each rule per workshop environment.
+Concatenates:
+  1. Bundled workshop policies under files/kyverno-policies/workshop-policies/
+     (when workshopSecurity.rulesEngine == "Kyverno").
+  2. User-supplied ClusterPolicy objects from
+     workshopSecurity.additionalKyvernoPolicies (also gated on Kyverno).
+Each document is separated by `---\n`.
+*/}}
+{{- define "session-manager.kyvernoPoliciesContent" -}}
+{{- $ws := .Values.workshopSecurity -}}
+{{- $output := "" -}}
+{{- if eq $ws.rulesEngine "Kyverno" -}}
+  {{- range $path, $_ := .Files.Glob "files/kyverno-policies/workshop-policies/*.yaml" -}}
+    {{- $content := $.Files.Get $path | trim -}}
+    {{- $output = printf "%s---\n%s\n" $output $content -}}
+  {{- end -}}
+  {{- range default list $ws.additionalKyvernoPolicies -}}
+    {{- $content := toYaml . | trim -}}
+    {{- $output = printf "%s---\n%s\n" $output $content -}}
+  {{- end -}}
+{{- end -}}
+{{- $output -}}
+{{- end -}}
+
+{{/*
+Compose the `educates-operator-config.yaml` Secret content from typed values.
+Auto-injects `operator.namespace` (release ns) and `version` (chart appVersion).
+Lowercases policy/rules engine names to match the runtime's expected casing.
+Materialises empty-string TLS/CA refs explicitly — the runtime reads these via
+xget() with no default, so absent keys become Python None and crash later when
+encoded as strings (see project_runtime_config_quirks memory).
+Deep-merges .Values.config on top so the escape hatch wins on conflict.
+*/}}
+{{- define "session-manager.operatorConfigYAML" -}}
+{{- $ci := .Values.clusterIngress -}}
+{{- if not $ci.domain -}}
+{{- fail "session-manager.clusterIngress.domain is required" -}}
+{{- end -}}
+{{- $tlsRef := default dict $ci.tlsCertificateRef -}}
+{{- $caRef := default dict $ci.caCertificateRef -}}
+{{- $cs := .Values.clusterSecurity -}}
+{{- $ws := .Values.workshopSecurity -}}
+{{- $ir := default dict .Values.imageRegistry -}}
+{{- $tp := default dict .Values.trainingPortal -}}
+{{- $sc := default dict .Values.sessionCookies -}}
+{{- $cstg := default dict .Values.clusterStorage -}}
+{{- $crt := default dict .Values.clusterRuntime -}}
+{{- $cnet := default dict .Values.clusterNetwork -}}
+{{- $dd := default dict .Values.dockerDaemon -}}
+{{- $proxy := default dict $dd.proxyCache -}}
+{{- $wa := default dict .Values.workshopAnalytics -}}
+{{- $wstyle := default dict .Values.websiteStyling -}}
+{{- $typed := dict
+  "operator" (dict "namespace" .Release.Namespace)
+  "version" .Chart.AppVersion
+  "clusterIngress" (dict
+    "domain" $ci.domain
+    "class" (default "" $ci.class)
+    "protocol" (include "session-manager.derivedProtocol" .)
+    "tlsCertificateRef" (dict
+      "name" (default "" $tlsRef.name)
+      "namespace" (default "" $tlsRef.namespace)
+    )
+    "caCertificateRef" (dict
+      "name" (default "" $caRef.name)
+      "namespace" (default "" $caRef.namespace)
+    )
+  )
+  "clusterSecurity" (dict "policyEngine" (lower $cs.policyEngine))
+  "workshopSecurity" (dict "rulesEngine" (lower $ws.rulesEngine))
+  "imageRegistry" (dict
+    "host" (default "" $ir.host)
+    "namespace" (default "" $ir.namespace)
+  )
+  "imageVersions" (default list .Values.imageVersions)
+  "trainingPortal" (dict
+    "credentials" (dict
+      "admin" (dict
+        "username" (default "" (dig "credentials" "admin" "username" "" $tp))
+        "password" (default "" (dig "credentials" "admin" "password" "" $tp))
+      )
+      "robot" (dict
+        "username" (default "" (dig "credentials" "robot" "username" "" $tp))
+        "password" (default "" (dig "credentials" "robot" "password" "" $tp))
+      )
+    )
+    "clients" (dict
+      "robot" (dict
+        "id" (default "" (dig "clients" "robot" "id" "" $tp))
+        "secret" (default "" (dig "clients" "robot" "secret" "" $tp))
+      )
+    )
+  )
+  "sessionCookies" (dict "domain" (default "" $sc.domain))
+  "clusterStorage" (dict
+    "class" (default "" $cstg.class)
+    "user" $cstg.user
+    "group" (default 1 $cstg.group)
+  )
+  "clusterRuntime" (dict "class" (default "" $crt.class))
+  "clusterNetwork" (dict "blockCIDRs" (default list $cnet.blockCIDRs))
+  "dockerDaemon" (dict
+    "networkMTU" (default 1400 $dd.networkMTU)
+    "proxyCache" (dict
+      "remoteURL" (default "" $proxy.remoteURL)
+      "username" (default "" $proxy.username)
+      "password" (default "" $proxy.password)
+    )
+  )
+  "workshopAnalytics" (dict
+    "google" (dict "trackingId" (default "" (dig "google" "trackingId" "" $wa)))
+    "clarity" (dict "trackingId" (default "" (dig "clarity" "trackingId" "" $wa)))
+    "amplitude" (dict "trackingId" (default "" (dig "amplitude" "trackingId" "" $wa)))
+    "webhook" (dict "url" (default "" (dig "webhook" "url" "" $wa)))
+  )
+  "websiteStyling" (dict
+    "defaultTheme" (default "" $wstyle.defaultTheme)
+    "frameAncestors" (default list $wstyle.frameAncestors)
+  )
+-}}
+{{- $merged := mergeOverwrite $typed (deepCopy (default dict .Values.config)) -}}
+{{- toYaml $merged -}}
+{{- end -}}
+
+{{/*
+Map the structured `websiteStyling.inline` values to the flat secret-key shape
+the runtime expects in the `default-website-theme` Secret. Returns a YAML map
+of stringData entries (or empty if no inline assets are populated).
+
+  workshopDashboard.{html,script,style}    -> workshop-dashboard.{html,js,css}
+  workshopInstructions.{html,script,style} -> workshop-instructions.{html,js,css}
+  workshopStarted.html                     -> workshop-started.html
+  workshopFinished.html                    -> workshop-finished.html
+  trainingPortal.{html,script,style}       -> training-portal.{html,js,css}
+*/}}
+{{- define "session-manager.inlineThemeStringData" -}}
+{{- $inline := default dict (default dict .Values.websiteStyling).inline -}}
+{{- $entries := dict -}}
+{{- $tripleSources := list
+    (list "workshopDashboard" "workshop-dashboard")
+    (list "workshopInstructions" "workshop-instructions")
+    (list "trainingPortal" "training-portal")
+-}}
+{{- range $tripleSources -}}
+  {{- $key := index . 0 -}}
+  {{- $prefix := index . 1 -}}
+  {{- $block := default dict (index $inline $key) -}}
+  {{- if $block.html }}{{- $_ := set $entries (printf "%s.html" $prefix) $block.html -}}{{- end -}}
+  {{- if $block.script }}{{- $_ := set $entries (printf "%s.js" $prefix) $block.script -}}{{- end -}}
+  {{- if $block.style }}{{- $_ := set $entries (printf "%s.css" $prefix) $block.style -}}{{- end -}}
+{{- end -}}
+{{- $started := default dict $inline.workshopStarted -}}
+{{- if $started.html }}{{- $_ := set $entries "workshop-started.html" $started.html -}}{{- end -}}
+{{- $finished := default dict $inline.workshopFinished -}}
+{{- if $finished.html }}{{- $_ := set $entries "workshop-finished.html" $finished.html -}}{{- end -}}
+{{- toYaml $entries -}}
 {{- end -}}

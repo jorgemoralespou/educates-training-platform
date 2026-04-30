@@ -9,7 +9,7 @@ Vendored from
 [kyverno/policies](https://github.com/kyverno/policies)
 (`origin/release-1.15`, matching v3's `vendir.yml`). Both Pod Security
 Standards profiles are installed unconditionally when
-`bundledKyvernoPolicies.clusterPolicies: true` — workshops don't pick a
+`clusterSecurity.policyEngine: Kyverno` — workshops don't pick a
 profile, so both must be present in the cluster. Default action is
 `Audit`, inherited from upstream.
 
@@ -21,7 +21,7 @@ profile, so both must be present in the cluster. Default action is
 ## `workshop-policies/` — bundled into the educates-config Secret
 
 Concatenated into the `kyverno-policies.yaml` Secret key when
-`bundledKyvernoPolicies.workshopPolicies: true`. session-manager reads
+`workshopSecurity.rulesEngine: Kyverno`. session-manager reads
 the stream and clones each rule per workshop environment with a
 namespace selector added (see
 `session-manager/handlers/kyverno_rules.py`). They are **not** applied

@@ -2,9 +2,9 @@
 #
 # Kind + HTTPS scenario — see description.md for context. The wildcard
 # TLS Secret and CA Secret are pre-created in the `educates-secrets`
-# namespace by pre-install.sh; the chart copies them into the operator
-# namespace via SecretCopier and references them by their post-copy
-# name (which v3 runtime expects to be in the operator namespace).
+# namespace by pre-install.sh; the chart auto-derives a SecretCopier from
+# the cross-namespace `clusterIngress.{tls,ca}CertificateRef` so the
+# runtime finds the Secrets locally.
 
 lookup-service:
   enabled: false
@@ -19,53 +19,38 @@ session-manager:
   image:
     tag: "3.7.1"
 
-  # Operator runtime config. session-manager switches to HTTPS when
-  # `clusterIngress.tlsCertificateRef.name` is non-empty.
-  config:
-    operator:
-      namespace: educates
-    clusterIngress:
-      domain: ${DOMAIN}
-      protocol: https
-      tlsCertificateRef:
-        # After SecretCopier propagation, the TLS Secret lives in the
-        # operator namespace under the same name as the source.
-        name: wildcard-tls
-        namespace: educates
-      caCertificateRef:
-        name: wildcard-ca
-        namespace: educates
-    clusterSecurity:
-      policyEngine: kyverno
-    version: "3.7.1"
-    imageRegistry:
-      host: ghcr.io
-      namespace: educates
-    trainingPortal:
-      credentials:
-        admin:
-          username: educates
-          password: educates
-        robot:
-          username: robot@educates
-          password: robot
-      clients:
-        robot:
-          id: robot-client-id
-          secret: robot-client-secret
+  clusterIngress:
+    domain: ${DOMAIN}
+    # protocol auto-derives to "https" because tlsCertificateRef.name is set.
+    tlsCertificateRef:
+      name: wildcard-tls
+      namespace: educates-secrets
+    caCertificateRef:
+      name: wildcard-ca
+      namespace: educates-secrets
 
-  # Pull the externally-created Secrets into the operator namespace.
-  secretPropagation:
-    imagePullSecretNames: []
-    upstream:
-      imagePullSecrets: []
-      websiteThemes: []
-      ingressTLS:
-        name: wildcard-tls
-        namespace: educates-secrets
-      ingressCA:
-        name: wildcard-ca
-        namespace: educates-secrets
+  clusterSecurity:
+    policyEngine: Kyverno
+
+  workshopSecurity:
+    rulesEngine: Kyverno
+
+  imageRegistry:
+    host: ghcr.io
+    namespace: educates
+
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
 
   imagePuller:
     enabled: false

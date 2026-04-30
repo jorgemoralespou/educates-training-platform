@@ -1,29 +1,25 @@
 {{- /*
-Cluster-wide Kyverno ClusterPolicy resources. Two sources:
+Cluster-wide Kyverno ClusterPolicy resources, gated on
+`clusterSecurity.policyEngine == "Kyverno"`. Two sources:
 
-  1. The bundled v3-vendored Pod Security Standards profiles (baseline
-     + restricted) under files/kyverno-policies/cluster-policies/, gated
-     by `bundledKyvernoPolicies.clusterPolicies`. Mirrors v3's
+  1. The bundled v3-vendored Pod Security Standards profiles (baseline +
+     restricted) under files/kyverno-policies/cluster-policies/. Mirrors v3's
      `01-clusterpolicies.yaml`.
-  2. User-supplied `additionalKyvernoPolicies.clusterPolicies` — site-
-     specific ClusterPolicy objects platform admins want installed
-     cluster-wide alongside the bundle.
+  2. User-supplied `clusterSecurity.additionalKyvernoPolicies` — site-specific
+     ClusterPolicy objects platform admins want installed cluster-wide
+     alongside the bundle.
 
-The bundled YAMLs use `validationFailureAction: Audit` so violations
-are logged but workloads aren't blocked. User-supplied policies use
-whatever `validationFailureAction` the admin sets in each entry.
+The bundled YAMLs use `validationFailureAction: Audit` so violations are
+logged but workloads aren't blocked. User-supplied policies use whatever
+`validationFailureAction` the admin sets in each entry.
 */ -}}
-{{- $bundle := default dict .Values.bundledKyvernoPolicies -}}
-{{- $clusterEnabled := dig "clusterPolicies" true $bundle -}}
-{{- if $clusterEnabled -}}
+{{- if eq .Values.clusterSecurity.policyEngine "Kyverno" -}}
 {{- range $path, $_ := .Files.Glob "files/kyverno-policies/cluster-policies/*/*.yaml" }}
 ---
 {{ $.Files.Get $path | trim }}
 {{- end }}
-{{- end }}
-{{- $additional := default dict .Values.additionalKyvernoPolicies -}}
-{{- $extras := default list (index $additional "clusterPolicies") -}}
-{{- range $extras }}
+{{- range default list .Values.clusterSecurity.additionalKyvernoPolicies }}
 ---
 {{ toYaml . | trim }}
 {{- end }}
+{{- end -}}
