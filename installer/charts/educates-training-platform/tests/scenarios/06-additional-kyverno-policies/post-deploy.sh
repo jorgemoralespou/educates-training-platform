@@ -2,13 +2,13 @@
 # End-to-end check that bundled + user-supplied Kyverno policies reach
 # the cluster on both paths:
 #
-# 1. `clusterPolicies` path — bundled (baseline + restricted) AND
-#    user-supplied via additionalKyvernoPolicies.clusterPolicies are
+# 1. Cluster-wide path — bundled (baseline + restricted) AND
+#    user-supplied via clusterSecurity.additionalKyvernoPolicies are
 #    installed as cluster-wide ClusterPolicy resources directly by the
 #    chart.
-# 2. `workshopPolicies` path — operational + the internal
+# 2. Per-workshop path — operational + the internal
 #    require-ingress-session-name + user-supplied via
-#    additionalKyvernoPolicies.workshopPolicies are bundled into the
+#    workshopSecurity.additionalKyvernoPolicies are bundled into the
 #    `kyverno-policies.yaml` Secret feed and re-emitted by
 #    session-manager as `educates-environment-<env>` ClusterPolicy
 #    rules.
@@ -34,7 +34,7 @@ for cp in "$EXPECTED_BASELINE_CP" "$EXPECTED_RESTRICTED_CP" "$EXPECTED_USER_CLUS
   fi
 done
 
-# 2. Per-environment ClusterPolicy (workshopPolicies bundle + user).
+# 2. Per-environment ClusterPolicy (workshopSecurity bundle + user).
 POLICY=""
 for i in $(seq 1 30); do
   POLICY="$(kubectl get clusterpolicy -o name 2>/dev/null | grep '^clusterpolicy.kyverno.io/educates-environment-' | head -1 || true)"

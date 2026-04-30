@@ -16,61 +16,49 @@ session-manager:
   image:
     tag: "3.7.1"
 
-  config:
-    operator:
-      namespace: educates
-    clusterIngress:
-      domain: ${DOMAIN}
-      protocol: http
-      tlsCertificateRef:
-        name: ""
-        namespace: ""
-      caCertificateRef:
-        name: ""
-        namespace: ""
-    clusterSecurity:
-      policyEngine: kyverno
-    version: "3.7.1"
-    imageRegistry:
-      host: ghcr.io
-      namespace: educates
-    trainingPortal:
-      credentials:
-        admin:
-          username: educates
-          password: educates
-        robot:
-          username: robot@educates
-          password: robot
-      clients:
-        robot:
-          id: robot-client-id
-          secret: robot-client-secret
+  clusterIngress:
+    domain: ${DOMAIN}
 
-  # The thing under test: a custom training-portal.html with a unique
-  # marker that post-install.sh greps for in the rendered Secret.
-  websiteTheme:
-    training-portal.html: |
-      <!-- educates-test-marker:scenario-04 -->
-      <html>
-        <head><title>Scenario 04 portal</title></head>
-        <body><h1>scenario-04-marker</h1></body>
-      </html>
-    training-portal.css: |
-      /* scenario-04-css-marker */
-      body { font-family: monospace; }
+  clusterSecurity:
+    policyEngine: Kyverno
 
-  secretPropagation:
-    imagePullSecretNames: []
-    upstream:
-      imagePullSecrets: []
-      websiteThemes: []
-      ingressTLS:
-        name: ""
-        namespace: ""
-      ingressCA:
-        name: ""
-        namespace: ""
+  workshopSecurity:
+    rulesEngine: Kyverno
+
+  imageRegistry:
+    host: ghcr.io
+    namespace: educates
+
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
+
+  # The thing under test: a custom training-portal theme with unique
+  # markers that post-install.sh greps for in the rendered Secret.
+  # `script` -> training-portal.js, `style` -> training-portal.css,
+  # `html` -> training-portal.html (chart maps the structured triple
+  # to the flat secret keys the runtime expects).
+  websiteStyling:
+    inline:
+      trainingPortal:
+        html: |
+          <!-- educates-test-marker:scenario-04 -->
+          <html>
+            <head><title>Scenario 04 portal</title></head>
+            <body><h1>scenario-04-marker</h1></body>
+          </html>
+        style: |
+          /* scenario-04-css-marker */
+          body { font-family: monospace; }
 
   imagePuller:
     enabled: false

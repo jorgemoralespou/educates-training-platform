@@ -2,8 +2,9 @@
 #
 # The wildcard TLS Secret was issued by cert-manager via the certs
 # package and lands at `educates-secrets/educateswildcard`. The CA is
-# at `educates-secrets/local-root-ca`. SecretCopier rules in this
-# chart pull both into the operator namespace.
+# at `educates-secrets/local-root-ca`. Cross-namespace ingress refs
+# auto-derive the SecretCopier rules pulling both into the operator
+# namespace.
 
 lookup-service:
   enabled: false
@@ -18,48 +19,38 @@ session-manager:
   image:
     tag: "3.7.1"
 
-  config:
-    operator:
-      namespace: educates
-    clusterIngress:
-      domain: ${DOMAIN}
-      protocol: https
-      tlsCertificateRef:
-        name: educateswildcard
-        namespace: educates
-      caCertificateRef:
-        name: local-root-ca
-        namespace: educates
-    clusterSecurity:
-      policyEngine: kyverno
-    version: "3.7.1"
-    imageRegistry:
-      host: ghcr.io
-      namespace: educates
-    trainingPortal:
-      credentials:
-        admin:
-          username: educates
-          password: educates
-        robot:
-          username: robot@educates
-          password: robot
-      clients:
-        robot:
-          id: robot-client-id
-          secret: robot-client-secret
+  clusterIngress:
+    domain: ${DOMAIN}
+    # protocol auto-derives to "https" because tlsCertificateRef.name is set.
+    tlsCertificateRef:
+      name: educateswildcard
+      namespace: educates-secrets
+    caCertificateRef:
+      name: local-root-ca
+      namespace: educates-secrets
 
-  secretPropagation:
-    imagePullSecretNames: []
-    upstream:
-      imagePullSecrets: []
-      websiteThemes: []
-      ingressTLS:
-        name: educateswildcard
-        namespace: educates-secrets
-      ingressCA:
-        name: local-root-ca
-        namespace: educates-secrets
+  clusterSecurity:
+    policyEngine: Kyverno
+
+  workshopSecurity:
+    rulesEngine: Kyverno
+
+  imageRegistry:
+    host: ghcr.io
+    namespace: educates
+
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
 
   imagePuller:
     enabled: false

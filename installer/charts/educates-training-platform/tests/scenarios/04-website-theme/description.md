@@ -1,7 +1,8 @@
 # Scenario 04 — Custom default website theme
 
-Validates the chart's `session-manager.websiteTheme` value: a top-level
-map of `<filename>: <content>` entries that the chart serialises into
+Validates the chart's `session-manager.websiteStyling.inline` block:
+structured `{html,script,style}` triples that the chart maps to the
+flat `<filename>: <content>` shape the runtime expects, written into
 the `default-website-theme` Secret in the operator namespace.
 
 ## What's tested
@@ -20,7 +21,7 @@ not just the chart's Secret-rendering.
 
 Same as scenario 01 (HTTP, nip.io domain, no TLS) — the website-theme
 value is orthogonal to TLS, so we use the simplest base. The only
-chart-values delta from 01 is the `websiteTheme` block.
+chart-values delta from 01 is the `websiteStyling.inline` block.
 
 ## Out of scope
 

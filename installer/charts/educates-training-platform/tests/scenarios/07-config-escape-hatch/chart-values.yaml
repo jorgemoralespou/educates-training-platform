@@ -1,0 +1,59 @@
+# Same as scenario 01 + uses the `config:` opaque escape hatch to:
+#   1. Override a typed value (`dockerDaemon.networkMTU`) — proves
+#      `config:` deep-merges on top of typed-derived values, with
+#      `config:` winning on conflict.
+#   2. Add an arbitrary runtime field not represented in the typed
+#      surface (`experimental.markerKey`) — proves the chart passes
+#      unknown fields through untouched, which is the whole point of
+#      the escape hatch (newly-added runtime fields land here first).
+#
+# The post-deploy hook reads the live `educates-config` Secret in the
+# operator namespace and asserts both effects.
+
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+secrets-manager:
+  image:
+    tag: "3.7.1"
+
+session-manager:
+  image:
+    tag: "3.7.1"
+
+  clusterIngress:
+    domain: ${DOMAIN}
+
+  clusterSecurity:
+    policyEngine: Kyverno
+
+  workshopSecurity:
+    rulesEngine: Kyverno
+
+  imageRegistry:
+    host: ghcr.io
+    namespace: educates
+
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
+
+  imagePuller:
+    enabled: false
+
+  config:
+    dockerDaemon:
+      networkMTU: 1450
+    experimental:
+      markerKey: scenario-07-marker

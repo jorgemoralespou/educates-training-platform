@@ -1,8 +1,9 @@
-# Same as scenario 01 plus a single user-supplied Kyverno ClusterPolicy
-# in `kyvernoPolicies`, on top of the default-bundled baseline + ops set.
-# The post-deploy hook asserts both that the per-environment ClusterPolicy
-# the runtime spawns contains rules from the bundle, and that the
-# user-supplied marker rule is among them.
+# Same as scenario 01 plus user-supplied Kyverno ClusterPolicy
+# extras on both paths (cluster-wide via clusterSecurity, per-workshop
+# via workshopSecurity), on top of the chart-bundled baseline + ops
+# set. The post-deploy hook asserts both that the per-environment
+# ClusterPolicy the runtime spawns contains rules from the bundle, and
+# that the user-supplied marker rule is among them.
 
 lookup-service:
   enabled: false
@@ -17,53 +18,32 @@ session-manager:
   image:
     tag: "3.7.1"
 
-  config:
-    operator:
-      namespace: educates
-    clusterIngress:
-      domain: ${DOMAIN}
-      protocol: http
-      tlsCertificateRef:
-        name: ""
-        namespace: ""
-      caCertificateRef:
-        name: ""
-        namespace: ""
-    clusterSecurity:
-      policyEngine: kyverno
-    workshopSecurity:
-      rulesEngine: kyverno
-    version: "3.7.1"
-    imageRegistry:
-      host: ghcr.io
-      namespace: educates
-    trainingPortal:
-      credentials:
-        admin:
-          username: educates
-          password: educates
-        robot:
-          username: robot@educates
-          password: robot
-      clients:
-        robot:
-          id: robot-client-id
-          secret: robot-client-secret
+  clusterIngress:
+    domain: ${DOMAIN}
 
-  # Default bundled set: cluster-wide ClusterPolicies (baseline +
-  # restricted) plus the workshop-policies feed (operational + the
-  # internal require-ingress-session-name). Defaults are written
-  # explicitly so any future change to the chart default is detected
-  # by this scenario.
-  bundledKyvernoPolicies:
-    clusterPolicies: true
-    workshopPolicies: true
+  imageRegistry:
+    host: ghcr.io
+    namespace: educates
 
-  # User-supplied extras on both paths.
-  additionalKyvernoPolicies:
-    # Cluster-wide: the chart applies these directly. The post-deploy
-    # hook asserts the named ClusterPolicy is present in the cluster.
-    clusterPolicies:
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
+
+  # Cluster-wide policy enforcement via Kyverno. The chart applies the
+  # bundled cluster-policies (PSS baseline + restricted) plus the
+  # user-supplied marker ClusterPolicy below.
+  clusterSecurity:
+    policyEngine: Kyverno
+    additionalKyvernoPolicies:
       - apiVersion: kyverno.io/v1
         kind: ClusterPolicy
         metadata:
@@ -82,10 +62,14 @@ session-manager:
                 cel:
                   expressions:
                     - expression: "true"
-    # Workshop-policies: appended to the kyverno-policies.yaml feed and
-    # cloned into educates-environment-<env>. The post-deploy hook
-    # asserts the rule name appears on the per-env ClusterPolicy.
-    workshopPolicies:
+
+  # Per-workshop rules via Kyverno. The chart appends the user marker
+  # to the bundled workshop-policies feed; session-manager clones the
+  # combined set per-environment and the post-deploy hook asserts the
+  # marker rule appears on `educates-environment-<env>`.
+  workshopSecurity:
+    rulesEngine: Kyverno
+    additionalKyvernoPolicies:
       - apiVersion: kyverno.io/v1
         kind: ClusterPolicy
         metadata:
@@ -104,18 +88,6 @@ session-manager:
                 cel:
                   expressions:
                     - expression: "true"
-
-  secretPropagation:
-    imagePullSecretNames: []
-    upstream:
-      imagePullSecrets: []
-      websiteThemes: []
-      ingressTLS:
-        name: ""
-        namespace: ""
-      ingressCA:
-        name: ""
-        namespace: ""
 
   imagePuller:
     enabled: false

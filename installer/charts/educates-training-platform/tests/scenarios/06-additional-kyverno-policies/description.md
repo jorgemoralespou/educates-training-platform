@@ -9,19 +9,19 @@ the `kyverno-policies.yaml` Secret feed.
 
 Two independent paths land in the cluster:
 
-- **`clusterPolicies` path** — `bundledKyvernoPolicies.clusterPolicies:
-  true` causes the chart to apply both Pod Security Standards profiles
+- **Cluster-wide path** — `clusterSecurity.policyEngine: Kyverno`
+  causes the chart to apply both Pod Security Standards profiles
   (baseline + restricted) as cluster-wide ClusterPolicy resources.
-- **`workshopPolicies` path** — `bundledKyvernoPolicies.workshopPolicies:
-  true` writes the operational policies + the Educates-internal
+- **Per-workshop path** — `workshopSecurity.rulesEngine: Kyverno`
+  writes the operational policies + the Educates-internal
   `require-ingress-session-name` into the `kyverno-policies.yaml`
   Secret feed. session-manager reads it and spawns one
   `educates-environment-<env>` ClusterPolicy per workshop, cloning
   each rule with a namespace selector.
 
 User-supplied extras travel on both paths through
-`additionalKyvernoPolicies.clusterPolicies` (installed directly) and
-`additionalKyvernoPolicies.workshopPolicies` (appended to the Secret
+`clusterSecurity.additionalKyvernoPolicies` (installed directly) and
+`workshopSecurity.additionalKyvernoPolicies` (appended to the Secret
 feed).
 
 The `post-deploy.sh` hook asserts:
@@ -30,7 +30,7 @@ The `post-deploy.sh` hook asserts:
   - `disallow-privileged-containers` (bundled baseline)
   - `require-run-as-nonroot` (bundled restricted)
   - `scenario-06-cluster-marker` (user-supplied via
-    `additionalKyvernoPolicies.clusterPolicies`)
+    `clusterSecurity.additionalKyvernoPolicies`)
 - Per-environment `educates-environment-*` ClusterPolicy present with
   rules:
   - `no-loadbalancer-service` (bundled operational — the
@@ -39,16 +39,13 @@ The `post-deploy.sh` hook asserts:
     that name when cloning the single-rule policy)
   - `require-ingress-session-name` (bundled Educates-internal)
   - `scenario-06-workshop-marker` (user-supplied via
-    `additionalKyvernoPolicies.workshopPolicies`)
+    `workshopSecurity.additionalKyvernoPolicies`)
 
 ## Layout
 
-Same as scenario 01 (HTTP, nip.io domain). `bundledKyvernoPolicies`
-defaults are written explicitly in `chart-values.yaml` so any change
-to the chart-level default is detected by this scenario. The
-user-supplied marker policy is a CEL ClusterPolicy that always
-evaluates `true` (never denies anything) — exists only to be
-detectable by name.
+Same as scenario 01 (HTTP, nip.io domain). The user-supplied marker
+policies are CEL ClusterPolicies that always evaluate `true` (never
+deny anything) — they exist only to be detectable by name.
 
 ## Out of scope
 
@@ -57,7 +54,7 @@ detectable by name.
   Kyverno violation events. The chart-side wiring (rule names reach
   the per-env policy and ClusterPolicies appear cluster-wide) is
   what's under test here, not Kyverno itself.
-- Toggle-off coverage. The chart values
-  `bundledKyvernoPolicies.{clusterPolicies,workshopPolicies}` are
-  default-`true`. Add a sibling scenario for the disabled case if
-  needed.
+- Toggle-off coverage for the bundles. With the typed-values shape,
+  toggling off is `clusterSecurity.policyEngine: None` /
+  `workshopSecurity.rulesEngine: None`. Add a sibling scenario for
+  the disabled case if needed.

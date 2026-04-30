@@ -1,0 +1,28 @@
+# Config for `educates local cluster create --config <this-file>`.
+#
+# Same prerequisites as scenario 01 — only the chart's runtime-config
+# escape hatch differs.
+
+clusterInfrastructure:
+  provider: kind
+
+clusterSecurity:
+  policyEngine: kyverno
+
+clusterIngress:
+  domain: ${DOMAIN}
+  protocol: http
+
+clusterPackages:
+  contour:
+    enabled: true
+  kyverno:
+    enabled: true
+  cert-manager:
+    enabled: false
+  external-dns:
+    enabled: false
+  certs:
+    enabled: false
+  educates:
+    enabled: false

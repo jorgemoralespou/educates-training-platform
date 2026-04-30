@@ -23,36 +23,31 @@ session-manager:
   imagePullSecrets:
     - name: test-pull-secret
 
-  config:
-    operator:
-      namespace: educates
-    clusterIngress:
-      domain: ${DOMAIN}
-      protocol: http
-      tlsCertificateRef:
-        name: ""
-        namespace: ""
-      caCertificateRef:
-        name: ""
-        namespace: ""
-    clusterSecurity:
-      policyEngine: kyverno
-    version: "3.7.1"
-    imageRegistry:
-      host: ghcr.io
-      namespace: educates
-    trainingPortal:
-      credentials:
-        admin:
-          username: educates
-          password: educates
-        robot:
-          username: robot@educates
-          password: robot
-      clients:
-        robot:
-          id: robot-client-id
-          secret: robot-client-secret
+  clusterIngress:
+    domain: ${DOMAIN}
+
+  clusterSecurity:
+    policyEngine: Kyverno
+
+  workshopSecurity:
+    rulesEngine: Kyverno
+
+  imageRegistry:
+    host: ghcr.io
+    namespace: educates
+
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
 
   secretPropagation:
     # Distribute this Secret name from operator NS to every portal /
@@ -66,13 +61,6 @@ session-manager:
       # by pre-install.sh.
       imagePullSecrets:
         - { name: test-pull-secret, namespace: educates-secrets }
-      websiteThemes: []
-      ingressTLS:
-        name: ""
-        namespace: ""
-      ingressCA:
-        name: ""
-        namespace: ""
 
   imagePuller:
     enabled: false
