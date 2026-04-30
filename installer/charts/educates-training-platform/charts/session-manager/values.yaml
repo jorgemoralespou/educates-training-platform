@@ -32,14 +32,6 @@ clusterIngress:
     name: ""
     namespace: ""
 
-  # When a CA is provided, optionally inject it into cluster nodes via the
-  # node-ca-injector DaemonSet. DaemonSet rendering is not yet wired; the
-  # value is accepted and validated, but no resources are produced for it
-  # in this chart version. Operator/installer will consume it once the
-  # DaemonSet template lands.
-  caNodeInjector:
-    enabled: false
-
 # =============================================================================
 # Security policy enforcement
 # =============================================================================

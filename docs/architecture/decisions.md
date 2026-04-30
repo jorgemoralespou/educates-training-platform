@@ -495,3 +495,75 @@ helper enforces non-empty resolved values at template time.
 each component from individual chart installs without the umbrella
 wrapper), or if the duplicated helpers grow significantly, extract a
 shared library chart that all subcharts depend on.
+
+### node-ca-injector is its own subchart, not a flag inside session-manager
+
+**Date:** 2026-04-30.
+**Decision:** The cluster-node CA injection feature lives in its own
+subchart (`installer/charts/educates-training-platform/charts/node-ca-injector/`),
+sibling to session-manager / lookup-service / secrets-manager / remote-
+access. The toggle is the umbrella's `node-ca-injector.enabled: false`
+(default off), via Helm's standard subchart-condition mechanism. The
+subchart consumes `global.clusterIngress.caCertificateRef` (with
+subchart-local fall-back for standalone) and bails fast at template
+time if the resolved CA ref is empty. The earlier-considered
+`session-manager.clusterIngress.caNodeInjector.enabled` field is
+removed entirely from the values surface.
+
+**Why a separate subchart:**
+
+- *Source layout match.* `node-ca-injector/` already exists as a
+  top-level Go module with its own Dockerfile in this repo. The chart
+  layout now mirrors the source.
+- *Lifecycle independence.* It's a privileged per-node DaemonSet plus
+  a controller Deployment, with its own image, RBAC, and operational
+  story. Nothing about it logically belongs to session-manager's
+  release.
+- *Mirrors the remote-access precedent.* remote-access is also a
+  small, optional, single-purpose subchart with its own toggle.
+  node-ca-injector fits the same shape exactly.
+- *Cleaner toggle UX.* `node-ca-injector.enabled: true` at the
+  umbrella is more discoverable than a nested
+  `global.clusterIngress.caNodeInjector.enabled: true`.
+- *Standalone install.* Someone running v3 elsewhere who wants
+  containerd-level CA trust on a new cluster can `helm install
+  node-ca-injector` alone with just a CA Secret reference — they don't
+  need the rest of the runtime.
+
+**What it renders (mirroring v3's `07-node-ca-injector.yaml`):**
+
+- `ServiceAccount` `node-ca-injector` in the release namespace.
+- `ClusterRole`/`ClusterRoleBinding` `educates-node-ca-injector`
+  granting `get/list/watch` on Ingresses (controller watches them to
+  derive the registry-host list).
+- `Role`/`RoleBinding` `node-ca-injector` granting full ConfigMap
+  management in the release namespace (controller writes the
+  `educates-registry-hosts` ConfigMap; DaemonSet pods mount it).
+- `Deployment` `node-ca-injector-controller` (1 replica, runs
+  `controller` subcommand).
+- `DaemonSet` `node-ca-injector` (privileged, runs `sync` subcommand,
+  mounts the CA Secret + the hosts ConfigMap + hostPath
+  `/etc/containerd/certs.d`).
+- `SecretCopier` auto-derived when the CA ref's namespace is foreign.
+
+**Relationship to the per-pod ca-trust-store init container:** these
+are two complementary mechanisms.
+
+- *Per-pod init container* (in session-manager and lookup-service
+  Deployments) writes the CA into `/etc/pki/ca-trust` *inside the
+  pod*. Targets specific pods that need to verify TLS against the
+  private CA from inside their own process tree.
+- *node-ca-injector* writes containerd registry-CA configuration to
+  `/etc/containerd/certs.d` *on the host node*. Targets the
+  container runtime itself — image pulls from registries fronted by
+  the private CA, including pulls performed by pods we don't render
+  ourselves (third-party operators, kubelet, docker-in-docker workers
+  inside workshop sessions).
+
+Both can be enabled independently; both consume the same
+`global.clusterIngress.caCertificateRef`.
+
+**Why disabled by default:** the DaemonSet runs privileged on every
+node and writes host filesystem state (`/etc/containerd/certs.d`).
+Defaulting it to off matches v3's behaviour and avoids surprising
+chart users who don't have a private CA.

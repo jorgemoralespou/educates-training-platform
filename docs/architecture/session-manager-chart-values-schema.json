@@ -93,14 +93,7 @@
             "description": "Empty for auto-derive from tlsCertificateRef."
           },
           "tlsCertificateRef": { "$ref": "#/definitions/secretRef" },
-          "caCertificateRef":  { "$ref": "#/definitions/secretRef" },
-          "caNodeInjector": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "enabled": { "type": "boolean" }
-            }
-          }
+          "caCertificateRef":  { "$ref": "#/definitions/secretRef" }
         }
       },
 

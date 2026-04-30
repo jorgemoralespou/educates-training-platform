@@ -32,3 +32,6 @@ dependencies:
   - name: session-manager
     version: 4.0.0-alpha.1
     condition: session-manager.enabled
+  - name: node-ca-injector
+    version: 4.0.0-alpha.1
+    condition: node-ca-injector.enabled

@@ -1,0 +1,53 @@
+# Values for the node-ca-injector subchart.
+#
+# Renders a controller Deployment + privileged per-node DaemonSet that
+# write containerd registry-CA configuration into /etc/containerd/certs.d
+# so containerd can pull images from registries fronted by the cluster's
+# private/self-signed CA. Default-OFF at the umbrella; opt in when a
+# private CA is in use AND containerd-level trust is needed.
+
+# Where Educates images are pulled from. Defaults compose image refs as
+# `{host}/{namespace}/educates-<name>:<Chart.appVersion>`. Override at the
+# umbrella under `global.imageRegistry` to redirect every Educates-image
+# reference (across all subcharts) in one knob.
+imageRegistry:
+  host: "ghcr.io"
+  namespace: "educates"
+
+image:
+  # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-node-ca-injector`.
+  # Empty `tag` falls through to `Chart.AppVersion`.
+  repository: ""
+  tag: ""
+  pullPolicy: ""
+
+# Image pull secret references in the operator namespace.
+imagePullSecrets: []
+
+# Cluster-wide ingress identity. Same shape as the umbrella's
+# `global.clusterIngress`; under the umbrella, set values there and they
+# propagate here automatically. This subchart consumes `caCertificateRef`
+# — without a Secret name, the rendered DaemonSet has nothing to mount and
+# the chart fails fast at template time.
+clusterIngress:
+  caCertificateRef:
+    name: ""
+    namespace: ""
+
+# Pod-level resource requests and limits for the controller Deployment
+# and the per-node DaemonSet.
+controller:
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+
+sync:
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "10m"
+    limits:
+      memory: "64Mi"

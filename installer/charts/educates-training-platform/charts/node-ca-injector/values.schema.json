@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Educates node-ca-injector subchart values",
+  "type": "object",
+  "additionalProperties": false,
+  "description": "Cross-cutting blocks (clusterIngress, imageRegistry) may come from the umbrella's `.global` instead of being set here. Subchart-local values pass through when globals are unset; globals win when both are set. Helpers enforce non-empty resolved values at template time.",
+
+  "definitions": {
+    "imageRef": {
+      "description": "Image reference. Empty `repository` falls through to the imageRegistry-derived default; empty `tag` falls through to Chart.AppVersion.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag":        { "type": "string" },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["", "Always", "IfNotPresent", "Never"]
+        }
+      }
+    },
+
+    "secretRef": {
+      "description": "Reference to a Kubernetes Secret. Empty `name` means the ref is unset.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name":      { "type": "string" },
+        "namespace": { "type": "string" }
+      }
+    },
+
+    "podResources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resources": { "type": "object" }
+      }
+    }
+  },
+
+  "properties": {
+    "imageRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host":      { "type": "string" },
+        "namespace": { "type": "string" }
+      }
+    },
+
+    "image": { "$ref": "#/definitions/imageRef" },
+
+    "imagePullSecrets": {
+      "description": "Pod-spec imagePullSecrets attached to the controller and DaemonSet pods. Standard Kubernetes [{name: ...}] shape.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "clusterIngress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "caCertificateRef": { "$ref": "#/definitions/secretRef" }
+      }
+    },
+
+    "controller": { "$ref": "#/definitions/podResources" },
+    "sync":       { "$ref": "#/definitions/podResources" },
+
+    "enabled": { "type": "boolean" },
+    "global":  { "type": "object" }
+  }
+}

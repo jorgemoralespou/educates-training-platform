@@ -1,0 +1,19 @@
+apiVersion: v2
+name: node-ca-injector
+description: |
+  Educates node-ca-injector. Renders a controller Deployment + privileged
+  per-node DaemonSet that watches Ingress resources, derives the set of
+  hosts to trust the cluster's wildcard CA against, and writes per-host
+  containerd registry-CA configuration into /etc/containerd/certs.d on
+  each node. Used so containerd can pull images from registries fronted
+  by a private/self-signed CA without manual node configuration.
+
+  Defaults to disabled at the umbrella level (`node-ca-injector.enabled:
+  false`); opt in when a private CA is in use AND containerd-level trust
+  is needed (e.g., image pulls from a private registry behind that CA).
+  Per-pod CA trust is handled separately by the ca-trust-store init
+  container in the session-manager and lookup-service Deployments.
+type: application
+version: 4.0.0-alpha.1
+appVersion: "3.7.1"
+kubeVersion: ">=1.31.0-0"

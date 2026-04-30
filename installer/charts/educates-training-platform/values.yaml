@@ -63,3 +63,13 @@ remote-access:
 
 session-manager:
   enabled: true
+
+# `node-ca-injector` renders a privileged per-node DaemonSet that writes
+# containerd registry-CA configuration into /etc/containerd/certs.d on
+# every node. Off by default; opt in only when a private/self-signed CA is
+# in use AND containerd-level trust is required (e.g., image pulls from a
+# private registry behind that CA). Per-pod CA trust is handled separately
+# by the ca-trust-store init container in session-manager and lookup-
+# service.
+node-ca-injector:
+  enabled: false

@@ -39,10 +39,10 @@ clusterIngress:
     name: ""
     namespace: ""
 
-  # When a CA is provided, optionally inject it into cluster nodes via the
-  # node-ca-injector DaemonSet.
-  caNodeInjector:
-    enabled: false
+# Note: cluster-node CA injection is its own subchart (`node-ca-injector`)
+# at the umbrella, not a flag here. It consumes `global.clusterIngress.
+# caCertificateRef` and is enabled via the umbrella's `node-ca-injector.
+# enabled` toggle (default off).
 
 # =============================================================================
 # Security policy enforcement
