@@ -17,6 +17,16 @@
           "enum": ["", "Always", "IfNotPresent", "Never"]
         }
       }
+    },
+
+    "secretRef": {
+      "description": "Reference to a Kubernetes Secret. Empty `name` means the ref is unset.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name":      { "type": "string" },
+        "namespace": { "type": "string" }
+      }
     }
   },
 
@@ -47,28 +57,22 @@
 
     "resources": { "type": "object" },
 
+    "clusterIngress": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cluster-wide ingress identity. Same shape as the umbrella's `global.clusterIngress`; under the umbrella, set values there and they propagate here.",
+      "properties": {
+        "tlsCertificateRef": { "$ref": "#/definitions/secretRef" },
+        "caCertificateRef":  { "$ref": "#/definitions/secretRef" }
+      }
+    },
+
     "ingress": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "host":      { "type": "string" },
-        "className": { "type": "string" },
-        "tls": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "secretName": { "type": "string" }
-          }
-        }
-      }
-    },
-
-    "caTrust": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "secretName": { "type": "string" },
-        "initImage":  { "$ref": "#/definitions/imageRef" }
+        "className": { "type": "string" }
       }
     },
 

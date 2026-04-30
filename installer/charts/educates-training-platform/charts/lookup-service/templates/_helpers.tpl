@@ -61,19 +61,32 @@ IfNotPresent
 {{- end -}}
 {{- end -}}
 
-{{- define "lookup-service.caTrust.image.tag" -}}
-{{- default .Chart.AppVersion .Values.caTrust.initImage.tag -}}
+{{/*
+Resolve the clusterIngress block by deep-merging the umbrella's
+`global.clusterIngress` over the subchart's local `clusterIngress`. Globals
+win where set; subchart-local defaults pass through otherwise.
+*/}}
+{{- define "lookup-service.resolvedClusterIngress" -}}
+{{- $local := default dict .Values.clusterIngress -}}
+{{- $global := default dict (default dict .Values.global).clusterIngress -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
 {{- end -}}
 
-{{- define "lookup-service.caTrust.image.pullPolicy" -}}
-{{- if .Values.caTrust.initImage.pullPolicy -}}
-{{ .Values.caTrust.initImage.pullPolicy }}
-{{- else -}}
-{{- $tag := include "lookup-service.caTrust.image.tag" . -}}
-{{- if or (eq $tag "latest") (eq $tag "main") (eq $tag "master") (eq $tag "develop") -}}
-Always
-{{- else -}}
-IfNotPresent
-{{- end -}}
-{{- end -}}
+{{/*
+Render the ca-trust-store init container + volumes/volumeMounts when the
+resolved clusterIngress.caCertificateRef.name is set. Reuses the main
+lookup-service image (Fedora-based, has `update-ca-trust` and `tar`) so no
+extra image pull happens. The init container reads the CA from a Secret
+mounted at /etc/pki/ca-trust/source/anchors/Cluster_Ingress_CA.pem, runs
+`update-ca-trust`, and writes the populated trust store to /mnt — the main
+container then mounts that same emptyDir at /etc/pki/ca-trust read-only.
+
+Mirrors v3's overlay-ca-injector.yaml. Required when lookup-service must
+verify TLS against a private/self-signed CA when calling other clusters'
+endpoints.
+*/}}
+{{- define "lookup-service.caTrustEnabled" -}}
+{{- $ci := include "lookup-service.resolvedClusterIngress" . | fromYaml -}}
+{{- $caRef := default dict $ci.caCertificateRef -}}
+{{- if $caRef.name }}true{{- end -}}
 {{- end -}}

@@ -1,6 +1,9 @@
 {{- if not .Values.ingress.host }}
 {{- fail "lookup-service: .Values.ingress.host must be set (e.g. lookup.workshops.example.com)." }}
 {{- end }}
+{{- $ci := include "lookup-service.resolvedClusterIngress" . | fromYaml -}}
+{{- $tlsRef := default dict $ci.tlsCertificateRef -}}
+{{- $tlsSecret := $tlsRef.name -}}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -8,7 +11,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "lookup-service.labels" . | nindent 4 }}
-  {{- if .Values.ingress.tls.secretName }}
+  {{- if $tlsSecret }}
   annotations:
     ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
@@ -29,9 +32,9 @@ spec:
                 name: lookup-service
                 port:
                   number: 80
-  {{- with .Values.ingress.tls.secretName }}
+  {{- if $tlsSecret }}
   tls:
     - hosts:
-        - {{ $.Values.ingress.host | quote }}
-      secretName: {{ . }}
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ $tlsSecret | quote }}
   {{- end }}
