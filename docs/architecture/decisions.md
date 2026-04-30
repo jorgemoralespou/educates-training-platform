@@ -82,7 +82,7 @@ mode), not by the runtime chart. Open item #2 in the development plan
 (vendor upstream charts at build time) applies to those operator-driven
 installs, not to these subcharts.
 
-### Runtime chart values shape is operator-driven, not v3-driven
+### Runtime chart values shape is operator-driven, not v3-driven  *(superseded 2026-04-30 — see "session-manager values are typed and standalone-friendly")*
 
 **Date:** 2026-04-27.
 **Decision:** The values shape of the `educates-training-platform` chart
@@ -287,3 +287,66 @@ wrap`/`unwrap` and similar relocation tools expect. Locking the shape now
 keeps the air-gapped path open without committing to a specific
 relocation tool (open item #4). No digest pinning at chart level for
 v0.1.0; pinning happens via published values files at release time.
+
+### session-manager values are typed and standalone-friendly  *(supersedes "Runtime chart values shape is operator-driven, not v3-driven")*
+
+**Date:** 2026-04-30.
+**Decision:** The `session-manager` subchart exposes its inputs as a
+typed, schema-validated values surface (see
+`docs/architecture/session-manager-chart-values.yaml` and the
+matching JSON schema). The well-known runtime fields — `clusterIngress`,
+`clusterSecurity`, `workshopSecurity`, `imageRegistry`, `imageVersions`,
+`trainingPortal`, `sessionCookies`, `clusterStorage`, `clusterRuntime`,
+`clusterNetwork`, `dockerDaemon`, `workshopAnalytics`, and
+`websiteStyling` — are top-level, typed values. The opaque `config:`
+map remains as an escape hatch deep-merged on top of the typed-derived
+runtime config; new fields land there first and get promoted to typed
+values in a subsequent release. SecretCopiers for ingress TLS/CA are
+auto-derived from `clusterIngress.{tls,ca}CertificateRef.namespace`
+when those refs target a foreign namespace; the explicit
+`secretPropagation.upstream.ingressTLS/ingressCA` knobs from the
+earlier shape are gone.
+
+**Why this supersedes the earlier decision:** The earlier framing was
+"the operator passes typed values, so the chart just needs to accept
+what the operator emits — don't mirror v3." That gave us a chart with
+one well-known runtime field (`clusterIngress`) typed and the rest
+flat-out opaque under `config:`. The development-plan note for the
+runtime chart explicitly calls it "what the Educates project will
+publish ongoing as the canonical Helm install for the runtime,"
+including for users who don't want the operator. Standalone users
+were therefore expected to write opaque YAML against the v3 schema
+from memory, *and* duplicate the same TLS/CA inputs in two different
+forms (`config.clusterIngress.tlsCertificateRef` and
+`secretPropagation.upstream.ingressTLS`). Both audiences — the
+operator and the standalone user — are better served by a single
+typed surface.
+
+The chart-side translation also lets us decouple presentation casing
+from runtime casing: chart values use PascalCase enums (`Kyverno`,
+`PodSecurityStandards`, `OpenShiftSCC`, `None`) per Kubernetes
+convention, while the runtime config blob continues to use lowercase,
+unchanged. No runtime change was required.
+
+**Consequences to be aware of:**
+- The chart fails fast at template time if `clusterIngress.domain` is
+  empty, instead of silently falling through to the runtime's
+  `educates-local-dev.test` default. This is a deliberate change — the
+  default existed for the runtime's own development; production
+  installs should never hit it.
+- `additionalProperties: false` on every typed block in the schema
+  catches typos, but means new runtime fields land in `config:` until
+  promoted. Plan for cross-version drift: runtime adds a field →
+  release N exposes it via `config:` → release N+1 promotes it to a
+  typed key.
+- Helm injects `enabled` and `global` into subchart values; both are
+  whitelisted in the schema.
+- The `imagePullSecrets` schema item is `[{name: ...}]` (PodSpec
+  shape), not `[string]` — it flows directly into the Deployment's
+  PodSpec, so the standard k8s shape applies.
+
+**Reconsider trigger:** if the operator ever needs values the
+standalone user wouldn't (or vice versa) and the typed surface starts
+forking by audience, split presentation: keep the typed shape as the
+canonical, expose a thinner operator-only surface that derives from
+it. Not anticipated for v4.
