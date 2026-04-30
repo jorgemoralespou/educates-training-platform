@@ -194,17 +194,15 @@ restructure into these top-level blocks (full field list in the doc):
   `bundledKyvernoPolicies.workshopPolicies` and
   `additionalKyvernoPolicies.workshopPolicies`.
 - `imageRegistry` — `host`, `namespace`.
-- `runtimeVersion` — single typed knob for the version of the Educates
-  *runtime* images. Default `"3.7.1"`. Decoupled from `Chart.appVersion`
-  because v4 is an installer change, not a runtime change. Used as the
-  chart-pod `image.tag` default, the pause image tag default, and the
-  `version` field auto-injected into the operator-config blob.
-- `imageVersions[]` — populated by default with the full set of images
-  the runtime can pull (Educates-published images pinned to `runtimeVersion`,
-  upstream images like `docker-in-docker` and `loftsh-*` pinned to their
-  upstream tags). Mirrors v3's `images.yaml` so the list is discoverable in
-  the chart values surface. Helm replaces lists wholesale on user override —
-  documented two-place edit when bumping `runtimeVersion`.
+- `imageVersions[]` — empty by default; chart-shipped defaults are
+  produced by the `session-manager.imageVersions` template helper,
+  mirroring v3's `images.yaml`. Educates-published entries derive their
+  tag from `Chart.AppVersion`; upstream pins (`docker-in-docker`,
+  `loftsh-*`, `debian-base`) are hard-coded to specific tags. User
+  values are merged BY NAME — overrides replace just the matching
+  default, other defaults pass through, names not in the default list
+  are appended (forward-compat). Used for airgap relocation and feature-
+  image variants.
 - Top-level `image`, `imagePullSecrets[]` (chart-pod pull only — distinct
   from `secretPropagation.imagePullSecretNames`), `resources`,
   `clusterAdmin` (default `false`, changed from v3 default of `true`).

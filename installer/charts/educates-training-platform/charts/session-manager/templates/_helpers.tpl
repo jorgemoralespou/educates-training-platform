@@ -13,7 +13,7 @@ deployment: session-manager
 {{- end -}}
 
 {{- define "session-manager.image.tag" -}}
-{{- default .Values.runtimeVersion .Values.image.tag -}}
+{{- default .Chart.AppVersion .Values.image.tag -}}
 {{- end -}}
 
 {{- define "session-manager.image.pullPolicy" -}}
@@ -30,7 +30,7 @@ IfNotPresent
 {{- end -}}
 
 {{- define "session-manager.pause.image.tag" -}}
-{{- default .Values.runtimeVersion .Values.imagePuller.pauseImage.tag -}}
+{{- default .Chart.AppVersion .Values.imagePuller.pauseImage.tag -}}
 {{- end -}}
 
 {{- define "session-manager.pause.image.pullPolicy" -}}
@@ -110,15 +110,77 @@ Each document is separated by `---\n`.
 {{- end -}}
 
 {{/*
+Default `imageVersions` set the chart ships, mirroring v3's
+carvel-installer `images.yaml`. Two kinds of entries:
+
+  - Educates-published images. Tag derived from `.Chart.AppVersion` so a
+    chart release that bumps the runtime moves these in lock-step.
+  - Upstream pins (docker-in-docker, loftsh-*, debian-base) that aren't
+    Educates-published. Hard-coded to specific upstream tags.
+
+User overrides in `.Values.imageVersions` are merged in BY NAME — each
+user entry replaces the default with the same `name`, but other defaults
+pass through untouched. Names not in this default list are appended,
+which preserves forward-compat with new runtime images.
+
+Returns the merged list as a YAML array string (consume via fromYamlArray).
+*/}}
+{{- define "session-manager.imageVersions" -}}
+{{- $repo := "ghcr.io/educates" -}}
+{{- $v := .Chart.AppVersion -}}
+{{- $defaults := list
+    (dict "name" "training-portal"         "image" (printf "%s/educates-training-portal:%s" $repo $v))
+    (dict "name" "docker-registry"         "image" (printf "%s/educates-docker-registry:%s" $repo $v))
+    (dict "name" "tunnel-manager"          "image" (printf "%s/educates-tunnel-manager:%s" $repo $v))
+    (dict "name" "image-cache"             "image" (printf "%s/educates-image-cache:%s" $repo $v))
+    (dict "name" "assets-server"           "image" (printf "%s/educates-assets-server:%s" $repo $v))
+    (dict "name" "contour-bundle"          "image" (printf "%s/educates-contour-bundle:%s" $repo $v))
+    (dict "name" "base-environment"        "image" (printf "%s/educates-base-environment:%s" $repo $v))
+    (dict "name" "jdk8-environment"        "image" (printf "%s/educates-jdk8-environment:%s" $repo $v))
+    (dict "name" "jdk11-environment"       "image" (printf "%s/educates-jdk11-environment:%s" $repo $v))
+    (dict "name" "jdk17-environment"       "image" (printf "%s/educates-jdk17-environment:%s" $repo $v))
+    (dict "name" "jdk21-environment"       "image" (printf "%s/educates-jdk21-environment:%s" $repo $v))
+    (dict "name" "conda-environment"       "image" (printf "%s/educates-conda-environment:%s" $repo $v))
+    (dict "name" "debian-base-image"       "image" "debian:sid-20230502-slim")
+    (dict "name" "docker-in-docker"        "image" "docker:27.5.1-dind")
+    (dict "name" "loftsh-kubernetes-v1.31" "image" "ghcr.io/loft-sh/kubernetes:v1.31.1")
+    (dict "name" "loftsh-kubernetes-v1.32" "image" "ghcr.io/loft-sh/kubernetes:v1.32.1")
+    (dict "name" "loftsh-kubernetes-v1.33" "image" "ghcr.io/loft-sh/kubernetes:v1.33.4")
+    (dict "name" "loftsh-kubernetes-v1.34" "image" "ghcr.io/loft-sh/kubernetes:v1.34.0")
+    (dict "name" "loftsh-vcluster"         "image" "ghcr.io/loft-sh/vcluster-oss:0.30.2")
+-}}
+{{- $overrides := dict -}}
+{{- range default list .Values.imageVersions -}}
+  {{- $_ := set $overrides .name .image -}}
+{{- end -}}
+{{- $merged := list -}}
+{{- $defaultNames := dict -}}
+{{- range $defaults -}}
+  {{- $name := .name -}}
+  {{- $image := .image -}}
+  {{- if hasKey $overrides $name -}}
+    {{- $image = index $overrides $name -}}
+  {{- end -}}
+  {{- $merged = append $merged (dict "name" $name "image" $image) -}}
+  {{- $_ := set $defaultNames $name true -}}
+{{- end -}}
+{{- range default list .Values.imageVersions -}}
+  {{- if not (hasKey $defaultNames .name) -}}
+    {{- $merged = append $merged (dict "name" .name "image" .image) -}}
+  {{- end -}}
+{{- end -}}
+{{- toYaml $merged -}}
+{{- end -}}
+
+{{/*
 Compose the `educates-operator-config.yaml` Secret content from typed values.
-Auto-injects `operator.namespace` (release ns) and `version` (.Values.runtimeVersion
-— the runtime image version, decoupled from the chart's own appVersion since v4
-does not ship a new runtime). Lowercases policy/rules engine names to match the
-runtime's expected casing. Materialises empty-string TLS/CA refs explicitly —
-the runtime reads these via xget() with no default, so absent keys become
-Python None and crash later when encoded as strings (see
-project_runtime_config_quirks memory). Deep-merges .Values.config on top so
-the escape hatch wins on conflict.
+Auto-injects `operator.namespace` (release ns) and `version` (.Chart.AppVersion
+— the bundled Educates runtime version, distinct from the chart-package
+`Chart.Version`). Lowercases policy/rules engine names to match the runtime's
+expected casing. Materialises empty-string TLS/CA refs explicitly — the runtime
+reads these via xget() with no default, so absent keys become Python None and
+crash later when encoded as strings (see project_runtime_config_quirks memory).
+Deep-merges .Values.config on top so the escape hatch wins on conflict.
 */}}
 {{- define "session-manager.operatorConfigYAML" -}}
 {{- $ci := .Values.clusterIngress -}}
@@ -141,7 +203,7 @@ the escape hatch wins on conflict.
 {{- $wstyle := default dict .Values.websiteStyling -}}
 {{- $typed := dict
   "operator" (dict "namespace" .Release.Namespace)
-  "version" .Values.runtimeVersion
+  "version" .Chart.AppVersion
   "clusterIngress" (dict
     "domain" $ci.domain
     "class" (default "" $ci.class)
@@ -161,7 +223,7 @@ the escape hatch wins on conflict.
     "host" (default "" $ir.host)
     "namespace" (default "" $ir.namespace)
   )
-  "imageVersions" (default list .Values.imageVersions)
+  "imageVersions" (include "session-manager.imageVersions" . | fromYamlArray)
   "trainingPortal" (dict
     "credentials" (dict
       "admin" (dict

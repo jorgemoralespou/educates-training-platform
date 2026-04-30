@@ -5,5 +5,5 @@ description: |
   for federated training portals.
 type: application
 version: 4.0.0-alpha.1
-appVersion: "4.0.0-alpha.1"
+appVersion: "3.7.1"
 kubeVersion: ">=1.31.0-0"

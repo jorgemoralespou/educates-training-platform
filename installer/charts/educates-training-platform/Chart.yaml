@@ -7,7 +7,11 @@ description: |
   `enabled` value.
 type: application
 version: 4.0.0-alpha.1
-appVersion: "4.0.0-alpha.1"
+# appVersion is the bundled Educates *runtime* version (the images session-manager
+# spawns and the chart-pod images themselves). Currently lags `version` because
+# v4 is an installer change and ships against the v3 runtime; will move in lock-
+# step with `version` once v4 has its own runtime release.
+appVersion: "3.7.1"
 kubeVersion: ">=1.31.0-0"
 home: https://educates.dev
 sources:

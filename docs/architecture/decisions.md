@@ -351,52 +351,69 @@ forking by audience, split presentation: keep the typed shape as the
 canonical, expose a thinner operator-only surface that derives from
 it. Not anticipated for v4.
 
-### `runtimeVersion` is decoupled from `Chart.appVersion`; `imageVersions` ships defaulted
+### Image tags derive from `Chart.appVersion`; `imageVersions` defaults via helper, merged by name
 
 **Date:** 2026-04-30.
-**Decision:** The session-manager subchart exposes a typed
-`runtimeVersion` value (default `"3.7.1"`) that drives the chart-pod
-`image.tag` default, the pause-image tag default, and the `version`
-field auto-injected into the operator-config blob. `imageVersions[]`
-ships pre-populated with the full set of runtime images (mirroring v3's
-`carvel-packages/installer/config/images.yaml`): Educates-published
-entries pinned to `runtimeVersion`, upstream entries (docker-in-docker,
-loftsh-*, debian-base) pinned to their specific upstream tags.
+**Decision:** The bundled Educates runtime version is `Chart.appVersion`
+in `Chart.yaml` — used as the default tag for the chart's own pods
+(session-manager, pause-container) AND for the Educates-published
+entries in the chart's default `imageVersions` set. The default
+`imageVersions` list (mirroring v3's
+`carvel-packages/installer/config/images.yaml`) is built in the
+`session-manager.imageVersions` template helper, with Educates-published
+tags derived from `Chart.appVersion` and upstream pins
+(`docker-in-docker`, `loftsh-*`, `debian-base-image`) hard-coded to
+specific tags. User-supplied entries in `.Values.imageVersions` are
+merged BY NAME — an override replaces just the matching default, other
+defaults pass through, names not in the default list are appended.
+The `Chart.appVersion` field is currently `"3.7.1"` (the v3 runtime we
+ship against) while `Chart.version` is `4.0.0-alpha.1` (the chart
+package); they may diverge if a chart-only patch ships, but normally
+move in lock-step at release time.
 
-**Why:** `Chart.appVersion` is the chart-package version (currently
-`4.0.0-alpha.1`). The v4 effort is an installer change — runtime images
-remain on the v3 series. Tying image tags to `Chart.appVersion`
+**Why `Chart.appVersion`:** It's the standard Helm pattern — `appVersion`
+denotes the bundled application's version, `version` denotes the chart
+package. Using `appVersion` for runtime tags means a release process
+that bumps `Chart.appVersion` automatically updates every runtime
+image reference; no parallel knob to keep in sync. Tying runtime tags
+to `Chart.version` instead, or auto-injecting it without distinction,
 silently broke session-manager's spawned children (training-portal,
 base-environment, etc.) with `ErrImagePull` against non-existent
-`4.0.0-alpha.1` images. Coupling the runtime image set to a separate
-typed knob fixes that and prepares for the (eventual) case where chart
-and runtime are released on independent cadences.
+`4.0.0-alpha.1` images.
 
-**Why ship `imageVersions` defaulted instead of leaving it empty:** v3's
-ytt installer auto-rendered the full list per `images.yaml`, giving
-chart users a discoverable, documented inventory of every image the
-runtime can pull plus the upstream pins (docker, loftsh-*, debian).
-Leaving `imageVersions: []` lost that visibility and silently broke
-upstream-pinned images that aren't published as
-`ghcr.io/educates/educates-<name>:<version>`. Hard-coding the list in
-`values.yaml` restores both properties — the inventory is in the values
-surface, not hidden in template helpers.
+**Why a helper, not a populated `values.yaml` default:** Chart users
+typically don't need to see the full image inventory in their values
+file — they just want overrides for the entries they're changing
+(airgap, JDK variant, mirror). Per-key merge means a single override
+doesn't require copying the whole list. The helper is the documented
+inventory; the values file stays focused on the overrides.
+
+**Why per-key merge instead of Helm's default list-replacement:** v3's
+UX required overriding the entire `imageVersions` list to change one
+entry. Per-key merge in the helper is strictly better — chart users
+override only what they need and inherit the rest, including any new
+entries the chart adds in future releases.
 
 **Consequences to be aware of:**
-- Bumping `runtimeVersion` is a documented two-place edit: change the
-  knob *and* update each Educates-published `imageVersions` entry's
-  tag. Upstream pins are independent and don't follow `runtimeVersion`.
-- Helm replaces lists wholesale on user override. Adding or modifying a
-  single entry means copying the full default list into the user's
-  values file. This is the same UX as v3.
-- `imageRegistry.host` / `.namespace` only affect images that fall
+- A release that bumps the runtime updates `Chart.appVersion` in the
+  umbrella chart and the four subchart `Chart.yaml`s. Standard Helm
+  release process; no parallel values-file edit needed.
+- The full default image inventory lives in
+  `templates/_helpers.tpl::session-manager.imageVersions` — keep this
+  in sync with `session-manager/handlers/operator_config.py`'s
+  `image_reference()` short-name list when adding new runtime images.
+- A user override with a `name` not in the helper's defaults is
+  appended (forward-compat). A user override matching a default `name`
+  replaces just that entry's `image`.
+- `imageRegistry.host` / `.namespace` affect ONLY images that fall
   through to the runtime's `image_reference()` — i.e., images NOT in
-  `imageVersions`. For airgap relocation of the defaulted set, override
-  the `image:` field of each entry directly.
+  the merged `imageVersions` list. For airgap relocation of the
+  helper-defaulted set, override the `image:` field of the relevant
+  entries via `.Values.imageVersions`.
 
-**Reconsider trigger:** if the chart and runtime ever ship on independent
-release cadences such that bumping one doesn't always bump the other,
-revisit whether `imageVersions` should derive from `runtimeVersion` at
-template time (single source of truth, less discoverable) instead of
-being hand-maintained alongside it. Likely natural at the first v4-only
-runtime release.
+**Reconsider trigger:** if the helper-default list grows large enough
+that surfacing it in `values.yaml` is more useful than the per-key
+override UX, revisit. Or if `Chart.appVersion` and the runtime version
+need to diverge (a chart that bundles multiple runtime versions for
+selection at install time), promote the runtime version to a typed
+value at that point.
