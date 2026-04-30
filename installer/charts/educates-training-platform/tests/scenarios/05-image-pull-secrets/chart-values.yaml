@@ -15,10 +15,10 @@ secrets-manager:
 
 session-manager:
   # Override the repository to point at the auth'd local registry. Tag
-  # stays the same as the upstream image we mirrored in.
+  # inherits the chart default (= runtimeVersion: 3.7.1) — same as the
+  # upstream image we mirrored in.
   image:
     repository: educates-test-pull-registry:5000/educates/educates-session-manager
-    tag: "3.7.1"
   # Wire the pull secret into the Deployment's PodSpec.
   imagePullSecrets:
     - name: test-pull-secret

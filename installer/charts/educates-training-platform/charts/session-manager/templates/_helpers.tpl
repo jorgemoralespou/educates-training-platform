@@ -13,7 +13,7 @@ deployment: session-manager
 {{- end -}}
 
 {{- define "session-manager.image.tag" -}}
-{{- default .Chart.AppVersion .Values.image.tag -}}
+{{- default .Values.runtimeVersion .Values.image.tag -}}
 {{- end -}}
 
 {{- define "session-manager.image.pullPolicy" -}}
@@ -30,7 +30,7 @@ IfNotPresent
 {{- end -}}
 
 {{- define "session-manager.pause.image.tag" -}}
-{{- default .Chart.AppVersion .Values.imagePuller.pauseImage.tag -}}
+{{- default .Values.runtimeVersion .Values.imagePuller.pauseImage.tag -}}
 {{- end -}}
 
 {{- define "session-manager.pause.image.pullPolicy" -}}
@@ -111,12 +111,14 @@ Each document is separated by `---\n`.
 
 {{/*
 Compose the `educates-operator-config.yaml` Secret content from typed values.
-Auto-injects `operator.namespace` (release ns) and `version` (chart appVersion).
-Lowercases policy/rules engine names to match the runtime's expected casing.
-Materialises empty-string TLS/CA refs explicitly — the runtime reads these via
-xget() with no default, so absent keys become Python None and crash later when
-encoded as strings (see project_runtime_config_quirks memory).
-Deep-merges .Values.config on top so the escape hatch wins on conflict.
+Auto-injects `operator.namespace` (release ns) and `version` (.Values.runtimeVersion
+— the runtime image version, decoupled from the chart's own appVersion since v4
+does not ship a new runtime). Lowercases policy/rules engine names to match the
+runtime's expected casing. Materialises empty-string TLS/CA refs explicitly —
+the runtime reads these via xget() with no default, so absent keys become
+Python None and crash later when encoded as strings (see
+project_runtime_config_quirks memory). Deep-merges .Values.config on top so
+the escape hatch wins on conflict.
 */}}
 {{- define "session-manager.operatorConfigYAML" -}}
 {{- $ci := .Values.clusterIngress -}}
@@ -139,7 +141,7 @@ Deep-merges .Values.config on top so the escape hatch wins on conflict.
 {{- $wstyle := default dict .Values.websiteStyling -}}
 {{- $typed := dict
   "operator" (dict "namespace" .Release.Namespace)
-  "version" .Chart.AppVersion
+  "version" .Values.runtimeVersion
   "clusterIngress" (dict
     "domain" $ci.domain
     "class" (default "" $ci.class)

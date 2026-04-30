@@ -16,8 +16,7 @@ secrets-manager:
     tag: "3.7.1"
 
 session-manager:
-  image:
-    tag: "3.7.1"
+  # image.tag and imageVersions inherit the chart defaults (runtimeVersion: 3.7.1).
 
   clusterIngress:
     domain: ${DOMAIN}

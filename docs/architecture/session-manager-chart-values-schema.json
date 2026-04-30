@@ -145,6 +145,12 @@
         }
       },
 
+      "runtimeVersion": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Version of the Educates runtime. Used as the default tag for the chart's own session-manager + pause-container images, and as the `version` field in the operator-config blob (the runtime's fallback tag for images not in `imageVersions`)."
+      },
+
       "imageVersions": {
         "type": "array",
         "items": {

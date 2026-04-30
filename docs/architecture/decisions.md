@@ -350,3 +350,53 @@ standalone user wouldn't (or vice versa) and the typed surface starts
 forking by audience, split presentation: keep the typed shape as the
 canonical, expose a thinner operator-only surface that derives from
 it. Not anticipated for v4.
+
+### `runtimeVersion` is decoupled from `Chart.appVersion`; `imageVersions` ships defaulted
+
+**Date:** 2026-04-30.
+**Decision:** The session-manager subchart exposes a typed
+`runtimeVersion` value (default `"3.7.1"`) that drives the chart-pod
+`image.tag` default, the pause-image tag default, and the `version`
+field auto-injected into the operator-config blob. `imageVersions[]`
+ships pre-populated with the full set of runtime images (mirroring v3's
+`carvel-packages/installer/config/images.yaml`): Educates-published
+entries pinned to `runtimeVersion`, upstream entries (docker-in-docker,
+loftsh-*, debian-base) pinned to their specific upstream tags.
+
+**Why:** `Chart.appVersion` is the chart-package version (currently
+`4.0.0-alpha.1`). The v4 effort is an installer change — runtime images
+remain on the v3 series. Tying image tags to `Chart.appVersion`
+silently broke session-manager's spawned children (training-portal,
+base-environment, etc.) with `ErrImagePull` against non-existent
+`4.0.0-alpha.1` images. Coupling the runtime image set to a separate
+typed knob fixes that and prepares for the (eventual) case where chart
+and runtime are released on independent cadences.
+
+**Why ship `imageVersions` defaulted instead of leaving it empty:** v3's
+ytt installer auto-rendered the full list per `images.yaml`, giving
+chart users a discoverable, documented inventory of every image the
+runtime can pull plus the upstream pins (docker, loftsh-*, debian).
+Leaving `imageVersions: []` lost that visibility and silently broke
+upstream-pinned images that aren't published as
+`ghcr.io/educates/educates-<name>:<version>`. Hard-coding the list in
+`values.yaml` restores both properties — the inventory is in the values
+surface, not hidden in template helpers.
+
+**Consequences to be aware of:**
+- Bumping `runtimeVersion` is a documented two-place edit: change the
+  knob *and* update each Educates-published `imageVersions` entry's
+  tag. Upstream pins are independent and don't follow `runtimeVersion`.
+- Helm replaces lists wholesale on user override. Adding or modifying a
+  single entry means copying the full default list into the user's
+  values file. This is the same UX as v3.
+- `imageRegistry.host` / `.namespace` only affect images that fall
+  through to the runtime's `image_reference()` — i.e., images NOT in
+  `imageVersions`. For airgap relocation of the defaulted set, override
+  the `image:` field of each entry directly.
+
+**Reconsider trigger:** if the chart and runtime ever ship on independent
+release cadences such that bumping one doesn't always bump the other,
+revisit whether `imageVersions` should derive from `runtimeVersion` at
+template time (single source of truth, less discoverable) instead of
+being hand-maintained alongside it. Likely natural at the first v4-only
+runtime release.

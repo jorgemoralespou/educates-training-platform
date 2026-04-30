@@ -15,9 +15,8 @@ secrets-manager:
     tag: "3.7.1"
 
 session-manager:
-  image:
-    repository: ghcr.io/educates/educates-session-manager
-    tag: "3.7.1"
+  # image.tag inherits the chart default (= runtimeVersion: 3.7.1).
+  # imageVersions for the runtime children also default to 3.7.1.
 
   clusterIngress:
     domain: ${DOMAIN}
