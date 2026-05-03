@@ -11,7 +11,12 @@
 #       (installs cluster prerequisites; v3 Educates package is disabled)
 #   2. helm install ... -f <chart-values.yaml>  (installs v4 runtime)
 #   3. educates cluster portal create
-#   4. educates deploy-workshop -f <workshop URL>
+#   4. educates deploy-workshop:
+#      - If <scenario>/workshop/resources/workshop.yaml exists, the
+#        scenario-local workshop is published to localhost:5001 (the local
+#        registry that `educates local cluster create` stood up) and
+#        deployed from that path.
+#      - Otherwise the default WORKSHOP_URL is deployed.
 #   5. Pause for manual / Playwright verification (URL printed)
 #   6. educates local cluster delete
 #
@@ -263,8 +268,21 @@ educates cluster portal create
 ok "portal created"
 
 step "4/6  Deploy workshop"
-educates deploy-workshop -f "$WORKSHOP_URL"
-ok "workshop deployed: $WORKSHOP_URL"
+# Per-scenario workshop discovery: if `<scenario>/workshop/resources/workshop.yaml`
+# exists, publish that scenario-local workshop to the local registry (which
+# `educates local cluster create` stood up at localhost:5001) and deploy
+# from that path. Otherwise fall back to the default WORKSHOP_URL.
+SCEN_WORKSHOP_DIR="${SCEN_DIR}/workshop"
+SCEN_WORKSHOP_YAML="${SCEN_WORKSHOP_DIR}/resources/workshop.yaml"
+if [[ -f "$SCEN_WORKSHOP_YAML" ]]; then
+  echo "[runner] scenario-local workshop detected: ${SCEN_WORKSHOP_DIR}"
+  educates publish-workshop "$SCEN_WORKSHOP_DIR"
+  educates deploy-workshop -f "$SCEN_WORKSHOP_YAML"
+  ok "workshop published + deployed from $SCEN_WORKSHOP_DIR"
+else
+  educates deploy-workshop -f "$WORKSHOP_URL"
+  ok "workshop deployed: $WORKSHOP_URL"
+fi
 
 step "Resolving portal URL"
 PORTAL_URL=""
