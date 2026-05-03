@@ -567,3 +567,47 @@ Both can be enabled independently; both consume the same
 node and writes host filesystem state (`/etc/containerd/certs.d`).
 Defaulting it to off matches v3's behaviour and avoids surprising
 chart users who don't have a private CA.
+
+### Schema validation split: umbrella validates the umbrella + globals; subcharts validate themselves
+
+**Date:** 2026-05-03.
+**Decision:** The umbrella chart has its own `values.schema.json`
+focused on validating the cross-cutting `global:` block and the
+top-level shape (subchart toggles, no unknown keys). It does NOT
+re-validate each subchart's full values surface — every subchart
+ships its own `values.schema.json` and Helm validates each
+`.Values.<subchart>` block against the matching subchart schema
+independently. Subchart blocks at the umbrella level are typed as
+opaque `{ "type": "object" }`.
+
+**Why split this way:**
+
+- *No duplication.* Subchart shapes already live in subchart schemas;
+  copying them into the umbrella would mean two places to update on
+  every change.
+- *Catches the typos that fall through everywhere else.* Subchart
+  schemas treat `global` as opaque (correctly — they shouldn't
+  dictate the umbrella's contract). That meant a typo like
+  `global.clusterSecuirty.policyEngine: Kyverno` produced no error;
+  every subchart fell back to its local `clusterSecurity` defaults
+  and the user's intended override was silently dropped. The
+  umbrella schema closes this gap: `additionalProperties: false` on
+  every level of `global:` rejects the misspelling at template time.
+- *Catches unknown top-level keys.* Same `additionalProperties:
+  false` discipline at the umbrella root catches a user who
+  accidentally writes e.g. `sesion-manager:` (typo in subchart name)
+  — Helm would otherwise treat it as inert top-level data.
+
+**Verified:** all three classes of typo trigger a schema error at
+`helm template` time:
+- misspelled global key (e.g., `global.clusterSecuirty`),
+- misspelled global nested field (e.g.,
+  `global.imageRegistry.namespece`),
+- unknown top-level key (e.g., `sesion-manager`).
+
+**Reconsider trigger:** if global shapes start churning faster than
+the chart release cadence, or if cross-subchart validation invariants
+emerge that no single schema can express (e.g., "if X global is set
+then Y subchart toggle must be true"), revisit. Helm doesn't natively
+support cross-chart schema invariants — those would need a CI lint
+rather than a schema.
