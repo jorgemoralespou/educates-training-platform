@@ -40,13 +40,19 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "imageRegistry": {
-          "description": "Registry host + namespace prefix used to compose image refs. Override to redirect every Educates-image reference (chart pods + runtime children) at once.",
+        "development": {
+          "description": "Local-development overrides. Leave empty in normal use — Chart.yaml annotations on each subchart provide the publish-time defaults for image refs.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "host":      { "type": "string" },
-            "namespace": { "type": "string" }
+            "imageRegistry": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "host":      { "type": "string" },
+                "namespace": { "type": "string" }
+              }
+            }
           }
         },
 

@@ -13,14 +13,23 @@ app: lookup-service
 {{- end -}}
 
 {{/*
-Resolve the imageRegistry block by deep-merging the umbrella's
-`global.imageRegistry` over the subchart's local `imageRegistry`. Globals
-win where set; subchart-local defaults pass through otherwise.
+Resolve the effective imageRegistry for chart-rendered refs. Reads the
+development override (subchart-local + umbrella global, deep-merged) and
+falls back per-leaf to Chart.yaml annotations
+(`educates.dev/image-registry-host` / `-namespace`) when empty. The
+annotations are publish-time defaults updated by the release workflow.
 */}}
 {{- define "lookup-service.resolvedImageRegistry" -}}
-{{- $local := default dict .Values.imageRegistry -}}
-{{- $global := default dict (default dict .Values.global).imageRegistry -}}
-{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- $local := default dict (default dict .Values.development).imageRegistry -}}
+{{- $global := default dict (default dict (default dict .Values.global).development).imageRegistry -}}
+{{- $merged := mergeOverwrite (deepCopy $local) $global -}}
+{{- if not $merged.host -}}
+  {{- $_ := set $merged "host" (index .Chart.Annotations "educates.dev/image-registry-host" | default "") -}}
+{{- end -}}
+{{- if not $merged.namespace -}}
+  {{- $_ := set $merged "namespace" (index .Chart.Annotations "educates.dev/image-registry-namespace" | default "") -}}
+{{- end -}}
+{{- toYaml $merged -}}
 {{- end -}}
 
 {{- define "lookup-service.imageRegistryPrefix" -}}
@@ -32,7 +41,7 @@ win where set; subchart-local defaults pass through otherwise.
 {{- else if $host -}}
 {{ $host }}
 {{- else -}}
-{{- fail "imageRegistry.host is required (set globally under .global.imageRegistry or locally under lookup-service.imageRegistry)" -}}
+{{- fail "imageRegistry.host could not be resolved. Either set Chart.yaml annotation `educates.dev/image-registry-host` (publish-time default) or override locally via .development.imageRegistry / .global.development.imageRegistry." -}}
 {{- end -}}
 {{- end -}}
 

@@ -6,13 +6,13 @@
 # private/self-signed CA. Default-OFF at the umbrella; opt in when a
 # private CA is in use AND containerd-level trust is needed.
 
-# Where Educates images are pulled from. Defaults compose image refs as
-# `{host}/{namespace}/educates-<name>:<Chart.appVersion>`. Override at the
-# umbrella under `global.imageRegistry` to redirect every Educates-image
-# reference (across all subcharts) in one knob.
-imageRegistry:
-  host: "ghcr.io"
-  namespace: "educates"
+# Local-development override. Leave empty in normal use — image refs
+# resolve from Chart.yaml annotations (`educates.dev/image-registry-host`
+# / `-namespace`) which the chart's publish workflow updates per fork.
+development:
+  imageRegistry:
+    host: ""
+    namespace: ""
 
 image:
   # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-node-ca-injector`.

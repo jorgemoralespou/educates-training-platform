@@ -7,4 +7,7 @@ description: |
 type: application
 version: 4.0.0-alpha.1
 appVersion: "3.7.1"
+annotations:
+  educates.dev/image-registry-host: "ghcr.io"
+  educates.dev/image-registry-namespace: "educates"
 kubeVersion: ">=1.31.0-0"

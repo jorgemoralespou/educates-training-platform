@@ -1,13 +1,15 @@
 # Values for the lookup-service subchart.
 
-# Where Educates images are pulled from. Defaults compose image refs as
-# `{host}/{namespace}/educates-<name>:<Chart.appVersion>`. Override at the
-# umbrella level under `global.imageRegistry` to redirect every Educates-
-# image reference (across all subcharts) in one knob; this subchart-local
-# block remains as the standalone-install default.
-imageRegistry:
-  host: "ghcr.io"
-  namespace: "educates"
+# Local-development override. Leave empty in normal use — image refs
+# resolve from Chart.yaml annotations (`educates.dev/image-registry-host`
+# / `-namespace`) which the chart's publish workflow updates per fork.
+# Override at the umbrella level under `global.development.imageRegistry`
+# to redirect every Educates-image reference (across all subcharts) in
+# one knob.
+development:
+  imageRegistry:
+    host: ""
+    namespace: ""
 
 image:
   # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-lookup-service`.

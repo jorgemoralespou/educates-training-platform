@@ -9,3 +9,11 @@ type: application
 version: 4.0.0-alpha.1
 appVersion: "3.7.1"
 kubeVersion: ">=1.31.0-0"
+annotations:
+  # Publish-time defaults for the registry that hosts Educates images. The
+  # release workflow updates these per fork (via `yq -i`) so the chart that
+  # gets shipped points at the right registry without a values override.
+  # Override at install time only via `development.imageRegistry` (a
+  # local-dev knob — see values.yaml).
+  educates.dev/image-registry-host: "ghcr.io"
+  educates.dev/image-registry-namespace: "educates"

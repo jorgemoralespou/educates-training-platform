@@ -611,3 +611,113 @@ emerge that no single schema can express (e.g., "if X global is set
 then Y subchart toggle must be true"), revisit. Helm doesn't natively
 support cross-chart schema invariants — those would need a CI lint
 rather than a schema.
+
+### `imageRegistry` is a development override; publish-time defaults live in Chart.yaml annotations
+
+**Date:** 2026-05-05.
+**Decision:** The user-facing image-registry knob is renamed to
+`development.imageRegistry` (subchart-local) and
+`global.development.imageRegistry` (umbrella). It is **empty by default**
+and intended to be left empty in normal use. The publish-time default
+registry — what consumers of an upstream/fork chart see for chart-pod
++ runtime-children image refs — is sourced from Chart.yaml annotations:
+
+```yaml
+annotations:
+  educates.dev/image-registry-host: "ghcr.io"
+  educates.dev/image-registry-namespace: "educates"
+```
+
+The release workflow updates these annotations per fork (one `yq -i`
+call per Chart.yaml). Each subchart's helper resolves the effective
+prefix as: `development.imageRegistry` (user override) →
+`global.development.imageRegistry` (umbrella global) → Chart.yaml
+annotation → `fail`.
+
+The `development.imageRegistry` knob has TWO simultaneous effects when
+set:
+
+1. **Chart-rendered + runtime-spawned image refs** resolve against
+   `{host}/{namespace}` instead of the annotation defaults (chart pod,
+   pause container, every Educates-published entry in the
+   `imageVersions` helper).
+2. **The runtime config blob's `imageRegistry` field** is emitted with
+   the same `{host}/{namespace}`. The runtime exports
+   `IMAGE_REPOSITORY={host}/{namespace}` into workshop sessions, so
+   workshop YAMLs containing `$(image_repository)/<name>:<version>`
+   placeholders resolve there.
+
+When `development.imageRegistry` is empty (normal use), effect (2)
+emits an empty `imageRegistry` block into the runtime config — the
+runtime falls back to `registry.default.svc.cluster.local`
+(`session-manager/handlers/operator_config.py:35`), the in-cluster
+Service routing to the local development registry. Released workshops
+have fully-qualified content image refs in their YAMLs without
+`$(image_repository)` placeholders (the workshop's own publish workflow
+substitutes them at workshop-publish time), so the in-cluster fallback
+only matters for the local-dev workflow.
+
+**Why two helpers, not one:**
+
+- `resolvedImageRegistry` (with annotation fallback) → used to compose
+  chart-rendered refs. Always returns a populated value in normal use
+  (annotation provides it).
+- `resolvedDevelopmentImageRegistry` (NO annotation fallback, user/global
+  only) → used to compose the runtime config blob's `imageRegistry`
+  field. Returns empty in normal use, populated when the user overrides.
+
+This split is the whole point: chart pods need refs that work without
+user input (annotations supply them); the runtime config's
+`imageRegistry` field deliberately stays empty in normal use to avoid
+silently breaking the local-dev workflow when a user later runs
+`educates publish-workshop` against a "normal" install.
+
+**Why this supersedes the earlier `imageRegistry` decision:**
+
+The previous shape (`imageRegistry: { host: "ghcr.io", namespace:
+"educates" }` populated in subchart `values.yaml`) tangled three
+concerns:
+
+1. Where chart pods + runtime children pull their images from (a
+   publish-time concern — depends on which fork shipped the chart).
+2. The `IMAGE_REPOSITORY` env var workshops see (a per-install concern
+   — should be empty for the in-cluster fallback in normal use).
+3. The user-facing override knob (a relocation/dev concern).
+
+Conflating (1) and (2) silently broke the dev workflow on installs
+that left the populated default in place — a workshop with a
+`$(image_repository)` placeholder would resolve to `ghcr.io/educates/...`,
+not `localhost:5001`, and the pull would fail. v3 avoided this with
+its `imageRegistry: ""` default by-design schema (build-time refs were
+baked into the OCI bundle separately). The new split restores that
+separation: annotations carry (1), `development.imageRegistry` carries
+(3), the runtime config carries (2) only when (3) is set.
+
+**Why the `development:` namespace:**
+
+Renaming from `imageRegistry` to `development.imageRegistry` makes the
+intent explicit. The block is signal-named — anyone reading the values
+file sees "this is for development" before they read the comment.
+Mirrors the explicit framing in v3's schema comment
+(`carvel-packages/installer/.../00-schema.yaml:28-35`).
+
+**Consequences to be aware of:**
+
+- The release workflow MUST update Chart.yaml annotations per fork
+  (alongside `appVersion`). Without that step, a fork's published chart
+  points at upstream `ghcr.io/educates/...` rather than the fork's
+  registry. Document this in the release runbook.
+- Local-dev users set `global.development.imageRegistry` (umbrella) or
+  `<subchart>.development.imageRegistry` (standalone install) to point
+  at their local registry. `educates publish-workshop` and the workshop
+  runtime's `$(image_repository)` resolution then both honour the same
+  setting.
+- Helpers across the four image-rendering subcharts duplicate the
+  annotation-fallback logic (~10 lines each). Same scale of duplication
+  as the existing `resolvedImageRegistry` helpers; revisit only if a
+  library chart becomes warranted.
+
+**Reconsider trigger:** if Chart.yaml annotation editing turns out to
+be brittle in the release workflow (e.g., `yq` formatting drift), move
+the publish-time defaults to a chart-bundled `published-defaults.yaml`
+file loaded by the helper instead.

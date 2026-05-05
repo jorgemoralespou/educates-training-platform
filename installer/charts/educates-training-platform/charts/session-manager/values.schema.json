@@ -4,7 +4,7 @@
     "type": "object",
     "additionalProperties": false,
     "required": ["workshopSecurity"],
-    "description": "Cross-cutting blocks (clusterIngress, clusterSecurity, imageRegistry) may come from the umbrella's `.global` instead of being set here. Subchart-local values pass through when globals are unset; globals win when both are set. Helpers enforce non-empty resolved values at template time.",
+    "description": "Cross-cutting blocks (clusterIngress, clusterSecurity) may come from the umbrella's `.global` instead of being set here. The `development.imageRegistry` block also has a global counterpart (`.global.development.imageRegistry`). Subchart-local values pass through when globals are unset; globals win when both are set. Helpers enforce non-empty resolved values at template time.",
 
     "definitions": {
 
@@ -128,12 +128,19 @@
         }
       },
 
-      "imageRegistry": {
+      "development": {
+        "description": "Local-development overrides. Leave empty in normal use — Chart.yaml annotations (`educates.dev/image-registry-{host,namespace}`) provide the publish-time defaults for chart-rendered image refs, and the runtime falls back to `registry.default.svc.cluster.local` for `$(image_repository)` workshop-content placeholder resolution.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "host":      { "type": "string" },
-          "namespace": { "type": "string" }
+          "imageRegistry": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host":      { "type": "string" },
+              "namespace": { "type": "string" }
+            }
+          }
         }
       },
 

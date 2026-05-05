@@ -82,21 +82,43 @@ workshopSecurity:
     #       - name: ...
 
 # =============================================================================
-# Image registry
+# Development overrides
 # =============================================================================
-
-# Where Educates images are pulled from. The chart-shipped defaults compose
-# image refs as `{host}/{namespace}/educates-<name>:<Chart.appVersion>` for
-# Educates-published entries (in the `imageVersions` helper) and the same
-# prefix for the chart's own session-manager + pause-image pods when their
-# `repository` is left empty. Override both when working against a fork or
-# a locally-built registry — every Educates-image reference moves with it.
 #
-# `namespace` set to empty addresses images at the registry root
-# ({host}/educates-<name>) instead of nested under a path prefix.
-imageRegistry:
-  host: "ghcr.io"
-  namespace: "educates"
+# These knobs target the local-development workflow only. In NORMAL USE
+# leave the entire `development:` block empty:
+#
+#   - Chart-rendered + runtime-spawned Educates image refs (chart pod,
+#     pause container, training-portal, base-environment, etc.) are
+#     composed from Chart.yaml annotations
+#     (`educates.dev/image-registry-host` / `-namespace`), which the chart's
+#     publish workflow updates per fork at release time.
+#   - The runtime config blob's `imageRegistry` field is emitted EMPTY,
+#     so the runtime falls back to `registry.default.svc.cluster.local`
+#     when resolving `$(image_repository)` workshop-content placeholders.
+#     Released workshops have fully-qualified refs in their YAMLs anyway,
+#     so this fallback is irrelevant outside the dev workflow.
+#
+# When set, `development.imageRegistry` has TWO simultaneous effects:
+#
+#   1. Replaces the Chart.yaml annotation defaults. Chart pod, pause
+#      image, and the Educates-published entries in the `imageVersions`
+#      helper resolve against `{host}/{namespace}` instead.
+#   2. Emits the same `{host}/{namespace}` into the runtime config so
+#      workshop sessions get `IMAGE_REPOSITORY={host}/{namespace}`.
+#      Workshops authored against `$(image_repository)/<name>` placeholders
+#      then resolve there — the typical local-dev flow where you
+#      `educates publish-workshop` to localhost:5001 and want session-
+#      spawned workshops to pull from the same place.
+#
+# Mirrors v3's `imageRegistry` schema knob, which the v3 schema comment
+# explicitly described as "for development, experimentation and when
+# working on workshop content in a local Educates environment, and should
+# not be overridden through a values file in normal use."
+development:
+  imageRegistry:
+    host: ""
+    namespace: ""
 
 # Per-image overrides, merged BY NAME on top of the chart-shipped default
 # `imageVersions` list. The default list is built in

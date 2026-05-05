@@ -200,12 +200,17 @@ restructure into these top-level blocks (full field list in the doc):
   `additionalKyvernoPolicies[]`. Replaces
   `bundledKyvernoPolicies.workshopPolicies` and
   `additionalKyvernoPolicies.workshopPolicies`.
-- `imageRegistry` — `host` (default `ghcr.io`), `namespace` (default
-  `educates`). Promoted to umbrella `global.imageRegistry` so every
-  subchart's chart-pod image, pause image, and runtime children move
-  together when a fork or a locally-built registry is used. Upstream pins
-  (docker-in-docker, loftsh-*, debian-base) are NOT relocated; override
-  their `imageVersions` entries directly when mirroring.
+- `development.imageRegistry` — local-development override (subchart-
+  local + umbrella `global.development.imageRegistry`). Empty by default;
+  publish-time defaults come from Chart.yaml annotations
+  (`educates.dev/image-registry-host` / `-namespace`, updated per-fork by
+  the release workflow). When set, ONE knob redirects both (a) chart-
+  rendered + runtime-spawned Educates image refs and (b) the
+  `IMAGE_REPOSITORY` env var workshop sessions see for `$(image_repository)`
+  content placeholder resolution. Mirrors v3's `imageRegistry` schema knob.
+  Upstream pins (docker-in-docker, loftsh-*, debian-base) are NOT
+  relocated; override their `imageVersions` entries directly when
+  mirroring.
 - `imageVersions[]` — empty by default; chart-shipped defaults are
   produced by the `session-manager.imageVersions` template helper,
   mirroring v3's `images.yaml`. Educates-published entries derive their

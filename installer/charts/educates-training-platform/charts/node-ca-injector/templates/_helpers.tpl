@@ -15,9 +15,16 @@ where set; subchart-local defaults pass through otherwise. Returned as a
 YAML string — consume via `fromYaml`.
 */}}
 {{- define "node-ca-injector.resolvedImageRegistry" -}}
-{{- $local := default dict .Values.imageRegistry -}}
-{{- $global := default dict (default dict .Values.global).imageRegistry -}}
-{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- $local := default dict (default dict .Values.development).imageRegistry -}}
+{{- $global := default dict (default dict (default dict .Values.global).development).imageRegistry -}}
+{{- $merged := mergeOverwrite (deepCopy $local) $global -}}
+{{- if not $merged.host -}}
+  {{- $_ := set $merged "host" (index .Chart.Annotations "educates.dev/image-registry-host" | default "") -}}
+{{- end -}}
+{{- if not $merged.namespace -}}
+  {{- $_ := set $merged "namespace" (index .Chart.Annotations "educates.dev/image-registry-namespace" | default "") -}}
+{{- end -}}
+{{- toYaml $merged -}}
 {{- end -}}
 
 {{- define "node-ca-injector.resolvedClusterIngress" -}}
@@ -35,7 +42,7 @@ YAML string — consume via `fromYaml`.
 {{- else if $host -}}
 {{ $host }}
 {{- else -}}
-{{- fail "imageRegistry.host is required (set globally under .global.imageRegistry or locally under node-ca-injector.imageRegistry)" -}}
+{{- fail "imageRegistry.host could not be resolved. Either set Chart.yaml annotation `educates.dev/image-registry-host` (publish-time default) or override locally via .development.imageRegistry / .global.development.imageRegistry." -}}
 {{- end -}}
 {{- end -}}
 

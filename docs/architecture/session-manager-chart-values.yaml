@@ -97,18 +97,31 @@ workshopSecurity:
 # Image registry
 # =============================================================================
 
-# Where Educates images are pulled from. The chart-shipped defaults compose
-# image refs as `{host}/{namespace}/educates-<name>:<Chart.appVersion>` for
-# Educates-published entries (in the `imageVersions` helper) and the same
-# prefix for the chart's own session-manager + pause-image pods when their
-# `repository` is left empty. Override both when working against a fork or
-# a locally-built registry — every Educates-image reference moves with it.
+# Local-development overrides. Leave the `development:` block empty in
+# normal use — Educates image refs resolve from the chart's publish-time
+# defaults (Chart.yaml annotations `educates.dev/image-registry-host` /
+# `-namespace`, set per-fork by the publish workflow) and the runtime's
+# `IMAGE_REPOSITORY` env var falls back to the in-cluster service
+# `registry.default.svc.cluster.local`.
 #
-# `namespace` set to empty addresses images at the registry root
-# ({host}/educates-<name>) instead of nested under a path prefix.
-imageRegistry:
-  host: "ghcr.io"
-  namespace: "educates"
+# When `development.imageRegistry` IS set, ONE knob has two effects:
+#   1. Replaces the Chart.yaml annotation defaults — chart pod, pause
+#      image, and the Educates-published entries in the `imageVersions`
+#      helper resolve against `{host}/{namespace}` instead.
+#   2. Emits the same `{host}/{namespace}` into the runtime config blob,
+#      so workshop sessions get `IMAGE_REPOSITORY={host}/{namespace}` and
+#      `$(image_repository)` content placeholders resolve there (the
+#      typical local-dev flow where `educates publish-workshop` pushes
+#      to localhost:5001).
+#
+# Mirrors v3's `imageRegistry` schema knob, which the v3 schema comment
+# explicitly described as "for development, experimentation and when
+# working on workshop content in a local Educates environment, and should
+# not be overridden through a values file in normal use."
+development:
+  imageRegistry:
+    host: ""
+    namespace: ""
 
 # Per-image overrides, merged BY NAME on top of the chart-shipped default
 # `imageVersions` list. The default list is built in the chart's helper

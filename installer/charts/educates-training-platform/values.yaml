@@ -13,8 +13,6 @@
 # Every subchart sees these as `.Values.global.<key>`. Use these for values
 # that should be consistent across all enabled subcharts:
 #
-#   - `imageRegistry`  — registry host + namespace prefix used to compose
-#     image refs. When set, overrides each subchart's local default.
 #   - `clusterIngress` — domain, ingress class, protocol, and TLS / CA
 #     references. Subcharts that render Pods which need TLS-verify the
 #     cluster's ingress (session-manager, lookup-service) consume the CA
@@ -24,14 +22,23 @@
 #     `OpenShiftSCC`, or `None`. Drives the Kyverno cluster-policy install
 #     in session-manager AND the SCC ClusterRoleBindings in session-manager
 #     and secrets-manager.
+#   - `development.imageRegistry` — local-development override; leave empty
+#     in normal use. Each subchart's image refs default to the publish-time
+#     values baked into Chart.yaml annotations
+#     (`educates.dev/image-registry-host` / `-namespace`). Set this only
+#     when working against a non-default registry (local builds at
+#     localhost:5001, a personal mirror, etc.). Same setting also drives
+#     the `IMAGE_REPOSITORY` env var workshop sessions see for resolving
+#     `$(image_repository)` content placeholders.
 #
 # Each entry is empty by default — subchart-local defaults apply when a
 # global key is unset. Globals win when set (deep-merged on top of subchart
 # locals; per-leaf override).
 global:
-  imageRegistry: {}
-    # host: "ghcr.io"
-    # namespace: "educates"
+  development: {}
+    # imageRegistry:
+    #   host: "localhost:5001"
+    #   namespace: "educates"
 
   clusterIngress: {}
     # domain: "workshops.example.com"

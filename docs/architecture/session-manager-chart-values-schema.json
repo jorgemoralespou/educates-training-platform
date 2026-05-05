@@ -128,12 +128,19 @@
         }
       },
 
-      "imageRegistry": {
+      "development": {
+        "description": "Local-development overrides. Leave empty in normal use — Chart.yaml annotations (`educates.dev/image-registry-{host,namespace}`) provide the publish-time defaults for chart-rendered image refs, and the runtime falls back to `registry.default.svc.cluster.local` for `$(image_repository)` workshop-content placeholder resolution.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "host":      { "type": "string" },
-          "namespace": { "type": "string" }
+          "imageRegistry": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host":      { "type": "string" },
+              "namespace": { "type": "string" }
+            }
+          }
         }
       },
 

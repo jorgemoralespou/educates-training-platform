@@ -13,15 +13,53 @@ deployment: session-manager
 {{- end -}}
 
 {{/*
-Resolve a cross-cutting values block (imageRegistry, clusterIngress,
-clusterSecurity) by deep-merging the umbrella's `global:` over the subchart's
-local block. Globals win where set; subchart-local defaults pass through
-otherwise. Returned as a YAML string — consume via `fromYaml`.
+Resolve a cross-cutting values block (clusterIngress, clusterSecurity) by
+deep-merging the umbrella's `global:` over the subchart's local block.
+Globals win where set; subchart-local defaults pass through otherwise.
+Returned as a YAML string — consume via `fromYaml`.
+*/}}
+
+{{/*
+Resolve the development imageRegistry override. Reads BOTH `.development.
+imageRegistry` (subchart-local) and `.global.development.imageRegistry`
+(umbrella global), with global winning per-leaf. Returns the user's intent
+verbatim — no Chart.yaml annotation fallback. Consumers that need the
+"effective" registry for chart-rendered refs should use
+`session-manager.resolvedImageRegistry` instead, which falls back to
+annotations.
+
+This raw form is what gets emitted into the operator-config blob's
+`imageRegistry` field — empty in normal use, so the runtime falls back to
+`registry.default.svc.cluster.local` for `$(image_repository)` workshop
+content placeholder resolution.
+*/}}
+{{- define "session-manager.resolvedDevelopmentImageRegistry" -}}
+{{- $local := default dict (default dict .Values.development).imageRegistry -}}
+{{- $global := default dict (default dict (default dict .Values.global).development).imageRegistry -}}
+{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- end -}}
+
+{{/*
+Resolve the effective imageRegistry for chart-rendered refs (chart pod
+image, pause image, Educates-published entries in the imageVersions
+helper). Layered resolution:
+  1. `.development.imageRegistry` (subchart-local) and
+     `.global.development.imageRegistry` (umbrella global), deep-merged
+     with global winning.
+  2. Per-leaf fallback to Chart.yaml annotations
+     (`educates.dev/image-registry-host` / `-namespace`) when the merged
+     value is empty. Annotations are the publish-time default — the
+     release workflow updates them per fork.
 */}}
 {{- define "session-manager.resolvedImageRegistry" -}}
-{{- $local := default dict .Values.imageRegistry -}}
-{{- $global := default dict (default dict .Values.global).imageRegistry -}}
-{{- toYaml (mergeOverwrite (deepCopy $local) $global) -}}
+{{- $merged := include "session-manager.resolvedDevelopmentImageRegistry" . | fromYaml -}}
+{{- if not $merged.host -}}
+  {{- $_ := set $merged "host" (index .Chart.Annotations "educates.dev/image-registry-host" | default "") -}}
+{{- end -}}
+{{- if not $merged.namespace -}}
+  {{- $_ := set $merged "namespace" (index .Chart.Annotations "educates.dev/image-registry-namespace" | default "") -}}
+{{- end -}}
+{{- toYaml $merged -}}
 {{- end -}}
 
 {{- define "session-manager.resolvedClusterIngress" -}}
@@ -54,7 +92,7 @@ imageRegistry at a fork or a local registry redirects all three at once.
 {{- else if $host -}}
 {{ $host }}
 {{- else -}}
-{{- fail "imageRegistry.host is required (set globally under .global.imageRegistry or locally under session-manager.imageRegistry)" -}}
+{{- fail "imageRegistry.host could not be resolved. Either set Chart.yaml annotation `educates.dev/image-registry-host` (publish-time default) or override locally via .development.imageRegistry / .global.development.imageRegistry." -}}
 {{- end -}}
 {{- end -}}
 
@@ -272,7 +310,16 @@ Deep-merges .Values.config on top so the escape hatch wins on conflict.
 {{- $caRef := default dict $ci.caCertificateRef -}}
 {{- $cs := include "session-manager.resolvedClusterSecurity" . | fromYaml -}}
 {{- $ws := .Values.workshopSecurity -}}
-{{- $ir := include "session-manager.resolvedImageRegistry" . | fromYaml -}}
+{{/*
+Emit the user-supplied development.imageRegistry verbatim into the runtime
+config — NOT the annotation-resolved one. Empty in normal use means the
+runtime falls back to `registry.default.svc.cluster.local` for the
+`$(image_repository)` workshop-content placeholder. The chart's own
+imageVersions helper handles all Educates runtime images explicitly with
+fully-qualified refs, so emitting empty here doesn't break runtime image
+resolution.
+*/}}
+{{- $ir := include "session-manager.resolvedDevelopmentImageRegistry" . | fromYaml -}}
 {{- $tp := default dict .Values.trainingPortal -}}
 {{- $sc := default dict .Values.sessionCookies -}}
 {{- $cstg := default dict .Values.clusterStorage -}}
