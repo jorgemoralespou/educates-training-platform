@@ -44,18 +44,21 @@ help: ## Display this help.
 ##@ Development
 
 # CRD and RBAC manifests are written directly into the educates-installer
-# Helm chart, not into a kustomize tree. The chart paths are placeholders
-# until step 5 of Phase 0 (chart scaffolding) — for now they land in
-# bin/manifests/ so `make manifests` works end-to-end without the chart.
-CRD_OUTPUT_DIR ?= bin/manifests/crd
-RBAC_OUTPUT_DIR ?= bin/manifests/rbac
+# Helm chart — the chart is the canonical artefact, not a kustomize tree.
+# CRDs land in crds/ (Helm's reserved location: installed once, not
+# templated, not deleted on uninstall). The ClusterRole lands in
+# templates/rbac/ as plain YAML; controller-gen output has no Helm
+# template directives, so Helm renders it as-is.
+CHART_DIR ?= ../charts/educates-installer
+CRD_OUTPUT_DIR ?= $(CHART_DIR)/crds
+RBAC_OUTPUT_DIR ?= $(CHART_DIR)/templates/rbac
 
 .PHONY: manifests
 manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition objects.
 	@mkdir -p "$(CRD_OUTPUT_DIR)" "$(RBAC_OUTPUT_DIR)"
 	"$(CONTROLLER_GEN)" \
 		crd paths="./..." output:crd:artifacts:config="$(CRD_OUTPUT_DIR)" \
-		rbac:roleName=manager-role output:rbac:artifacts:config="$(RBAC_OUTPUT_DIR)"
+		rbac:roleName=educates-installer-manager output:rbac:artifacts:config="$(RBAC_OUTPUT_DIR)"
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

@@ -1,0 +1,22 @@
+Educates v4 installer is now deployed in namespace {{ .Release.Namespace }}.
+
+The four CRDs are installed cluster-wide:
+  - educatesclusterconfigs.config.educates.dev (singleton, named "cluster")
+  - secretsmanagers.platform.educates.dev      (singleton, named "cluster")
+  - lookupservices.platform.educates.dev       (singleton, named "cluster")
+  - sessionmanagers.platform.educates.dev      (singleton, named "cluster")
+
+Phase 0 status: the operator's reconcilers are stubs — they observe CRs
+and log the event, but do not yet install cluster services or the
+Educates runtime. See docs/architecture/educates-v4-development-plan.md
+for what's coming next.
+
+Useful commands:
+
+  kubectl get pods -n {{ .Release.Namespace }} \
+    -l app.kubernetes.io/name=educates-installer
+  kubectl logs -n {{ .Release.Namespace }} \
+    -l app.kubernetes.io/name=educates-installer -f
+
+  kubectl explain educatesclusterconfig.spec
+  kubectl get crd | grep educates.dev

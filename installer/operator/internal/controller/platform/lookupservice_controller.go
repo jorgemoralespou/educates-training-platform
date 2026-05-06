@@ -37,20 +37,13 @@ type LookupServiceReconciler struct {
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=lookupservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=lookupservices/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the LookupService object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
+// Reconcile is the entry point for the LookupService controller.
 //
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/reconcile
+// Phase 0: stub. Logs the observed object and returns without making any
+// state changes. Real reconciliation lands in Phase 4.
 func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
-
-	// TODO(user): your logic here
-
+	log := logf.FromContext(ctx)
+	log.Info("Reconciling LookupService", "name", req.Name)
 	return ctrl.Result{}, nil
 }
 

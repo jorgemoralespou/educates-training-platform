@@ -1,0 +1,64 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-installer-manager
+rules:
+- apiGroups:
+  - config.educates.dev
+  resources:
+  - educatesclusterconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - config.educates.dev
+  resources:
+  - educatesclusterconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - config.educates.dev
+  resources:
+  - educatesclusterconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - platform.educates.dev
+  resources:
+  - lookupservices
+  - secretsmanagers
+  - sessionmanagers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.educates.dev
+  resources:
+  - lookupservices/finalizers
+  - secretsmanagers/finalizers
+  - sessionmanagers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.educates.dev
+  resources:
+  - lookupservices/status
+  - secretsmanagers/status
+  - sessionmanagers/status
+  verbs:
+  - get
+  - patch
+  - update

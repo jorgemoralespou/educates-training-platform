@@ -1,0 +1,431 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: sessionmanagers.platform.educates.dev
+spec:
+  group: platform.educates.dev
+  names:
+    kind: SessionManager
+    listKind: SessionManagerList
+    plural: sessionmanagers
+    singular: sessionmanager
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SessionManager is the singleton resource that drives installation of
+          the session-manager component (with training-portal,
+          assets-server, image-cache, and supporting services).
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              SessionManagerSpec defines the desired state of SessionManager.
+
+              Requires SecretsManager.Ready and EducatesClusterConfig.Ready; both
+              dependencies are singletons so no explicit refs are carried.
+
+              Image registry prefix and pull secrets are inherited from
+              EducatesClusterConfig.status.imageRegistry; only per-image overrides
+              land in spec.images.overrides.
+            properties:
+              allowedEmbeddingHosts:
+                description: |-
+                  allowedEmbeddingHosts lists hosts allowed to embed Educates
+                  workshop frames (CSP frame-ancestors).
+                items:
+                  type: string
+                type: array
+              defaultAccessCredentials:
+                description: |-
+                  DefaultAccessCredentials configures the default
+                  username/password used for workshop access when a TrainingPortal
+                  doesn't override them.
+                properties:
+                  passwordSecretRef:
+                    description: passwordSecretRef references a Secret holding the
+                      password value.
+                    properties:
+                      name:
+                        description: name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  username:
+                    type: string
+                type: object
+              defaultTheme:
+                description: |-
+                  defaultTheme names the entry from themes used as the install-wide
+                  default. Must match a Theme.name.
+                type: string
+              imageCache:
+                description: |-
+                  ImageCache configures the optional in-cluster image cache used to
+                  accelerate workshop image pulls.
+                properties:
+                  enabled:
+                    default: false
+                    type: boolean
+                type: object
+              images:
+                description: |-
+                  Images groups image-related overrides. Registry prefix and pull
+                  secrets are inherited from
+                  EducatesClusterConfig.status.imageRegistry; only per-image overrides
+                  belong here.
+                properties:
+                  overrides:
+                    items:
+                      description: |-
+                        ImageOverride entries replace one chart-default image by short name.
+                        Mirrors the v3 imageVersions shape: any image the chart's default
+                        inventory exposes by name can be overridden here.
+                      properties:
+                        image:
+                          description: image is the full reference including tag or
+                            digest.
+                          type: string
+                        name:
+                          description: |-
+                            name matches an entry in the chart's image-versions inventory
+                            (e.g., "session-manager", "training-portal", "jdk17-environment").
+                          type: string
+                      required:
+                      - image
+                      - name
+                      type: object
+                    type: array
+                type: object
+              ingressOverrides:
+                description: |-
+                  IngressOverrides allows SessionManager to override the cluster-wide
+                  ingress secrets for the bare-domain hostnames it serves directly
+                  (TrainingPortal CRs prefix the domain for individual portals).
+                properties:
+                  caCertificateSecretRef:
+                    description: |-
+                      LocalObjectReference is a name-only reference to an object in the
+                      operator namespace (or, for cluster-scoped kinds, to the cluster-
+                      scoped object). Mirrors the shape used in the config API group;
+                      duplicated here to avoid cross-group Go coupling.
+                    properties:
+                      name:
+                        description: name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  tlsSecretRef:
+                    description: |-
+                      LocalObjectReference is a name-only reference to an object in the
+                      operator namespace (or, for cluster-scoped kinds, to the cluster-
+                      scoped object). Mirrors the shape used in the config API group;
+                      duplicated here to avoid cross-group Go coupling.
+                    properties:
+                      name:
+                        description: name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+              logLevel:
+                default: info
+                description: logLevel defaults to info.
+                enum:
+                - debug
+                - info
+                - warn
+                - error
+                type: string
+              network:
+                description: |-
+                  SessionNetwork configures network characteristics applied to workshop
+                  sessions.
+                properties:
+                  blockedCidrs:
+                    description: |-
+                      blockedCidrs lists CIDR ranges workshop sessions are denied
+                      network access to (e.g., cloud metadata endpoints).
+                    items:
+                      type: string
+                    type: array
+                  packetSize:
+                    description: |-
+                      packetSize sets the MTU for workshop session networking. Useful
+                      on overlay networks where the default MTU is too large.
+                    format: int32
+                    minimum: 576
+                    type: integer
+                type: object
+              registryMirrors:
+                description: |-
+                  registryMirrors configures per-registry mirrors for workshop
+                  container pulls.
+                items:
+                  description: RegistryMirror declares a registry mirror used by workshop
+                    containers.
+                  properties:
+                    mirror:
+                      description: |-
+                        mirror is the upstream registry being mirrored
+                        (e.g., "docker.io").
+                      type: string
+                    url:
+                      description: url is the mirror endpoint.
+                      type: string
+                  required:
+                  - mirror
+                  - url
+                  type: object
+                type: array
+              sessionCookieDomain:
+                description: |-
+                  sessionCookieDomain sets the cookie domain used by workshop
+                  sessions for cross-subdomain authentication.
+                type: string
+              storage:
+                description: |-
+                  SessionStorage configures persistent storage characteristics for
+                  workshop sessions.
+                properties:
+                  storageClass:
+                    type: string
+                  storageGroup:
+                    description: storageGroup sets the supplemental GID for mounted
+                      volumes.
+                    format: int64
+                    type: integer
+                  storageUser:
+                    description: storageUser sets the UID for mounted volumes.
+                    format: int64
+                    type: integer
+                type: object
+              themes:
+                description: themes is a list of named themes available to TrainingPortals.
+                items:
+                  description: Theme is one named entry in the spec.themes list.
+                  properties:
+                    name:
+                      type: string
+                    source:
+                      description: |-
+                        ThemeSource sources theme content. Exactly one of the per-type fields
+                        (configMapRef, etc.) should be populated for the selected type.
+                      properties:
+                        configMapRef:
+                          description: configMapRef applies when type is ConfigMap.
+                          properties:
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          required:
+                          - name
+                          - namespace
+                          type: object
+                        type:
+                          description: |-
+                            ThemeSourceType selects how a theme's content is sourced.
+                            Additional types may be added by the session-manager owner.
+                          enum:
+                          - ConfigMap
+                          - Secret
+                          - URL
+                          type: string
+                      required:
+                      - type
+                      type: object
+                  required:
+                  - name
+                  - source
+                  type: object
+                type: array
+              tracking:
+                description: Tracking groups analytics provider configuration.
+                properties:
+                  amplitude:
+                    description: TrackingProvider holds a single analytics provider's
+                      tracking ID.
+                    properties:
+                      trackingId:
+                        type: string
+                    required:
+                    - trackingId
+                    type: object
+                  clarity:
+                    description: TrackingProvider holds a single analytics provider's
+                      tracking ID.
+                    properties:
+                      trackingId:
+                        type: string
+                    required:
+                    - trackingId
+                    type: object
+                  googleAnalytics:
+                    description: TrackingProvider holds a single analytics provider's
+                      tracking ID.
+                    properties:
+                      trackingId:
+                        type: string
+                    required:
+                    - trackingId
+                    type: object
+                  webhook:
+                    description: |-
+                      TrackingWebhook configures an HTTP webhook receiver for analytics
+                      events.
+                    properties:
+                      url:
+                        type: string
+                    required:
+                    - url
+                    type: object
+                type: object
+              workshopPolicyOverride:
+                description: |-
+                  WorkshopPolicyOverride locally overrides
+                  EducatesClusterConfig.status.policyEnforcement.workshopPolicyEngine
+                  for this SessionManager.
+                properties:
+                  engine:
+                    description: |-
+                      WorkshopPolicyEngine names the engine enforcing per-workshop isolation
+                      rules. Mirrors the same-named enum in the config API group;
+                      duplicated to avoid cross-group Go coupling.
+                    enum:
+                    - Kyverno
+                    - None
+                    type: string
+                required:
+                - engine
+                type: object
+            type: object
+          status:
+            description: |-
+              SessionManagerStatus defines the observed state of SessionManager.
+              Phase 0 minimum surface; component refs, installedVersion, and
+              trainingCRDsGroup land in Phase 4 alongside the reconciler that
+              produces them.
+            properties:
+              conditions:
+                description: |-
+                  conditions report the resource's state. Standard type "Ready"
+                  reflects overall readiness; phase-specific types
+                  (ClusterConfigAvailable, SecretsManagerAvailable,
+                  ComponentsDeployed, CRDsRegistered) are added with their
+                  producing reconcilers.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
+              phase:
+                description: |-
+                  ComponentPhase summarises the operator's current activity on a
+                  platform component. Phases are advisory; conditions carry the
+                  authoritative state.
+                enum:
+                - Pending
+                - Installing
+                - Ready
+                - Degraded
+                - Uninstalling
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: SessionManager must be named 'cluster' (singleton per cluster)
+          rule: self.metadata.name == 'cluster'
+    served: true
+    storage: true
+    subresources:
+      status: {}

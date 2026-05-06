@@ -1,0 +1,20 @@
+apiVersion: v2
+name: educates-installer
+description: |
+  Educates v4 installer. Installs the four CRDs that drive the v4
+  control plane (EducatesClusterConfig, SecretsManager, LookupService,
+  SessionManager) plus the operator that reconciles them.
+
+  Phase 0 of v4 development: the CRDs and reconciler skeletons are in
+  place; the operator does not yet install cluster services or the
+  Educates runtime. See docs/architecture/educates-v4-development-plan.md.
+type: application
+version: 4.0.0-alpha.1
+appVersion: 4.0.0-alpha.1
+kubeVersion: ">=1.31.0-0"
+home: https://educates.dev
+sources:
+  - https://github.com/jorgemoralespou/educates-training-platform
+maintainers:
+  - name: Educates Maintainers
+    url: https://github.com/jorgemoralespou/educates-training-platform/blob/develop/MAINTAINERS.md
