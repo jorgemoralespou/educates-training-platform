@@ -5,6 +5,22 @@ metadata:
   name: educates-installer-manager
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - clusterissuers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - config.educates.dev
   resources:
   - educatesclusterconfigs
@@ -30,6 +46,14 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingressclasses
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - platform.educates.dev
   resources:

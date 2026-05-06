@@ -42,6 +42,13 @@ type EducatesClusterConfigReconciler struct {
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs/finalizers,verbs=update
 
+// Inline-mode validation reads user-supplied references in the operator
+// namespace (Secrets) plus cluster-scoped objects (ClusterIssuers,
+// IngressClasses). All read-only.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingressclasses,verbs=get;list;watch
+
 // Reconcile is the entry point for the EducatesClusterConfig controller.
 //
 // Phase 0: stub. Logs the observed object and returns without making any
