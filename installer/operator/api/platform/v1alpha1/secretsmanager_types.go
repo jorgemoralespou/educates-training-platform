@@ -17,70 +17,79 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
-// SecretsManagerSpec defines the desired state of SecretsManager
+// SecretsManagerSpec defines the desired state of SecretsManager.
+//
+// secrets-manager is a singleton at the pod level (the upstream
+// implementation can't scale beyond one replica) so no replicas knob is
+// exposed. Image-pull credentials are inherited from
+// EducatesClusterConfig.status.imageRegistry.pullSecrets and are not
+// duplicated here.
 type SecretsManagerSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
-
-	// foo is an example field of SecretsManager. Edit secretsmanager_types.go to remove/update
+	// image overrides the default image reference. Both fields are
+	// optional; defaults come from the chart's appVersion-derived
+	// image inventory.
 	// +optional
-	Foo *string `json:"foo,omitempty"`
+	Image *ImageRef `json:"image,omitempty"`
+
+	// logLevel defaults to info.
+	// +kubebuilder:default=info
+	// +optional
+	LogLevel LogLevel `json:"logLevel,omitempty"`
+
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 }
 
 // SecretsManagerStatus defines the observed state of SecretsManager.
+// Phase 0 publishes only the minimum surface; richer fields
+// (installedVersion, deploymentRef) are added in Phase 4 alongside the
+// reconciler that produces them.
 type SecretsManagerStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// +optional
+	Phase ComponentPhase `json:"phase,omitempty"`
 
-	// conditions represent the current state of the SecretsManager resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
+	// conditions report the resource's state. Standard type "Ready"
+	// reflects overall readiness; phase-specific types
+	// (ClusterConfigAvailable, Deployed) are added with their producing
+	// reconcilers.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// SecretsManager is the singleton resource that drives installation of
+// the secrets-manager component.
+//
 // +kubebuilder:object:root=true
+// +kubebuilder:resource:scope=Cluster
 // +kubebuilder:subresource:status
-
-// SecretsManager is the Schema for the secretsmanagers API
+// +kubebuilder:validation:XValidation:rule="self.metadata.name == 'cluster'",message="SecretsManager must be named 'cluster' (singleton per cluster)"
+// +kubebuilder:printcolumn:name="Phase",type="string",JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 type SecretsManager struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// metadata is a standard object metadata
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitzero"`
 
-	// spec defines the desired state of SecretsManager
 	// +required
 	Spec SecretsManagerSpec `json:"spec"`
 
-	// status defines the observed state of SecretsManager
 	// +optional
 	Status SecretsManagerStatus `json:"status,omitzero"`
 }
 
 // +kubebuilder:object:root=true
 
-// SecretsManagerList contains a list of SecretsManager
+// SecretsManagerList contains a list of SecretsManager.
 type SecretsManagerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitzero"`
