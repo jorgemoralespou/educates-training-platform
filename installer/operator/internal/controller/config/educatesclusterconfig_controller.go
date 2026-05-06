@@ -18,13 +18,32 @@ package config
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+)
+
+// finalizerName is set on EducatesClusterConfig so the operator gets a
+// chance to clean up before the resource is removed. Inline mode has
+// nothing to clean up; Phase 2 Managed mode reuses the same name.
+const finalizerName = "educatesclusterconfig.config.educates.dev/finalizer"
+
+// Condition types published by Phase 1. Managed-mode condition types
+// (IngressReady, CertificatesReady, DNSReady, PolicyEnforcementReady,
+// InfrastructureConfigured) are added in later phases alongside their
+// producing reconcilers.
+const (
+	conditionReady               = "Ready"
+	conditionValidationSucceeded = "ValidationSucceeded"
 )
 
 // EducatesClusterConfigReconciler reconciles a EducatesClusterConfig object.
@@ -49,18 +68,136 @@ type EducatesClusterConfigReconciler struct {
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingressclasses,verbs=get;list;watch
 
-// Reconcile is the entry point for the EducatesClusterConfig controller.
-//
-// Phase 0: stub. Logs the observed object and returns without making any
-// state changes. Real reconciliation lands in Phase 1 (Inline-mode
-// validator) and Phase 2+ (Managed-mode chart installs).
+// Reconcile drives the EducatesClusterConfig singleton through its
+// lifecycle. Phase 1 implements Inline mode (validate referenced
+// resources and publish them in status); Managed mode is a no-op stub
+// until Phase 2 wires Helm-SDK chart installs.
 func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling EducatesClusterConfig", "name", req.Name)
-	return ctrl.Result{}, nil
+
+	obj := &configv1alpha1.EducatesClusterConfig{}
+	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Deletion path: drain finalizer.
+	if !obj.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(obj, finalizerName) {
+			// Phase 1 Inline cleanup is a no-op; Phase 2 Managed mode will
+			// uninstall charts here in reverse install order.
+			controllerutil.RemoveFinalizer(obj, finalizerName)
+			if err := r.Update(ctx, obj); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Set the finalizer on first sight; requeue so the next pass sees a
+	// stable resource version with status writes.
+	if !controllerutil.ContainsFinalizer(obj, finalizerName) {
+		controllerutil.AddFinalizer(obj, finalizerName)
+		if err := r.Update(ctx, obj); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Managed-mode handling lands in Phase 2.
+	if obj.Spec.Mode != configv1alpha1.ClusterConfigModeInline {
+		return ctrl.Result{}, nil
+	}
+
+	// CEL guarantees spec.inline is set when mode is Inline; guard
+	// defensively in case CEL is bypassed (e.g., by a controller writing
+	// against the API directly without admission).
+	if obj.Spec.Inline == nil {
+		r.markDegraded(obj, "spec.inline", "Inline mode requires spec.inline to be set")
+		return ctrl.Result{}, r.Status().Update(ctx, obj)
+	}
+
+	statusIngress, err := r.validateInline(ctx, obj.Spec.Inline)
+	if err != nil {
+		var verr *validationError
+		if errors.As(err, &verr) {
+			r.markDegraded(obj, verr.Field, verr.Reason)
+			return ctrl.Result{}, r.Status().Update(ctx, obj)
+		}
+		// API error (lookup failed, transient): surface for retry.
+		return ctrl.Result{}, err
+	}
+
+	r.markReady(obj, statusIngress)
+	return ctrl.Result{}, r.Status().Update(ctx, obj)
+}
+
+// markReady populates the inter-CR status contract and flips conditions
+// to True. Called once Inline validation has succeeded.
+func (r *EducatesClusterConfigReconciler) markReady(obj *configv1alpha1.EducatesClusterConfig, ingress *configv1alpha1.StatusIngress) {
+	obj.Status.ObservedGeneration = obj.Generation
+	obj.Status.Phase = configv1alpha1.ClusterConfigPhaseReady
+	obj.Status.Mode = obj.Spec.Mode
+	obj.Status.Ingress = ingress
+	obj.Status.PolicyEnforcement = &configv1alpha1.StatusPolicyEnforcement{
+		ClusterPolicyEngine:  obj.Spec.Inline.PolicyEnforcement.ClusterPolicyEngine,
+		WorkshopPolicyEngine: obj.Spec.Inline.PolicyEnforcement.WorkshopPolicyEngine,
+	}
+	if obj.Spec.Inline.ImageRegistry != nil {
+		obj.Status.ImageRegistry = obj.Spec.Inline.ImageRegistry.DeepCopy()
+	} else {
+		// Always populate so components see a single source of truth.
+		obj.Status.ImageRegistry = &configv1alpha1.ImageRegistry{}
+	}
+
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionValidationSucceeded,
+		Status:             metav1.ConditionTrue,
+		Reason:             "InlineRefsValid",
+		Message:            "All Inline-mode references validated",
+		ObservedGeneration: obj.Generation,
+	})
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "ValidationSucceeded",
+		Message:            "EducatesClusterConfig is ready",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markDegraded flips conditions to False with a field-specific message
+// without touching the published interface fields (status.ingress,
+// status.policyEnforcement, status.imageRegistry) — components keep
+// reading the last-known-good values until validation recovers, just
+// as Ready: False signals.
+func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.EducatesClusterConfig, field, reason string) {
+	obj.Status.ObservedGeneration = obj.Generation
+	obj.Status.Phase = configv1alpha1.ClusterConfigPhaseDegraded
+	obj.Status.Mode = obj.Spec.Mode
+
+	msg := fmt.Sprintf("%s: %s", field, reason)
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionValidationSucceeded,
+		Status:             metav1.ConditionFalse,
+		Reason:             "InlineRefsInvalid",
+		Message:            msg,
+		ObservedGeneration: obj.Generation,
+	})
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             "ValidationFailed",
+		Message:            msg,
+		ObservedGeneration: obj.Generation,
+	})
 }
 
 // SetupWithManager sets up the controller with the Manager.
+//
+// Watches on referenced resources (Secrets, ClusterIssuers,
+// IngressClasses) land in Phase 1 step 5 — until then, Reconcile only
+// fires on EducatesClusterConfig generation changes.
 func (r *EducatesClusterConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&configv1alpha1.EducatesClusterConfig{}).
