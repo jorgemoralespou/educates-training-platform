@@ -25,10 +25,13 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
@@ -41,6 +44,13 @@ import (
 	platformcontroller "github.com/educates/educates-training-platform/installer/operator/internal/controller/platform"
 	// +kubebuilder:scaffold:imports
 )
+
+// operatorNamespaceEnv is the env var (downward-API populated by the
+// chart's Deployment) telling the operator its own namespace. Required
+// at runtime: it scopes the Secret cache and is the namespace where
+// user-supplied Secrets referenced from EducatesClusterConfig are
+// expected to live.
+const operatorNamespaceEnv = "OPERATOR_NAMESPACE"
 
 var (
 	scheme   = runtime.NewScheme()
@@ -157,6 +167,25 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	operatorNamespace := os.Getenv(operatorNamespaceEnv)
+	if operatorNamespace == "" {
+		setupLog.Error(nil, "Required environment variable is not set", "env", operatorNamespaceEnv)
+		os.Exit(1)
+	}
+
+	// Scope the Secret cache to the operator namespace. User-supplied
+	// Secrets referenced from EducatesClusterConfig (TLS, CA, image-pull)
+	// are expected here; we have no need to cache Secrets cluster-wide.
+	cacheOpts := cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.Secret{}: {
+				Namespaces: map[string]cache.Config{
+					operatorNamespace: {},
+				},
+			},
+		},
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
@@ -164,6 +193,7 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "91bedcac.educates.dev",
+		Cache:                  cacheOpts,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -182,8 +212,9 @@ func main() {
 	}
 
 	if err := (&configcontroller.EducatesClusterConfigReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		OperatorNamespace: operatorNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "config-educatesclusterconfig")
 		os.Exit(1)

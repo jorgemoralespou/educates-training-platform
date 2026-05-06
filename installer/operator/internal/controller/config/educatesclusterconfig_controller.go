@@ -27,10 +27,15 @@ import (
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 )
 
-// EducatesClusterConfigReconciler reconciles a EducatesClusterConfig object
+// EducatesClusterConfigReconciler reconciles a EducatesClusterConfig object.
 type EducatesClusterConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// OperatorNamespace is where user-supplied Secrets (TLS, CA, image-
+	// pull) referenced from spec.inline are expected to live. Sourced
+	// from the OPERATOR_NAMESPACE env var (downward API).
+	OperatorNamespace string
 }
 
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs,verbs=get;list;watch;create;update;patch;delete
