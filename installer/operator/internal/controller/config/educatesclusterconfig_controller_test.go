@@ -17,68 +17,60 @@ limitations under the License.
 package config
 
 import (
-	"context"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 )
 
-var _ = Describe("EducatesClusterConfig Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+// Phase 0 verification: structural CRD validation only. Reconciler logic
+// is a stub (logs and returns) and not under test here.
 
-		ctx := context.Background()
-
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+var _ = Describe("EducatesClusterConfig CRD validation", func() {
+	AfterEach(func() {
+		// Clean up the singleton if a prior test created it; ignore not-found.
+		obj := &configv1alpha1.EducatesClusterConfig{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, obj); err == nil {
+			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
 		}
-		educatesclusterconfig := &configv1alpha1.EducatesClusterConfig{}
+	})
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind EducatesClusterConfig")
-			err := k8sClient.Get(ctx, typeNamespacedName, educatesclusterconfig)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &configv1alpha1.EducatesClusterConfig{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
+	It("accepts a Managed-mode resource named 'cluster'", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+	})
 
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &configv1alpha1.EducatesClusterConfig{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
+	It("rejects a resource with a name other than 'cluster' (singleton CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "not-cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		err := k8sClient.Create(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("singleton"))
+	})
 
-			By("Cleanup the specific resource instance EducatesClusterConfig")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &EducatesClusterConfigReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+	It("rejects a spec.mode change on update (mode immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
 
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
-		})
+		obj.Spec.Mode = configv1alpha1.ClusterConfigModeInline
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("immutable"))
 	})
 })

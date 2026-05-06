@@ -1,6 +1,6 @@
 module github.com/educates/educates-training-platform/installer/operator
 
-go 1.25.7
+go 1.25.0
 
 require (
 	github.com/onsi/ginkgo/v2 v2.27.2

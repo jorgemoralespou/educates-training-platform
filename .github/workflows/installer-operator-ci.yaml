@@ -1,0 +1,64 @@
+name: Installer Operator CI
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'installer/operator/**'
+      - 'installer/charts/educates-installer/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/installer-operator-ci.yaml'
+  pull_request:
+    paths:
+      - 'installer/operator/**'
+      - 'installer/charts/educates-installer/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/installer-operator-ci.yaml'
+
+jobs:
+  ci:
+    name: Build, vet, generate-drift, envtest, lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: installer/operator
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: installer/operator/go.mod
+          cache-dependency-path: |
+            go.work.sum
+            installer/operator/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: make manifests (drift check)
+        run: |
+          make manifests
+          if ! git diff --exit-code -- ../charts/educates-installer/crds ../charts/educates-installer/templates/rbac; then
+            echo "::error::generated CRDs / RBAC drifted from committed copy. Run 'make manifests' locally and commit the result."
+            exit 1
+          fi
+
+      - name: make generate (drift check)
+        run: |
+          make generate
+          if ! git diff --exit-code -- api/; then
+            echo "::error::generated DeepCopy methods drifted. Run 'make generate' locally and commit the result."
+            exit 1
+          fi
+
+      - name: make test (envtest)
+        run: make test
+
+      - name: make lint
+        run: make lint

@@ -76,12 +76,14 @@ vet: ## Run go vet against code.
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
-# Smoke test target lands in step 5 of Phase 0 (chart wiring). Local-only;
-# not run from CI. Until the chart exists, `make smoke-test` will fail fast.
+# Local-only kind-based smoke test. Builds the operator image, loads it into
+# kind, helm-installs the chart, applies a sample CR, and asserts the
+# reconcile log line is emitted. Tears down the kind cluster on exit unless
+# KEEP_CLUSTER=true. CI does not run this — kind-in-Actions lands in Phase 2
+# alongside chart-install testing.
 .PHONY: smoke-test
-smoke-test: ## Local kind-based smoke test (lands in Phase 0 step 5).
-	@echo "smoke-test target not yet wired (lands with the educates-installer chart in Phase 0 step 5)"
-	@exit 1
+smoke-test: ## Local kind-based smoke test of the operator + chart.
+	bash hack/smoke-test.sh
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
