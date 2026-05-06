@@ -153,20 +153,41 @@ make smoke-test       # kind + helm install + apply CR + assert log line
 make lint             # golangci-lint
 ```
 
-Phase 0 conventions (in effect until phases close them out):
+Phase status (as of 2026-05):
 
-- **Spec types are full r3 shape; status is minimal** (`observedGeneration`,
-  `phase`, `conditions`). Status fields land alongside the reconciler that
-  produces them. See decisions log.
-- **CEL rules at Phase 0:** singleton-name on all four CRDs;
-  mode-immutability on EducatesClusterConfig. Mode-field exclusivity is
-  Phase 1.
-- **RBAC at Phase 0:** the four CRDs only. Watches on referenced
-  Secrets/ClusterIssuers/IngressClasses are Phase 1.
+- **Phase 0 (foundations) — done.** Scaffold, CRDs, chart, envtest, smoke
+  test, CI all in place. Reconcilers were stubs.
+- **Phase 1 (Inline mode) — done.** EducatesClusterConfig Inline-mode
+  validator + watches + finalizer + status contract live; the three
+  platform reconcilers (SecretsManager, LookupService, SessionManager)
+  are still stubs until Phase 4.
+- **Phase 2 (Bundled cert-manager end-to-end) — next.** Vendors
+  cert-manager Go types, drives a real Helm SDK install of
+  cert-manager, creates ClusterIssuer + wildcard Certificate.
+
+Living conventions (carry across phases unless superseded):
+
+- **Spec types carry the full r3 shape from day one.** Status grows
+  alongside the reconciler that produces each field. See decisions log.
+- **CEL rules:** EducatesClusterConfig has three structural CEL rules
+  on spec — singleton name, mode immutability, mode-field exclusivity.
+  The three platform CRDs have singleton-name only.
+- **RBAC:** EducatesClusterConfig reconciler has read-only `get/list/watch`
+  on its referenced kinds (Secrets, ClusterIssuers, IngressClasses) plus
+  full access on its own kind. Platform reconcilers have only their own
+  kinds — they grow when their reconcilers come online in Phase 4.
+- **Watches:** Secret + IngressClass (operator-namespace-scoped Secret
+  cache; cluster-scoped IngressClass). ClusterIssuer watch deferred to
+  Phase 2 (see decisions log — unstructured-watch-vs-absent-CRD).
+- **ClusterIssuer access** is via `unstructured.Unstructured` in Phase 1;
+  Phase 2 vendors cert-manager Go types and refactors.
 - **Operator image:** local-dev placeholder + `make docker-build` only.
   Publish-time annotations + release workflow land in Phase 6. Running
   `helm install` against the chart from a clone requires `make
   docker-build` + `kind load` first.
+- **Operator namespace** is supplied via the `OPERATOR_NAMESPACE` env
+  var (downward API in the chart Deployment). User-supplied Secrets
+  referenced from `EducatesClusterConfig.spec.inline` must live there.
 
 ### Common
 

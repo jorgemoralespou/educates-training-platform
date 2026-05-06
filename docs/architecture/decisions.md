@@ -818,3 +818,66 @@ release workflow at that point.
 **Reconsider trigger:** if Phase 1 or 2 work needs the operator image
 in a published location (e.g., for an external test cluster), promote
 the publish wiring earlier rather than working around it.
+
+### ClusterIssuer access via `unstructured.Unstructured`; ClusterIssuer watch deferred to Phase 2
+
+**Date:** 2026-05-06.
+**Decision:** Phase 1 Inline validation reads ClusterIssuers via
+`unstructured.Unstructured` against
+`cert-manager.io/v1`/`ClusterIssuer`, NOT via vendored cert-manager
+Go types. The reconciler's `Watches()` setup intentionally omits a
+ClusterIssuer watch — it watches Secrets (cache-restricted to the
+operator namespace) and IngressClasses (cluster-scoped) only.
+**Why unstructured for reads:** Phase 1 only needs existence + the
+`Ready` status condition. Vendoring `cert-manager.io` Go types pulls
+in the cert-manager module (and a few hundred transitive packages)
+for two field reads. Unstructured is cheap, requires no go.mod
+addition, and cleanly degrades when the cert-manager CRD is absent
+(`meta.IsNoMatchError` is surfaced as a validation error, not a
+reconcile retry).
+**Why no ClusterIssuer watch yet:** an unstructured `Watches()`
+needs the GVK resolvable at cache-startup; if the cert-manager CRD
+is absent, manager startup fails hard. Inline-mode users may run
+without cert-manager (using `StaticCertificate`-style external TLS
+or no TLS issuer at all), so making the watch unconditional in
+Phase 1 would block startup on installs that don't need it. CRD
+discovery at startup is a workable alternative but adds startup
+complexity for a behaviour that's only relevant when a
+ClusterIssuer is actually referenced.
+**What this means in practice:** In Phase 1, an Inline user whose
+referenced ClusterIssuer transitions from Ready=False to Ready=True
+will not see status flip without a spec touch. Acceptable Phase 1
+limitation given the scope cut.
+**Phase 2 promotion:** Phase 2 Managed mode unconditionally installs
+cert-manager via the Helm SDK, so the CRD is guaranteed present.
+Phase 2 vendors `cert-manager.io/v1` Go types (the operator interacts
+with them more deeply: ClusterIssuer creation, Certificate creation +
+Ready waiting) and adds the ClusterIssuer watch unconditionally at
+that point. The Phase 1 unstructured read in
+`internal/controller/config/validator.go::checkClusterIssuer` gets
+refactored to typed access in the same change.
+**Reconsider trigger:** if Phase 1 users complain about manual
+re-trigger for ClusterIssuer drift before Phase 2 lands, add CRD
+discovery at startup and conditionally install the watch — costs
+~30 lines.
+
+### Phase 1 reconciler defensive guard for mode==Inline && spec.inline==nil
+
+**Date:** 2026-05-06.
+**Decision:** The Phase 1 EducatesClusterConfig reconciler carries a
+defensive guard: when `spec.mode == Inline` but `spec.inline == nil`,
+mark the resource Degraded with the message
+`spec.inline: Inline mode requires spec.inline to be set`. The CEL
+exclusivity rule that lands alongside this code (Phase 1 step 1)
+already makes the case structurally unreachable through the apiserver,
+so the guard is belt-and-suspenders.
+**Why guard anyway:** CEL rules can be bypassed in pathological
+scenarios (a controller writing directly to etcd; a future webhook
+configuration disabling CEL evaluation; CRD reapply during upgrade
+when a new rule is added but old objects predate it). The guard is
+~5 lines and produces a much better failure mode than a nil-pointer
+panic.
+**Reconsider trigger:** when admission webhooks land (post-v1alpha1)
+and CEL bypass becomes infeasible, the guard becomes pure dead code
+and can be removed. Flagged in the development plan's Phase 1 carry-
+over list for v1beta1 review.

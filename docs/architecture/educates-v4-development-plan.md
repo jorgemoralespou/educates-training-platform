@@ -301,7 +301,7 @@ before they reach the runtime.
   values shape is operator-driven, not v3-driven" decision, with the
   reasoning above.
 
-### Phase 0: Foundations (1–2 weeks)
+### Phase 0: Foundations (1–2 weeks)  *(done — 2026-05)*
 
 **Layout (decided 2026-05-06):**
 - Operator code: `installer/operator/` — kubebuilder project, with the
@@ -373,30 +373,61 @@ before they reach the runtime.
 - `make smoke-test` passes locally.
 - No reconcile logic beyond the log line.
 
-### Phase 1: EducatesClusterConfig in Inline mode (2–3 weeks)
+### Phase 1: EducatesClusterConfig in Inline mode (2–3 weeks)  *(done — 2026-05)*
 
 **Why Inline first:** Inline mode is pure validation and status writing — no chart installs, no orchestration. It exercises the full controller pattern (watches, status conditions, finalizers) without the complexity of cluster-service installation. Lessons here apply everywhere.
 
-**What to build:**
-- Inline-mode validator:
-  - Secret existence and key checks (`tls.crt`+`tls.key` for wildcard, `ca.crt` for CA, `dockerconfigjson` for pull secrets).
-  - ClusterIssuer existence and Ready check (if `clusterIssuerRef` set).
-  - IngressClass existence check.
-- Watches on referenced resources (Secrets, ClusterIssuers, IngressClasses) using controller-runtime `.Watches()` with a mapping function.
-- Status writer: copy validated refs to status, set conditions, set phase.
-- Finalizer logic: Inline mode has nothing to clean up, but the finalizer pattern is exercised.
-- Integration tests using `envtest`:
-  - Valid Inline CR → Ready.
-  - Missing wildcard secret → Degraded with specific message.
-  - Secret without `tls.crt` → Degraded.
-  - ClusterIssuer not Ready → Degraded.
-  - Mode immutability rejection on update.
-  - Singleton name rejection on second CR creation.
+**What was built:**
+- Mode-field exclusivity CEL (deferred from Phase 0): two structural
+  rules — Managed-mode top-level fields forbidden when `mode: Inline`;
+  `spec.inline` forbidden when `mode: Managed`.
+- Extended status surface — the inter-CR contract Phase 4 components
+  will read: `status.mode`, `status.ingress` (with `NamespacedSecretRef`
+  for the wildcard + optional CA), `status.policyEnforcement`,
+  `status.imageRegistry` (always populated, empty struct when unset).
+- Operator namespace plumbing: chart Deployment downward-API env
+  (`OPERATOR_NAMESPACE`) → main.go reads → reconciler struct field.
+  Manager `cache.Options.ByObject` restricts the Secret cache to that
+  namespace.
+- RBAC for referenced resources: `get/list/watch` on Secrets,
+  ClusterIssuers, IngressClasses — read-only, kubebuilder markers
+  generate into the chart's ClusterRole.
+- Inline-mode validator (`validator.go`): IngressClass existence;
+  wildcard Secret existence + `tls.crt` + `tls.key` keys; optional CA
+  Secret with `ca.crt`; optional ClusterIssuer existence + Ready.
+  ClusterIssuer access is via `unstructured.Unstructured` —
+  cert-manager Go types vendored in Phase 2.
+- Reconcile flow: finalizer
+  (`educatesclusterconfig.config.educates.dev/finalizer`) added on
+  first sight, drained on delete (Phase 1 cleanup is a no-op; Phase 2
+  Managed mode reuses the plumbing for chart uninstall). On Inline
+  validation success: populate the status contract + flip
+  `Ready=True`/`ValidationSucceeded=True`. On failure: `Phase=Degraded`,
+  both conditions `False` with field-specific message
+  (`<spec.path>: <reason>`).
+- Watches: Secret (cache-restricted to operator namespace) +
+  IngressClass (cluster-scoped), each with an `EnqueueRequestsFromMapFunc`
+  returning the singleton request. ClusterIssuer watch deferred to
+  Phase 2 (see decisions.md — unstructured-watch-vs-absent-CRD
+  trade-off).
+- 12 envtest specs (6 EducatesClusterConfig CRD validation, 3 platform
+  CRD validation, 5 Inline-mode reconciler, 1 manager-driven drift
+  test verifying Secret deletion flips status to Degraded).
 
-**Done when:**
-- An Inline-mode `EducatesClusterConfig` reaches `Ready: True` only when all referenced resources exist and are valid.
-- Deleting a referenced Secret causes status to flip to `Degraded` within seconds.
-- All integration tests pass.
+**Done when (verified):**
+- ✅ An Inline-mode `EducatesClusterConfig` reaches `Ready: True` only
+  when all referenced resources exist and are valid.
+- ✅ Deleting a referenced Secret causes status to flip to `Degraded`
+  within seconds (envtest: `watches_test.go`).
+- ✅ All integration tests pass (12 specs, config-package coverage 64.5%).
+
+**Carried into Phase 2:**
+- ClusterIssuer watch (vendor cert-manager types + add unconditional
+  watch since Managed mode always installs cert-manager when bundled).
+- Mode-field exclusivity CEL is structurally enforced; the reconciler
+  also has a defensive guard for `mode==Inline && spec.inline==nil`
+  (CEL bypass case) that becomes redundant once webhooks are added —
+  flagged for review in v1beta1.
 
 ### Phase 2: One Bundled service end-to-end (3–4 weeks)
 
