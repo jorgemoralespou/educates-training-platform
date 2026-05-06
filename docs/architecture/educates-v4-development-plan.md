@@ -303,21 +303,75 @@ before they reach the runtime.
 
 ### Phase 0: Foundations (1–2 weeks)
 
+**Layout (decided 2026-05-06):**
+- Operator code: `installer/operator/` — kubebuilder project, with the
+  generated `config/` kustomize tree stripped. `controller-gen` writes
+  CRDs and RBAC directly into the operator chart. See decisions log.
+- Operator chart: `installer/charts/educates-installer/` — sibling to
+  `educates-training-platform/`. Installs operator Deployment, RBAC,
+  and the four CRDs (in `crds/`).
+- Module path: `github.com/educates/educates-training-platform/installer/operator`,
+  added to `go.work`.
+- API packages: `api/config/v1alpha1/` (EducatesClusterConfig) and
+  `api/platform/v1alpha1/` (SecretsManager, LookupService,
+  SessionManager).
+
 **What to build:**
-- Decide on repo location (new repo `educates-installer` recommended, or a new directory in the existing monorepo).
-- Bootstrap with `kubebuilder init` + `kubebuilder create api` for each of the four CRDs.
-- Translate the r3 CRD draft into Go types with `kubebuilder` markers (`+kubebuilder:validation:*`, `+kubebuilder:default=*`, etc.).
-- Generate CRD manifests (`make manifests`).
-- Add CEL validation rules: singleton name, mode immutability, mode-field exclusivity.
-- Set up CI: `make manifests`, `make generate`, `go test`, basic linting.
-- Create a smoke-test target: spin up kind, install operator, apply a CR, verify the operator logs that it noticed it.
-- Initial CLAUDE.md based on this document.
+- Bootstrap with `kubebuilder init --domain educates.dev` + four
+  `kubebuilder create api` invocations (groups: `config`, `platform`).
+  Strip the generated `config/` kustomize tree; `controller-gen` is
+  pointed at the chart paths instead.
+- Translate the r3 CRD draft into Go types with `kubebuilder` markers
+  (`+kubebuilder:validation:*`, `+kubebuilder:default=*`).
+  - **Spec: full r3 shape**, including static defaults.
+  - **Status: minimal** — `observedGeneration`, `phase`, `conditions`
+    only. Richer status fields (`ingress`, `policyEnforcement`,
+    `imageRegistry`, `bundledChartVersions`, etc.) are added in the
+    phase that introduces the reconciler producing them. Avoids dead
+    API surface. See decisions log.
+- Generate CRD manifests (`make manifests`) directly into
+  `installer/charts/educates-installer/crds/`.
+- Add CEL validation rules — Phase 0 scope is narrowed:
+  - Singleton name (`self.metadata.name == 'cluster'`) on all four CRDs.
+  - Mode immutability (`self.spec.mode == oldSelf.spec.mode`) on
+    `EducatesClusterConfig`.
+  - **Mode-field exclusivity** (Managed fields forbidden when
+    `mode: Inline`, vice versa) is deferred to Phase 1 — it's
+    structural validation tied to fields whose semantics Phase 1 is the
+    first to exercise.
+- Four trivial reconcilers wired into the manager: each logs that it
+  observed the CR and returns. No status writes, no watches on
+  referenced resources, no finalizers.
+- Minimal RBAC in the chart: `get/list/watch/update/patch` on the four
+  CRDs and their `/status` + `/finalizers` only. Watches on referenced
+  Secrets/ClusterIssuers/IngressClasses are added in Phase 1 with the
+  validator.
+- Operator image story: `make docker-build` for local development
+  only. Chart `image.repository`/`tag` defaults to a local-dev
+  placeholder. Publish-time annotations (mirroring the runtime chart's
+  `educates.dev/image-*` pattern) are deferred to Phase 6. See
+  decisions log.
+- One envtest spec exercising "valid CR is accepted; CR with
+  `metadata.name != 'cluster'` is rejected" against each kind. Ginkgo,
+  in-process apiserver via `setup-envtest`. Runs locally via
+  `make test`; CI runs the same target.
+- Local-only `make smoke-test`: `kind create` + `helm install` +
+  `kubectl apply` of sample CRs + `kubectl logs` assertion that the
+  reconcile log line appeared. Not in CI yet — kind-in-CI lands in
+  Phase 2 alongside chart-install testing.
+- CI workflow `installer-operator-ci.yaml`: `make manifests`/`generate`
+  drift check, `go vet`, `go test` (envtest), `golangci-lint`.
+- CLAUDE.md updates pointing at the new directory and conventions.
 
 **Done when:**
-- All four CRDs are installable into a kind cluster.
-- Applying any CR triggers a log line from the operator.
-- CI runs green on a basic PR.
-- No reconcile logic yet — just the skeleton.
+- All four CRDs install into envtest and a kind cluster.
+- Applying a valid CR triggers a log line from the operator.
+- Applying a CR named anything other than `cluster` is rejected by the
+  apiserver.
+- Mutating `EducatesClusterConfig.spec.mode` is rejected on update.
+- `make test` passes locally and in CI.
+- `make smoke-test` passes locally.
+- No reconcile logic beyond the log line.
 
 ### Phase 1: EducatesClusterConfig in Inline mode (2–3 weeks)
 

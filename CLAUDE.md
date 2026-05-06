@@ -131,6 +131,43 @@ kubectl apply -f educates-cluster-config.yaml
 kubectl apply -f educates-components.yaml
 ```
 
+#### Operator project (Phase 0+)
+
+The Go operator lives at `installer/operator/` (kubebuilder project,
+with the standard `config/` kustomize tree stripped — `controller-gen`
+writes CRDs and RBAC directly into the `educates-installer` chart).
+Module path: `github.com/educates/educates-training-platform/installer/operator`,
+in `go.work`. API packages: `api/config/v1alpha1` (EducatesClusterConfig)
+and `api/platform/v1alpha1` (SecretsManager, LookupService,
+SessionManager).
+
+Make targets, all run from `installer/operator/`:
+
+```bash
+make manifests        # Regenerate CRDs + RBAC into the chart
+make generate         # Regenerate deepcopy
+make test             # Run envtest (downloads binaries on first run)
+make envtest          # Just download envtest binaries
+make docker-build     # Build local operator image (Phase 0 dev only)
+make smoke-test       # kind + helm install + apply CR + assert log line
+make lint             # golangci-lint
+```
+
+Phase 0 conventions (in effect until phases close them out):
+
+- **Spec types are full r3 shape; status is minimal** (`observedGeneration`,
+  `phase`, `conditions`). Status fields land alongside the reconciler that
+  produces them. See decisions log.
+- **CEL rules at Phase 0:** singleton-name on all four CRDs;
+  mode-immutability on EducatesClusterConfig. Mode-field exclusivity is
+  Phase 1.
+- **RBAC at Phase 0:** the four CRDs only. Watches on referenced
+  Secrets/ClusterIssuers/IngressClasses are Phase 1.
+- **Operator image:** local-dev placeholder + `make docker-build` only.
+  Publish-time annotations + release workflow land in Phase 6. Running
+  `helm install` against the chart from a clone requires `make
+  docker-build` + `kind load` first.
+
 ### Common
 
 ```bash

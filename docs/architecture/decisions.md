@@ -721,3 +721,100 @@ Mirrors the explicit framing in v3's schema comment
 be brittle in the release workflow (e.g., `yq` formatting drift), move
 the publish-time defaults to a chart-bundled `published-defaults.yaml`
 file loaded by the helper instead.
+
+### Operator project strips kubebuilder's `config/` kustomize tree; controller-gen targets the Helm chart directly
+
+**Date:** 2026-05-06.
+**Decision:** The v4 operator project at `installer/operator/` is
+bootstrapped with `kubebuilder init` + `kubebuilder create api`, but
+the generated `config/` kustomize tree is removed. `controller-gen`
+is configured (via the operator's `Makefile`) to write CRDs and RBAC
+manifests directly into the operator Helm chart at
+`installer/charts/educates-installer/crds/` and
+`installer/charts/educates-installer/templates/rbac/` respectively.
+**Why:** The Helm chart is the artefact users consume — both for
+imperative `helm install` and declarative GitOps. Maintaining a
+parallel kustomize representation under `config/` would mean two
+sources of truth for the same manifests, with a copy/transform step
+between them. Stripping `config/` makes the chart the canonical
+output and `make manifests` the single regeneration step.
+**Consequences to be aware of:**
+- `kubebuilder edit` and other kubebuilder subcommands that assume
+  the standard project layout will not work as documented. Project
+  edits go through `Makefile` targets and direct file edits instead.
+- The operator's `Makefile` carries explicit `controller-gen` invocations
+  with chart-path output flags, replacing kubebuilder's default ones.
+- `kubebuilder` generators (`kubebuilder create webhook` etc.) may
+  still drop files into `config/` if invoked; treat this as a chore to
+  clean up, not a recurring concern (we don't re-scaffold often).
+**Reconsider trigger:** if we end up needing the `config/` tree for
+something kubebuilder-native (e.g., webhook bootstrap), revisit and
+either (a) re-introduce it as a build intermediate gitignored from
+the chart output, or (b) generate webhook manifests by hand into the
+chart.
+
+### Operator CRD types: spec is full r3 from Phase 0; status grows alongside reconcilers
+
+**Date:** 2026-05-06.
+**Decision:** Phase 0 lands the *full* r3 spec surface for all four
+CRDs (EducatesClusterConfig, SecretsManager, LookupService,
+SessionManager) as Go types with kubebuilder validation and default
+markers. The status surface, however, is minimal at Phase 0:
+`observedGeneration`, `phase`, and `conditions` only. Richer status
+fields described in the r3 doc (`ingress`, `policyEnforcement`,
+`imageRegistry`, `bundledChartVersions`, `deploymentRef`, `url`,
+`installedVersion`, etc.) are added in the phase whose reconciler
+first produces them.
+**Why:** Spec is the user-facing API contract — locking it early
+catches drift in CI and lets users (and the migration tool) write
+against it before reconcilers exist. Status, by contrast, is
+implementation-coupled: a status field with no producer is dead API
+surface that drifts from r3 silently. Growing status alongside
+reconcilers keeps the Go types and the controller behaviour
+consistent.
+**Consequences to be aware of:**
+- `docs/architecture/educates-crd-draft-v1alpha1-r3.md` remains the
+  *target* status spec; the Go types catch up phase by phase. When a
+  status field lands in Go, the corresponding doc section is the
+  source of truth for shape and semantics.
+- Conditions follow Kubernetes convention (`Ready` plus PascalCase
+  domain-specific types). The list of condition types grows by phase
+  — Phase 0 ships only `Ready`; phase-specific conditions
+  (`ValidationSucceeded`, `CertificatesReady`, `ClusterConfigAvailable`,
+  etc.) are added with their producers.
+**Reconsider trigger:** if a downstream consumer (CLI, GitOps tooling)
+needs to read a status field before its reconciler exists, promote
+that specific field early with a clear "not yet populated" semantics
+and document it.
+
+### Operator image: local `make docker-build` only at Phase 0; publish wiring deferred to Phase 6
+
+**Date:** 2026-05-06.
+**Decision:** At Phase 0, the operator chart's `image.repository` /
+`image.tag` defaults are a local-dev placeholder
+(e.g. `ghcr.io/educates/educates-operator:dev`), the operator
+`Makefile` ships a `docker-build` target that builds and tags that
+image locally, and `make smoke-test` uses it directly against a kind
+cluster (loading the image into kind nodes via `kind load`). No
+publish-time annotation pattern, no release workflow integration, no
+CI image build — those land in Phase 6 alongside the broader release
+process work.
+**Why:** Phase 0 is the skeleton phase. The image only needs to exist
+for the local smoke test; replicating the runtime chart's
+annotation-driven publish-time defaults would be premature scaffolding
+for a release process that hasn't been built yet. Phase 6 designs
+the operator's release flow as a whole and adds annotations + a
+release workflow at that point.
+**Consequences to be aware of:**
+- A user trying to install the chart from a clone without first running
+  `make docker-build` + `kind load` will see `ImagePullBackOff`. The
+  chart's README and CLAUDE.md should call this out for as long as
+  Phase 0's image story is in effect.
+- When Phase 6 introduces publish-time defaults, mirror the runtime
+  chart's `educates.dev/image-registry-host` /
+  `-namespace` Chart.yaml annotation pattern (see "`imageRegistry` is
+  a development override" decision) so the two charts share a single
+  release-workflow contract.
+**Reconsider trigger:** if Phase 1 or 2 work needs the operator image
+in a published location (e.g., for an external test cluster), promote
+the publish wiring earlier rather than working around it.
