@@ -21,16 +21,38 @@ import (
 	"errors"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 )
+
+// singletonRequest is the only enqueue target for this controller —
+// EducatesClusterConfig is a singleton named "cluster", so any change
+// to a referenced resource maps to that one Reconcile request.
+var singletonRequest = []reconcile.Request{
+	{NamespacedName: types.NamespacedName{Name: "cluster"}},
+}
+
+// mapToSingleton enqueues the singleton EducatesClusterConfig regardless
+// of which referenced resource changed. The reconciler is idempotent
+// and re-runs full validation each pass, so over-enqueuing is cheap.
+// Filtering by name ("only enqueue if this Secret is referenced from
+// spec.inline") would require reading spec at predicate time and saves
+// little in a singleton model.
+func mapToSingleton(_ context.Context, _ client.Object) []reconcile.Request {
+	return singletonRequest
+}
 
 // finalizerName is set on EducatesClusterConfig so the operator gets a
 // chance to clean up before the resource is removed. Inline mode has
@@ -195,12 +217,22 @@ func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.Educa
 
 // SetupWithManager sets up the controller with the Manager.
 //
-// Watches on referenced resources (Secrets, ClusterIssuers,
-// IngressClasses) land in Phase 1 step 5 — until then, Reconcile only
-// fires on EducatesClusterConfig generation changes.
+// Watches:
+//   - Secrets (cache-restricted to the operator namespace by main.go)
+//   - IngressClasses (cluster-scoped)
+//
+// ClusterIssuer is intentionally NOT watched in Phase 1: the type is
+// served by an out-of-tree CRD that may or may not be installed at
+// startup, and an unstructured watch fails hard at cache-startup if
+// the CRD is absent. Phase 2 vendors cert-manager Go types and adds
+// the watch unconditionally (Managed mode always installs cert-manager
+// when bundled). Inline-mode users referencing a ClusterIssuer can
+// re-trigger validation by touching spec until then.
 func (r *EducatesClusterConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&configv1alpha1.EducatesClusterConfig{}).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
+		Watches(&networkingv1.IngressClass{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Named("config-educatesclusterconfig").
 		Complete(r)
 }
