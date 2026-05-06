@@ -73,4 +73,57 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("immutable"))
 	})
+
+	It("rejects Managed-mode fields when mode is Inline (exclusivity CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeInline,
+				Inline: &configv1alpha1.InlineConfig{
+					Ingress: configv1alpha1.InlineIngress{
+						Domain:           "educates.test",
+						IngressClassName: "contour",
+						WildcardCertificateSecretRef: configv1alpha1.LocalObjectReference{
+							Name: "wildcard-tls",
+						},
+					},
+					PolicyEnforcement: configv1alpha1.InlinePolicyEnforcement{
+						ClusterPolicyEngine:  configv1alpha1.ClusterPolicyEngineKyverno,
+						WorkshopPolicyEngine: configv1alpha1.WorkshopPolicyEngineKyverno,
+					},
+				},
+				DNS: &configv1alpha1.DNS{
+					Provider: configv1alpha1.DNSProviderNone,
+				},
+			},
+		}
+		err := k8sClient.Create(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("forbidden when mode is Inline"))
+	})
+
+	It("rejects spec.inline when mode is Managed (exclusivity CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+				Inline: &configv1alpha1.InlineConfig{
+					Ingress: configv1alpha1.InlineIngress{
+						Domain:           "educates.test",
+						IngressClassName: "contour",
+						WildcardCertificateSecretRef: configv1alpha1.LocalObjectReference{
+							Name: "wildcard-tls",
+						},
+					},
+					PolicyEnforcement: configv1alpha1.InlinePolicyEnforcement{
+						ClusterPolicyEngine:  configv1alpha1.ClusterPolicyEngineKyverno,
+						WorkshopPolicyEngine: configv1alpha1.WorkshopPolicyEngineKyverno,
+					},
+				},
+			},
+		}
+		err := k8sClient.Create(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.inline is forbidden"))
+	})
 })

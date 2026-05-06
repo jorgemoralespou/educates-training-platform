@@ -161,6 +161,17 @@ type LocalObjectReference struct {
 	Name string `json:"name"`
 }
 
+// NamespacedSecretRef is a name + namespace reference. Used in status to
+// republish Secret references with the operator namespace explicit, so
+// component CRs can read them without inferring the namespace.
+type NamespacedSecretRef struct {
+	// +required
+	Namespace string `json:"namespace"`
+
+	// +required
+	Name string `json:"name"`
+}
+
 // SecretKeyRef references a key within a Secret in the operator namespace.
 type SecretKeyRef struct {
 	// name of the Secret.
@@ -567,11 +578,18 @@ type InlineConfig struct {
 }
 
 // EducatesClusterConfigSpec defines the desired state of
-// EducatesClusterConfig. Mode-field exclusivity (Managed fields forbidden
-// when mode is Inline, and vice versa) is reconciler-validated in
-// Phase 0; a structural CEL rule is added in Phase 1.
+// EducatesClusterConfig.
+//
+// CEL invariants (structural):
+//   - spec.mode is immutable; switching modes requires delete + recreate.
+//   - When mode is Inline, the Managed-mode top-level fields
+//     (infrastructure, ingress, dns, policyEnforcement, imageRegistry)
+//     are forbidden.
+//   - When mode is Managed, spec.inline is forbidden.
 //
 // +kubebuilder:validation:XValidation:rule="self.mode == oldSelf.mode",message="spec.mode is immutable; delete and recreate the resource to switch modes"
+// +kubebuilder:validation:XValidation:rule="self.mode != 'Inline' || (!has(self.infrastructure) && !has(self.ingress) && !has(self.dns) && !has(self.policyEnforcement) && !has(self.imageRegistry))",message="spec.{infrastructure,ingress,dns,policyEnforcement,imageRegistry} are forbidden when mode is Inline"
+// +kubebuilder:validation:XValidation:rule="self.mode != 'Managed' || !has(self.inline)",message="spec.inline is forbidden when mode is Managed"
 type EducatesClusterConfigSpec struct {
 	// +required
 	Mode ClusterConfigMode `json:"mode"`
@@ -608,12 +626,48 @@ type EducatesClusterConfigSpec struct {
 	Inline *InlineConfig `json:"inline,omitempty"`
 }
 
+// StatusIngress is the ingress contract published in status. Component
+// CRs consume this; they don't read spec. The wildcard (and optional CA)
+// Secret references are namespaced because consumers may live outside
+// the operator namespace.
+type StatusIngress struct {
+	// +required
+	Domain string `json:"domain"`
+
+	// +required
+	IngressClassName string `json:"ingressClassName"`
+
+	// wildcardCertificateSecretRef points at the operator-namespace
+	// Secret holding the wildcard cert+key.
+	// +required
+	WildcardCertificateSecretRef NamespacedSecretRef `json:"wildcardCertificateSecretRef"`
+
+	// caCertificateSecretRef is set when a CA Secret is configured.
+	// +optional
+	CACertificateSecretRef *NamespacedSecretRef `json:"caCertificateSecretRef,omitempty"`
+
+	// clusterIssuerRef names a cluster-wide ClusterIssuer when one was
+	// configured. Components use this informationally; nothing in the
+	// status pipeline depends on it.
+	// +optional
+	ClusterIssuerRef *LocalObjectReference `json:"clusterIssuerRef,omitempty"`
+}
+
+// StatusPolicyEnforcement publishes the resolved effective policy
+// engines.
+type StatusPolicyEnforcement struct {
+	// +required
+	ClusterPolicyEngine ClusterPolicyEngine `json:"clusterPolicyEngine"`
+
+	// +required
+	WorkshopPolicyEngine WorkshopPolicyEngine `json:"workshopPolicyEngine"`
+}
+
 // EducatesClusterConfigStatus is the public interface that component CRs
-// (SecretsManager, LookupService, SessionManager) consume. Phase 0
-// publishes only the minimum surface required to drive controller-level
-// state; richer fields (ingress, policyEnforcement, imageRegistry,
-// bundledChartVersions) are added alongside the reconcilers that produce
-// them.
+// (SecretsManager, LookupService, SessionManager) consume. Phase 1 adds
+// the inter-CR contract fields (mode, ingress, policyEnforcement,
+// imageRegistry); the bundledChartVersions field lands in Phase 2/3
+// alongside Managed-mode chart installs.
 type EducatesClusterConfigStatus struct {
 	// observedGeneration tracks the spec generation last reconciled.
 	// +optional
@@ -624,10 +678,32 @@ type EducatesClusterConfigStatus struct {
 	// +optional
 	Phase ClusterConfigPhase `json:"phase,omitempty"`
 
-	// conditions report the resource's state. Standard type "Ready"
-	// reflects overall readiness; phase-specific types
-	// (ValidationSucceeded, IngressReady, CertificatesReady, ...) are
-	// added with their producing reconcilers.
+	// mode echoes spec.mode at the time of last successful reconcile.
+	// Components can branch on this without reading spec.
+	// +optional
+	Mode ClusterConfigMode `json:"mode,omitempty"`
+
+	// ingress publishes the validated ingress contract for components to
+	// consume. Populated once validation succeeds.
+	// +optional
+	Ingress *StatusIngress `json:"ingress,omitempty"`
+
+	// policyEnforcement publishes the resolved policy engines.
+	// +optional
+	PolicyEnforcement *StatusPolicyEnforcement `json:"policyEnforcement,omitempty"`
+
+	// imageRegistry publishes the rewriting prefix and pull secrets, if
+	// configured. Always populated when reconciliation succeeds; an
+	// empty prefix and empty pullSecrets means no rewriting is in effect.
+	// +optional
+	ImageRegistry *ImageRegistry `json:"imageRegistry,omitempty"`
+
+	// conditions report the resource's state. Phase 1 publishes:
+	//   - Ready                (aggregate)
+	//   - ValidationSucceeded  (Inline mode: refs validated)
+	// Managed-mode conditions (IngressReady, CertificatesReady,
+	// DNSReady, PolicyEnforcementReady, InfrastructureConfigured) land
+	// in later phases alongside their producing reconcilers.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

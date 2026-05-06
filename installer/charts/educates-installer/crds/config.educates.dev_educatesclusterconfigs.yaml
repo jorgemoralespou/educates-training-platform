@@ -53,9 +53,14 @@ spec:
           spec:
             description: |-
               EducatesClusterConfigSpec defines the desired state of
-              EducatesClusterConfig. Mode-field exclusivity (Managed fields forbidden
-              when mode is Inline, and vice versa) is reconciler-validated in
-              Phase 0; a structural CEL rule is added in Phase 1.
+              EducatesClusterConfig.
+
+              CEL invariants (structural):
+                - spec.mode is immutable; switching modes requires delete + recreate.
+                - When mode is Inline, the Managed-mode top-level fields
+                  (infrastructure, ingress, dns, policyEnforcement, imageRegistry)
+                  are forbidden.
+                - When mode is Managed, spec.inline is forbidden.
             properties:
               dns:
                 description: |-
@@ -1110,21 +1115,28 @@ spec:
             - message: spec.mode is immutable; delete and recreate the resource to
                 switch modes
               rule: self.mode == oldSelf.mode
+            - message: spec.{infrastructure,ingress,dns,policyEnforcement,imageRegistry}
+                are forbidden when mode is Inline
+              rule: self.mode != 'Inline' || (!has(self.infrastructure) && !has(self.ingress)
+                && !has(self.dns) && !has(self.policyEnforcement) && !has(self.imageRegistry))
+            - message: spec.inline is forbidden when mode is Managed
+              rule: self.mode != 'Managed' || !has(self.inline)
           status:
             description: |-
               EducatesClusterConfigStatus is the public interface that component CRs
-              (SecretsManager, LookupService, SessionManager) consume. Phase 0
-              publishes only the minimum surface required to drive controller-level
-              state; richer fields (ingress, policyEnforcement, imageRegistry,
-              bundledChartVersions) are added alongside the reconcilers that produce
-              them.
+              (SecretsManager, LookupService, SessionManager) consume. Phase 1 adds
+              the inter-CR contract fields (mode, ingress, policyEnforcement,
+              imageRegistry); the bundledChartVersions field lands in Phase 2/3
+              alongside Managed-mode chart installs.
             properties:
               conditions:
                 description: |-
-                  conditions report the resource's state. Standard type "Ready"
-                  reflects overall readiness; phase-specific types
-                  (ValidationSucceeded, IngressReady, CertificatesReady, ...) are
-                  added with their producing reconcilers.
+                  conditions report the resource's state. Phase 1 publishes:
+                    - Ready                (aggregate)
+                    - ValidationSucceeded  (Inline mode: refs validated)
+                  Managed-mode conditions (IngressReady, CertificatesReady,
+                  DNSReady, PolicyEnforcementReady, InfrastructureConfigured) land
+                  in later phases alongside their producing reconcilers.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -1183,6 +1195,95 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              imageRegistry:
+                description: |-
+                  imageRegistry publishes the rewriting prefix and pull secrets, if
+                  configured. Always populated when reconciliation succeeds; an
+                  empty prefix and empty pullSecrets means no rewriting is in effect.
+                properties:
+                  prefix:
+                    description: |-
+                      prefix rewrites every bundled image reference to live under this
+                      prefix, e.g., "internal-registry.corp.local/educates". Pre-relocated
+                      bundles (via helm dt wrap/unwrap) do not need this set.
+                    type: string
+                  pullSecrets:
+                    description: |-
+                      pullSecrets references kubernetes.io/dockerconfigjson Secrets in
+                      the operator namespace.
+                    items:
+                      description: |-
+                        LocalObjectReference is a reference to a Kubernetes object by name in
+                        the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                        IngressClass) also use this shape.
+                      properties:
+                        name:
+                          description: name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
+              ingress:
+                description: |-
+                  ingress publishes the validated ingress contract for components to
+                  consume. Populated once validation succeeds.
+                properties:
+                  caCertificateSecretRef:
+                    description: caCertificateSecretRef is set when a CA Secret is
+                      configured.
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
+                  clusterIssuerRef:
+                    description: |-
+                      clusterIssuerRef names a cluster-wide ClusterIssuer when one was
+                      configured. Components use this informationally; nothing in the
+                      status pipeline depends on it.
+                    properties:
+                      name:
+                        description: name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  domain:
+                    type: string
+                  ingressClassName:
+                    type: string
+                  wildcardCertificateSecretRef:
+                    description: |-
+                      wildcardCertificateSecretRef points at the operator-namespace
+                      Secret holding the wildcard cert+key.
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
+                required:
+                - domain
+                - ingressClassName
+                - wildcardCertificateSecretRef
+                type: object
+              mode:
+                description: |-
+                  mode echoes spec.mode at the time of last successful reconcile.
+                  Components can branch on this without reading spec.
+                enum:
+                - Managed
+                - Inline
+                type: string
               observedGeneration:
                 description: observedGeneration tracks the spec generation last reconciled.
                 format: int64
@@ -1199,6 +1300,30 @@ spec:
                 - Degraded
                 - Uninstalling
                 type: string
+              policyEnforcement:
+                description: policyEnforcement publishes the resolved policy engines.
+                properties:
+                  clusterPolicyEngine:
+                    description: ClusterPolicyEngine names the cluster-wide policy
+                      enforcement engine.
+                    enum:
+                    - Kyverno
+                    - PodSecurityStandards
+                    - OpenShiftSCC
+                    - None
+                    type: string
+                  workshopPolicyEngine:
+                    description: |-
+                      WorkshopPolicyEngine names the engine enforcing per-workshop isolation
+                      rules. Setting to None disables workshop isolation.
+                    enum:
+                    - Kyverno
+                    - None
+                    type: string
+                required:
+                - clusterPolicyEngine
+                - workshopPolicyEngine
+                type: object
             type: object
         required:
         - spec
