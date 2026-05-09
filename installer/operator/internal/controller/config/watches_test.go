@@ -20,6 +20,8 @@ import (
 	"context"
 	"time"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -27,13 +29,51 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 )
+
+// makeReadyClusterIssuer returns a self-signed ClusterIssuer resource;
+// the caller is expected to also Status().Update() it to Ready=True.
+func makeReadyClusterIssuer(name string) *cmv1.ClusterIssuer {
+	return &cmv1.ClusterIssuer{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: cmv1.IssuerSpec{
+			IssuerConfig: cmv1.IssuerConfig{
+				SelfSigned: &cmv1.SelfSignedIssuer{},
+			},
+		},
+	}
+}
+
+// markClusterIssuerReady writes Ready=True to the named ClusterIssuer's
+// status subresource. cert-manager itself would set this in production;
+// envtest has no controller, so the test drives the transition.
+func markClusterIssuerReady(name string, ready bool) {
+	GinkgoHelper()
+	ci := &cmv1.ClusterIssuer{}
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, ci)).To(Succeed())
+	status := cmmeta.ConditionTrue
+	if !ready {
+		status = cmmeta.ConditionFalse
+	}
+	ci.Status = cmv1.IssuerStatus{
+		Conditions: []cmv1.IssuerCondition{{
+			Type:               cmv1.IssuerConditionReady,
+			Status:             status,
+			LastTransitionTime: &metav1.Time{Time: time.Now()},
+			Reason:             "Test",
+			Message:            "set by envtest",
+		}},
+	}
+	Expect(k8sClient.Status().Update(ctx, ci)).To(Succeed())
+}
 
 // readyConditionStatus returns the Ready condition's status, or
 // ConditionUnknown if the resource or condition is missing. Used as
@@ -74,6 +114,11 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 			// Disable the metrics server in-test; envtest doesn't need it
 			// and binding a port can collide across specs.
 			Metrics: metricsserver.Options{BindAddress: "0"},
+			// Skip controller-name uniqueness check: each spec spins up
+			// its own manager, but controller-runtime's name registry is
+			// process-global, so the second spec's SetupWithManager would
+			// otherwise reject the duplicate.
+			Controller: crconfig.Controller{SkipNameValidation: ptr.To(true)},
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -96,6 +141,7 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 		drainCR()
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
+		_ = k8sClient.DeleteAllOf(ctx, &cmv1.ClusterIssuer{})
 	})
 
 	It("flips status from Ready to Degraded when the wildcard Secret is deleted", func() {
@@ -120,5 +166,34 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionFalse), "expected Ready=False after Secret deletion")
+	})
+
+	It("flips status from Ready to Degraded when a referenced ClusterIssuer is deleted", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeReadyClusterIssuer("test-issuer"))).To(Succeed())
+		markClusterIssuerReady("test-issuer", true)
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.ClusterIssuerRef = &configv1alpha1.LocalObjectReference{Name: "test-issuer"}
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionTrue), "expected Ready=True after initial reconcile")
+
+		// Delete the ClusterIssuer. The ClusterIssuer watch should map back
+		// to the singleton Reconcile, which finds the missing issuer and
+		// writes Degraded.
+		Expect(k8sClient.Delete(ctx, &cmv1.ClusterIssuer{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-issuer"},
+		})).To(Succeed())
+
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionFalse), "expected Ready=False after ClusterIssuer deletion")
 	})
 })

@@ -1,0 +1,151 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// Package helm wraps Helm SDK v4's action package with a small, opinionated
+// surface tailored to the operator's needs: install/upgrade/uninstall/status
+// keyed by release name, with chart bytes loaded from vendored tarballs
+// (see installer/vendored-charts/) rather than pulled at runtime.
+//
+// The wrapper exists so reconcilers don't have to repeat the
+// action.Configuration boilerplate, and so test fixtures can swap in an
+// in-memory release store without touching production call sites.
+package helm
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"helm.sh/helm/v4/pkg/action"
+	chart "helm.sh/helm/v4/pkg/chart/v2"
+	"helm.sh/helm/v4/pkg/kube"
+	release "helm.sh/helm/v4/pkg/release/v1"
+	"helm.sh/helm/v4/pkg/storage/driver"
+	"k8s.io/client-go/rest"
+)
+
+// helmDriver selects Helm's release-record storage backend. Secrets is
+// what the helm CLI defaults to in v3+, and what an operator running
+// in-cluster should use so that `helm list` from a kubectl shell sees
+// releases the operator created.
+const helmDriver = "secrets"
+
+// ErrReleaseNotFound is returned by Status when the release is absent
+// from the configured driver. Wrapping helm's own driver.ErrReleaseNotFound
+// gives callers a stable sentinel without leaking the helm storage type.
+var ErrReleaseNotFound = errors.New("helm release not found")
+
+// Client is the operator-facing handle for Helm SDK actions against a
+// single namespace. Construct with NewClient (production) or
+// NewMemoryClient (tests).
+type Client struct {
+	cfg       *action.Configuration
+	namespace string
+}
+
+// NewClient builds a Client backed by the cluster reachable via cfg.
+// Releases are stored as Secrets in the given namespace, matching the
+// Helm CLI default. The namespace also scopes resource installs in the
+// absence of explicit metadata.namespace.
+func NewClient(cfg *rest.Config, namespace string) (*Client, error) {
+	if cfg == nil {
+		return nil, errors.New("rest.Config is required")
+	}
+	if namespace == "" {
+		return nil, errors.New("namespace is required")
+	}
+
+	actionCfg := new(action.Configuration)
+	getter := newRESTClientGetter(cfg, namespace)
+	if err := actionCfg.Init(getter, namespace, helmDriver); err != nil {
+		return nil, fmt.Errorf("init helm action config: %w", err)
+	}
+	return &Client{cfg: actionCfg, namespace: namespace}, nil
+}
+
+// Install creates a new release with the given name from chrt. Returns
+// the resulting release record. The reconciler is responsible for
+// idempotency — Install will fail if the release already exists; call
+// Status first to disambiguate "first install" from "upgrade".
+func (c *Client) Install(ctx context.Context, releaseName string, chrt *chart.Chart, vals map[string]any) (*release.Release, error) {
+	act := action.NewInstall(c.cfg)
+	act.ReleaseName = releaseName
+	act.Namespace = c.namespace
+	act.CreateNamespace = false              // operator manages cluster-service namespaces explicitly elsewhere
+	act.WaitStrategy = kube.HookOnlyStrategy // readiness is enforced by the reconciler, not Helm
+
+	rel, err := act.RunWithContext(ctx, chrt, vals)
+	if err != nil {
+		return nil, fmt.Errorf("helm install %q: %w", releaseName, err)
+	}
+	r, ok := rel.(*release.Release)
+	if !ok {
+		return nil, fmt.Errorf("helm install %q: unexpected release type %T", releaseName, rel)
+	}
+	return r, nil
+}
+
+// Upgrade applies an updated chart or values to an existing release. If
+// the release does not exist this returns an error rather than installing;
+// reconcilers should call Status first and route to Install on absence.
+func (c *Client) Upgrade(ctx context.Context, releaseName string, chrt *chart.Chart, vals map[string]any) (*release.Release, error) {
+	act := action.NewUpgrade(c.cfg)
+	act.Namespace = c.namespace
+	act.WaitStrategy = kube.HookOnlyStrategy
+
+	rel, err := act.RunWithContext(ctx, releaseName, chrt, vals)
+	if err != nil {
+		return nil, fmt.Errorf("helm upgrade %q: %w", releaseName, err)
+	}
+	r, ok := rel.(*release.Release)
+	if !ok {
+		return nil, fmt.Errorf("helm upgrade %q: unexpected release type %T", releaseName, rel)
+	}
+	return r, nil
+}
+
+// Uninstall removes the named release. Idempotent: if the release does
+// not exist, this returns nil (the operator's finalizer path retries on
+// drift, and "already gone" is the desired terminal state).
+func (c *Client) Uninstall(releaseName string) error {
+	act := action.NewUninstall(c.cfg)
+	act.IgnoreNotFound = true
+
+	if _, err := act.Run(releaseName); err != nil {
+		return fmt.Errorf("helm uninstall %q: %w", releaseName, err)
+	}
+	return nil
+}
+
+// Status returns the latest release record for releaseName, or
+// ErrReleaseNotFound when no release exists. The Releaser interface is
+// downcast to *release.Release because the operator only deals in v1
+// releases; the v2 path is internal Helm work-in-progress.
+func (c *Client) Status(releaseName string) (*release.Release, error) {
+	act := action.NewStatus(c.cfg)
+	rel, err := act.Run(releaseName)
+	if err != nil {
+		if errors.Is(err, driver.ErrReleaseNotFound) {
+			return nil, ErrReleaseNotFound
+		}
+		return nil, fmt.Errorf("helm status %q: %w", releaseName, err)
+	}
+	r, ok := rel.(*release.Release)
+	if !ok {
+		return nil, fmt.Errorf("helm status %q: unexpected release type %T", releaseName, rel)
+	}
+	return r, nil
+}

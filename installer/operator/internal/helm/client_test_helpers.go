@@ -1,0 +1,53 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package helm
+
+import (
+	"io"
+
+	"helm.sh/helm/v4/pkg/action"
+	"helm.sh/helm/v4/pkg/chart/common"
+	kubefake "helm.sh/helm/v4/pkg/kube/fake"
+	"helm.sh/helm/v4/pkg/registry"
+	"helm.sh/helm/v4/pkg/storage"
+	"helm.sh/helm/v4/pkg/storage/driver"
+)
+
+// NewMemoryClient returns a Client backed by an in-memory release store
+// and Helm's no-op "printing" KubeClient. It exists to give the
+// reconciler tests a Client they can drive Install/Upgrade/Uninstall/
+// Status against without standing up an apiserver.
+//
+// This factory is exported (rather than living in _test.go) because
+// reconciler-package tests in other packages will want it too once
+// Phase 2 wires Helm into the EducatesClusterConfig controller. It is
+// nonetheless test-only — production call sites must use NewClient.
+func NewMemoryClient(namespace string) (*Client, error) {
+	registryClient, err := registry.NewClient()
+	if err != nil {
+		return nil, err
+	}
+	cfg := &action.Configuration{
+		Releases: storage.Init(driver.NewMemory()),
+		KubeClient: &kubefake.PrintingKubeClient{
+			Out: io.Discard,
+		},
+		Capabilities:   common.DefaultCapabilities,
+		RegistryClient: registryClient,
+	}
+	return &Client{cfg: cfg, namespace: namespace}, nil
+}

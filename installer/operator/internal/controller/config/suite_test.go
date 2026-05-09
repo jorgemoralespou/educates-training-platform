@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,12 +63,17 @@ var _ = BeforeSuite(func() {
 	var err error
 	err = configv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
+	err = cmv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "..", "charts", "educates-installer", "crds")},
+		CRDDirectoryPaths: []string{
+			filepath.Join("..", "..", "..", "..", "charts", "educates-installer", "crds"),
+			filepath.Join("testdata", "crds", "cert-manager"),
+		},
 		ErrorIfCRDPathMissing: true,
 	}
 

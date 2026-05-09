@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
@@ -42,12 +42,6 @@ type validationError struct {
 
 func (e *validationError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Field, e.Reason)
-}
-
-var clusterIssuerGVK = schema.GroupVersionKind{
-	Group:   "cert-manager.io",
-	Version: "v1",
-	Kind:    "ClusterIssuer",
 }
 
 // validateInline runs Phase 1 Inline-mode checks against the cluster.
@@ -154,8 +148,7 @@ func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, nam
 }
 
 func (r *EducatesClusterConfigReconciler) checkClusterIssuer(ctx context.Context, name string) error {
-	ci := &unstructured.Unstructured{}
-	ci.SetGroupVersionKind(clusterIssuerGVK)
+	ci := &cmv1.ClusterIssuer{}
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, ci); err != nil {
 		// IsNoMatchError covers the "cert-manager CRD not installed"
 		// case — surface it as a validation error rather than a
@@ -177,21 +170,12 @@ func (r *EducatesClusterConfigReconciler) checkClusterIssuer(ctx context.Context
 	return nil
 }
 
-// isClusterIssuerReady checks for a status condition of type "Ready"
-// with status "True" on an unstructured ClusterIssuer object. Returns
-// false when the conditions slice is missing, malformed, or carries a
-// non-True Ready entry.
-func isClusterIssuerReady(ci *unstructured.Unstructured) bool {
-	conds, found, err := unstructured.NestedSlice(ci.Object, "status", "conditions")
-	if err != nil || !found {
-		return false
-	}
-	for _, c := range conds {
-		cMap, ok := c.(map[string]any)
-		if !ok {
-			continue
-		}
-		if cMap["type"] == "Ready" && cMap["status"] == "True" {
+// isClusterIssuerReady reports whether the ClusterIssuer carries a
+// Ready=True condition. Returns false when the conditions slice is empty
+// or carries a non-True Ready entry.
+func isClusterIssuerReady(ci *cmv1.ClusterIssuer) bool {
+	for _, c := range ci.Status.Conditions {
+		if c.Type == cmv1.IssuerConditionReady && c.Status == cmmeta.ConditionTrue {
 			return true
 		}
 	}

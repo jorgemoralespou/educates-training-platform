@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -220,19 +221,22 @@ func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.Educa
 // Watches:
 //   - Secrets (cache-restricted to the operator namespace by main.go)
 //   - IngressClasses (cluster-scoped)
+//   - ClusterIssuers (cluster-scoped, cert-manager.io/v1)
 //
-// ClusterIssuer is intentionally NOT watched in Phase 1: the type is
-// served by an out-of-tree CRD that may or may not be installed at
-// startup, and an unstructured watch fails hard at cache-startup if
-// the CRD is absent. Phase 2 vendors cert-manager Go types and adds
-// the watch unconditionally (Managed mode always installs cert-manager
-// when bundled). Inline-mode users referencing a ClusterIssuer can
-// re-trigger validation by touching spec until then.
+// The ClusterIssuer watch is unconditional. Typed watches require the
+// GVK to be resolvable at cache startup, so cert-manager.io CRDs must
+// exist before the operator starts — even for Inline-mode-only installs
+// that never reference a ClusterIssuer. The operator chart documents
+// this as a prerequisite; Managed-mode installs satisfy it inherently
+// (the operator installs cert-manager itself), Inline-mode-only installs
+// must apply the cert-manager CRDs (or full cert-manager) up front.
+// Tests register the vendored CRD via envtest's CRDDirectoryPaths.
 func (r *EducatesClusterConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&configv1alpha1.EducatesClusterConfig{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Watches(&networkingv1.IngressClass{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
+		Watches(&cmv1.ClusterIssuer{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Named("config-educatesclusterconfig").
 		Complete(r)
 }
