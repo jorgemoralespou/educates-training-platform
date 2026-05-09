@@ -38,7 +38,8 @@ When working on v4 installer tasks:
 
 **Safe to create/modify:**
 - New code for the v4 installer (operator, CRDs, Helm charts). Charts should
-  live in `installer/charts`, operatotor code in `installer/operator`.
+  live in `installer/charts`, operator code in `installer/operator`,
+  vendored upstream Helm charts in `installer/vendored-charts`.
 - The CLI in `client-programs/` — needs significant changes for v4. The
   existing Carvel-related code will be removed; new commands wrap the
   Helm-chart + CR-apply workflow.
@@ -144,13 +145,15 @@ SessionManager).
 Make targets, all run from `installer/operator/`:
 
 ```bash
-make manifests        # Regenerate CRDs + RBAC into the chart
-make generate         # Regenerate deepcopy
-make test             # Run envtest (downloads binaries on first run)
-make envtest          # Just download envtest binaries
-make docker-build     # Build local operator image (Phase 0 dev only)
-make smoke-test       # kind + helm install + apply CR + assert log line
-make lint             # golangci-lint
+make manifests                 # Regenerate CRDs + RBAC into the chart
+make generate                  # Regenerate deepcopy
+make test                      # Run envtest (downloads binaries on first run)
+make envtest                   # Just download envtest binaries
+make docker-build              # Build local operator image (Phase 0 dev only)
+make smoke-test                # kind + helm install + apply CR + assert log line
+make lint                      # golangci-lint
+make vendor-charts             # Download upstream charts into ../vendored-charts/, verify SHA256
+make verify-vendored-charts    # Re-verify SHA256 of tarballs already on disk
 ```
 
 Phase status (as of 2026-05):
@@ -161,9 +164,17 @@ Phase status (as of 2026-05):
   validator + watches + finalizer + status contract live; the three
   platform reconcilers (SecretsManager, LookupService, SessionManager)
   are still stubs until Phase 4.
-- **Phase 2 (Bundled cert-manager end-to-end) — next.** Vendors
-  cert-manager Go types, drives a real Helm SDK install of
-  cert-manager, creates ClusterIssuer + wildcard Certificate.
+- **Phase 2 (Bundled cert-manager end-to-end) — Session 1 done; in
+  progress.** Groundwork landed: cert-manager Go types vendored and
+  scheme-registered; Phase 1 unstructured ClusterIssuer access
+  refactored to typed; unconditional ClusterIssuer watch + envtest
+  drift coverage; `internal/helm` Helm SDK v4 wrapper
+  (Install/Upgrade/Uninstall/Status, vendored-tarball loader, in-memory
+  test factory); first vendored chart at
+  `installer/vendored-charts/cert-manager-v1.20.2.tgz` with SHA256
+  integrity + `make vendor-charts`. Reconciler-side Managed-mode logic
+  (real chart install + webhook readiness + ClusterIssuer/Certificate
+  creation + finalizer-driven uninstall) is the next session.
 
 Living conventions (carry across phases unless superseded):
 
@@ -176,11 +187,25 @@ Living conventions (carry across phases unless superseded):
   on its referenced kinds (Secrets, ClusterIssuers, IngressClasses) plus
   full access on its own kind. Platform reconcilers have only their own
   kinds — they grow when their reconcilers come online in Phase 4.
-- **Watches:** Secret + IngressClass (operator-namespace-scoped Secret
-  cache; cluster-scoped IngressClass). ClusterIssuer watch deferred to
-  Phase 2 (see decisions log — unstructured-watch-vs-absent-CRD).
-- **ClusterIssuer access** is via `unstructured.Unstructured` in Phase 1;
-  Phase 2 vendors cert-manager Go types and refactors.
+- **Watches:** Secret + IngressClass + ClusterIssuer (operator-namespace
+  -scoped Secret cache; cluster-scoped IngressClass and ClusterIssuer).
+  cert-manager.io CRDs are an operator install prerequisite for **all**
+  modes (typed watches require GVK at cache startup) — Inline-only users
+  must apply at least the cert-manager CRDs before starting the operator.
+  See decisions log.
+- **ClusterIssuer access** is typed (`cmv1.ClusterIssuer`) as of
+  Phase 2 Session 1. Phase 1 used `unstructured.Unstructured`; that
+  path no longer exists.
+- **Helm SDK:** v4 (`helm.sh/helm/v4`), wrapped by
+  `installer/operator/internal/helm` so reconcilers don't repeat
+  `action.Configuration` boilerplate. Use `helm.NewClient(restCfg, ns)`
+  in production and `helm.NewMemoryClient(ns)` in tests.
+- **Vendored upstream charts** live at `installer/vendored-charts/<name>-<version>.tgz`,
+  integrity-recorded in `SHA256SUMS`. The operator loads them via
+  `helm.LoadArchive`. Refresh with `make vendor-charts` after updating
+  the version + hash entries. No `educates-cluster-services` umbrella
+  chart exists or is planned — the operator is the sole installer of
+  cluster services.
 - **Operator image:** local-dev placeholder + `make docker-build` only.
   Publish-time annotations + release workflow land in Phase 6. Running
   `helm install` against the chart from a clone requires `make

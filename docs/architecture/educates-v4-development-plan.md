@@ -429,16 +429,47 @@ before they reach the runtime.
   (CEL bypass case) that becomes redundant once webhooks are added —
   flagged for review in v1beta1.
 
-### Phase 2: One Bundled service end-to-end (3–4 weeks)
+### Phase 2: One Bundled service end-to-end (3–4 weeks)  *(in progress — Session 1 groundwork done 2026-05)*
 
 **Pick cert-manager as the first Bundled service.** It's the hardest to get right (CRDs, webhook readiness, ClusterIssuer ordering), and getting it right teaches the patterns that apply to the others. Easier services first leave you to discover hard problems later.
 
-**What to build:**
-- Embed Helm Go SDK (`helm.sh/helm/v3/pkg/action`).
+**Session 1 — groundwork (done 2026-05):** vendoring + Helm SDK +
+typed cert-manager access landed without changing user-visible
+behaviour. Concretely:
+
+- **Decisions recorded** in `decisions.md`:
+  no `educates-cluster-services` umbrella (operator is the sole
+  installer); vendored upstream charts live as tarballs at
+  `installer/vendored-charts/<name>-<version>.tgz`; cert-manager CRDs
+  are an operator install prerequisite for **all** modes (Inline-only
+  too — typed watches require GVK at cache startup).
+- **cert-manager Go types vendored**: `github.com/cert-manager/cert-manager v1.20.2`
+  added; `cmv1` registered on the manager scheme; Phase 1's
+  `unstructured.Unstructured` ClusterIssuer access in
+  `validator.go::checkClusterIssuer` refactored to typed.
+- **ClusterIssuer watch unconditional** on the EducatesClusterConfig
+  reconciler. envtest gets the vendored ClusterIssuer CRD via
+  `internal/controller/config/testdata/crds/cert-manager/`; new spec
+  asserts ClusterIssuer deletion flips status to Degraded (mirrors the
+  Phase 1 Secret-drift test).
+- **`internal/helm` package** built around Helm SDK v4 (`helm.sh/helm/v4
+  v4.1.4`): `Client.Install/Upgrade/Uninstall/Status` keyed by release
+  name, `LoadArchive` for vendored tarballs, a `*rest.Config`-backed
+  `restClientGetter` adapter, and a `NewMemoryClient` test factory using
+  the in-memory release driver + `kubefake.PrintingKubeClient`.
+- **First vendored chart**: `installer/vendored-charts/cert-manager-v1.20.2.tgz`
+  with `SHA256SUMS` integrity record; `make vendor-charts` (download +
+  verify) and `make verify-vendored-charts` (verify on disk) targets in
+  `installer/operator/Makefile`. A unit test in `internal/helm` loads
+  the real vendored tarball end-to-end.
+
+**Carry-forward — what Phase 2 still needs:**
+
+- Embed Helm Go SDK ✅ done in Session 1.
 - Chart installation pipeline:
-  - Pull from upstream OCI registry (or vendored chart copy — decide which).
+  - Pull from upstream OCI registry (or vendored chart copy — decide which). ✅ vendored, decision recorded.
   - Render values from CR fields (with reconciler-computed defaults, e.g., replicas by provider).
-  - Apply via `helm.NewInstall().Run()`.
+  - Apply via the `internal/helm.Client.Install`.
 - Real readiness check for cert-manager:
   - Deployment Available is necessary but not sufficient.
   - Verify the cert-manager webhook actually serves: `GET /apis/cert-manager.io/v1` against the API server, expect 200.
