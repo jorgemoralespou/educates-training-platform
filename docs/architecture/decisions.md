@@ -881,3 +881,84 @@ panic.
 and CEL bypass becomes infeasible, the guard becomes pure dead code
 and can be removed. Flagged in the development plan's Phase 1 carry-
 over list for v1beta1 review.
+
+### No `educates-cluster-services` umbrella chart; the operator is the sole installer
+
+**Date:** 2026-05-06.
+**Decision:** Cluster services (cert-manager, Contour, Kyverno,
+external-dns) are installed exclusively by the v4 operator via Helm SDK
+calls against vendored upstream charts. There is no, and there is no
+plan for, an `educates-cluster-services` umbrella chart that would offer
+a standalone Helm-only install path for these services. The only
+umbrella chart in the v4 design remains `educates-training-platform`,
+which packages the Educates runtime components.
+**Why:** A standalone cluster-services chart would duplicate what
+`mode: Managed` already does (single action installs all four services)
+without serving a real audience: BYO users go `mode: Inline` and bring
+their own cluster services, so they don't want a chart from us either.
+The operator is the single integration point — it owns ordering,
+readiness checks, finalizer-driven uninstall, and ClusterIssuer/
+Certificate creation, none of which a plain Helm install can provide.
+This consolidates earlier statements in `decisions.md:73-83` ("Subcharts
+do not vendor upstream charts" — runtime subcharts package only Educates
+components; cluster services are operator-installed) into a positive
+decision so the question doesn't recur.
+**Reconsider trigger:** if a concrete user demand emerges for installing
+cluster services via plain Helm without the operator. Until then, the
+operator is the only consumer and the only installer.
+
+### Vendored upstream charts live as tarballs at `installer/vendored-charts/`
+
+**Date:** 2026-05-06.
+**Decision:** Upstream Helm charts the operator drives (cert-manager
+first, then Contour, Kyverno, external-dns) are vendored into the
+repository as tarballs under `installer/vendored-charts/<name>-<version>.tgz`.
+A `make vendor-charts` target pulls them from upstream and verifies
+checksums; the tarballs themselves are checked in. The operator's Helm
+SDK loader reads chart bytes from this path at runtime (the tarballs are
+embedded into the operator image at build time, or — during
+development — read from disk).
+**Why tarballs over unpacked directories:** Helm SDK's `loader.Load`
+accepts both, but tarballs are atomic, content-addressable, and don't
+invite ad-hoc local edits that drift from the upstream chart. Diff
+review of a chart bump is `git show` of the tarball replacement plus
+the README update, not a directory-wide diff that mingles real changes
+with reformatting noise. The intent is "we ship the upstream chart
+unmodified"; the tarball makes that intent enforceable.
+**Why vendor at all:** Per development-plan open item #2, every chart
+update must be a deliberate, testable change — not whatever the
+upstream registry happens to serve at install time. Vendoring also
+enables air-gapped installs without runtime registry access, and gives
+us a single point of control for image-relocation rewrites in Phase 6.
+**Layout consequence:** With no `educates-cluster-services` umbrella
+(see preceding entry), `installer/vendored-charts/` has a single
+consumer — the operator — so there is no need to expose it as a Helm
+`file://` repository. If a future consumer appears, the same on-disk
+location can be referenced via `repository: file://...` from a
+`Chart.yaml` `dependencies` block without moving the bytes.
+
+### cert-manager CRDs are an operator install prerequisite (all modes)
+
+**Date:** 2026-05-06.
+**Decision:** Starting with Phase 2, the cert-manager.io CRDs must be
+installed in the cluster *before* the v4 operator starts — including
+for Inline-mode-only installs that never reference a ClusterIssuer.
+Managed-mode installs satisfy the prerequisite inherently (the operator
+installs cert-manager); Inline-mode-only installs must apply the
+cert-manager CRDs (or full cert-manager) up front. The operator chart
+documents this; chart-level enforcement (e.g., a pre-install hook that
+checks for the CRD) is deferred — failure mode at startup is loud
+enough.
+**Why:** The reconciler now uses a typed `Watches(&cmv1.ClusterIssuer{},
+...)` on the manager, and controller-runtime requires the GVK to be
+resolvable at cache startup. A missing CRD causes hard manager startup
+failure. Conditional CRD discovery + dynamic watch addition is workable
+(~30 lines, flagged as the alternative in the Phase 1 deferral entry)
+but not worth the complexity once cert-manager is a first-class
+dependency for the project's primary install path. Even Inline users
+typically have cert-manager already, since BYO ingress + TLS is the
+common reason to use Inline.
+**Reconsider trigger:** if a meaningful population of users emerges
+with no cert-manager at all (e.g., StaticCertificate-only installs in
+restricted environments), make the watch conditional on CRD discovery
+at startup. Costs ~30 lines and an extra startup probe.
