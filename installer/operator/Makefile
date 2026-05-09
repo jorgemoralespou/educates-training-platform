@@ -97,6 +97,51 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
 lint-config: golangci-lint ## Verify golangci-lint linter configuration
 	"$(GOLANGCI_LINT)" config verify
 
+##@ Vendoring
+
+# Vendored upstream charts live one directory up, sibling to operator/.
+# See ../vendored-charts/README.md for layout and the rationale.
+VENDORED_CHARTS_DIR := $(shell pwd)/../vendored-charts
+
+# Each entry: <chart-name>=<version>=<upstream-tarball-URL>
+# Order doesn't matter; vendor-charts iterates and verifies each one
+# against ../vendored-charts/SHA256SUMS.
+VENDORED_CHARTS := \
+	cert-manager=v1.20.2=https://charts.jetstack.io/charts/cert-manager-v1.20.2.tgz
+
+.PHONY: vendor-charts
+vendor-charts: ## Download upstream Helm charts into ../vendored-charts/ and verify against SHA256SUMS.
+	@set -e; \
+	if [ ! -f "$(VENDORED_CHARTS_DIR)/SHA256SUMS" ]; then \
+		echo "missing $(VENDORED_CHARTS_DIR)/SHA256SUMS — record expected hashes there before running this target"; \
+		exit 1; \
+	fi; \
+	for entry in $(VENDORED_CHARTS); do \
+		name=$${entry%%=*}; rest=$${entry#*=}; \
+		version=$${rest%%=*}; url=$${rest#*=}; \
+		file="$$name-$$version.tgz"; \
+		dest="$(VENDORED_CHARTS_DIR)/$$file"; \
+		echo ">> $$file"; \
+		tmp=$$(mktemp); \
+		curl -sSfL -o "$$tmp" "$$url"; \
+		got=$$(shasum -a 256 "$$tmp" | awk '{print $$1}'); \
+		want=$$(awk -v f="$$file" '$$2==f {print $$1}' "$(VENDORED_CHARTS_DIR)/SHA256SUMS"); \
+		if [ -z "$$want" ]; then \
+			echo "no SHA256 recorded for $$file in $(VENDORED_CHARTS_DIR)/SHA256SUMS"; \
+			rm -f "$$tmp"; exit 1; \
+		fi; \
+		if [ "$$got" != "$$want" ]; then \
+			echo "checksum mismatch for $$file: got $$got, want $$want"; \
+			rm -f "$$tmp"; exit 1; \
+		fi; \
+		mv "$$tmp" "$$dest"; \
+		echo "   ok ($$got)"; \
+	done
+
+.PHONY: verify-vendored-charts
+verify-vendored-charts: ## Re-verify SHA256 of every tarball already in ../vendored-charts/.
+	@set -e; cd "$(VENDORED_CHARTS_DIR)" && shasum -a 256 -c SHA256SUMS
+
 ##@ Build
 
 .PHONY: build
