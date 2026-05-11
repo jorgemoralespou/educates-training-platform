@@ -187,3 +187,76 @@ the `yq -i` command pattern and the rationale (decisions.md entry).
   Chart.yamls (or refers to the CI lint that enforces consistency).
 - Worked example for the upstream release case AND the fork release
   case.
+
+---
+
+### Harden cert-manager readiness with a synthetic admission probe
+
+**Date added:** 2026-05-11.
+**Trigger to file:** if we observe `CertificatesReady=True` flips
+while the cert-manager admission webhook is in fact unhealthy — i.e.,
+Certificates created in the same reconcile pass fail with
+`InternalError`/`failed calling webhook` despite the operator
+considering cert-manager ready.
+
+**Context:**
+
+Phase 2 Session 2 commit 2 implemented cert-manager readiness as
+"all three cert-manager Deployments (controller, webhook, cainjector)
+report `Available=True`." This is what v3's installer used and what
+most cert-manager-driven operators ship. The Phase 2 carry-forward
+originally proposed adding `GET /apis/cert-manager.io/v1` against
+the API server as the readiness gate, but that endpoint resolves
+from CRD presence alone — it does not exercise the admission webhook
+pod — so it was rejected as a stronger probe (see Phase 2 Session 2
+plan amendment).
+
+The Deployment-availability check has a real (if rare) failure mode:
+the webhook pod can be Available per its readiness probe while its
+mutating/validating admission path is broken (TLS rotation race,
+webhook handler panic-and-recover loop, mis-wired Service Endpoints).
+In that window the operator races ahead, creates a ClusterIssuer and
+Certificate, the apiserver calls the webhook, the webhook errors,
+and the user sees confusing failures on resources the operator just
+created.
+
+**Scope:**
+
+Add an *Option B* readiness gate alongside the existing Deployment
+check:
+
+1. Construct a sentinel `Certificate` object in-memory — `metadata.name`
+   derived from `EducatesClusterConfig` UID so it's stable per
+   instance — pointing at the wildcard issuer with `dnsNames` for the
+   wildcard domain. Do **not** persist it.
+2. Issue a server-side dry-run create via the typed client:
+   `r.Create(ctx, sentinel, client.DryRunAll)`. This forces the
+   apiserver to invoke cert-manager's admission webhook end-to-end
+   without writing anything to etcd.
+3. Treat a successful dry-run as "webhook is serving"; treat
+   `webhook unavailable`, `i/o timeout`, or `connection refused`
+   errors as "not ready, retry."
+4. Gate ClusterIssuer/Certificate SSA on this probe in addition to
+   Deployment availability.
+
+The dry-run approach is preferable to a real-persistent canary
+because it requires no cleanup, generates no garbage in the cluster,
+and exercises exactly the path the real Certificate will take.
+
+**Acceptance criteria:**
+
+- New helper `probeCertManagerAdmission(ctx, owner)` returns
+  nil/error.
+- `reconcileCertManager` invokes it after the Deployment-availability
+  gate and before SSA of the ClusterIssuer.
+- Errors surface as `CertificatesReady=False reason=WebhookUnavailable`
+  with the underlying admission error in the message; reconcile is
+  retried with backoff.
+- envtest spec: stand up a webhook config pointing at a non-existent
+  Service, assert the probe returns an error and CertificatesReady
+  stays False until the webhook is wired correctly.
+
+**Cost note:** the dry-run is a real apiserver round-trip, so it
+adds latency per reconcile. Reconcile triggers are watch-driven, so
+this stays cheap in steady-state; it only fires when something
+upstream changed. Acceptable trade for correctness.

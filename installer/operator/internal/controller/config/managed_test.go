@@ -22,10 +22,13 @@ import (
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -80,6 +83,59 @@ func makeCustomCASecret(name string) *corev1.Secret {
 			"tls.key": []byte("dummy-ca-key"),
 		},
 	}
+}
+
+// markDeploymentAvailable creates the named Deployment (if missing) and
+// sets Status.Conditions[Available]=True. cert-manager would normally
+// drive this; envtest has no controllers, so the spec drives the
+// transition manually. Replicas/selector are nominal — the operator's
+// readiness gate only inspects the Available condition.
+func markDeploymentAvailable(name, namespace string) {
+	GinkgoHelper()
+	one := int32(1)
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &one,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": name},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "stub:latest"}},
+				},
+			},
+		},
+	}
+	err := k8sClient.Create(ctx, dep)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, dep)).To(Succeed())
+	dep.Status = appsv1.DeploymentStatus{
+		Conditions: []appsv1.DeploymentCondition{{
+			Type:   appsv1.DeploymentAvailable,
+			Status: corev1.ConditionTrue,
+		}},
+	}
+	Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+}
+
+// markCertificateReady flips the named Certificate's Ready condition
+// to True; cert-manager would normally do this after issuance. envtest
+// has no cert-manager controller, hence this helper.
+func markCertificateReady(name, namespace string) {
+	GinkgoHelper()
+	cert := &cmv1.Certificate{}
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, cert)).To(Succeed())
+	cert.Status = cmv1.CertificateStatus{
+		Conditions: []cmv1.CertificateCondition{{
+			Type:   cmv1.CertificateConditionReady,
+			Status: cmmeta.ConditionTrue,
+		}},
+	}
+	Expect(k8sClient.Status().Update(ctx, cert)).To(Succeed())
 }
 
 // memoryHelmFactory builds an in-memory Helm client per namespace and
@@ -157,11 +213,17 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		Eventually(mgrDone, 10*time.Second).Should(Receive())
 		drainCR()
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &cmv1.Certificate{}, client.InNamespace(testOperatorNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(certManagerNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(certManagerNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.ClusterIssuer{})
-		// cert-manager namespace is cluster-scoped; clean up so the next
-		// spec starts from a known state. ignore not-found.
-		_ = k8sClient.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: certManagerNamespace}})
+		// Intentionally do NOT delete the cert-manager namespace: envtest
+		// has no kube-controller-manager, so a namespace Delete leaves it
+		// stuck in Terminating with finalizers cert-manager-style. The
+		// next spec would then 403 on resource creation inside it. The
+		// resources within are wiped above; the namespace itself is
+		// reusable across specs.
 	})
 
 	It("installs cert-manager from the embedded chart and records its version", func() {
@@ -202,13 +264,16 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		Expect(err).NotTo(HaveOccurred())
 		Expect(rel.Chart.Metadata.Name).To(Equal("cert-manager"))
 
-		// CertificatesReady is False/Installing pending Session 2 commit 2.
+		// With cert-manager Deployments absent (no controller in envtest),
+		// readiness gate keeps CertificatesReady=False/WaitingForCertManager.
+		// The happy-path "Deployments Available + Certificate Ready" flow
+		// is covered by the dedicated spec below.
 		got := &configv1alpha1.EducatesClusterConfig{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
 		cond := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-		Expect(cond.Reason).To(Equal("Installing"))
+		Expect(cond.Reason).To(Equal("WaitingForCertManager"))
 		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseInstalling))
 	})
 
@@ -259,5 +324,63 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			return cond.Message
 		}, 30*time.Second, 200*time.Millisecond).Should(ContainSubstring("not yet supported"))
 	})
-})
 
+	It("reaches Ready=True once cert-manager Deployments are Available and the wildcard Certificate is Issued", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       validManagedSpec(),
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Wait for the operator to create the cert-manager namespace
+		// (signal that the install pipeline has progressed past
+		// validation + helm.Status/Install).
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		// envtest has no controllers to roll out Deployments, so stand
+		// up the three cert-manager Deployments with Available=True
+		// manually. The operator's readiness gate observes them via the
+		// Deployment watch.
+		for _, name := range certManagerDeployments {
+			markDeploymentAvailable(name, certManagerNamespace)
+		}
+
+		// Wait for the operator to apply the wildcard Certificate.
+		// cert-manager would normally set status.conditions[Ready]=True
+		// after issuance; envtest has no cert-manager controller, so
+		// the test forces the transition.
+		Eventually(func() error {
+			cert := &cmv1.Certificate{}
+			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionTrue))
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+
+		// status.ingress published with the wildcard secret + issuer ref.
+		Expect(got.Status.Ingress).NotTo(BeNil())
+		Expect(got.Status.Ingress.Domain).To(Equal("educates.test"))
+		Expect(got.Status.Ingress.IngressClassName).To(Equal("contour"))
+		Expect(got.Status.Ingress.WildcardCertificateSecretRef.Namespace).To(Equal(testOperatorNamespace))
+		Expect(got.Status.Ingress.WildcardCertificateSecretRef.Name).To(Equal(wildcardTLSSecretName))
+		Expect(got.Status.Ingress.ClusterIssuerRef).NotTo(BeNil())
+		Expect(got.Status.Ingress.ClusterIssuerRef.Name).To(Equal(wildcardClusterIssuer))
+
+		// CustomCA Secret was copied into cert-manager namespace.
+		copied := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: certManagerNamespace, Name: customCASecretName}, copied)).To(Succeed())
+		Expect(copied.Type).To(Equal(corev1.SecretTypeTLS))
+		Expect(copied.Data).To(HaveKey("tls.crt"))
+		Expect(copied.Data).To(HaveKey("tls.key"))
+	})
+})

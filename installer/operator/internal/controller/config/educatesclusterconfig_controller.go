@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -100,10 +101,20 @@ type EducatesClusterConfigReconciler struct {
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingressclasses,verbs=get;list;watch
 
-// Managed-mode operations: create/patch cluster-service namespaces.
-// Resource-level verbs for installed charts (Deployments, Services,
-// CRDs, ConfigMaps, etc.) come in alongside their reconciler logic.
+// Managed-mode operations:
+//   - Namespaces (create/patch for cluster-service installs).
+//   - Secrets (write — copy CustomCA into cert-manager namespace).
+//   - Deployments (watch — cert-manager readiness gate).
+//   - cert-manager ClusterIssuers + Certificates (SSA + watch).
+// Helm-managed resources (cert-manager's own ConfigMaps, Services,
+// MutatingWebhookConfigurations, etc.) ride on the helm SDK's
+// internal kube client and don't need explicit verbs here — but they
+// will when Phase 6 removes the cluster-admin shortcut.
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;update;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=create;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch
 
 // Reconcile drives the EducatesClusterConfig singleton through its
 // lifecycle. Phase 1 implements Inline mode (validate referenced
@@ -252,6 +263,8 @@ func (r *EducatesClusterConfigReconciler) SetupWithManager(mgr ctrl.Manager) err
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Watches(&networkingv1.IngressClass{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Watches(&cmv1.ClusterIssuer{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
+		Watches(&cmv1.Certificate{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
+		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Named("config-educatesclusterconfig").
 		Complete(r)
 }

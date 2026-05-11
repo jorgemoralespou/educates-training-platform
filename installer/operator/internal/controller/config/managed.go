@@ -50,12 +50,23 @@ const (
 	certManagerReleaseName = "cert-manager"
 )
 
-// reconcileManaged drives Phase 2 Managed-mode reconciliation. Phase 2
-// Session 2 (this commit) installs cert-manager from the vendored
-// chart and records the chart version in status; webhook readiness,
-// ClusterIssuer/Certificate creation, and a True CertificatesReady
-// condition land in Session 2 commit 2. Other cluster services (Contour,
-// external-dns, Kyverno) land in Phase 3.
+// reconcileManaged drives Phase 2 Managed-mode reconciliation:
+//
+//  1. Validate spec fields (cross-resource checks the CRD's CEL rules
+//     cannot express; not-yet-supported provider errors).
+//  2. Install/upgrade the cert-manager chart from the vendored tarball
+//     and record the chart version in status.
+//  3. Gate on cert-manager Deployment availability (Phase 2 readiness
+//     contract — see follow-up-issues.md for the synthetic-admission
+//     hardening option).
+//  4. Copy the CustomCA Secret into cert-manager's namespace, apply the
+//     CA-typed ClusterIssuer, and apply the wildcard Certificate via
+//     SSA.
+//  5. Once the Certificate reports Ready=True, publish status.ingress
+//     and flip CertificatesReady (and the aggregate Ready) to True.
+//
+// Other cluster services (Contour, external-dns, Kyverno) follow the
+// same shape in Phase 3.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -68,24 +79,94 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
-	// cert-manager install. Other cluster services follow the same
-	// shape in Phase 3.
 	if err := r.reconcileCertManager(ctx, obj); err != nil {
 		log.Error(err, "cert-manager reconcile failed")
-		// Surface in status as a CertificatesReady=False condition with
-		// the error message; let controller-runtime retry on the
-		// returned error.
 		r.markCertificatesProgressing(obj, "InstallFailed", err.Error())
 		_ = r.Status().Update(ctx, obj)
 		return ctrl.Result{}, err
 	}
 
-	// Until Session 2 commit 2 lands webhook readiness +
-	// ClusterIssuer/Certificate, CertificatesReady stays False with a
-	// progressing reason. status.phase reflects this as Progressing.
-	r.markCertificatesProgressing(obj, "Installing", "cert-manager chart installed; awaiting webhook readiness and issuer wiring")
-	r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+	// Gate the rest of the pipeline on cert-manager being live. A
+	// not-ready signal is published as a progressing condition; the
+	// Deployment watch will re-trigger reconcile when Availability
+	// flips, so no explicit requeue is needed.
+	if err := r.ensureCertManagerReady(ctx); err != nil {
+		if errors.Is(err, errCertManagerNotReady) {
+			r.markCertificatesProgressing(obj, "WaitingForCertManager", "cert-manager Deployments not yet Available")
+			r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+			return ctrl.Result{}, r.Status().Update(ctx, obj)
+		}
+		return ctrl.Result{}, err
+	}
+
+	// CustomCA Secret → cert-manager namespace, then ClusterIssuer, then
+	// wildcard Certificate. Each helper is idempotent (SSA) so re-running
+	// after a partial failure converges.
+	customCARef := obj.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Name
+	if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
+		r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
+		_ = r.Status().Update(ctx, obj)
+		return ctrl.Result{}, err
+	}
+	if err := r.ensureClusterIssuer(ctx, obj); err != nil {
+		r.markCertificatesProgressing(obj, "ClusterIssuerApplyFailed", err.Error())
+		_ = r.Status().Update(ctx, obj)
+		return ctrl.Result{}, err
+	}
+	if err := r.ensureWildcardCertificate(ctx, obj, obj.Spec.Ingress.Domain); err != nil {
+		r.markCertificatesProgressing(obj, "CertificateApplyFailed", err.Error())
+		_ = r.Status().Update(ctx, obj)
+		return ctrl.Result{}, err
+	}
+
+	ready, err := r.certificateReady(ctx)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if !ready {
+		r.markCertificatesProgressing(obj, "WaitingForCertificate", "wildcard Certificate not yet Ready")
+		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+		return ctrl.Result{}, r.Status().Update(ctx, obj)
+	}
+
+	r.markManagedReady(obj)
 	return ctrl.Result{}, r.Status().Update(ctx, obj)
+}
+
+// markManagedReady publishes the inter-CR ingress contract and flips
+// CertificatesReady + Ready to True. Mirrors markReady (Inline) but
+// sources the contract from cert-manager-issued resources rather than
+// user-declared references.
+func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.EducatesClusterConfig) {
+	obj.Status.ObservedGeneration = obj.Generation
+	obj.Status.Phase = configv1alpha1.ClusterConfigPhaseReady
+	obj.Status.Mode = obj.Spec.Mode
+	obj.Status.Ingress = &configv1alpha1.StatusIngress{
+		Domain:           obj.Spec.Ingress.Domain,
+		IngressClassName: obj.Spec.Ingress.IngressClassName,
+		WildcardCertificateSecretRef: configv1alpha1.NamespacedSecretRef{
+			Namespace: r.OperatorNamespace,
+			Name:      wildcardTLSSecretName,
+		},
+		ClusterIssuerRef: &configv1alpha1.LocalObjectReference{
+			Name: wildcardClusterIssuer,
+		},
+	}
+
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionCertificatesReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "CertificateIssued",
+		Message:            "wildcard Certificate is Ready",
+		ObservedGeneration: obj.Generation,
+	})
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "ManagedServicesReady",
+		Message:            "Managed-mode cluster services are ready",
+		ObservedGeneration: obj.Generation,
+	})
 }
 
 // reconcileCertManager ensures the cert-manager release exists,

@@ -19,16 +19,31 @@ rules:
   resources:
   - secrets
   verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
   - get
   - list
   - watch
 - apiGroups:
   - cert-manager.io
   resources:
+  - certificates
   - clusterissuers
   verbs:
+  - create
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - config.educates.dev
