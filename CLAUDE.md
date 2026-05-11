@@ -152,11 +152,11 @@ make envtest                   # Just download envtest binaries
 make docker-build              # Build local operator image (Phase 0 dev only)
 make smoke-test                # kind + helm install + apply CR + assert log line
 make lint                      # golangci-lint
-make vendor-charts             # Download upstream charts into ../vendored-charts/, verify SHA256
+make vendor-charts             # Download upstream charts into vendored-charts/, verify SHA256
 make verify-vendored-charts    # Re-verify SHA256 of tarballs already on disk
 ```
 
-Phase status (as of 2026-05):
+Phase status (as of 2026-05-11):
 
 - **Phase 0 (foundations) — done.** Scaffold, CRDs, chart, envtest, smoke
   test, CI all in place. Reconcilers were stubs.
@@ -164,17 +164,20 @@ Phase status (as of 2026-05):
   validator + watches + finalizer + status contract live; the three
   platform reconcilers (SecretsManager, LookupService, SessionManager)
   are still stubs until Phase 4.
-- **Phase 2 (Bundled cert-manager end-to-end) — Session 1 done; in
-  progress.** Groundwork landed: cert-manager Go types vendored and
-  scheme-registered; Phase 1 unstructured ClusterIssuer access
-  refactored to typed; unconditional ClusterIssuer watch + envtest
-  drift coverage; `internal/helm` Helm SDK v4 wrapper
-  (Install/Upgrade/Uninstall/Status, vendored-tarball loader, in-memory
-  test factory); first vendored chart at
-  `installer/operator/vendored-charts/cert-manager-v1.20.2.tgz` with SHA256
-  integrity + `make vendor-charts`. Reconciler-side Managed-mode logic
-  (real chart install + webhook readiness + ClusterIssuer/Certificate
-  creation + finalizer-driven uninstall) is the next session.
+- **Phase 2 (Bundled cert-manager end-to-end) — done.** Session 1
+  groundwork (vendoring + Helm SDK wrapper + typed cert-manager access)
+  plus Session 2's three commits land the full Managed-mode pipeline:
+  embedded-chart install via `//go:embed`; cert-manager Deployment
+  readiness gate; CustomCA Secret copy operator-ns → cert-manager-ns;
+  ClusterIssuer + wildcard Certificate via SSA (field manager
+  `educates-installer`); `status.ingress` published with
+  wildcardCertificateSecretRef + clusterIssuerRef; `CertificatesReady`
+  condition tied to `Certificate.Ready`; finalizer drains in reverse
+  install order. Currently scoped to
+  `provider: BundledCertManager, issuerType: CustomCA` —
+  ACME/Static/External providers return explicit "not yet supported"
+  validation errors. Phase 3 picks up Contour/Kyverno/external-dns
+  next.
 
 Living conventions (carry across phases unless superseded):
 

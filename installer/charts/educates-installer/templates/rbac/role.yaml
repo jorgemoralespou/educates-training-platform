@@ -10,6 +10,7 @@ rules:
   - namespaces
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
@@ -20,6 +21,7 @@ rules:
   - secrets
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
@@ -40,6 +42,7 @@ rules:
   - clusterissuers
   verbs:
   - create
+  - delete
   - get
   - list
   - patch

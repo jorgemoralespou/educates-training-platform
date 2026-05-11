@@ -429,7 +429,7 @@ before they reach the runtime.
   (CEL bypass case) that becomes redundant once webhooks are added —
   flagged for review in v1beta1.
 
-### Phase 2: One Bundled service end-to-end (3–4 weeks)  *(in progress — Session 1 groundwork done 2026-05)*
+### Phase 2: One Bundled service end-to-end (3–4 weeks)  *(done 2026-05-11)*
 
 **Pick cert-manager as the first Bundled service.** It's the hardest to get right (CRDs, webhook readiness, ClusterIssuer ordering), and getting it right teaches the patterns that apply to the others. Easier services first leave you to discover hard problems later.
 
@@ -463,36 +463,101 @@ behaviour. Concretely:
   `installer/operator/Makefile`. A unit test in `internal/helm` loads
   the real vendored tarball end-to-end.
 
-**Carry-forward — what Phase 2 still needs:**
+**Session 2 — Managed-mode end-to-end (done 2026-05-11):**
+landed in three commits.
 
-- Embed Helm Go SDK ✅ done in Session 1.
-- Chart installation pipeline:
-  - Pull from upstream OCI registry (or vendored chart copy — decide which). ✅ vendored, decision recorded.
-  - Render values from CR fields (with reconciler-computed defaults, e.g., replicas by provider).
-  - Apply via the `internal/helm.Client.Install`.
-- Real readiness check for cert-manager:
-  - Deployment Available is necessary but not sufficient.
-  - Verify the cert-manager webhook actually serves: `GET /apis/cert-manager.io/v1` against the API server, expect 200.
-  - Optionally verify webhook ValidatingWebhookConfiguration is present and routing to the live service.
-- Post-install resource creation:
-  - `ClusterIssuer` (configured per CR's `acme` or `customCA` block).
-  - `Certificate` (the wildcard).
-- Wait for Certificate `Ready: True`.
-- Status fields: `wildcardCertificateSecretRef`, `clusterIssuerRef`, `bundledChartVersions.cert-manager`.
-- Conditions: `CertificatesReady`.
-- Finalizer: on delete, reverse order — Certificate, ClusterIssuer, uninstall cert-manager chart.
-- Integration tests against kind: full install, verify Certificate issued, delete, verify cleanup.
+*Commit 1 — install path and validation:*
 
-**Done when:**
-- Applying a Managed-mode `EducatesClusterConfig` with `certificates.provider: BundledCertManager, issuerType: CustomCA` results in:
-  - cert-manager installed in its namespace.
-  - ClusterIssuer created and Ready.
-  - Wildcard Certificate created and Ready.
-  - Status reflects all of this within ~2 minutes.
-- `kubectl delete educatesclusterconfig cluster` cleans up everything in correct order.
-- The reconciler is tolerant of in-progress states (cert-manager installing, Certificate provisioning, etc.) — no spurious errors.
+- Helm SDK chart-install pipeline: `internal/helm.Client.Status` →
+  `Install` on absent / `Upgrade` on chart-version drift. Vendored
+  chart embedded via `//go:embed` from
+  `installer/operator/vendored-charts/`; the canonical directory
+  moved inside the operator module to satisfy embed's
+  same-module constraint (decisions.md amended 2026-05-11).
+- Managed-mode validator covers the Phase 2 happy path:
+  BundledContour + BundledCertManager + CustomCA, with CustomCA
+  Secret reference + `tls.crt`/`tls.key` key presence. Other
+  providers (ACME, ExternalCertManager, StaticCertificate,
+  non-BundledContour) return explicit "not yet supported in
+  v1alpha1" validation errors rather than silently no-op.
+- `status.bundledChartVersions["cert-manager"]` populated after
+  install; `ensureNamespace` helper labels and owner-refs the
+  cluster-service namespace (reused in Phase 3).
+- `HelmClientFor` factory on the reconciler lets tests inject
+  `helm.NewMemoryClient`. Memory client bumped to report
+  KubeVersion v1.31.0 so charts with `kubeVersion: >= 1.22`
+  render.
 
-**This phase is where you learn the most.** Budget for it. Expect to discover at least one Helm SDK or controller-runtime quirk that costs you a day.
+*Commit 2 — wildcard certificate end-to-end:*
+
+- Readiness gate: all three cert-manager Deployments
+  (controller, webhook, cainjector) must report
+  `Available=True`. The originally-proposed
+  `GET /apis/cert-manager.io/v1` probe was rejected: that endpoint
+  resolves from CRD presence alone and doesn't exercise the
+  webhook pod. Synthetic admission-probe hardening (DryRunAll
+  Certificate against the live webhook) is captured in
+  `follow-up-issues.md` for when/if the Deployment-only gate
+  proves insufficient.
+- CustomCA Secret copied operator-ns → cert-manager-ns via SSA
+  (cert-manager's CA-typed ClusterIssuer reads from
+  cluster-resource-namespace, default `cert-manager`). Owner
+  reference back to the EducatesClusterConfig.
+- ClusterIssuer + wildcard Certificate applied via server-side
+  apply with field manager `educates-installer`. DNSNames cover
+  `<domain>` and `*.<domain>`. Wildcard tls Secret lands in
+  operator namespace.
+- Watches added on `appsv1.Deployment` (cert-manager namespace
+  readiness) and `cmv1.Certificate` (wildcard readiness). Both
+  fire the singleton-reconcile mapping.
+- `status.ingress` published (domain, ingressClassName,
+  wildcardCertificateSecretRef, clusterIssuerRef) and
+  `CertificatesReady=True` / aggregate `Ready=True` /
+  `Phase=Ready` once the Certificate reports Ready.
+
+*Commit 3 — finalizer-driven teardown:*
+
+- `cleanupManaged` runs on `DeletionTimestamp`: wildcard
+  Certificate → ClusterIssuer → copied CustomCA Secret → helm
+  uninstall cert-manager → cert-manager namespace. Each step
+  IgnoreNotFound so retried reconciles after partial failure are
+  safe.
+- RBAC extended with `delete` verbs on the resources the operator
+  owns; `kubebuilder:rbac` markers re-generate into
+  `installer/charts/educates-installer/templates/rbac/role.yaml`.
+
+*Test coverage:* 18 envtest specs; config-package coverage 74.8%.
+The Managed-mode happy-path spec drives Deployments.Available and
+Certificate.Ready manually (envtest has no controllers), the
+teardown spec exercises the finalizer drain end-to-end. CertificateCRD vendored into envtest testdata alongside the existing
+ClusterIssuer CRD.
+
+**Done when (all met):**
+
+- Applying a Managed-mode `EducatesClusterConfig` with
+  `certificates.provider: BundledCertManager, issuerType: CustomCA`
+  results in cert-manager installed, ClusterIssuer + wildcard
+  Certificate created, status populated, all within reconcile-loop
+  timeouts. ✅
+- `kubectl delete educatesclusterconfig cluster` cleans up
+  everything in reverse install order. ✅
+- The reconciler tolerates in-progress states (cert-manager
+  installing, Certificate provisioning) — they surface as
+  `CertificatesReady=False` with reasons
+  `WaitingForCertManager` / `WaitingForCertificate` rather than
+  spurious errors. ✅
+
+**Followed into Phase 3:**
+
+- Synthetic admission-probe hardening (see
+  `follow-up-issues.md`) — only file the issue if the
+  Deployment-availability gate proves insufficient in practice.
+- kind-based integration tests (not envtest) — deferred to
+  Phase 6's "test against real environments" alongside GKE/EKS/OpenShift.
+- Image-registry-prefix rewriting in chart values (the
+  Managed-mode `renderCertManagerValues` is a stub today; it
+  rewrites nothing). Lands alongside Phase 3's Contour/Kyverno
+  chart wiring, which has the same need.
 
 ### Phase 3: Remaining cluster services (2–3 weeks)
 

@@ -21,12 +21,14 @@ import (
 	"errors"
 	"fmt"
 
+	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
@@ -131,6 +133,64 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 
 	r.markManagedReady(obj)
 	return ctrl.Result{}, r.Status().Update(ctx, obj)
+}
+
+// cleanupManaged tears down Phase 2's installed cluster services in
+// reverse install order:
+//
+//  1. Wildcard Certificate (cert-manager is still running, so it
+//     processes the deletion and revokes the issued Secret cleanly).
+//  2. ClusterIssuer.
+//  3. Copied CustomCA Secret in cert-manager namespace.
+//  4. Helm release "cert-manager" (uninstalls Deployments, CRDs,
+//     webhook configurations the chart owns).
+//  5. cert-manager namespace.
+//
+// Each step ignores not-found so retried reconciles after partial
+// failure re-attempt only what's still present.
+func (r *EducatesClusterConfigReconciler) cleanupManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
+	if err := r.deleteIfPresent(ctx, &cmv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: r.OperatorNamespace, Name: wildcardCertificate},
+	}); err != nil {
+		return fmt.Errorf("delete wildcard Certificate: %w", err)
+	}
+	if err := r.deleteIfPresent(ctx, &cmv1.ClusterIssuer{
+		ObjectMeta: metav1.ObjectMeta{Name: wildcardClusterIssuer},
+	}); err != nil {
+		return fmt.Errorf("delete ClusterIssuer: %w", err)
+	}
+	if err := r.deleteIfPresent(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: certManagerNamespace, Name: customCASecretName},
+	}); err != nil {
+		return fmt.Errorf("delete copied CustomCA Secret: %w", err)
+	}
+
+	// Helm uninstall is also idempotent in the wrapper (IgnoreNotFound
+	// on the action). Skip when the release was never created — e.g.,
+	// validation failed before reconcileCertManager ran.
+	hc, err := r.HelmClientFor(certManagerNamespace)
+	if err != nil {
+		return fmt.Errorf("build helm client for cleanup: %w", err)
+	}
+	if err := hc.Uninstall(certManagerReleaseName); err != nil {
+		return fmt.Errorf("uninstall cert-manager release: %w", err)
+	}
+
+	if err := r.deleteIfPresent(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: certManagerNamespace},
+	}); err != nil {
+		return fmt.Errorf("delete cert-manager namespace: %w", err)
+	}
+	return nil
+}
+
+// deleteIfPresent issues a Delete and swallows IsNotFound. It is the
+// idiomatic shape for finalizer drains: every step is safe to re-run.
+func (r *EducatesClusterConfigReconciler) deleteIfPresent(ctx context.Context, obj client.Object) error {
+	if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 // markManagedReady publishes the inter-CR ingress contract and flips

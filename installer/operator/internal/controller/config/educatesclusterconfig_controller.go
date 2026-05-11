@@ -110,11 +110,11 @@ type EducatesClusterConfigReconciler struct {
 // MutatingWebhookConfigurations, etc.) ride on the helm SDK's
 // internal kube client and don't need explicit verbs here — but they
 // will when Phase 6 removes the cluster-admin shortcut.
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;update;patch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch;delete
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=create;update;patch
-// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=create;update;patch;delete
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile drives the EducatesClusterConfig singleton through its
 // lifecycle. Phase 1 implements Inline mode (validate referenced
@@ -129,11 +129,20 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// Deletion path: drain finalizer.
+	// Deletion path: drain finalizer. Managed mode tears down its
+	// installed cluster services in reverse install order so cert-manager
+	// is still alive to process the Certificate/ClusterIssuer deletions
+	// before the chart itself is uninstalled. Inline mode has nothing to
+	// undo. Cleanup is idempotent — retried reconciles after partial
+	// failure re-attempt only what's still present.
 	if !obj.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
-			// Phase 1 Inline cleanup is a no-op; Phase 2 Managed mode will
-			// uninstall charts here in reverse install order.
+			if obj.Spec.Mode == configv1alpha1.ClusterConfigModeManaged {
+				if err := r.cleanupManaged(ctx, obj); err != nil {
+					log.Error(err, "Managed-mode cleanup failed; reconcile will retry")
+					return ctrl.Result{}, err
+				}
+			}
 			controllerutil.RemoveFinalizer(obj, finalizerName)
 			if err := r.Update(ctx, obj); err != nil {
 				return ctrl.Result{}, err

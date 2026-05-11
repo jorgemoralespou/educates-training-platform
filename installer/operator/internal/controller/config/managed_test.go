@@ -383,4 +383,58 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		Expect(copied.Data).To(HaveKey("tls.crt"))
 		Expect(copied.Data).To(HaveKey("tls.key"))
 	})
+
+	It("tears down installed resources in reverse order on delete", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       validManagedSpec(),
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Drive the CR to Ready first so cleanup actually has something
+		// to undo. Same staging as the happy-path spec above.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		for _, name := range certManagerDeployments {
+			markDeploymentAvailable(name, certManagerNamespace)
+		}
+		Eventually(func() error {
+			cert := &cmv1.Certificate{}
+			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionTrue))
+
+		// A helm release exists at this point.
+		hc, err := helmFac.For(certManagerNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = hc.Status(certManagerReleaseName)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Delete the CR; let the reconciler's finalizer drain run.
+		Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+
+		// The CR is gone once the finalizer is removed by cleanupManaged.
+		Eventually(func() bool {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)
+			return apierrors.IsNotFound(err)
+		}, 30*time.Second, 200*time.Millisecond).Should(BeTrue())
+
+		// Certificate, ClusterIssuer, and copied CustomCA Secret deleted.
+		// envtest has no namespace controller, so the cert-manager
+		// namespace lingers in Terminating — we don't assert on it.
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, &cmv1.Certificate{}))).To(BeTrue())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: wildcardClusterIssuer}, &cmv1.ClusterIssuer{}))).To(BeTrue())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: certManagerNamespace, Name: customCASecretName}, &corev1.Secret{}))).To(BeTrue())
+
+		// Helm release is uninstalled.
+		_, statusErr := hc.Status(certManagerReleaseName)
+		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+	})
 })
