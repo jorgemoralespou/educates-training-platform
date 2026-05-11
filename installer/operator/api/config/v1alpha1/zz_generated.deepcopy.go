@@ -487,6 +487,13 @@ func (in *EducatesClusterConfigStatus) DeepCopyInto(out *EducatesClusterConfigSt
 		*out = new(ImageRegistry)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.BundledChartVersions != nil {
+		in, out := &in.BundledChartVersions, &out.BundledChartVersions
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]metav1.Condition, len(*in))

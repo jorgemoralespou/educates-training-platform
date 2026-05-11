@@ -43,6 +43,7 @@ import (
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	configcontroller "github.com/educates/educates-training-platform/installer/operator/internal/controller/config"
 	platformcontroller "github.com/educates/educates-training-platform/installer/operator/internal/controller/platform"
+	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -188,7 +189,9 @@ func main() {
 		},
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restCfg := ctrl.GetConfigOrDie()
+
+	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
@@ -217,6 +220,9 @@ func main() {
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
 		OperatorNamespace: operatorNamespace,
+		HelmClientFor: func(ns string) (*helm.Client, error) {
+			return helm.NewClient(restCfg, ns)
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "config-educatesclusterconfig")
 		os.Exit(1)

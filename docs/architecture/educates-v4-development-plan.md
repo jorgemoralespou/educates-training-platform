@@ -440,7 +440,7 @@ behaviour. Concretely:
 - **Decisions recorded** in `decisions.md`:
   no `educates-cluster-services` umbrella (operator is the sole
   installer); vendored upstream charts live as tarballs at
-  `installer/vendored-charts/<name>-<version>.tgz`; cert-manager CRDs
+  `installer/operator/vendored-charts/<name>-<version>.tgz`; cert-manager CRDs
   are an operator install prerequisite for **all** modes (Inline-only
   too — typed watches require GVK at cache startup).
 - **cert-manager Go types vendored**: `github.com/cert-manager/cert-manager v1.20.2`
@@ -457,7 +457,7 @@ behaviour. Concretely:
   name, `LoadArchive` for vendored tarballs, a `*rest.Config`-backed
   `restClientGetter` adapter, and a `NewMemoryClient` test factory using
   the in-memory release driver + `kubefake.PrintingKubeClient`.
-- **First vendored chart**: `installer/vendored-charts/cert-manager-v1.20.2.tgz`
+- **First vendored chart**: `installer/operator/vendored-charts/cert-manager-v1.20.2.tgz`
   with `SHA256SUMS` integrity record; `make vendor-charts` (download +
   verify) and `make verify-vendored-charts` (verify on disk) targets in
   `installer/operator/Makefile`. A unit test in `internal/helm` loads

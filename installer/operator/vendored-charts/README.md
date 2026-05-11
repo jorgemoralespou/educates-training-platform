@@ -11,12 +11,13 @@ Helm SDK. The bytes are checked into the repository so that:
 
 See `docs/architecture/decisions.md` →
 *"Vendored upstream charts live as tarballs at `installer/vendored-charts/`"*
-for the full rationale.
+(with 2026-05-11 amendment relocating the directory inside the operator
+module) for the full rationale.
 
 ## Layout
 
 ```
-installer/vendored-charts/
+installer/operator/vendored-charts/
 ├── README.md                    (this file)
 ├── SHA256SUMS                   (one line per tarball: <hash>  <filename>)
 └── <name>-<version>.tgz         (one tarball per chart)
@@ -25,6 +26,10 @@ installer/vendored-charts/
 `SHA256SUMS` is the integrity record. `make vendor-charts` (in
 `installer/operator/Makefile`) downloads each chart from upstream and
 verifies its hash against this file before writing into place.
+
+The directory lives inside the operator Go module so the operator can
+`//go:embed` the tarballs directly into its binary (see
+`installer/operator/internal/charts/`).
 
 ## Current contents
 

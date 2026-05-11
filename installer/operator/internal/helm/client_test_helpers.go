@@ -27,6 +27,14 @@ import (
 	"helm.sh/helm/v4/pkg/storage/driver"
 )
 
+// memoryClientKubeVersion is the KubeVersion the in-memory test client
+// reports to charts. Helm's common.DefaultCapabilities pins v1.20.0,
+// which fails the kubeVersion: >=1.22 constraint cert-manager and most
+// modern charts declare. We bump it to a recent supported Kubernetes
+// release so tests exercise the same template logic production
+// charts emit.
+const memoryClientKubeVersion = "v1.31.0"
+
 // NewMemoryClient returns a Client backed by an in-memory release store
 // and Helm's no-op "printing" KubeClient. It exists to give the
 // reconciler tests a Client they can drive Install/Upgrade/Uninstall/
@@ -41,12 +49,18 @@ func NewMemoryClient(namespace string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	kubeVersion, err := common.ParseKubeVersion(memoryClientKubeVersion)
+	if err != nil {
+		return nil, err
+	}
+	caps := *common.DefaultCapabilities
+	caps.KubeVersion = *kubeVersion
 	cfg := &action.Configuration{
 		Releases: storage.Init(driver.NewMemory()),
 		KubeClient: &kubefake.PrintingKubeClient{
 			Out: io.Discard,
 		},
-		Capabilities:   common.DefaultCapabilities,
+		Capabilities:   &caps,
 		RegistryClient: registryClient,
 	}
 	return &Client{cfg: cfg, namespace: namespace}, nil

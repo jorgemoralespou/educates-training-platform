@@ -698,6 +698,14 @@ type EducatesClusterConfigStatus struct {
 	// +optional
 	ImageRegistry *ImageRegistry `json:"imageRegistry,omitempty"`
 
+	// bundledChartVersions records the version of each upstream Helm
+	// chart the operator has installed in Managed mode. Keys are the
+	// upstream chart names (e.g., "cert-manager", "contour"); values are
+	// the chart's appVersion. Populated as charts are installed; absent
+	// in Inline mode.
+	// +optional
+	BundledChartVersions map[string]string `json:"bundledChartVersions,omitempty"`
+
 	// conditions report the resource's state. Phase 1 publishes:
 	//   - Ready                (aggregate)
 	//   - ValidationSucceeded  (Inline mode: refs validated)

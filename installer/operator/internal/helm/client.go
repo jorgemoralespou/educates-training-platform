@@ -17,7 +17,7 @@ limitations under the License.
 // Package helm wraps Helm SDK v4's action package with a small, opinionated
 // surface tailored to the operator's needs: install/upgrade/uninstall/status
 // keyed by release name, with chart bytes loaded from vendored tarballs
-// (see installer/vendored-charts/) rather than pulled at runtime.
+// (see installer/operator/vendored-charts/) rather than pulled at runtime.
 //
 // The wrapper exists so reconcilers don't have to repeat the
 // action.Configuration boilerplate, and so test fixtures can swap in an

@@ -26,7 +26,7 @@ import (
 
 // LoadArchive parses a tgz-packaged Helm chart from in-memory bytes.
 // This is the canonical entry point for charts vendored under
-// installer/vendored-charts/<name>-<version>.tgz: the operator embeds
+// installer/operator/vendored-charts/<name>-<version>.tgz: the operator embeds
 // (or reads at runtime, during development) the tarball and passes the
 // resulting *chart.Chart to Client.Install / Client.Upgrade.
 //

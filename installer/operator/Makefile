@@ -99,9 +99,10 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 ##@ Vendoring
 
-# Vendored upstream charts live one directory up, sibling to operator/.
-# See ../vendored-charts/README.md for layout and the rationale.
-VENDORED_CHARTS_DIR := $(shell pwd)/../vendored-charts
+# Vendored upstream charts live inside the operator module so //go:embed
+# in internal/charts/ can reach them directly. See vendored-charts/README.md
+# for layout and the rationale.
+VENDORED_CHARTS_DIR := $(shell pwd)/vendored-charts
 
 # Each entry: <chart-name>=<version>=<upstream-tarball-URL>
 # Order doesn't matter; vendor-charts iterates and verifies each one
@@ -110,7 +111,7 @@ VENDORED_CHARTS := \
 	cert-manager=v1.20.2=https://charts.jetstack.io/charts/cert-manager-v1.20.2.tgz
 
 .PHONY: vendor-charts
-vendor-charts: ## Download upstream Helm charts into ../vendored-charts/ and verify against SHA256SUMS.
+vendor-charts: ## Download upstream Helm charts into vendored-charts/ and verify against SHA256SUMS.
 	@set -e; \
 	if [ ! -f "$(VENDORED_CHARTS_DIR)/SHA256SUMS" ]; then \
 		echo "missing $(VENDORED_CHARTS_DIR)/SHA256SUMS — record expected hashes there before running this target"; \
@@ -139,7 +140,7 @@ vendor-charts: ## Download upstream Helm charts into ../vendored-charts/ and ver
 	done
 
 .PHONY: verify-vendored-charts
-verify-vendored-charts: ## Re-verify SHA256 of every tarball already in ../vendored-charts/.
+verify-vendored-charts: ## Re-verify SHA256 of every tarball already in vendored-charts/.
 	@set -e; cd "$(VENDORED_CHARTS_DIR)" && shasum -a 256 -c SHA256SUMS
 
 ##@ Build

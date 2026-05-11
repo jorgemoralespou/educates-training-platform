@@ -937,6 +937,17 @@ consumer — the operator — so there is no need to expose it as a Helm
 location can be referenced via `repository: file://...` from a
 `Chart.yaml` `dependencies` block without moving the bytes.
 
+**Amendment — 2026-05-11.** Directory relocated from
+`installer/vendored-charts/` to `installer/operator/vendored-charts/`.
+Phase 2 Session 2 established that the operator is the sole consumer in
+practice, and `//go:embed` (the build-time mechanism this decision
+already endorsed) requires the embedded path to live inside the
+embedding Go module. The substantive content of the decision — tarballs
+over directories, checksum-verified, no runtime registry pulls — is
+unchanged. A hypothetical future consumer can still reach the bytes via
+`file://...` references; the path inside `installer/operator/` is no
+more or less accessible than a sibling directory would have been.
+
 ### cert-manager CRDs are an operator install prerequisite (all modes)
 
 **Date:** 2026-05-06.

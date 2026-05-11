@@ -39,7 +39,7 @@ When working on v4 installer tasks:
 **Safe to create/modify:**
 - New code for the v4 installer (operator, CRDs, Helm charts). Charts should
   live in `installer/charts`, operator code in `installer/operator`,
-  vendored upstream Helm charts in `installer/vendored-charts`.
+  vendored upstream Helm charts in `installer/operator/vendored-charts`.
 - The CLI in `client-programs/` — needs significant changes for v4. The
   existing Carvel-related code will be removed; new commands wrap the
   Helm-chart + CR-apply workflow.
@@ -171,7 +171,7 @@ Phase status (as of 2026-05):
   drift coverage; `internal/helm` Helm SDK v4 wrapper
   (Install/Upgrade/Uninstall/Status, vendored-tarball loader, in-memory
   test factory); first vendored chart at
-  `installer/vendored-charts/cert-manager-v1.20.2.tgz` with SHA256
+  `installer/operator/vendored-charts/cert-manager-v1.20.2.tgz` with SHA256
   integrity + `make vendor-charts`. Reconciler-side Managed-mode logic
   (real chart install + webhook readiness + ClusterIssuer/Certificate
   creation + finalizer-driven uninstall) is the next session.
@@ -200,7 +200,7 @@ Living conventions (carry across phases unless superseded):
   `installer/operator/internal/helm` so reconcilers don't repeat
   `action.Configuration` boilerplate. Use `helm.NewClient(restCfg, ns)`
   in production and `helm.NewMemoryClient(ns)` in tests.
-- **Vendored upstream charts** live at `installer/vendored-charts/<name>-<version>.tgz`,
+- **Vendored upstream charts** live at `installer/operator/vendored-charts/<name>-<version>.tgz`,
   integrity-recorded in `SHA256SUMS`. The operator loads them via
   `helm.LoadArchive`. Refresh with `make vendor-charts` after updating
   the version + hash entries. No `educates-cluster-services` umbrella

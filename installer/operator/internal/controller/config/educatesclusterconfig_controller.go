@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
 )
 
 // singletonRequest is the only enqueue target for this controller —
@@ -78,6 +79,14 @@ type EducatesClusterConfigReconciler struct {
 	// pull) referenced from spec.inline are expected to live. Sourced
 	// from the OPERATOR_NAMESPACE env var (downward API).
 	OperatorNamespace string
+
+	// HelmClientFor returns a Helm client scoped to the given
+	// namespace. Production wiring builds a REST-config-backed client
+	// (main.go); reconciler tests inject a factory returning an
+	// in-memory client so install/upgrade/status paths can be exercised
+	// without an apiserver. Required for Managed mode; unused in
+	// Inline mode.
+	HelmClientFor func(namespace string) (*helm.Client, error)
 }
 
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -90,6 +99,11 @@ type EducatesClusterConfigReconciler struct {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingressclasses,verbs=get;list;watch
+
+// Managed-mode operations: create/patch cluster-service namespaces.
+// Resource-level verbs for installed charts (Deployments, Services,
+// CRDs, ConfigMaps, etc.) come in alongside their reconciler logic.
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch
 
 // Reconcile drives the EducatesClusterConfig singleton through its
 // lifecycle. Phase 1 implements Inline mode (validate referenced
@@ -127,9 +141,10 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Managed-mode handling lands in Phase 2.
-	if obj.Spec.Mode != configv1alpha1.ClusterConfigModeInline {
-		return ctrl.Result{}, nil
+	// Managed mode delegates to the Phase 2 install pipeline; Inline
+	// mode stays in the Phase 1 validator.
+	if obj.Spec.Mode == configv1alpha1.ClusterConfigModeManaged {
+		return r.reconcileManaged(ctx, obj)
 	}
 
 	// CEL guarantees spec.inline is set when mode is Inline; guard
