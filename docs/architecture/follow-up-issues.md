@@ -260,3 +260,91 @@ and exercises exactly the path the real Certificate will take.
 adds latency per reconcile. Reconcile triggers are watch-driven, so
 this stays cheap in steady-state; it only fires when something
 upstream changed. Acceptable trade for correctness.
+
+---
+
+### Narrow EducatesClusterConfig watches with object-scoped predicates
+
+**Date added:** 2026-05-12.
+**Trigger to file:** end of Phase 3 cleanup, once Contour / Kyverno /
+external-dns watches have been added and the noise has compounded.
+
+**Context:**
+
+Today `mapToSingleton` enqueues the singleton EducatesClusterConfig on
+*any* change to *any* of its watched kinds anywhere in the cluster:
+
+- every Secret in the operator namespace (regardless of name);
+- every IngressClass cluster-wide;
+- every ClusterIssuer cluster-wide;
+- every Certificate cluster-wide;
+- every Deployment cluster-wide.
+
+This is correct (the reconciler is idempotent, so over-enqueuing
+just wastes CPU) but noisy. During cert-manager bootstrap the
+reconciler fires ~20 times in 2 minutes because cert-manager's
+chart-installed Deployments roll out, cainjector annotates webhook
+configs, the Certificate transitions Issuing → Ready, the wildcard
+tls Secret gets created, etc. — none of which is "the operator
+needs to re-evaluate anything but cert-manager's readiness".
+
+The noise also widens the cache-staleness race surface: more
+reconciles means more chances to fire one against a cached obj
+whose status was just updated by the previous reconcile but whose
+watch event hasn't reached the informer yet. We already mitigate
+the conflict with RetryOnConflict + live-read in
+updateStatusWithTransitionLog, but the underlying cost (extra
+apiserver round-trips, log churn) scales with the noise.
+
+Phase 3 will add Contour, Kyverno, and external-dns watches —
+roughly doubling the watched-kind surface. Adding predicates *after*
+that change consolidates the cleanup into one focused commit
+instead of spreading it across each phase.
+
+**Scope:**
+
+Replace the unconditional `EnqueueRequestsFromMapFunc(mapToSingleton)`
+calls in `SetupWithManager` with predicate-filtered watches. Each
+predicate filters at the source — events that don't match never
+reach the work queue. Concrete filters:
+
+1. **Secrets**: enqueue only if `name` matches one referenced from
+   spec.inline or spec.ingress.certificates.bundledCertManager.customCA.
+   The reconciler already knows these names; the predicate looks them
+   up from the singleton CR (refetched on each predicate call, or
+   cached behind a sync.Map updated from Reconcile).
+2. **IngressClass**: enqueue only if `name` matches
+   spec.ingress.ingressClassName.
+3. **ClusterIssuer**: enqueue only if `name == wildcardClusterIssuer`
+   (operator-owned) or matches a user-supplied reference from Inline
+   mode.
+4. **Certificate**: enqueue only if
+   `name == wildcardCertificate && namespace == operatorNamespace`.
+5. **Deployment**: enqueue only if `namespace == certManagerNamespace`
+   (Phase 3 will add Contour/Kyverno/external-dns namespaces here).
+
+**Acceptance criteria:**
+
+- Reconcile rate during cert-manager bootstrap drops by 5–10×
+  (measure with `controller_runtime_reconcile_total{controller="config-..."}`
+  before/after).
+- envtest specs that exercise drift (Secret deletion, ClusterIssuer
+  deletion, etc.) still pass — predicates must not filter out the
+  events the reconciler legitimately reacts to.
+- No regression in time-to-Ready for fresh installs.
+
+**Risks:**
+
+- A predicate filter that's too aggressive silently swallows
+  legitimate drift signals — the reconciler stops noticing
+  user-driven changes. Mitigation: each predicate is unit-tested
+  with both matching and non-matching events, and the envtest
+  drift specs are the integration safety net.
+- Predicates that look up spec from the singleton CR add a hot-path
+  read; cache it explicitly rather than calling r.Get per event.
+
+**Alternative considered (and rejected for this issue):** logging
+each watch event at V(1) inside the mapper. Tells the operator
+*what* fired but doesn't reduce work-queue churn — adds observability
+without addressing the underlying cost. Worth considering only if
+predicate filtering turns out to be insufficient.

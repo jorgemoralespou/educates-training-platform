@@ -9,3 +9,9 @@
 # Re-include Go module files
 !go.mod
 !go.sum
+
+# Re-include vendored upstream Helm chart tarballs. The operator
+# //go:embed-s these at build time (see vendored-charts/embed.go);
+# without this rule docker build fails with
+# "pattern <name>.tgz: no matching files found".
+!vendored-charts/*.tgz

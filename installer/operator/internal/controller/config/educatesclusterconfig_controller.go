@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -29,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -122,12 +124,25 @@ type EducatesClusterConfigReconciler struct {
 // until Phase 2 wires Helm-SDK chart installs.
 func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
-	log.Info("Reconciling EducatesClusterConfig", "name", req.Name)
 
 	obj := &configv1alpha1.EducatesClusterConfig{}
 	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
+		// NotFound is the steady state when no EducatesClusterConfig
+		// exists: watched resources (Secrets, IngressClasses, etc.)
+		// still enqueue the singleton on every event, so this branch
+		// fires often. Log nothing — controller-runtime's debug-level
+		// "Reconciling" trace is enough for observability.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	// Per-reconcile entry log lives at V(1): controller-runtime emits
+	// its own reconcileID trace at the same level, so an INFO log here
+	// just duplicates it and floods the console during cert-manager
+	// bootstrap (every Deployment/Certificate/Secret event enqueues a
+	// reconcile). The high-signal events — Ready transitions, webhook-
+	// not-ready, condition flips — are still logged at INFO from
+	// updateStatusWithTransitionLog and the dedicated handlers below.
+	log.V(1).Info("Reconciling EducatesClusterConfig")
 
 	// Deletion path: drain finalizer. Managed mode tears down its
 	// installed cluster services in reverse install order so cert-manager
@@ -172,7 +187,7 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	// against the API directly without admission).
 	if obj.Spec.Inline == nil {
 		r.markDegraded(obj, "spec.inline", "Inline mode requires spec.inline to be set")
-		return ctrl.Result{}, r.Status().Update(ctx, obj)
+		return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
 	}
 
 	statusIngress, err := r.validateInline(ctx, obj.Spec.Inline)
@@ -180,14 +195,83 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 		var verr *validationError
 		if errors.As(err, &verr) {
 			r.markDegraded(obj, verr.Field, verr.Reason)
-			return ctrl.Result{}, r.Status().Update(ctx, obj)
+			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
 		}
 		// API error (lookup failed, transient): surface for retry.
 		return ctrl.Result{}, err
 	}
 
 	r.markReady(obj, statusIngress)
-	return ctrl.Result{}, r.Status().Update(ctx, obj)
+	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+}
+
+// readyConditionIsTrue reports whether the Ready condition is currently
+// True. Used to detect transitions in either direction
+// (False/Unknown↔True) for logging purposes.
+func readyConditionIsTrue(obj *configv1alpha1.EducatesClusterConfig) bool {
+	c := meta.FindStatusCondition(obj.Status.Conditions, conditionReady)
+	return c != nil && c.Status == metav1.ConditionTrue
+}
+
+// updateStatusWithTransitionLog persists status changes and emits an
+// INFO log line on either Ready transition: False/Unknown→True (the
+// "we just became healthy" signal) or True→False (the "something
+// degraded" signal). Steady-state re-reconciles that don't change
+// Ready stay silent so operators don't have to filter watch-noise out
+// of their console.
+//
+// priorReady is sampled from a LIVE Get inside the retry block, not
+// from the cached obj passed in at the top of Reconcile. The cache can
+// lag etcd by a few hundred ms after our own Status().Update lands,
+// during which a separate watch event triggers another Reconcile whose
+// cached read still shows the old Ready=False. Sampling priorReady
+// from cache there would log "Ready=True" twice in a row for the same
+// transition. Live read avoids that.
+//
+// Conflict handling: controller-runtime's cache-backed client can
+// hand back a stale resourceVersion. Status().Update against that
+// stale version collides with etcd's newer revision. RetryOnConflict
+// re-Gets the latest, replays our intended status onto it, and
+// retries — IsConflict is the only retryable error class, so transient
+// API timeouts surface as-is.
+//
+// All Managed/Inline status-write sites funnel through here so any new
+// branch added later inherits both behaviours.
+func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) error {
+	intendedStatus := obj.Status
+	key := client.ObjectKeyFromObject(obj)
+	var priorReady bool
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &configv1alpha1.EducatesClusterConfig{}
+		if err := r.Get(ctx, key, latest); err != nil {
+			return err
+		}
+		priorReady = readyConditionIsTrue(latest)
+		latest.Status = intendedStatus
+		return r.Status().Update(ctx, latest)
+	}); err != nil {
+		return err
+	}
+	nowReady := readyConditionIsTrue(obj)
+	switch {
+	case !priorReady && nowReady:
+		log.Info("EducatesClusterConfig reconciliation complete; Ready=True",
+			"mode", obj.Spec.Mode,
+			"phase", obj.Status.Phase,
+			"certManagerVersion", obj.Status.BundledChartVersions["cert-manager"])
+	case priorReady && !nowReady:
+		cond := meta.FindStatusCondition(obj.Status.Conditions, conditionReady)
+		reason, message := "", ""
+		if cond != nil {
+			reason = cond.Reason
+			message = cond.Message
+		}
+		log.Info("EducatesClusterConfig degraded; Ready was True, now False",
+			"phase", obj.Status.Phase,
+			"reason", reason,
+			"message", message)
+	}
+	return nil
 }
 
 // markReady populates the inter-CR status contract and flips conditions

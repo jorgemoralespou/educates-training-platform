@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -76,7 +78,7 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		var verr *validationError
 		if errors.As(err, &verr) {
 			r.markDegraded(obj, verr.Field, verr.Reason)
-			return ctrl.Result{}, r.Status().Update(ctx, obj)
+			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
 		}
 		return ctrl.Result{}, err
 	}
@@ -84,7 +86,7 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 	if err := r.reconcileCertManager(ctx, obj); err != nil {
 		log.Error(err, "cert-manager reconcile failed")
 		r.markCertificatesProgressing(obj, "InstallFailed", err.Error())
-		_ = r.Status().Update(ctx, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
 		return ctrl.Result{}, err
 	}
 
@@ -96,7 +98,7 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		if errors.Is(err, errCertManagerNotReady) {
 			r.markCertificatesProgressing(obj, "WaitingForCertManager", "cert-manager Deployments not yet Available")
 			r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-			return ctrl.Result{}, r.Status().Update(ctx, obj)
+			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
 		}
 		return ctrl.Result{}, err
 	}
@@ -107,17 +109,23 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 	customCARef := obj.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Name
 	if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
 		r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
-		_ = r.Status().Update(ctx, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
 		return ctrl.Result{}, err
 	}
 	if err := r.ensureClusterIssuer(ctx, obj); err != nil {
+		if isWebhookNotReadyErr(err) {
+			return r.handleWebhookNotReady(ctx, obj, log, "ClusterIssuer", err)
+		}
 		r.markCertificatesProgressing(obj, "ClusterIssuerApplyFailed", err.Error())
-		_ = r.Status().Update(ctx, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
 		return ctrl.Result{}, err
 	}
 	if err := r.ensureWildcardCertificate(ctx, obj, obj.Spec.Ingress.Domain); err != nil {
+		if isWebhookNotReadyErr(err) {
+			return r.handleWebhookNotReady(ctx, obj, log, "Certificate", err)
+		}
 		r.markCertificatesProgressing(obj, "CertificateApplyFailed", err.Error())
-		_ = r.Status().Update(ctx, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
 		return ctrl.Result{}, err
 	}
 
@@ -128,11 +136,33 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 	if !ready {
 		r.markCertificatesProgressing(obj, "WaitingForCertificate", "wildcard Certificate not yet Ready")
 		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-		return ctrl.Result{}, r.Status().Update(ctx, obj)
+		return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
 	}
 
 	r.markManagedReady(obj)
-	return ctrl.Result{}, r.Status().Update(ctx, obj)
+	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+}
+
+// handleWebhookNotReady surfaces the "cert-manager webhook isn't
+// answering yet" failure mode as a clean progressing condition with a
+// friendly INFO log line and a short RequeueAfter, suppressing the
+// error-return path that would otherwise dump a stack trace at ERROR.
+// kind is the resource the operator was trying to apply
+// ("ClusterIssuer" or "Certificate") and shows up in the log line so
+// the cause is obvious. See certmanager.go::isWebhookNotReadyErr for
+// the substring rationale; the proper fix is the synthetic admission
+// probe captured in follow-up-issues.md.
+func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, log logr.Logger, kind string, cause error) (ctrl.Result, error) {
+	log.Info("cert-manager webhook not yet routable; will retry shortly",
+		"kind", kind,
+		"cause", cause.Error())
+	r.markCertificatesProgressing(obj, "WaitingForWebhook",
+		fmt.Sprintf("apply of %s blocked: cert-manager admission webhook not yet serving (cainjector caBundle propagation in flight)", kind))
+	r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+	if err := r.updateStatusWithTransitionLog(ctx, log, obj); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 }
 
 // cleanupManaged tears down Phase 2's installed cluster services in
@@ -281,13 +311,38 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 }
 
 // renderCertManagerValues builds the values map passed to the
-// cert-manager chart. Phase 2 Session 2 commit 1 uses chart defaults;
-// image-registry-prefix rewriting and operational overrides land
-// alongside the rest of the Managed-mode CR fields in later commits.
+// cert-manager chart. Image-registry-prefix rewriting and operational
+// overrides land alongside the rest of the Managed-mode CR fields in
+// later commits; today the function only sets values that are needed
+// to make the Helm install behave well under operator-driven
+// reconciliation.
+//
+// startupapicheck is a post-install Helm hook that pings the
+// cert-manager webhook to confirm the API is serving. We disable it
+// for two reasons:
+//
+//  1. The hook's "is the webhook routable?" check duplicates the
+//     readiness gate we already run after install
+//     (ensureCertManagerReady + the WaitingForWebhook classification
+//     on SSA failures). Having both means we pay for the same probe
+//     twice on every fresh install.
+//
+//  2. The hook is wrapped in Helm's WaitStrategy timeout (default 5
+//     minutes). If cainjector hasn't injected the caBundle by then,
+//     the install returns a hard error and the release is left
+//     "failed" — turning a transient bootstrap race into a deadlock
+//     that needs a manual `helm uninstall`. With the hook disabled,
+//     the install completes fast and the operator's own retry loop
+//     converges on its own cadence.
+//
 // Kept as a standalone function so values-shape changes don't ripple
 // through reconcile control flow.
 func renderCertManagerValues(_ *configv1alpha1.EducatesClusterConfig) map[string]any {
-	return map[string]any{}
+	return map[string]any{
+		"startupapicheck": map[string]any{
+			"enabled": false,
+		},
+	}
 }
 
 // validateManaged runs the Phase 2 Managed-mode checks. The CRD's CEL

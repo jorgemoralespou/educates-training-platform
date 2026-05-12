@@ -120,9 +120,16 @@ func (c *Client) Upgrade(ctx context.Context, releaseName string, chrt *chart.Ch
 // Uninstall removes the named release. Idempotent: if the release does
 // not exist, this returns nil (the operator's finalizer path retries on
 // drift, and "already gone" is the desired terminal state).
+//
+// WaitStrategy is required by Helm v4 even for uninstall — leaving it
+// unset returns "wait strategy not set" rather than defaulting. We pick
+// HookOnlyStrategy to match Install/Upgrade: readiness is enforced by
+// the operator's own reconcile loop (it polls Deployment availability
+// and Certificate readiness), not by Helm blocking the action call.
 func (c *Client) Uninstall(releaseName string) error {
 	act := action.NewUninstall(c.cfg)
 	act.IgnoreNotFound = true
+	act.WaitStrategy = kube.HookOnlyStrategy
 
 	if _, err := act.Run(releaseName); err != nil {
 		return fmt.Errorf("helm uninstall %q: %w", releaseName, err)

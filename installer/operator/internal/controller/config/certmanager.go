@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
@@ -67,6 +68,41 @@ const (
 // CertificatesReady=False/WaitingForWebhook condition without retrying
 // the underlying API call.
 var errCertManagerNotReady = errors.New("cert-manager Deployments not yet Available")
+
+// isWebhookNotReadyErr reports whether err is the apiserver's "couldn't
+// reach the cert-manager webhook" error. The webhook is fronted by a
+// Service whose endpoints take a beat after Deployment.Available to
+// route, and the caBundle on the ValidatingWebhookConfiguration is
+// injected asynchronously by cert-manager's cainjector. During that
+// window, any SSA against a cert-manager.io kind comes back wrapped
+// with these strings; the operator should retry rather than treating
+// the failure as a hard error.
+//
+// This is a substring match because controller-runtime wraps the
+// apiserver response without preserving the typed error path. The
+// strings are stable across cert-manager versions: "failed calling
+// webhook" is the apiserver's wrapper; the inner cause is one of TLS
+// handshake (x509), TCP refusal (connection refused), or read timeout
+// (i/o timeout / context deadline). Matching the wrapper substring is
+// enough to classify the failure mode — broader than necessary, but
+// the false-positive rate is zero in practice (the apiserver only
+// uses that phrase for webhook failures).
+//
+// Tracked under "Harden cert-manager readiness with a synthetic
+// admission probe" in docs/architecture/follow-up-issues.md — the
+// proper fix is to gate ClusterIssuer/Certificate SSA on a dry-run
+// admission probe so this state is detected proactively rather than
+// observed as a failure. Until that lands, the operator just
+// reclassifies the error so it stops looking like a real fault in
+// the logs.
+func isWebhookNotReadyErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "failed calling webhook") &&
+		strings.Contains(msg, "cert-manager")
+}
 
 // ensureCertManagerReady gates the rest of the cert-manager pipeline
 // on the three upstream Deployments reporting Available=True. This is
