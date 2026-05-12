@@ -348,3 +348,132 @@ each watch event at V(1) inside the mapper. Tells the operator
 *what* fired but doesn't reduce work-queue churn — adds observability
 without addressing the underlying cost. Worth considering only if
 predicate filtering turns out to be insufficient.
+
+---
+
+### Remove the cert-manager CRD operator-startup prerequisite
+
+**Date added:** 2026-05-12.
+**Trigger to file:** start of Phase 3, before any additional typed
+watches on bundled-service CRDs (Contour HTTPProxy, Kyverno
+ClusterPolicy, etc.) are added — applying the same pattern to all
+cluster-service kinds at once is cheaper than retrofitting it later.
+
+**Context:**
+
+Today the operator chart documents that cert-manager.io CRDs must
+be installed in the cluster *before* the operator pod starts (see
+decisions.md → "cert-manager CRDs are an operator install
+prerequisite"). The reason is purely mechanical: the reconciler
+uses typed `Watches(&cmv1.ClusterIssuer{}, ...)` and
+`Watches(&cmv1.Certificate{}, ...)`, and controller-runtime
+requires the GVK to be resolvable at cache startup.
+
+End-to-end testing during Phase 2 Session 2 surfaced that this
+prerequisite is a real friction point — the user has to apply
+cert-manager CRDs out-of-band before `helm install
+educates-installer`, which contradicts the project goal of "one
+install command, no preceding steps". The original decision
+accepted the friction in exchange for typed ergonomics in the
+validator; with Phase 3 about to add three more bundled cluster
+services (each with their own CRDs), the friction multiplies and
+the decision should be reversed.
+
+**Decision (reversal of decisions.md 2026-05-06 entry):**
+
+The operator must start successfully on any vanilla cluster, with
+no CRD prerequisites. Bundled-mode installs are then responsible
+for applying their own CRDs via the chart they install.
+
+**Design — split typed vs unstructured by use site:**
+
+The GVK-at-startup constraint only applies to `Watches()`. API
+calls (Get/Create/Update/Patch) resolve GVKs at request time, so
+typed clients work fine *after* the CRDs exist in the cluster.
+That lets us keep most of the ergonomic typed code we have today,
+and only pay the unstructured tax on the watch layer:
+
+1. **Watches: always unstructured.**
+   Replace
+   `Watches(&cmv1.ClusterIssuer{}, ...)` and
+   `Watches(&cmv1.Certificate{}, ...)` in
+   `educatesclusterconfig_controller.go::SetupWithManager` with
+   unstructured-kind watches:
+   ```
+   ci := &unstructured.Unstructured{}
+   ci.SetGroupVersionKind(schema.GroupVersionKind{
+       Group: "cert-manager.io", Version: "v1", Kind: "ClusterIssuer"})
+   Watches(ci, handler.EnqueueRequestsFromMapFunc(mapToSingleton))
+   ```
+   Unstructured watches start successfully whether or not the CRD
+   exists; events flow once the CRD lands.
+
+2. **Validator read paths: unstructured.**
+   `validator.go::checkClusterIssuer` reverts to the Phase 1
+   pre-typed implementation (Get an `unstructured.Unstructured`,
+   read `status.conditions[Ready]` by field path). The field access
+   is a handful of lines — not worth the typed-package import for
+   a single read.
+
+3. **Owned-resource create/update: keep typed.**
+   `certmanager.go::ensureClusterIssuer` and
+   `ensureWildcardCertificate` keep constructing typed
+   `cmv1.ClusterIssuer{...}` / `cmv1.Certificate{...}` and
+   SSA-patching them. These calls only execute *after*
+   `ensureCertManagerReady` has confirmed cert-manager is up,
+   which means the CRDs are in the apiserver. Typed is more
+   readable and SSA serialization works the same.
+
+4. **certificateReady read: typed.**
+   Same reasoning — it only runs after cert-manager is up.
+
+**Phase 3 corollary:**
+
+Apply the same pattern uniformly to Contour, Kyverno, external-dns:
+- Watches against any of their CRD-defined kinds → unstructured.
+- Validation reads of user-supplied references → unstructured.
+- Operator-owned creates/updates → typed (resources of the
+  bundled service can only be created after the bundled service
+  is installed, by definition).
+
+**Acceptance criteria:**
+
+- `helm install educates-installer` on an empty kind cluster
+  (no cert-manager CRDs, no anything) succeeds and the operator
+  pod reaches Ready without manual intervention.
+- A Managed-mode `EducatesClusterConfig` then installs cert-manager
+  (including its CRDs via the chart) and reaches Ready end-to-end.
+- An Inline-mode `EducatesClusterConfig` referencing an existing
+  ClusterIssuer still works — the unstructured watch picks up
+  drift on the referenced object once the CRD exists.
+- envtest specs still pass with the typed CRD vendored under
+  `testdata/crds/cert-manager/` (envtest can register typed CRDs
+  even when the runtime path is unstructured).
+- decisions.md's "cert-manager CRDs prerequisite" entry is amended
+  with a reversal block dated when this lands; the original
+  decision text is preserved so the reversal is honest.
+- CLAUDE.md "Watches:" and "ClusterIssuer access" bullet points
+  are updated to reflect the unstructured-at-the-edge / typed-in-
+  the-middle split.
+
+**Risks:**
+
+- Unstructured field access is stringly-typed and easier to
+  fat-finger than typed reads. Mitigation: keep the unstructured
+  surface narrow (validator reads only), and unit-test the
+  field-path expressions against a real CRD-shaped object.
+- The pre-existing envtest drift spec (`ClusterIssuer deletion
+  → status flips to Degraded`) currently runs against the typed
+  watch path. It should still pass with unstructured watches,
+  but the test setup needs to register the kind for the
+  unstructured client — verify on the first pass.
+
+**Alternative considered (and rejected):** ship cert-manager (and
+later Contour / Kyverno / external-dns) CRDs in the
+`educates-installer` chart's `crds/` directory. Mechanically
+cleanest user experience but couples the operator chart's
+lifecycle to four upstream CRD shapes; chart bumps require
+re-vendoring CRDs in lockstep; Inline-mode users who never
+install cert-manager would still get its CRDs in their cluster.
+The user prefers a leaner operator install that imposes nothing
+beyond its own kinds.
