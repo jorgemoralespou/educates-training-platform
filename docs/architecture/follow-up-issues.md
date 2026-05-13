@@ -266,6 +266,10 @@ upstream changed. Acceptable trade for correctness.
 ### Narrow EducatesClusterConfig watches with object-scoped predicates
 
 **Date added:** 2026-05-12.
+*(landed: 2026-05-13, at the start of Phase 3 — predicates were
+implemented as per-kind mapping functions rather than separate
+predicate.Predicate objects; same outcome, slightly less ceremony.)*
+
 **Trigger to file:** end of Phase 3 cleanup, once Contour / Kyverno /
 external-dns watches have been added and the noise has compounded.
 

@@ -199,6 +199,13 @@ Living conventions (carry across phases unless superseded):
   cluster and events flow once the CRDs land (during Managed-mode
   install). The 2026-05-06 prerequisite decision was reversed; see
   decisions log.
+- **Watch event filtering:** Each watched kind has its own mapping
+  function (`mapSecretToSingleton`, `mapIngressClassToSingleton`,
+  etc., in `watches.go`) that drops events the reconciler can't
+  act on — referenced from spec or operator-owned only. Eliminates
+  the cluster-wide reconcile flood that cert-manager bootstrap
+  used to trigger. Each new watched kind added in Phase 3 gets
+  its own narrowing mapper.
 - **cert-manager.io access split:** watches are unstructured (no
   GVK-at-startup requirement); Get / Create / Update / SSA-patch
   calls use typed `cmv1.*` (those only run after
