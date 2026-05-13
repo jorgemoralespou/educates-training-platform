@@ -354,6 +354,8 @@ predicate filtering turns out to be insufficient.
 ### Remove the cert-manager CRD operator-startup prerequisite
 
 **Date added:** 2026-05-12.
+*(landed: 2026-05-13, at the start of Phase 3.)*
+
 **Trigger to file:** start of Phase 3, before any additional typed
 watches on bundled-service CRDs (Contour HTTPProxy, Kyverno
 ClusterPolicy, etc.) are added — applying the same pattern to all

@@ -973,3 +973,31 @@ common reason to use Inline.
 with no cert-manager at all (e.g., StaticCertificate-only installs in
 restricted environments), make the watch conditional on CRD discovery
 at startup. Costs ~30 lines and an extra startup probe.
+
+**Amendment — 2026-05-13 (reversal).** This decision is reversed.
+End-to-end testing during Phase 2 Session 2 surfaced the
+prerequisite as a real friction point: users must apply
+cert-manager CRDs out-of-band before `helm install
+educates-installer`, which contradicts the project goal of a
+single-command install with no preceding steps. The same friction
+would compound in Phase 3 as Contour, Kyverno, and external-dns
+each add their own CRDs.
+
+The technical resolution turned out to be narrower than the
+original decision assumed: only `Watches()` requires the GVK at
+cache startup. Typed Get / Create / Update / SSA-patch calls
+resolve the GVK at request time and return `NoMatchError`
+gracefully when the CRD is absent. So the operator drops to
+unstructured form only at the watch layer
+(`Watches(&unstructured.Unstructured{...with GVK})`); every other
+typed code path stays — those calls only execute after
+`ensureCertManagerReady` confirms cert-manager is up, at which
+point the CRDs are present. The conditional-watch path the
+original decision considered (~30 LOC) turned out not to be
+needed at all.
+
+Operator-startup is now CRD-prerequisite-free. The chart no longer
+documents cert-manager CRDs as a prerequisite. Inline-mode users
+who reference a ClusterIssuer that doesn't exist (no CRD, no
+issuer) see a clean `ValidationFailed` condition instead of a
+manager-start failure.

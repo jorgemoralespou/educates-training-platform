@@ -28,7 +28,9 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -338,25 +340,47 @@ func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.Educa
 // SetupWithManager sets up the controller with the Manager.
 //
 // Watches:
-//   - Secrets (cache-restricted to the operator namespace by main.go)
-//   - IngressClasses (cluster-scoped)
-//   - ClusterIssuers (cluster-scoped, cert-manager.io/v1)
+//   - Secrets (cache-restricted to the operator namespace by main.go).
+//   - IngressClasses (cluster-scoped).
+//   - ClusterIssuers + Certificates (cert-manager.io/v1, registered as
+//     unstructured so the operator pod starts on a vanilla cluster
+//     where cert-manager hasn't been installed yet — see below).
+//   - Deployments (cluster-wide; cert-manager-namespace events drive
+//     the readiness gate).
 //
-// The ClusterIssuer watch is unconditional. Typed watches require the
-// GVK to be resolvable at cache startup, so cert-manager.io CRDs must
-// exist before the operator starts — even for Inline-mode-only installs
-// that never reference a ClusterIssuer. The operator chart documents
-// this as a prerequisite; Managed-mode installs satisfy it inherently
-// (the operator installs cert-manager itself), Inline-mode-only installs
-// must apply the cert-manager CRDs (or full cert-manager) up front.
-// Tests register the vendored CRD via envtest's CRDDirectoryPaths.
+// cert-manager.io kinds use the unstructured-watch form. Typed
+// watches (`Watches(&cmv1.ClusterIssuer{}, ...)`) would require the
+// GVK to be resolvable at cache startup, which means cert-manager
+// CRDs would have to be applied to the cluster *before* the operator
+// pod runs — even for Managed-mode users for whom the operator
+// itself is supposed to install cert-manager. Unstructured watches
+// start successfully whether or not the CRD exists; events flow once
+// the CRD lands. Code paths that Get / Create / Update / SSA-patch
+// these kinds still use the typed `cmv1.*` types — those calls only
+// fire after cert-manager is installed (`ensureCertManagerReady`),
+// at which point the CRDs are present and typed access works
+// normally. See decisions.md (2026-05-06 entry, 2026-05-13 reversal
+// amendment).
 func (r *EducatesClusterConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	clusterIssuerWatch := &unstructured.Unstructured{}
+	clusterIssuerWatch.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   cmv1.SchemeGroupVersion.Group,
+		Version: cmv1.SchemeGroupVersion.Version,
+		Kind:    "ClusterIssuer",
+	})
+	certificateWatch := &unstructured.Unstructured{}
+	certificateWatch.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   cmv1.SchemeGroupVersion.Group,
+		Version: cmv1.SchemeGroupVersion.Version,
+		Kind:    "Certificate",
+	})
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&configv1alpha1.EducatesClusterConfig{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Watches(&networkingv1.IngressClass{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
-		Watches(&cmv1.ClusterIssuer{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
-		Watches(&cmv1.Certificate{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
+		Watches(clusterIssuerWatch, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
+		Watches(certificateWatch, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(mapToSingleton)).
 		Named("config-educatesclusterconfig").
 		Complete(r)

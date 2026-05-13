@@ -190,15 +190,20 @@ Living conventions (carry across phases unless superseded):
   on its referenced kinds (Secrets, ClusterIssuers, IngressClasses) plus
   full access on its own kind. Platform reconcilers have only their own
   kinds — they grow when their reconcilers come online in Phase 4.
-- **Watches:** Secret + IngressClass + ClusterIssuer (operator-namespace
-  -scoped Secret cache; cluster-scoped IngressClass and ClusterIssuer).
-  cert-manager.io CRDs are an operator install prerequisite for **all**
-  modes (typed watches require GVK at cache startup) — Inline-only users
-  must apply at least the cert-manager CRDs before starting the operator.
-  See decisions log.
-- **ClusterIssuer access** is typed (`cmv1.ClusterIssuer`) as of
-  Phase 2 Session 1. Phase 1 used `unstructured.Unstructured`; that
-  path no longer exists.
+- **Watches:** Secret + IngressClass + ClusterIssuer + Certificate +
+  Deployment (operator-namespace-scoped Secret cache; cluster-scoped
+  IngressClass; cert-manager.io kinds registered as
+  `unstructured.Unstructured`; Deployment cluster-wide). cert-manager
+  CRDs are **not** a prerequisite for operator startup as of
+  2026-05-13 — the unstructured-watch form starts on a vanilla
+  cluster and events flow once the CRDs land (during Managed-mode
+  install). The 2026-05-06 prerequisite decision was reversed; see
+  decisions log.
+- **cert-manager.io access split:** watches are unstructured (no
+  GVK-at-startup requirement); Get / Create / Update / SSA-patch
+  calls use typed `cmv1.*` (those only run after
+  `ensureCertManagerReady` confirms the CRDs are present, so typed
+  GVK resolution always succeeds).
 - **Helm SDK:** v4 (`helm.sh/helm/v4`), wrapped by
   `installer/operator/internal/helm` so reconcilers don't repeat
   `action.Configuration` boilerplate. Use `helm.NewClient(restCfg, ns)`
