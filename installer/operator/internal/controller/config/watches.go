@@ -195,11 +195,12 @@ func (r *EducatesClusterConfigReconciler) mapCertificateToSingleton(_ context.Co
 }
 
 // mapDeploymentToSingleton fires only for Deployments in namespaces
-// the operator manages cluster-services in. Today that's just
-// cert-manager; Phase 3 adds the Contour, Kyverno, and external-dns
-// namespaces here.
+// the operator manages cluster-services in. Each new Phase 3 cluster
+// service adds its namespace here so its readiness signals reach the
+// reconciler.
 func (r *EducatesClusterConfigReconciler) mapDeploymentToSingleton(_ context.Context, obj client.Object) []reconcile.Request {
-	if obj.GetNamespace() == certManagerNamespace {
+	switch obj.GetNamespace() {
+	case certManagerNamespace, contourNamespace:
 		return singletonRequest
 	}
 	return nil

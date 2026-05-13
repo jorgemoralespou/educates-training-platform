@@ -34,3 +34,19 @@ func TestCertManager_Embedded(t *testing.T) {
 		t.Errorf("chart appVersion = %q, want CertManagerVersion %q", got, want)
 	}
 }
+
+func TestContour_Embedded(t *testing.T) {
+	chrt, err := Contour()
+	if err != nil {
+		t.Fatalf("Contour: %v", err)
+	}
+	if got, want := chrt.Metadata.Name, "contour"; got != want {
+		t.Errorf("chart name = %q, want %q", got, want)
+	}
+	if got, want := chrt.Metadata.Version, ContourChartVersion; got != want {
+		t.Errorf("chart version = %q, want ContourChartVersion %q", got, want)
+	}
+	if got, want := chrt.Metadata.AppVersion, ContourAppVersion; got != want {
+		t.Errorf("chart appVersion = %q, want ContourAppVersion %q", got, want)
+	}
+}

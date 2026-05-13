@@ -248,24 +248,36 @@ func readyConditionIsTrue(obj *configv1alpha1.EducatesClusterConfig) bool {
 func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) error {
 	intendedStatus := obj.Status
 	key := client.ObjectKeyFromObject(obj)
+	// Per-service reason snapshots are taken from a LIVE Get inside
+	// the retry block. Each `*Ready` condition gets its own transition
+	// log line so a reader can follow the install progress across all
+	// phases without scanning a single aggregate reason field.
 	var (
-		priorReady      bool
-		priorCertReason string
+		priorReady        bool
+		priorPhaseReasons map[string]string
 	)
+	phaseReasonsOf := func(obj *configv1alpha1.EducatesClusterConfig) map[string]string {
+		return map[string]string{
+			conditionCertificatesReady:      conditionReasonFor(obj, conditionCertificatesReady),
+			conditionIngressReady:           conditionReasonFor(obj, conditionIngressReady),
+			conditionDNSReady:               conditionReasonFor(obj, conditionDNSReady),
+			conditionPolicyEnforcementReady: conditionReasonFor(obj, conditionPolicyEnforcementReady),
+		}
+	}
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &configv1alpha1.EducatesClusterConfig{}
 		if err := r.Get(ctx, key, latest); err != nil {
 			return err
 		}
 		priorReady = readyConditionIsTrue(latest)
-		priorCertReason = conditionReasonFor(latest, conditionCertificatesReady)
+		priorPhaseReasons = phaseReasonsOf(latest)
 		latest.Status = intendedStatus
 		return r.Status().Update(ctx, latest)
 	}); err != nil {
 		return err
 	}
 	nowReady := readyConditionIsTrue(obj)
-	nowCertReason := conditionReasonFor(obj, conditionCertificatesReady)
+	nowPhaseReasons := phaseReasonsOf(obj)
 
 	switch {
 	case !priorReady && nowReady:
@@ -284,28 +296,50 @@ func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx cont
 			"phase", obj.Status.Phase,
 			"reason", reason,
 			"message", message)
-	case !nowReady && priorCertReason != nowCertReason && nowCertReason != "":
-		// CertificatesReady reason advanced (or appeared for the
-		// first time) while we're still Progressing. Log the
-		// transition so the long quiet windows during cert-manager
-		// bootstrap — pod rollout, cainjector caBundle propagation,
-		// cert-manager issuing the wildcard certificate — are
-		// self-documenting in the log rather than looking like the
-		// operator has hung. priorCertReason == "" on first entry
-		// also matches this branch (initial Unknown→<reason>),
-		// which is what we want.
-		cond := meta.FindStatusCondition(obj.Status.Conditions, conditionCertificatesReady)
-		message := ""
-		if cond != nil {
-			message = cond.Message
+	case !nowReady && phaseReasonsChanged(priorPhaseReasons, nowPhaseReasons):
+		// One of the per-service conditions advanced (or appeared for
+		// the first time) while we're still Progressing. Log every
+		// changed transition so the long quiet windows during cluster-
+		// service bootstrap (cert-manager issuing a Certificate,
+		// Contour rolling out Envoy, Kyverno cainjector hydrating
+		// caBundles, etc.) are self-documenting in the log rather
+		// than looking like the operator has hung.
+		for _, cond := range []string{
+			conditionCertificatesReady,
+			conditionIngressReady,
+			conditionDNSReady,
+			conditionPolicyEnforcementReady,
+		} {
+			from, to := priorPhaseReasons[cond], nowPhaseReasons[cond]
+			if from == to || to == "" {
+				continue
+			}
+			c := meta.FindStatusCondition(obj.Status.Conditions, cond)
+			message := ""
+			if c != nil {
+				message = c.Message
+			}
+			log.Info(cond+" progressing",
+				"from", from,
+				"to", to,
+				"phase", obj.Status.Phase,
+				"message", message)
 		}
-		log.Info("CertificatesReady progressing",
-			"from", priorCertReason,
-			"to", nowCertReason,
-			"phase", obj.Status.Phase,
-			"message", message)
 	}
 	return nil
+}
+
+// phaseReasonsChanged reports whether any of the per-service condition
+// reasons differ between the prior live state and the current intended
+// state. Used by updateStatusWithTransitionLog as the gate for the
+// per-service transition logging block.
+func phaseReasonsChanged(prior, now map[string]string) bool {
+	for k, v := range now {
+		if prior[k] != v {
+			return true
+		}
+	}
+	return false
 }
 
 // conditionReasonFor returns the Reason field of the named condition,

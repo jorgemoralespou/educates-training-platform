@@ -125,6 +125,38 @@ func markDeploymentAvailable(name, namespace string) {
 	Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 }
 
+// markDaemonSetReady creates the named DaemonSet (if missing) and
+// sets its Status to DesiredNumberScheduled=NumberReady=1 so the
+// reconciler's ensureContourReady sees envoy as Ready. envtest runs
+// no DaemonSet controller, hence this helper.
+func markDaemonSetReady(name, namespace string) {
+	GinkgoHelper()
+	ds := &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": name},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": name}},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "c", Image: "stub:latest"}},
+				},
+			},
+		},
+	}
+	err := k8sClient.Create(ctx, ds)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, ds)).To(Succeed())
+	ds.Status = appsv1.DaemonSetStatus{
+		DesiredNumberScheduled: 1,
+		NumberReady:            1,
+	}
+	Expect(k8sClient.Status().Update(ctx, ds)).To(Succeed())
+}
+
 // resurrectStuckNamespace force-finalizes a namespace that's been
 // left in Terminating state by a previous spec. envtest runs no
 // namespace controller, so a Delete on a namespace with kubernetes
@@ -204,11 +236,12 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	BeforeEach(func() {
 		ensureNamespace(testOperatorNamespace)
 		// Previous specs that exercised cleanupManaged leave the
-		// cert-manager namespace in Terminating; envtest has no
-		// namespace controller to actually delete it. Resurrect so
-		// markDeploymentAvailable in subsequent specs can create
-		// Deployments inside.
+		// cert-manager + contour namespaces in Terminating; envtest
+		// has no namespace controller to actually delete them.
+		// Resurrect so markDeploymentAvailable / markDaemonSetReady
+		// in subsequent specs can create resources inside.
 		resurrectStuckNamespace(certManagerNamespace)
+		resurrectStuckNamespace(contourNamespace)
 		helmFac = newMemoryHelmFactory()
 
 		var mgrCtx context.Context
@@ -252,6 +285,8 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.Certificate{}, client.InNamespace(testOperatorNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(certManagerNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(certManagerNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(contourNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &appsv1.DaemonSet{}, client.InNamespace(contourNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.ClusterIssuer{})
 		// Intentionally do NOT delete the cert-manager namespace: envtest
@@ -396,12 +431,27 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markCertificateReady(wildcardCertificate, testOperatorNamespace)
 
+		// Wait for the operator to reach the Contour phase + create
+		// its namespace, then drive the contour Deployment + envoy
+		// DaemonSet to Ready (no controllers in envtest).
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
+		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionTrue))
 
 		got := &configv1alpha1.EducatesClusterConfig{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
 		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+
+		// status.bundledChartVersions now includes both cert-manager
+		// and contour.
+		Expect(got.Status.BundledChartVersions).To(HaveKeyWithValue("cert-manager", vendoredcharts.CertManagerVersion))
+		Expect(got.Status.BundledChartVersions).To(HaveKeyWithValue("contour", vendoredcharts.ContourChartVersion))
 
 		// status.ingress published with the wildcard secret + issuer ref.
 		Expect(got.Status.Ingress).NotTo(BeNil())
@@ -443,13 +493,23 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
+		markDaemonSetReady(envoyDaemonSet, contourNamespace)
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionTrue))
 
-		// A helm release exists at this point.
-		hc, err := helmFac.For(certManagerNamespace)
+		// Both helm releases exist at this point.
+		cmClient, err := helmFac.For(certManagerNamespace)
 		Expect(err).NotTo(HaveOccurred())
-		_, err = hc.Status(certManagerReleaseName)
+		_, err = cmClient.Status(certManagerReleaseName)
+		Expect(err).NotTo(HaveOccurred())
+		contourClient, err := helmFac.For(contourNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = contourClient.Status(contourReleaseName)
 		Expect(err).NotTo(HaveOccurred())
 
 		// Delete the CR; let the reconciler's finalizer drain run.
@@ -469,8 +529,10 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Name: wildcardClusterIssuer}, &cmv1.ClusterIssuer{}))).To(BeTrue())
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: certManagerNamespace, Name: customCASecretName}, &corev1.Secret{}))).To(BeTrue())
 
-		// Helm release is uninstalled.
-		_, statusErr := hc.Status(certManagerReleaseName)
+		// Both helm releases are uninstalled.
+		_, statusErr := cmClient.Status(certManagerReleaseName)
+		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+		_, statusErr = contourClient.Status(contourReleaseName)
 		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
 	})
 
@@ -507,6 +569,12 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
+		markDaemonSetReady(envoyDaemonSet, contourNamespace)
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionTrue))
 

@@ -108,7 +108,8 @@ VENDORED_CHARTS_DIR := $(shell pwd)/vendored-charts
 # Order doesn't matter; vendor-charts iterates and verifies each one
 # against ../vendored-charts/SHA256SUMS.
 VENDORED_CHARTS := \
-	cert-manager=v1.20.2=https://charts.jetstack.io/charts/cert-manager-v1.20.2.tgz
+	cert-manager=v1.20.2=https://charts.jetstack.io/charts/cert-manager-v1.20.2.tgz \
+	contour=0.5.0=https://github.com/projectcontour/helm-charts/releases/download/contour-0.5.0/contour-0.5.0.tgz
 
 .PHONY: vendor-charts
 vendor-charts: ## Download upstream Helm charts into vendored-charts/ and verify against SHA256SUMS.

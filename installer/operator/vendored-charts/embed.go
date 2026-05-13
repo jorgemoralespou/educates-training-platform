@@ -48,3 +48,25 @@ var certManagerTarball []byte
 func CertManager() (*chart.Chart, error) {
 	return helm.LoadArchive(certManagerTarball)
 }
+
+// ContourChartVersion is the upstream Helm chart version (semver
+// version of the *chart*, distinct from the Contour appVersion).
+// Surfaced in status.bundledChartVersions["contour"].
+const ContourChartVersion = "0.5.0"
+
+// ContourAppVersion is the Project Contour binary version the
+// embedded chart installs. Less load-bearing than ContourChartVersion
+// (the chart version is what's pinned in our build), but useful to
+// expose in logs/diagnostics so a reader doesn't have to crack the
+// tarball to learn which Contour they're running.
+const ContourAppVersion = "1.33.4"
+
+//go:embed contour-0.5.0.tgz
+var contourTarball []byte
+
+// Contour parses the embedded Project Contour chart tarball and
+// returns a chart ready for the Helm SDK. Source:
+// https://github.com/projectcontour/helm-charts/releases.
+func Contour() (*chart.Chart, error) {
+	return helm.LoadArchive(contourTarball)
+}

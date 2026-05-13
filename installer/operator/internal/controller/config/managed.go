@@ -108,11 +108,13 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		return res, err
 	}
 
+	// Phase 2: ingress controller (Contour).
+	if done, res, err := r.reconcileContourPhase(ctx, log, obj); !done {
+		return res, err
+	}
+
 	// Phase 3: subsequent cluster services land here.
 	//
-	// if done, res, err := r.reconcileContourPhase(ctx, log, obj); !done {
-	//     return res, err
-	// }
 	// if done, res, err := r.reconcileExternalDNSPhase(ctx, log, obj); !done {
 	//     return res, err
 	// }
@@ -243,13 +245,15 @@ func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Cont
 // Cleanups are idempotent — retried reconciles after partial drain
 // failure re-attempt only what's still present.
 func (r *EducatesClusterConfigReconciler) cleanupManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
-	// [Phase 3] Reverse install order: Kyverno → external-dns → Contour
-	// each go above cert-manager when they land.
+	// [Phase 3] Reverse install order. Kyverno + external-dns slot
+	// in above Contour when they land.
 	//
 	// if err := r.cleanupKyverno(ctx, obj); err != nil { return err }
 	// if err := r.cleanupExternalDNS(ctx, obj); err != nil { return err }
-	// if err := r.cleanupContour(ctx, obj); err != nil { return err }
 
+	if err := r.cleanupContour(ctx, obj); err != nil {
+		return err
+	}
 	if err := r.cleanupCertManager(ctx, obj); err != nil {
 		return err
 	}
@@ -546,6 +550,41 @@ func (r *EducatesClusterConfigReconciler) markCertificatesReadyTrue(obj *configv
 		Status:             metav1.ConditionTrue,
 		Reason:             "CertificateIssued",
 		Message:            "wildcard Certificate is Ready",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markIngressProgressing publishes an IngressReady=False condition
+// while the Contour install pipeline is still converging. Mirrors
+// markCertificatesProgressing's shape for the ingress phase.
+func (r *EducatesClusterConfigReconciler) markIngressProgressing(obj *configv1alpha1.EducatesClusterConfig, reason, message string) {
+	obj.Status.ObservedGeneration = obj.Generation
+	obj.Status.Mode = obj.Spec.Mode
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionIngressReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             "Progressing",
+		Message:            "Managed-mode reconciliation in progress",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markIngressReadyTrue flips IngressReady to True. Called once the
+// Contour phase has confirmed the Deployment + DaemonSet are
+// serving. Aggregate Ready stays False until markManagedReady.
+func (r *EducatesClusterConfigReconciler) markIngressReadyTrue(obj *configv1alpha1.EducatesClusterConfig) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionIngressReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "BundledContourReady",
+		Message:            "Bundled Contour ingress controller is Ready",
 		ObservedGeneration: obj.Generation,
 	})
 }
