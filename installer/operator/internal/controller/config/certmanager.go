@@ -24,6 +24,7 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -31,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
@@ -154,6 +156,184 @@ func isCertManagerCRDMissingErr(err error) bool {
 		}
 	}
 	return false
+}
+
+// cleanupCertManager unwinds the cert-manager phase in reverse
+// install order: wildcard Certificate → ClusterIssuer → copied
+// CustomCA Secret → helm uninstall cert-manager → cert-manager
+// namespace. Each step is idempotent (deleteIfPresent swallows
+// NotFound + NoMatchError), so a retried reconcile after partial
+// drain re-attempts only what's still present.
+//
+// When the user picks an External / Static certificates provider
+// (no operator-managed install), shouldInstallCertManager returned
+// false in reconcileCertManagerPhase and there's nothing to undo
+// here either; helm Uninstall is a no-op on a non-existent release.
+func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context, _ *configv1alpha1.EducatesClusterConfig) error {
+	if err := r.deleteIfPresent(ctx, &cmv1.Certificate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: r.OperatorNamespace, Name: wildcardCertificate},
+	}); err != nil {
+		return fmt.Errorf("delete wildcard Certificate: %w", err)
+	}
+	if err := r.deleteIfPresent(ctx, &cmv1.ClusterIssuer{
+		ObjectMeta: metav1.ObjectMeta{Name: wildcardClusterIssuer},
+	}); err != nil {
+		return fmt.Errorf("delete ClusterIssuer: %w", err)
+	}
+	if err := r.deleteIfPresent(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: certManagerNamespace, Name: customCASecretName},
+	}); err != nil {
+		return fmt.Errorf("delete copied CustomCA Secret: %w", err)
+	}
+
+	// Helm uninstall is idempotent in the wrapper (IgnoreNotFound on
+	// the action). Safe to call even when the release was never
+	// created (External provider, or validation failed before
+	// reconcileCertManager ran).
+	hc, err := r.HelmClientFor(certManagerNamespace)
+	if err != nil {
+		return fmt.Errorf("build helm client for cleanup: %w", err)
+	}
+	if err := hc.Uninstall(certManagerReleaseName); err != nil {
+		return fmt.Errorf("uninstall cert-manager release: %w", err)
+	}
+
+	if err := r.deleteIfPresent(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: certManagerNamespace},
+	}); err != nil {
+		return fmt.Errorf("delete cert-manager namespace: %w", err)
+	}
+	return nil
+}
+
+// reconcileCertManagerPhase runs the full cert-manager + wildcard
+// certificate pipeline as a single phase. Caller convention follows
+// `isPhaseComplete`: (zero Result + nil err) = phase done; anything
+// else = stop here and return verbatim.
+//
+// Steps:
+//
+//  1. helm install/upgrade cert-manager from the vendored chart.
+//  2. Wait for cert-manager Deployments to report Available.
+//  3. Copy the CustomCA Secret into cert-manager's namespace.
+//  4. SSA the ClusterIssuer.
+//  5. SSA the wildcard Certificate.
+//  6. Wait for the Certificate to report Ready.
+//
+// All cert-manager-specific error classification (CRDs missing,
+// webhook not yet routable) is handled here so the orchestrator
+// in reconcileManaged stays oblivious to cert-manager internals.
+//
+// When ExternalCertManager/StaticCertificate provider variants are
+// added, this phase early-returns "done, proceed" without running
+// the install path — the user supplies the issuer/secret and the
+// validator already required them to exist.
+func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+	// phaseStop wraps the (Result, error) returned by helpers like
+	// handleCertManagerCRDsMissing into the (done bool, Result,
+	// error) shape this phase returns. done is always false at a
+	// stop point — the phase is not complete and the orchestrator
+	// returns Result+err verbatim.
+	phaseStop := func(res ctrl.Result, err error) (bool, ctrl.Result, error) {
+		return false, res, err
+	}
+
+	if !shouldInstallCertManager(obj) {
+		// External provider variants are validated elsewhere; nothing
+		// to install or apply here. Future: also populate
+		// status.bundledChartVersions with the user-supplied
+		// cert-manager version, if known.
+		return true, ctrl.Result{}, nil
+	}
+
+	if err := r.reconcileCertManager(ctx, obj); err != nil {
+		log.Error(err, "cert-manager reconcile failed")
+		r.markCertificatesProgressing(obj, "InstallFailed", err.Error())
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		return phaseStop(ctrl.Result{}, err)
+	}
+
+	// Gate the rest of the pipeline on cert-manager being live. A
+	// not-ready signal is published as a progressing condition; the
+	// Deployment watch re-triggers reconcile when Availability flips.
+	if err := r.ensureCertManagerReady(ctx); err != nil {
+		if errors.Is(err, errCertManagerNotReady) {
+			r.markCertificatesProgressing(obj, "WaitingForCertManager", "cert-manager Deployments not yet Available")
+			r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj))
+		}
+		return phaseStop(ctrl.Result{}, err)
+	}
+
+	// CustomCA Secret → cert-manager namespace, then ClusterIssuer,
+	// then wildcard Certificate. Each helper is idempotent (SSA) so
+	// re-running after a partial failure converges.
+	customCARef := obj.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Name
+	if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+		}
+		r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		return phaseStop(ctrl.Result{}, err)
+	}
+	if err := r.ensureClusterIssuer(ctx, obj); err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+		}
+		if isWebhookNotReadyErr(err) {
+			return phaseStop(r.handleWebhookNotReady(ctx, obj, log, "ClusterIssuer", err))
+		}
+		r.markCertificatesProgressing(obj, "ClusterIssuerApplyFailed", err.Error())
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		return phaseStop(ctrl.Result{}, err)
+	}
+	if err := r.ensureWildcardCertificate(ctx, obj, obj.Spec.Ingress.Domain); err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+		}
+		if isWebhookNotReadyErr(err) {
+			return phaseStop(r.handleWebhookNotReady(ctx, obj, log, "Certificate", err))
+		}
+		r.markCertificatesProgressing(obj, "CertificateApplyFailed", err.Error())
+		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		return phaseStop(ctrl.Result{}, err)
+	}
+
+	ready, err := r.certificateReady(ctx)
+	if err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+		}
+		return phaseStop(ctrl.Result{}, err)
+	}
+	if !ready {
+		r.markCertificatesProgressing(obj, "WaitingForCertificate", "wildcard Certificate not yet Ready")
+		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+		return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj))
+	}
+
+	// Phase complete — mark CertificatesReady=True so a reader can
+	// observe per-phase progress without waiting for the aggregate
+	// Ready. The aggregate Ready flip + status.ingress publication
+	// stay in markManagedReady so they only happen once every phase
+	// has signed off.
+	r.markCertificatesReadyTrue(obj)
+	return true, ctrl.Result{}, nil
+}
+
+// shouldInstallCertManager reports whether the operator is
+// responsible for installing cert-manager based on the spec.
+// Currently only BundledCertManager is supported by the validator;
+// ExternalCertManager and StaticCertificate return "not yet
+// supported in v1alpha1" validation errors. The helper makes the
+// conditional-install pattern explicit for when those variants are
+// added later.
+func shouldInstallCertManager(obj *configv1alpha1.EducatesClusterConfig) bool {
+	if obj.Spec.Ingress == nil {
+		return false
+	}
+	return obj.Spec.Ingress.Certificates.Provider == configv1alpha1.CertificatesProviderBundledCertManager
 }
 
 // ensureCertManagerReady gates the rest of the cert-manager pipeline

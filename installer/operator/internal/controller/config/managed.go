@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"time"
 
-	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,12 +37,21 @@ import (
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
 
-// Managed-mode condition types. Phase 2 Session 2 introduces
-// CertificatesReady (cert-manager + ClusterIssuer + wildcard
-// Certificate). Sibling conditions (IngressReady, DNSReady,
-// PolicyEnforcementReady, InfrastructureConfigured) land alongside
-// their producing reconcilers in Phase 3.
-const conditionCertificatesReady = "CertificatesReady"
+// Managed-mode condition types. Each cluster service contributes its
+// own condition; the aggregate `Ready` condition flips True only once
+// every required one is True. Conditions are only set once their
+// producing phase runs — absent != False.
+//
+// The `*Ready` condition vocabulary matches the CRD design's intent:
+// component CRs and humans can read a single condition per concern
+// (certificates, ingress, DNS, policy) without scanning a free-form
+// reason field on a single aggregate condition.
+const (
+	conditionCertificatesReady      = "CertificatesReady"
+	conditionIngressReady           = "IngressReady"
+	conditionDNSReady               = "DNSReady"
+	conditionPolicyEnforcementReady = "PolicyEnforcementReady"
+)
 
 // Cluster-service install constants. Cert-manager is conventionally
 // installed in its own namespace; the operator does not give users a
@@ -54,23 +62,35 @@ const (
 	certManagerReleaseName = "cert-manager"
 )
 
-// reconcileManaged drives Phase 2 Managed-mode reconciliation:
+// reconcileManaged drives Managed-mode reconciliation as a sequence
+// of independent cluster-service phases, each contributing one
+// `*Ready` condition. The phases run in install-order; each phase
+// gates the next via its return value:
 //
-//  1. Validate spec fields (cross-resource checks the CRD's CEL rules
-//     cannot express; not-yet-supported provider errors).
-//  2. Install/upgrade the cert-manager chart from the vendored tarball
-//     and record the chart version in status.
-//  3. Gate on cert-manager Deployment availability (Phase 2 readiness
-//     contract — see follow-up-issues.md for the synthetic-admission
-//     hardening option).
-//  4. Copy the CustomCA Secret into cert-manager's namespace, apply the
-//     CA-typed ClusterIssuer, and apply the wildcard Certificate via
-//     SSA.
-//  5. Once the Certificate reports Ready=True, publish status.ingress
-//     and flip CertificatesReady (and the aggregate Ready) to True.
+//   - done=true   → phase complete; orchestrator proceeds to the next.
+//   - done=false  → phase incomplete; orchestrator returns the
+//     Result+error verbatim. This covers both
+//     "silently waiting on a watch event" (zero Result, nil error)
+//     and "explicit RequeueAfter while a transient state clears"
+//     (non-zero Result, nil error) and "real error to surface to
+//     controller-runtime" (any Result, non-nil error). All three
+//     stop the pipeline at the same point.
 //
-// Other cluster services (Contour, external-dns, Kyverno) follow the
-// same shape in Phase 3.
+// Phases that aren't required by the spec (e.g., user picked
+// ExternalCertManager) return done=true immediately so the
+// orchestrator proceeds. Validation that requires the provider mix
+// to be supported lives in validateManaged.
+//
+// Install order:
+//
+//  1. cert-manager + wildcard Certificate + ClusterIssuer
+//     (CertificatesReady). Wildcard Cert placement may shift to
+//     post-Contour when ACME-HTTP01 issuer types are added later.
+//  2. Contour + IngressClass (IngressReady) — Phase 3.
+//  3. external-dns (DNSReady) — Phase 3.
+//  4. Kyverno (PolicyEnforcementReady) — Phase 3.
+//
+// Cleanup is the strict reverse.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -83,73 +103,22 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
-	if err := r.reconcileCertManager(ctx, obj); err != nil {
-		log.Error(err, "cert-manager reconcile failed")
-		r.markCertificatesProgressing(obj, "InstallFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
-		return ctrl.Result{}, err
+	// Phase 1: cert-manager + wildcard certificate.
+	if done, res, err := r.reconcileCertManagerPhase(ctx, log, obj); !done {
+		return res, err
 	}
 
-	// Gate the rest of the pipeline on cert-manager being live. A
-	// not-ready signal is published as a progressing condition; the
-	// Deployment watch will re-trigger reconcile when Availability
-	// flips, so no explicit requeue is needed.
-	if err := r.ensureCertManagerReady(ctx); err != nil {
-		if errors.Is(err, errCertManagerNotReady) {
-			r.markCertificatesProgressing(obj, "WaitingForCertManager", "cert-manager Deployments not yet Available")
-			r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
-		}
-		return ctrl.Result{}, err
-	}
-
-	// CustomCA Secret → cert-manager namespace, then ClusterIssuer, then
-	// wildcard Certificate. Each helper is idempotent (SSA) so re-running
-	// after a partial failure converges.
-	customCARef := obj.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Name
-	if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
-		if isCertManagerCRDMissingErr(err) {
-			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
-		}
-		r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
-		return ctrl.Result{}, err
-	}
-	if err := r.ensureClusterIssuer(ctx, obj); err != nil {
-		if isCertManagerCRDMissingErr(err) {
-			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
-		}
-		if isWebhookNotReadyErr(err) {
-			return r.handleWebhookNotReady(ctx, obj, log, "ClusterIssuer", err)
-		}
-		r.markCertificatesProgressing(obj, "ClusterIssuerApplyFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
-		return ctrl.Result{}, err
-	}
-	if err := r.ensureWildcardCertificate(ctx, obj, obj.Spec.Ingress.Domain); err != nil {
-		if isCertManagerCRDMissingErr(err) {
-			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
-		}
-		if isWebhookNotReadyErr(err) {
-			return r.handleWebhookNotReady(ctx, obj, log, "Certificate", err)
-		}
-		r.markCertificatesProgressing(obj, "CertificateApplyFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
-		return ctrl.Result{}, err
-	}
-
-	ready, err := r.certificateReady(ctx)
-	if err != nil {
-		if isCertManagerCRDMissingErr(err) {
-			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
-		}
-		return ctrl.Result{}, err
-	}
-	if !ready {
-		r.markCertificatesProgressing(obj, "WaitingForCertificate", "wildcard Certificate not yet Ready")
-		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-		return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
-	}
+	// Phase 3: subsequent cluster services land here.
+	//
+	// if done, res, err := r.reconcileContourPhase(ctx, log, obj); !done {
+	//     return res, err
+	// }
+	// if done, res, err := r.reconcileExternalDNSPhase(ctx, log, obj); !done {
+	//     return res, err
+	// }
+	// if done, res, err := r.reconcileKyvernoPhase(ctx, log, obj); !done {
+	//     return res, err
+	// }
 
 	r.markManagedReady(obj)
 	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
@@ -264,51 +233,25 @@ func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Cont
 	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 }
 
-// cleanupManaged tears down Phase 2's installed cluster services in
-// reverse install order:
+// cleanupManaged tears down installed cluster services in **reverse
+// install order**: each per-service cleanup is self-contained and
+// no-ops when its corresponding install was skipped (External
+// provider variants). Adding a new cluster service in Phase 3 means
+// appending its cleanup* call at the top of this function (since
+// it'll have been the *last* to install).
 //
-//  1. Wildcard Certificate (cert-manager is still running, so it
-//     processes the deletion and revokes the issued Secret cleanly).
-//  2. ClusterIssuer.
-//  3. Copied CustomCA Secret in cert-manager namespace.
-//  4. Helm release "cert-manager" (uninstalls Deployments, CRDs,
-//     webhook configurations the chart owns).
-//  5. cert-manager namespace.
-//
-// Each step ignores not-found so retried reconciles after partial
+// Cleanups are idempotent — retried reconciles after partial drain
 // failure re-attempt only what's still present.
 func (r *EducatesClusterConfigReconciler) cleanupManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
-	if err := r.deleteIfPresent(ctx, &cmv1.Certificate{
-		ObjectMeta: metav1.ObjectMeta{Namespace: r.OperatorNamespace, Name: wildcardCertificate},
-	}); err != nil {
-		return fmt.Errorf("delete wildcard Certificate: %w", err)
-	}
-	if err := r.deleteIfPresent(ctx, &cmv1.ClusterIssuer{
-		ObjectMeta: metav1.ObjectMeta{Name: wildcardClusterIssuer},
-	}); err != nil {
-		return fmt.Errorf("delete ClusterIssuer: %w", err)
-	}
-	if err := r.deleteIfPresent(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Namespace: certManagerNamespace, Name: customCASecretName},
-	}); err != nil {
-		return fmt.Errorf("delete copied CustomCA Secret: %w", err)
-	}
+	// [Phase 3] Reverse install order: Kyverno → external-dns → Contour
+	// each go above cert-manager when they land.
+	//
+	// if err := r.cleanupKyverno(ctx, obj); err != nil { return err }
+	// if err := r.cleanupExternalDNS(ctx, obj); err != nil { return err }
+	// if err := r.cleanupContour(ctx, obj); err != nil { return err }
 
-	// Helm uninstall is also idempotent in the wrapper (IgnoreNotFound
-	// on the action). Skip when the release was never created — e.g.,
-	// validation failed before reconcileCertManager ran.
-	hc, err := r.HelmClientFor(certManagerNamespace)
-	if err != nil {
-		return fmt.Errorf("build helm client for cleanup: %w", err)
-	}
-	if err := hc.Uninstall(certManagerReleaseName); err != nil {
-		return fmt.Errorf("uninstall cert-manager release: %w", err)
-	}
-
-	if err := r.deleteIfPresent(ctx, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: certManagerNamespace},
-	}); err != nil {
-		return fmt.Errorf("delete cert-manager namespace: %w", err)
+	if err := r.cleanupCertManager(ctx, obj); err != nil {
+		return err
 	}
 	return nil
 }
@@ -334,9 +277,16 @@ func (r *EducatesClusterConfigReconciler) deleteIfPresent(ctx context.Context, o
 }
 
 // markManagedReady publishes the inter-CR ingress contract and flips
-// CertificatesReady + Ready to True. Mirrors markReady (Inline) but
-// sources the contract from cert-manager-issued resources rather than
-// user-declared references.
+// the aggregate Ready condition to True. Called once *every* phase
+// (cert-manager today; Contour/external-dns/Kyverno in Phase 3) has
+// signed off. Each phase is responsible for flipping its own
+// per-service condition True before this runs — markManagedReady
+// does not touch CertificatesReady/IngressReady/etc., it only sets
+// the aggregate.
+//
+// Mirrors markReady (Inline) but sources the contract from
+// cert-manager-issued resources rather than user-declared
+// references.
 func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.EducatesClusterConfig) {
 	obj.Status.ObservedGeneration = obj.Generation
 	obj.Status.Phase = configv1alpha1.ClusterConfigPhaseReady
@@ -353,13 +303,6 @@ func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.E
 		},
 	}
 
-	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
-		Type:               conditionCertificatesReady,
-		Status:             metav1.ConditionTrue,
-		Reason:             "CertificateIssued",
-		Message:            "wildcard Certificate is Ready",
-		ObservedGeneration: obj.Generation,
-	})
 	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
 		Type:               conditionReady,
 		Status:             metav1.ConditionTrue,
@@ -588,6 +531,21 @@ func (r *EducatesClusterConfigReconciler) markCertificatesProgressing(obj *confi
 		Status:             metav1.ConditionFalse,
 		Reason:             "Progressing",
 		Message:            "Managed-mode reconciliation in progress",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markCertificatesReadyTrue flips CertificatesReady to True. Called
+// once the cert-manager phase has confirmed the wildcard Certificate
+// is Ready. Does NOT touch the aggregate Ready condition — that's
+// only flipped True in markManagedReady once *every* phase has
+// signed off.
+func (r *EducatesClusterConfigReconciler) markCertificatesReadyTrue(obj *configv1alpha1.EducatesClusterConfig) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionCertificatesReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "CertificateIssued",
+		Message:            "wildcard Certificate is Ready",
 		ObservedGeneration: obj.Generation,
 	})
 }
