@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
@@ -122,6 +125,33 @@ func markDeploymentAvailable(name, namespace string) {
 	Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
 }
 
+// resurrectStuckNamespace force-finalizes a namespace that's been
+// left in Terminating state by a previous spec. envtest runs no
+// namespace controller, so a Delete on a namespace with kubernetes
+// finalizers (which every namespace has by default) leaves it stuck
+// forever; without intervention, subsequent specs trying to create
+// resources in it hit "namespace is being terminated" 403s. Calling
+// the /finalize subresource with empty spec.finalizers is the
+// canonical way to bypass the finalizer controller for tests.
+func resurrectStuckNamespace(name string) {
+	GinkgoHelper()
+	ns := &corev1.Namespace{}
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, ns)
+	if apierrors.IsNotFound(err) {
+		return
+	}
+	Expect(err).NotTo(HaveOccurred())
+	if ns.DeletionTimestamp.IsZero() {
+		return
+	}
+	ns.Spec.Finalizers = nil
+	Expect(k8sClient.SubResource("finalize").Update(ctx, ns)).To(Succeed())
+	Eventually(func() bool {
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, ns)
+		return apierrors.IsNotFound(err)
+	}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+}
+
 // markCertificateReady flips the named Certificate's Ready condition
 // to True; cert-manager would normally do this after issuance. envtest
 // has no cert-manager controller, hence this helper.
@@ -173,6 +203,12 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 
 	BeforeEach(func() {
 		ensureNamespace(testOperatorNamespace)
+		// Previous specs that exercised cleanupManaged leave the
+		// cert-manager namespace in Terminating; envtest has no
+		// namespace controller to actually delete it. Resurrect so
+		// markDeploymentAvailable in subsequent specs can create
+		// Deployments inside.
+		resurrectStuckNamespace(certManagerNamespace)
 		helmFac = newMemoryHelmFactory()
 
 		var mgrCtx context.Context
@@ -436,5 +472,88 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		// Helm release is uninstalled.
 		_, statusErr := hc.Status(certManagerReleaseName)
 		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+	})
+
+	It("flips to Degraded with CertManagerCRDsMissing when cert-manager CRDs are deleted out from under it", func() {
+		// Restore cert-manager CRDs at end-of-spec regardless of
+		// success — Ginkgo runs specs in random order and the rest
+		// of the suite relies on these CRDs being present.
+		DeferCleanup(func() {
+			_, err := envtest.InstallCRDs(cfg, envtest.CRDInstallOptions{
+				Paths: []string{filepath.Join("testdata", "crds", "cert-manager")},
+			})
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       validManagedSpec(),
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Drive to Ready first so the operator has actually invested in
+		// cert-manager state — same staging as the happy-path spec.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		for _, name := range certManagerDeployments {
+			markDeploymentAvailable(name, certManagerNamespace)
+		}
+		Eventually(func() error {
+			cert := &cmv1.Certificate{}
+			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionTrue))
+
+		// Yank the cert-manager CRDs out from under the running
+		// operator. In production this would be `kubectl delete crd
+		// certificates.cert-manager.io clusterissuers.cert-manager.io`
+		// (or `helm uninstall cert-manager` cascading the delete).
+		for _, name := range []string{
+			"certificates.cert-manager.io",
+			"clusterissuers.cert-manager.io",
+		} {
+			crd := &apiextensionsv1.CustomResourceDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+			}
+			Expect(k8sClient.Delete(ctx, crd)).To(Succeed())
+		}
+
+		// Touching the CR with an annotation triggers a fresh
+		// reconcile. The reconciler's first SSA against ClusterIssuer
+		// (or Certificate) returns NoMatchError; the classifier picks
+		// it up and routes to handleCertManagerCRDsMissing.
+		Eventually(func() error {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return err
+			}
+			if got.Annotations == nil {
+				got.Annotations = map[string]string{}
+			}
+			got.Annotations["test.educates.dev/poke"] = time.Now().Format(time.RFC3339Nano)
+			return k8sClient.Update(ctx, got)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		Eventually(func() string {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
+			if cond == nil {
+				return ""
+			}
+			return cond.Reason
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("CertManagerCRDsMissing"))
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
 	})
 })

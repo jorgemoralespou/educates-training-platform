@@ -974,30 +974,55 @@ with no cert-manager at all (e.g., StaticCertificate-only installs in
 restricted environments), make the watch conditional on CRD discovery
 at startup. Costs ~30 lines and an extra startup probe.
 
-**Amendment — 2026-05-13 (reversal).** This decision is reversed.
-End-to-end testing during Phase 2 Session 2 surfaced the
-prerequisite as a real friction point: users must apply
-cert-manager CRDs out-of-band before `helm install
-educates-installer`, which contradicts the project goal of a
-single-command install with no preceding steps. The same friction
-would compound in Phase 3 as Contour, Kyverno, and external-dns
-each add their own CRDs.
+**Amendment — 2026-05-13 (reversal).** This decision is reversed:
+the operator chart no longer documents cert-manager CRDs as a
+prerequisite. End-to-end testing during Phase 2 Session 2 / start
+of Phase 3 surfaced the prerequisite as a real friction point
+(users must apply cert-manager CRDs out-of-band before `helm
+install educates-installer`, contradicting the project goal of a
+single-command install with no preceding steps), and the same
+friction would compound in Phase 3 as Contour, Kyverno, and
+external-dns each add their own CRDs.
 
-The technical resolution turned out to be narrower than the
-original decision assumed: only `Watches()` requires the GVK at
-cache startup. Typed Get / Create / Update / SSA-patch calls
-resolve the GVK at request time and return `NoMatchError`
-gracefully when the CRD is absent. So the operator drops to
-unstructured form only at the watch layer
-(`Watches(&unstructured.Unstructured{...with GVK})`); every other
-typed code path stays — those calls only execute after
+**First attempt (failed):** flip the typed
+`Watches(&cmv1.ClusterIssuer{}, ...)` to unstructured-with-GVK
+(`Watches(&unstructured.Unstructured{...}, ...)`) on the
+assumption that unstructured sidesteps the GVK-at-startup
+requirement. It does not — controller-runtime's Kind source
+resolves the GVK via discovery whether the watch is typed or
+unstructured, and a missing CRD makes its polling-retry loop hang
+forever, blocking cache sync and preventing the controller's
+workers from ever starting. Verified on a vanilla kind cluster.
+
+**Actual resolution (deferred-watch pattern):** register only the
+always-available watches (Secret, IngressClass, Deployment, the
+EducatesClusterConfig itself) in `SetupWithManager`, capture the
+underlying `controller.Controller` via `Builder.Build(r)`, and
+attach a `manager.Runnable` (`internal/controller/config/crd_watcher.go`)
+that polls the discovery client and calls `Controller.Watch(src)`
+to register each deferred kind once its CRD becomes available.
+Verified against controller-runtime v0.23.3: `Controller.Watch`
+is safe to call post-Start, and a source added that way is
+`Start()`-ed immediately under the controller's mutex
+(pkg/internal/controller/controller.go:237-250). The CRDWatcher
+exits cleanly once every target watch is registered.
+
+Code paths that Get / Create / SSA-patch cert-manager kinds still
+use the typed `cmv1.*` types — those calls only execute after
 `ensureCertManagerReady` confirms cert-manager is up, at which
-point the CRDs are present. The conditional-watch path the
-original decision considered (~30 LOC) turned out not to be
-needed at all.
+point the CRDs are present and typed access works normally.
 
-Operator-startup is now CRD-prerequisite-free. The chart no longer
-documents cert-manager CRDs as a prerequisite. Inline-mode users
-who reference a ClusterIssuer that doesn't exist (no CRD, no
-issuer) see a clean `ValidationFailed` condition instead of a
-manager-start failure.
+**Known limitation (captured in follow-up-issues.md):** once a
+deferred watch is activated, controller-runtime offers no API to
+remove or stop a Source short of cancelling the entire controller
+context. If cert-manager CRDs are subsequently deleted (helm
+uninstall, or `kubectl delete crd`), the Kind source's polling
+retry loop spams "if kind is a CRD, it should be installed"
+errors every 10s until the operator pod restarts. The
+operator's own code paths classify the missing-CRD state and
+surface a `CertificatesReady=False reason=CertManagerCRDsMissing`
+condition + `Degraded` phase, so the user-facing status is
+clean; the noisy log line at the controller-runtime layer is a
+cosmetic gap pending an upstream contribution. See
+follow-up-issues.md "Quiet the controller-runtime Kind source
+after cert-manager CRDs are removed".

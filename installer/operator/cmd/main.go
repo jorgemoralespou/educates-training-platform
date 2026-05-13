@@ -26,6 +26,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -101,7 +102,13 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	// Wrap the zap logger with filteringLogSink so controller-runtime's
+	// internal/source/kind.go retry-loop ERRORs (emitted whenever a
+	// registered Source can no longer resolve its CRD-defined GVK)
+	// are demoted to V(1) instead of dominating the log with stack
+	// traces. See cmd/logsink.go for the rationale.
+	baseLogger := zap.New(zap.UseFlagOptions(&opts))
+	ctrl.SetLogger(logr.New(&filteringLogSink{inner: baseLogger.GetSink()}))
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

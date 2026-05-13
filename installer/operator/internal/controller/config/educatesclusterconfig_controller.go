@@ -20,23 +20,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
@@ -73,6 +77,13 @@ type EducatesClusterConfigReconciler struct {
 	// without an apiserver. Required for Managed mode; unused in
 	// Inline mode.
 	HelmClientFor func(namespace string) (*helm.Client, error)
+
+	// Discovery is the operator's fresh discovery client (separate
+	// from the cached RESTMapper). The reconciler uses it to
+	// distinguish "RESTMapper cache is stale, CRDs really exist" from
+	// "CRDs are genuinely missing" when SSA / Get calls return
+	// NoMatchError. See handleCertManagerCRDsMissing.
+	Discovery discovery.DiscoveryInterface
 }
 
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -143,6 +154,20 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 			}
 			controllerutil.RemoveFinalizer(obj, finalizerName)
 			if err := r.Update(ctx, obj); err != nil {
+				// Once the prior reconcile's finalizer-removal Update
+				// reached etcd, the apiserver deletes the CR. A
+				// follow-up reconcile fired from controller-runtime's
+				// cache (which lags) re-enters this branch with a
+				// stale snapshot showing the finalizer still set; the
+				// Update then collides with the now-deleted object
+				// and surfaces as a Conflict (etcd UID-precondition
+				// failure) or NotFound. Both mean "drain is already
+				// done", not a real error — return nil so we don't
+				// emit a Reconciler-error log with stack trace per
+				// retry.
+				if apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
+					return ctrl.Result{}, nil
+				}
 				return ctrl.Result{}, err
 			}
 		}
@@ -223,19 +248,25 @@ func readyConditionIsTrue(obj *configv1alpha1.EducatesClusterConfig) bool {
 func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) error {
 	intendedStatus := obj.Status
 	key := client.ObjectKeyFromObject(obj)
-	var priorReady bool
+	var (
+		priorReady      bool
+		priorCertReason string
+	)
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &configv1alpha1.EducatesClusterConfig{}
 		if err := r.Get(ctx, key, latest); err != nil {
 			return err
 		}
 		priorReady = readyConditionIsTrue(latest)
+		priorCertReason = conditionReasonFor(latest, conditionCertificatesReady)
 		latest.Status = intendedStatus
 		return r.Status().Update(ctx, latest)
 	}); err != nil {
 		return err
 	}
 	nowReady := readyConditionIsTrue(obj)
+	nowCertReason := conditionReasonFor(obj, conditionCertificatesReady)
+
 	switch {
 	case !priorReady && nowReady:
 		log.Info("EducatesClusterConfig reconciliation complete; Ready=True",
@@ -253,8 +284,40 @@ func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx cont
 			"phase", obj.Status.Phase,
 			"reason", reason,
 			"message", message)
+	case !nowReady && priorCertReason != nowCertReason && nowCertReason != "":
+		// CertificatesReady reason advanced (or appeared for the
+		// first time) while we're still Progressing. Log the
+		// transition so the long quiet windows during cert-manager
+		// bootstrap — pod rollout, cainjector caBundle propagation,
+		// cert-manager issuing the wildcard certificate — are
+		// self-documenting in the log rather than looking like the
+		// operator has hung. priorCertReason == "" on first entry
+		// also matches this branch (initial Unknown→<reason>),
+		// which is what we want.
+		cond := meta.FindStatusCondition(obj.Status.Conditions, conditionCertificatesReady)
+		message := ""
+		if cond != nil {
+			message = cond.Message
+		}
+		log.Info("CertificatesReady progressing",
+			"from", priorCertReason,
+			"to", nowCertReason,
+			"phase", obj.Status.Phase,
+			"message", message)
 	}
 	return nil
+}
+
+// conditionReasonFor returns the Reason field of the named condition,
+// or empty string if the condition is missing. Used by
+// updateStatusWithTransitionLog to detect reason transitions inside
+// the Ready=False half of the state machine.
+func conditionReasonFor(obj *configv1alpha1.EducatesClusterConfig, conditionType string) string {
+	c := meta.FindStatusCondition(obj.Status.Conditions, conditionType)
+	if c == nil {
+		return ""
+	}
+	return c.Reason
 }
 
 // markReady populates the inter-CR status contract and flips conditions
@@ -323,46 +386,77 @@ func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.Educa
 // Watches:
 //   - Secrets (cache-restricted to the operator namespace by main.go).
 //   - IngressClasses (cluster-scoped).
-//   - ClusterIssuers + Certificates (cert-manager.io/v1, registered as
-//     unstructured so the operator pod starts on a vanilla cluster
-//     where cert-manager hasn't been installed yet — see below).
 //   - Deployments (cluster-wide; cert-manager-namespace events drive
 //     the readiness gate).
 //
-// cert-manager.io kinds use the unstructured-watch form. Typed
-// watches (`Watches(&cmv1.ClusterIssuer{}, ...)`) would require the
-// GVK to be resolvable at cache startup, which means cert-manager
-// CRDs would have to be applied to the cluster *before* the operator
-// pod runs — even for Managed-mode users for whom the operator
-// itself is supposed to install cert-manager. Unstructured watches
-// start successfully whether or not the CRD exists; events flow once
-// the CRD lands. Code paths that Get / Create / Update / SSA-patch
-// these kinds still use the typed `cmv1.*` types — those calls only
-// fire after cert-manager is installed (`ensureCertManagerReady`),
-// at which point the CRDs are present and typed access works
-// normally. See decisions.md (2026-05-06 entry, 2026-05-13 reversal
-// amendment).
+// cert-manager.io ClusterIssuer + Certificate watches are NOT
+// registered here. They are added at runtime by CRDWatcher (see
+// crd_watcher.go) once a discovery probe confirms the CRDs are
+// installed in the cluster. The reason: controller-runtime's Kind
+// source resolves the GVK via discovery whether the watch is typed
+// or unstructured; on a vanilla cluster (no cert-manager yet) that
+// discovery call fails and the Source's retry loop hangs forever,
+// blocking cache sync and preventing the controller's workers from
+// starting. Deferring the watches until the CRDs exist sidesteps
+// that. See decisions.md (2026-05-06 entry; 2026-05-13 reversal
+// amendment carries the full design rationale).
+//
+// Build() (rather than Complete()) returns the Controller so
+// CRDWatcher can call Controller.Watch() to add the deferred
+// sources once their CRDs are available.
 func (r *EducatesClusterConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	clusterIssuerWatch := &unstructured.Unstructured{}
-	clusterIssuerWatch.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   cmv1.SchemeGroupVersion.Group,
-		Version: cmv1.SchemeGroupVersion.Version,
-		Kind:    "ClusterIssuer",
-	})
-	certificateWatch := &unstructured.Unstructured{}
-	certificateWatch.SetGroupVersionKind(schema.GroupVersionKind{
-		Group:   cmv1.SchemeGroupVersion.Group,
-		Version: cmv1.SchemeGroupVersion.Version,
-		Kind:    "Certificate",
-	})
-
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&configv1alpha1.EducatesClusterConfig{}).
+	c, err := ctrl.NewControllerManagedBy(mgr).
+		For(&configv1alpha1.EducatesClusterConfig{},
+			// Status writes don't bump metadata.generation, so without
+			// this predicate every Status().Update we do echoes back
+			// through the For() watch and triggers a no-op reconcile.
+			// GenerationChangedPredicate filters Update events to only
+			// fire when generation actually changed (i.e., spec
+			// changes); Create and Delete events bypass the predicate
+			// so first-sight reconciles and finalizer drains still work
+			// normally. Finalizer add/remove (metadata changes that
+			// don't bump generation) is driven by an explicit
+			// Requeue=true in the reconcile body, not by a watch event,
+			// so this predicate doesn't break that path.
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToSingleton)).
 		Watches(&networkingv1.IngressClass{}, handler.EnqueueRequestsFromMapFunc(r.mapIngressClassToSingleton)).
-		Watches(clusterIssuerWatch, handler.EnqueueRequestsFromMapFunc(r.mapClusterIssuerToSingleton)).
-		Watches(certificateWatch, handler.EnqueueRequestsFromMapFunc(r.mapCertificateToSingleton)).
 		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(r.mapDeploymentToSingleton)).
 		Named("config-educatesclusterconfig").
-		Complete(r)
+		Build(r)
+	if err != nil {
+		return err
+	}
+
+	disc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		return fmt.Errorf("build discovery client: %w", err)
+	}
+	r.Discovery = disc
+
+	return mgr.Add(&CRDWatcher{
+		Manager:    mgr,
+		Controller: c,
+		Discovery:  disc,
+		Targets: []deferredWatch{
+			{
+				GVK: schema.GroupVersionKind{
+					Group:   cmv1.SchemeGroupVersion.Group,
+					Version: cmv1.SchemeGroupVersion.Version,
+					Kind:    "ClusterIssuer",
+				},
+				Mapper: r.mapClusterIssuerToSingleton,
+			},
+			{
+				GVK: schema.GroupVersionKind{
+					Group:   cmv1.SchemeGroupVersion.Group,
+					Version: cmv1.SchemeGroupVersion.Version,
+					Kind:    "Certificate",
+				},
+				Mapper: r.mapCertificateToSingleton,
+			},
+		},
+		PollInterval: 15 * time.Second,
+	})
 }

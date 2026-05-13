@@ -108,11 +108,17 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 	// after a partial failure converges.
 	customCARef := obj.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Name
 	if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
+		}
 		r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
 		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
 		return ctrl.Result{}, err
 	}
 	if err := r.ensureClusterIssuer(ctx, obj); err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
+		}
 		if isWebhookNotReadyErr(err) {
 			return r.handleWebhookNotReady(ctx, obj, log, "ClusterIssuer", err)
 		}
@@ -121,6 +127,9 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 	if err := r.ensureWildcardCertificate(ctx, obj, obj.Spec.Ingress.Domain); err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
+		}
 		if isWebhookNotReadyErr(err) {
 			return r.handleWebhookNotReady(ctx, obj, log, "Certificate", err)
 		}
@@ -131,6 +140,9 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 
 	ready, err := r.certificateReady(ctx)
 	if err != nil {
+		if isCertManagerCRDMissingErr(err) {
+			return r.handleCertManagerCRDsMissing(ctx, obj, log, err)
+		}
 		return ctrl.Result{}, err
 	}
 	if !ready {
@@ -141,6 +153,93 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 
 	r.markManagedReady(obj)
 	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+}
+
+// handleCertManagerCRDsMissing handles a NoMatchError (or 404
+// "kind not found") on a cert-manager.io kind. The error has two
+// possible root causes and we must distinguish them via a fresh
+// discovery probe — the operator's local RESTMapper alone can't
+// tell us which:
+//
+//  1. **CRDs really missing.** End-of-life teardown (helm uninstall
+//     just removed them) or a user out-of-band `kubectl delete crd`.
+//     Surface as a clean Degraded condition with a 60s requeue.
+//
+//  2. **CRDs present but the operator's RESTMapper is stale.** Most
+//     common during Managed-mode install bootstrap: the operator
+//     pod was started before cert-manager existed, so its mapper
+//     cached "no cert-manager.io group". After helm install lands
+//     the CRDs, the mapper doesn't auto-refresh — every typed-client
+//     call to a cert-manager kind returns NoMatchError until
+//     something invalidates the cache. CRDWatcher.registerWatch
+//     does that whenever it activates a watch, but there's a
+//     window of up to PollInterval where the SSA path can race
+//     ahead. Recovery: Reset the mapper and retry shortly. The
+//     condition stays at its prior state (typically Progressing
+//     /WaitingForCertManager), so the user doesn't see a
+//     spurious Degraded blip.
+//
+// Why not just always Reset+retry: in the genuinely-missing case,
+// resetting the mapper does nothing useful (the next call still
+// returns NoMatchError after re-discovery), and the user needs
+// the Degraded signal to know to reinstall. Discovery is the
+// authoritative test.
+//
+// Note: this only quiets the operator's *own* error paths. The
+// underlying controller-runtime Kind source (registered by
+// CRDWatcher when the CRDs were still present) keeps logging a
+// retry-loop error at 10s intervals because controller-runtime has
+// no public API to remove a registered Source. Captured as a
+// follow-up — see docs/architecture/follow-up-issues.md.
+func (r *EducatesClusterConfigReconciler) handleCertManagerCRDsMissing(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, log logr.Logger, cause error) (ctrl.Result, error) {
+	if r.certManagerCRDsActuallyPresent() {
+		// Mapper-staleness path. Reset and retry shortly; the user
+		// shouldn't see Degraded for a transient bootstrap race.
+		log.Info("RESTMapper cache is stale; cert-manager CRDs are present in discovery — resetting mapper and retrying",
+			"cause", cause.Error())
+		if resetter, ok := r.RESTMapper().(interface{ Reset() }); ok {
+			resetter.Reset()
+		}
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+
+	log.Info("cert-manager.io CRDs are no longer present in the cluster; operator state is Degraded",
+		"cause", cause.Error())
+	r.markCertificatesProgressing(obj, "CertManagerCRDsMissing",
+		"cert-manager.io CRDs are no longer present in the cluster; reinstall cert-manager or delete this EducatesClusterConfig")
+	r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseDegraded)
+	if err := r.updateStatusWithTransitionLog(ctx, log, obj); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+}
+
+// certManagerCRDsActuallyPresent does a fresh discovery probe (not
+// going through the operator's potentially-stale RESTMapper) to
+// check whether cert-manager.io/v1 carries the ClusterIssuer and
+// Certificate kinds we'd otherwise mark Degraded for. If the
+// Discovery client isn't set (tests that don't wire it), defaults
+// to "not present" — the test envtest can register CRDs through
+// envtest infra and the local mapper sees them, so this path only
+// fires when something actually went wrong.
+func (r *EducatesClusterConfigReconciler) certManagerCRDsActuallyPresent() bool {
+	if r.Discovery == nil {
+		return false
+	}
+	rl, err := r.Discovery.ServerResourcesForGroupVersion("cert-manager.io/v1")
+	if err != nil || rl == nil {
+		return false
+	}
+	var sawClusterIssuer, sawCertificate bool
+	for _, res := range rl.APIResources {
+		switch res.Kind {
+		case "ClusterIssuer":
+			sawClusterIssuer = true
+		case "Certificate":
+			sawCertificate = true
+		}
+	}
+	return sawClusterIssuer && sawCertificate
 }
 
 // handleWebhookNotReady surfaces the "cert-manager webhook isn't
@@ -214,10 +313,21 @@ func (r *EducatesClusterConfigReconciler) cleanupManaged(ctx context.Context, ob
 	return nil
 }
 
-// deleteIfPresent issues a Delete and swallows IsNotFound. It is the
-// idiomatic shape for finalizer drains: every step is safe to re-run.
+// deleteIfPresent issues a Delete and swallows the two error
+// classes that mean "already gone from the operator's perspective":
+//   - IsNotFound: the named object no longer exists.
+//   - IsNoMatchError: the kind itself no longer exists (CRD removed,
+//     e.g., after helm uninstall earlier in this same drain pass).
+//
+// Both states are functionally terminal for finalizer drain — the
+// resource we wanted to delete is gone. Returning an error from
+// either would block the rest of the drain on something that's
+// already in the desired state.
 func (r *EducatesClusterConfigReconciler) deleteIfPresent(ctx context.Context, obj client.Object) error {
-	if err := r.Delete(ctx, obj); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.Delete(ctx, obj); err != nil {
+		if apierrors.IsNotFound(err) || isCertManagerCRDMissingErr(err) {
+			return nil
+		}
 		return err
 	}
 	return nil
@@ -317,6 +427,23 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 // to make the Helm install behave well under operator-driven
 // reconciliation.
 //
+// crds.enabled=true: cert-manager v1.18+ defaults its CRDs to OFF
+// (`crds.enabled: false` in chart values.yaml — verified against
+// the vendored v1.20.2 tarball). Without this override, helm-install
+// succeeds, cert-manager pods come up, the operator's deployment
+// readiness gate passes — and then every typed SSA call against
+// ClusterIssuer/Certificate returns NoMatchError forever because
+// the CRDs were never applied. Opt-in.
+//
+// crds.keep=false: by default the chart annotates CRDs with
+// "helm.sh/resource-policy: keep" so `helm uninstall` leaves them
+// in the cluster. For the operator's Managed-mode lifecycle that
+// inverts what we want — the EducatesClusterConfig owns the
+// cert-manager install end-to-end, and on teardown the user
+// expects everything to go away. Setting keep=false makes
+// `helm uninstall` cascade-delete the CRDs (which in turn
+// cascades to any remaining cert-manager.io resources).
+//
 // startupapicheck is a post-install Helm hook that pings the
 // cert-manager webhook to confirm the API is serving. We disable it
 // for two reasons:
@@ -339,6 +466,10 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 // through reconcile control flow.
 func renderCertManagerValues(_ *configv1alpha1.EducatesClusterConfig) map[string]any {
 	return map[string]any{
+		"crds": map[string]any{
+			"enabled": true,
+			"keep":    false,
+		},
 		"startupapicheck": map[string]any{
 			"enabled": false,
 		},

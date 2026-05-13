@@ -358,7 +358,15 @@ predicate filtering turns out to be insufficient.
 ### Remove the cert-manager CRD operator-startup prerequisite
 
 **Date added:** 2026-05-12.
-*(landed: 2026-05-13, at the start of Phase 3.)*
+*(landed: 2026-05-13 via the deferred-watch pattern —
+`internal/controller/config/crd_watcher.go` — after an initial
+attempt with unstructured Watches proved insufficient. The
+unstructured form still requires GVK resolution at cache-sync
+time, which fails on a vanilla cluster. The deferred pattern
+registers the cert-manager watches at runtime via
+Controller.Watch() once discovery confirms the CRDs exist. See
+decisions.md amendment on the 2026-05-06 entry for the full
+design + verified mechanics.)*
 
 **Trigger to file:** start of Phase 3, before any additional typed
 watches on bundled-service CRDs (Contour HTTPProxy, Kyverno
@@ -483,3 +491,74 @@ re-vendoring CRDs in lockstep; Inline-mode users who never
 install cert-manager would still get its CRDs in their cluster.
 The user prefers a leaner operator install that imposes nothing
 beyond its own kinds.
+
+---
+
+### Quiet the controller-runtime Kind source after cert-manager CRDs are removed
+
+**Date added:** 2026-05-13.
+*(partially landed: 2026-05-13 via `cmd/logsink.go` — a
+`logr.LogSink` wrapper that demotes the specific controller-runtime
+ERROR message "if kind is a CRD, it should be installed before
+calling Start" to V(1)/debug. The visual noise is suppressed in
+default operation; the underlying controller-runtime gap — no API
+to tear down a registered Source — remains and would need an
+upstream contribution to fully fix.)*
+
+**Trigger to file:** post-Phase-3 release prep, or sooner if a
+user reports the log noise as a real concern. Cosmetic — does not
+affect correctness.
+
+**Context:**
+
+The deferred-watch pattern (decisions.md → "cert-manager CRDs
+prerequisite" 2026-05-13 amendment) registers cert-manager watches
+at runtime once their CRDs are present. The operator's own code
+paths classify CRD-removal cleanly via
+`isCertManagerCRDMissingErr` and surface a
+`CertificatesReady=False reason=CertManagerCRDsMissing` /
+`phase=Degraded` status, so the user-visible state is correct.
+
+But controller-runtime offers no public API to remove or stop a
+registered `Source` short of cancelling the entire controller's
+context (verified: `pkg/internal/controller/controller.go` only
+adds to `startWatches`, never removes; `Source` interface has no
+`Stop()`). Once `CRDWatcher` activates the cert-manager.io
+watches and cert-manager is later uninstalled (the normal end of
+a Managed-mode teardown, or a user `kubectl delete crd`), the
+Kind source's polling-retry loop spams "if kind is a CRD, it
+should be installed before calling Start" every 10s in the
+operator pod log until the pod restarts.
+
+**Scope sketches (two complementary mitigations):**
+
+1. **Self-restart after successful cleanupManaged drain.** When
+   the finalizer is removed and the EducatesClusterConfig is
+   about to be GC'd, signal the operator process to exit cleanly
+   (e.g., os.Exit(0) after a brief delay, or close the manager's
+   context). Kubernetes restarts the pod; the new pod starts
+   fresh, no stale sources. Crude but practical. Doesn't help
+   the abnormal-deletion case (user deletes CRDs out-of-band
+   while the CR still exists) — that one only resolves on
+   manual pod restart.
+
+2. **Upstream controller-runtime contribution** to expose a way
+   to remove a Source, or to stop one's underlying informer.
+   Significant design discussion. Possibly there's an alternative
+   shape — a `Source` that wraps the Kind source and can be
+   externally stopped — that we could prototype downstream first.
+
+**Acceptance criteria:**
+
+- After a normal `kubectl delete educatesclusterconfig cluster`
+  on a Managed-mode install, the operator log goes quiet within
+  a pod restart window (≤ ~30s); no recurring retry-loop
+  errors.
+- The abnormal-deletion case (CRDs deleted out-of-band) at
+  least surfaces a clear instruction to the user via the
+  `CertManagerCRDsMissing` condition message; log noise is
+  best-effort.
+
+**Out of scope here:** the operator's own error-path
+classification — that lands with the deferred-watch pattern and
+is the user-facing fix.

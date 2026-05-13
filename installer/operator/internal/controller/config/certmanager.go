@@ -27,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -102,6 +103,57 @@ func isWebhookNotReadyErr(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "failed calling webhook") &&
 		strings.Contains(msg, "cert-manager")
+}
+
+// isCertManagerCRDMissingErr reports whether err indicates the
+// cert-manager.io CRDs are no longer present in the cluster (helm
+// uninstall, or `kubectl delete crd`). Two error shapes both mean
+// the same thing depending on when the operator's discovery
+// information was cached:
+//
+//  1. *meta.NoKindMatchError — the RESTMapper has no record of the
+//     GVK. Happens when the operator was started without the CRDs
+//     ever being available, or after the mapper was invalidated.
+//  2. 404 StatusError on the resource path — "the server could not
+//     find the requested resource (post clusterissuers.cert-manager.io)"
+//     with `Reason=NotFound` and `Details.Group=cert-manager.io`,
+//     plus a `CauseTypeUnexpectedServerResponse` cause. Happens
+//     when the operator's mapper still has the GVK cached from
+//     before the CRD deletion, so the request reaches the apiserver
+//     but hits no URL handler.
+//
+// We classify both as "CRDs gone" so the reconciler can surface a
+// clean CertManagerCRDsMissing condition + Degraded phase instead of
+// retrying tightly on a state only user action can fix.
+//
+// Note: this only quiets the operator's *own* error paths — the
+// underlying controller-runtime Kind source's polling-retry loop
+// continues logging at the controller-runtime layer, because there
+// is no API to remove a source from a running controller. See
+// follow-up-issues.md "Quiet the controller-runtime Kind source
+// after cert-manager CRDs are removed".
+func isCertManagerCRDMissingErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if meta.IsNoMatchError(err) {
+		return true
+	}
+	// Pre-cached GVK + deleted CRD: apiserver returns 404 with a
+	// URL-not-found-style detail. errors.As walks the fmt.Errorf
+	// wrap chain that the helper functions construct.
+	var status *apierrors.StatusError
+	if errors.As(err, &status) {
+		s := status.Status()
+		if s.Code == 404 && s.Details != nil && s.Details.Group == "cert-manager.io" {
+			for _, c := range s.Details.Causes {
+				if c.Type == metav1.CauseTypeUnexpectedServerResponse {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ensureCertManagerReady gates the rest of the cert-manager pipeline

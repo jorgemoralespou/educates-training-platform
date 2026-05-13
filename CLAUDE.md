@@ -190,27 +190,40 @@ Living conventions (carry across phases unless superseded):
   on its referenced kinds (Secrets, ClusterIssuers, IngressClasses) plus
   full access on its own kind. Platform reconcilers have only their own
   kinds — they grow when their reconcilers come online in Phase 4.
-- **Watches:** Secret + IngressClass + ClusterIssuer + Certificate +
-  Deployment (operator-namespace-scoped Secret cache; cluster-scoped
-  IngressClass; cert-manager.io kinds registered as
-  `unstructured.Unstructured`; Deployment cluster-wide). cert-manager
+- **Watches:** Secret + IngressClass + Deployment are registered
+  in `SetupWithManager` (operator-namespace-scoped Secret cache;
+  cluster-scoped IngressClass; Deployment cluster-wide).
+  cert-manager.io ClusterIssuer + Certificate are *deferred* —
+  registered at runtime by `CRDWatcher`
+  (`internal/controller/config/crd_watcher.go`) once discovery
+  confirms the CRDs exist. Activation lag is up to the
+  CRDWatcher's `PollInterval` (15s in production). cert-manager
   CRDs are **not** a prerequisite for operator startup as of
-  2026-05-13 — the unstructured-watch form starts on a vanilla
-  cluster and events flow once the CRDs land (during Managed-mode
-  install). The 2026-05-06 prerequisite decision was reversed; see
-  decisions log.
+  2026-05-13; the 2026-05-06 prerequisite decision was reversed
+  via the deferred-watch pattern, after a first attempt with
+  unstructured watches proved insufficient. See decisions log.
 - **Watch event filtering:** Each watched kind has its own mapping
   function (`mapSecretToSingleton`, `mapIngressClassToSingleton`,
   etc., in `watches.go`) that drops events the reconciler can't
   act on — referenced from spec or operator-owned only. Eliminates
   the cluster-wide reconcile flood that cert-manager bootstrap
   used to trigger. Each new watched kind added in Phase 3 gets
-  its own narrowing mapper.
-- **cert-manager.io access split:** watches are unstructured (no
-  GVK-at-startup requirement); Get / Create / Update / SSA-patch
-  calls use typed `cmv1.*` (those only run after
-  `ensureCertManagerReady` confirms the CRDs are present, so typed
-  GVK resolution always succeeds).
+  its own narrowing mapper. Deferred-watch kinds use the same
+  mapper machinery — `CRDWatcher.Targets` carries `(GVK, MapFunc)`
+  pairs.
+- **cert-manager.io access split:** watches go through
+  CRDWatcher's deferred-registration path (no GVK-at-startup
+  requirement); Get / Create / Update / SSA-patch calls use
+  typed `cmv1.*` (those only run after `ensureCertManagerReady`
+  confirms the CRDs are present, so typed GVK resolution always
+  succeeds). On CRD *removal* post-activation (rare; mostly the
+  end of Managed-mode teardown), the reconciler classifies the
+  resulting `NoMatchError` / 404-with-UnexpectedServerResponse
+  via `isCertManagerCRDMissingErr` and surfaces
+  `CertificatesReady=False reason=CertManagerCRDsMissing`,
+  `phase=Degraded`. Controller-runtime's underlying Kind source
+  keeps spamming retry errors in the log until pod restart —
+  captured as a follow-up.
 - **Helm SDK:** v4 (`helm.sh/helm/v4`), wrapped by
   `installer/operator/internal/helm` so reconcilers don't repeat
   `action.Configuration` boilerplate. Use `helm.NewClient(restCfg, ns)`

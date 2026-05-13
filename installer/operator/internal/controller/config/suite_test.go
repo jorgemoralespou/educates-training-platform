@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,6 +65,10 @@ var _ = BeforeSuite(func() {
 	err = configv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = cmv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	// apiextensionsv1 is needed so specs can delete CRDs from envtest
+	// to exercise the CertManagerCRDsMissing classification.
+	err = apiextensionsv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

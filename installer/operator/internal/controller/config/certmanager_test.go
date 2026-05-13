@@ -18,7 +18,13 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 func TestIsWebhookNotReadyErr(t *testing.T) {
@@ -57,6 +63,80 @@ func TestIsWebhookNotReadyErr(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := isWebhookNotReadyErr(tc.err); got != tc.want {
 				t.Errorf("isWebhookNotReadyErr(%q) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsCertManagerCRDMissingErr(t *testing.T) {
+	// noMatchErr models what the RESTMapper returns when it has no
+	// record of the GVK (operator started without CRDs ever present,
+	// or mapper was invalidated).
+	noMatchErr := &meta.NoKindMatchError{
+		GroupKind:        schema.GroupKind{Group: "cert-manager.io", Kind: "ClusterIssuer"},
+		SearchedVersions: []string{"v1"},
+	}
+
+	// notFound404 models the apiserver's response when the mapper
+	// has cached the GVK from before deletion but the URL handler is
+	// gone — discovered during envtest verification of this code
+	// path: `kubectl delete crd` followed by a request to the same
+	// kind returns this shape, not a NoMatchError.
+	notFound404 := &apierrors.StatusError{
+		ErrStatus: metav1.Status{
+			Status:  metav1.StatusFailure,
+			Code:    404,
+			Reason:  metav1.StatusReasonNotFound,
+			Message: "the server could not find the requested resource (post clusterissuers.cert-manager.io)",
+			Details: &metav1.StatusDetails{
+				Group: "cert-manager.io",
+				Kind:  "clusterissuers",
+				Causes: []metav1.StatusCause{
+					{
+						Type:    metav1.CauseTypeUnexpectedServerResponse,
+						Message: "404 page not found",
+					},
+				},
+			},
+		},
+	}
+
+	// genericObjectNotFound models a routine "Secret foo not found"
+	// — same code (404) and Reason (NotFound), but Details.Group is
+	// not cert-manager and there's no UnexpectedServerResponse cause.
+	// Must NOT match — that's not a CRD-missing error.
+	genericObjectNotFound := &apierrors.StatusError{
+		ErrStatus: metav1.Status{
+			Status:  metav1.StatusFailure,
+			Code:    404,
+			Reason:  metav1.StatusReasonNotFound,
+			Message: `secrets "foo" not found`,
+			Details: &metav1.StatusDetails{
+				Group: "",
+				Kind:  "secrets",
+				Name:  "foo",
+			},
+		},
+	}
+
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"unrelated", errors.New("connection refused"), false},
+		{"object-not-found is not CRD-missing", genericObjectNotFound, false},
+		{"NoKindMatchError (mapper-side)", noMatchErr, true},
+		{"NoKindMatchError wrapped in fmt.Errorf", fmt.Errorf("get ClusterIssuer: %w", noMatchErr), true},
+		{"404 with UnexpectedServerResponse cause", notFound404, true},
+		{"404 ... wrapped in fmt.Errorf", fmt.Errorf("Controller.Watch(ClusterIssuer): %w", notFound404), true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isCertManagerCRDMissingErr(tc.err); got != tc.want {
+				t.Errorf("isCertManagerCRDMissingErr(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
 	}
