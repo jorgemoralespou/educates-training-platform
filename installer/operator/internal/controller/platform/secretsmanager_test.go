@@ -111,6 +111,17 @@ func makeReadyClusterConfig() *configv1alpha1.EducatesClusterConfig {
 			ClusterPolicyEngine:  configv1alpha1.ClusterPolicyEngineKyverno,
 			WorkshopPolicyEngine: configv1alpha1.WorkshopPolicyEngineKyverno,
 		},
+		// Ingress contract — populated for LookupService specs (which
+		// derive their hostname + TLS Secret from here). SecretsManager
+		// specs don't read it but the field doesn't get in their way.
+		Ingress: &configv1alpha1.StatusIngress{
+			Domain:           "test.example.com",
+			IngressClassName: "contour",
+			WildcardCertificateSecretRef: configv1alpha1.NamespacedSecretRef{
+				Namespace: "educates-installer",
+				Name:      "wildcard-tls",
+			},
+		},
 	}
 	Expect(k8sClient.Status().Update(ctx, cc)).To(Succeed())
 	return cc

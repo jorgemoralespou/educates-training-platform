@@ -247,6 +247,9 @@ func main() {
 	if err := (&platformcontroller.LookupServiceReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
+		HelmClientFor: func(ns string) (*helm.Client, error) {
+			return helm.NewClient(restCfg, ns)
+		},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "platform-lookupservice")
 		os.Exit(1)

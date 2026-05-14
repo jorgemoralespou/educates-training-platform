@@ -162,15 +162,15 @@ spec:
           status:
             description: |-
               LookupServiceStatus defines the observed state of LookupService.
-              Phase 0 minimum surface; url and installedVersion are added in
-              Phase 4.
+              Phase 4 publishes the full CRD draft r3 §3 contract: phase +
+              conditions + url + installedVersion + deploymentRef.
             properties:
               conditions:
                 description: |-
-                  conditions report the resource's state. Standard type "Ready"
-                  reflects overall readiness; phase-specific types
-                  (ClusterConfigAvailable, IngressReady, Deployed) are added with
-                  their producing reconcilers.
+                  conditions report the resource's state. Phase 4 publishes:
+                    - Ready                  (aggregate)
+                    - ClusterConfigAvailable (EducatesClusterConfig.Ready gate)
+                    - Deployed               (helm release + Deployment Available)
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -229,6 +229,24 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              deploymentRef:
+                description: |-
+                  deploymentRef names the upstream Deployment the operator is
+                  gating Ready on. Stable across reconciles.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              installedVersion:
+                description: |-
+                  installedVersion records the lookup-service chart version most
+                  recently applied.
+                type: string
               observedGeneration:
                 format: int64
                 type: integer
@@ -243,6 +261,14 @@ spec:
                 - Ready
                 - Degraded
                 - Uninstalling
+                type: string
+              url:
+                description: |-
+                  url is the fully-qualified URL the lookup-service Ingress is
+                  reachable at. Composed from spec.ingress.prefix and
+                  EducatesClusterConfig.status.ingress.domain. Always https in
+                  v1alpha1 (the operator always requires a wildcard TLS Secret
+                  on the cluster config).
                 type: string
             type: object
         required:

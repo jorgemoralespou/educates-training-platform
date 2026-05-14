@@ -1,0 +1,28 @@
+# Minimal LookupService CR. Apply after the operator has reconciled
+# an EducatesClusterConfig to Ready=True.
+#
+# The operator combines `spec.ingress.prefix` with
+# `EducatesClusterConfig.status.ingress.domain` to form the full
+# hostname — for example, prefix `lookup` against an ingress domain of
+# `academy.example.com` yields `lookup.academy.example.com` and
+# publishes `status.url: https://lookup.academy.example.com`.
+#
+# Most fields are optional: empty values derive from the chart and
+# from EducatesClusterConfig.status.
+---
+apiVersion: platform.educates.dev/v1alpha1
+kind: LookupService
+metadata:
+  name: cluster
+spec:
+  ingress:
+    prefix: lookup
+    # tlsSecretRef:
+    #   name: lookup-tls   # optional override of the cluster wildcard
+  logLevel: info
+  # image:
+  #   repository: ghcr.io/educates/educates-lookup-service
+  #   tag: 3.7.1
+  # resources:
+  #   requests: { cpu: 50m, memory: 128Mi }
+  #   limits:   { cpu: 200m, memory: 256Mi }

@@ -58,8 +58,8 @@ type LookupServiceSpec struct {
 }
 
 // LookupServiceStatus defines the observed state of LookupService.
-// Phase 0 minimum surface; url and installedVersion are added in
-// Phase 4.
+// Phase 4 publishes the full CRD draft r3 §3 contract: phase +
+// conditions + url + installedVersion + deploymentRef.
 type LookupServiceStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -67,14 +67,32 @@ type LookupServiceStatus struct {
 	// +optional
 	Phase ComponentPhase `json:"phase,omitempty"`
 
-	// conditions report the resource's state. Standard type "Ready"
-	// reflects overall readiness; phase-specific types
-	// (ClusterConfigAvailable, IngressReady, Deployed) are added with
-	// their producing reconcilers.
+	// conditions report the resource's state. Phase 4 publishes:
+	//   - Ready                  (aggregate)
+	//   - ClusterConfigAvailable (EducatesClusterConfig.Ready gate)
+	//   - Deployed               (helm release + Deployment Available)
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// url is the fully-qualified URL the lookup-service Ingress is
+	// reachable at. Composed from spec.ingress.prefix and
+	// EducatesClusterConfig.status.ingress.domain. Always https in
+	// v1alpha1 (the operator always requires a wildcard TLS Secret
+	// on the cluster config).
+	// +optional
+	URL string `json:"url,omitempty"`
+
+	// installedVersion records the lookup-service chart version most
+	// recently applied.
+	// +optional
+	InstalledVersion string `json:"installedVersion,omitempty"`
+
+	// deploymentRef names the upstream Deployment the operator is
+	// gating Ready on. Stable across reconciles.
+	// +optional
+	DeploymentRef *NamespacedRef `json:"deploymentRef,omitempty"`
 }
 
 // LookupService is the singleton resource that drives installation of

@@ -14,6 +14,7 @@ Platform-component CRs (apply *after* `EducatesClusterConfig` is Ready):
 | File | Component |
 |---|---|
 | `secretsmanager.yaml` | SecretsManager — installs the secrets-manager runtime |
+| `lookupservice.yaml` | LookupService — installs the lookup-service runtime (prefix + cluster domain → full hostname) |
 
 Apply order:
 

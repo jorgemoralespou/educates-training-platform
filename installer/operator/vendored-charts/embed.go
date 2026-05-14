@@ -111,6 +111,23 @@ func SecretsManager() (*chart.Chart, error) {
 	return helm.LoadArchive(secretsManagerTarball)
 }
 
+// LookupServiceChartVersion is the version stamped onto the in-repo
+// `lookup-service` subchart. Regenerate the tarball via
+// `make package-local-charts` after editing the chart. Surfaced in
+// LookupService.status.installedVersion.
+const LookupServiceChartVersion = "4.0.0-alpha.1"
+
+//go:embed lookup-service-4.0.0-alpha.1.tgz
+var lookupServiceTarball []byte
+
+// LookupService parses the embedded `lookup-service` subchart
+// tarball and returns a chart ready for the Helm SDK. The subchart
+// lives at `installer/charts/educates-training-platform/charts/lookup-service`
+// in source form.
+func LookupService() (*chart.Chart, error) {
+	return helm.LoadArchive(lookupServiceTarball)
+}
+
 // KyvernoChartVersion is the upstream Helm chart version
 // (semver of the *chart*, distinct from the Kyverno binary
 // appVersion). Surfaced in status.bundledChartVersions["kyverno"].
