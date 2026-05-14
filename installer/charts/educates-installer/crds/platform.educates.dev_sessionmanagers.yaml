@@ -188,6 +188,23 @@ spec:
                     minimum: 576
                     type: integer
                 type: object
+              nodeCATrust:
+                description: nodeCATrust controls the optional node-ca-injector install.
+                properties:
+                  mode:
+                    default: Auto
+                    description: |-
+                      mode defaults to Auto. Auto installs the subchart only when
+                      the cluster config publishes a CA Secret reference; with no CA
+                      configured, Auto skips the install silently. Enabled forces
+                      the install (refuses if no CA is configured). Disabled keeps
+                      it uninstalled.
+                    enum:
+                    - Auto
+                    - Enabled
+                    - Disabled
+                    type: string
+                type: object
               registryMirrors:
                 description: |-
                   registryMirrors configures per-registry mirrors for workshop
@@ -209,6 +226,23 @@ spec:
                   - url
                   type: object
                 type: array
+              remoteAccess:
+                description: remoteAccess controls the optional remote-access install.
+                properties:
+                  mode:
+                    default: Auto
+                    description: |-
+                      mode defaults to Auto. Auto installs the subchart only when a
+                      `LookupService` CR exists in the cluster (the signal that
+                      cross-cluster federation is being used). Enabled forces the
+                      install regardless of LookupService presence. Disabled keeps
+                      it uninstalled.
+                    enum:
+                    - Auto
+                    - Enabled
+                    - Disabled
+                    type: string
+                type: object
               sessionCookieDomain:
                 description: |-
                   sessionCookieDomain sets the cookie domain used by workshop
@@ -343,7 +377,9 @@ spec:
                     - Ready                    (aggregate)
                     - ClusterConfigAvailable   (EducatesClusterConfig.Ready gate)
                     - SecretsManagerAvailable  (SecretsManager.Ready gate)
-                    - Deployed                 (helm release + Deployment Available)
+                    - Deployed                 (session-manager helm release + Deployment Available)
+                    - NodeCATrustDeployed      (optional extra; reflects mode evaluation outcome)
+                    - RemoteAccessDeployed     (optional extra; reflects mode evaluation outcome)
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.

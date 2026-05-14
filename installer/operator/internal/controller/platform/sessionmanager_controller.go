@@ -65,6 +65,23 @@ const (
 	// pull secrets and ingress TLS into workshop namespaces; we refuse
 	// to install until SecretsManager.Ready.
 	conditionSecretsManagerAvailable = "SecretsManagerAvailable"
+
+	// nodeCAInjectorReleaseName is the Helm release name for the
+	// optional node-ca-injector subchart installed by SessionManager
+	// when nodeCATrust resolves to Install.
+	nodeCAInjectorReleaseName = "node-ca-injector"
+
+	// remoteAccessReleaseName is the Helm release name for the
+	// optional remote-access subchart installed by SessionManager when
+	// remoteAccess resolves to Install.
+	remoteAccessReleaseName = "remote-access"
+
+	// conditionNodeCATrustDeployed and conditionRemoteAccessDeployed
+	// report the outcome of each optional install. Status=True with
+	// reason `Installed` or `Skipped`; Status=False with reason
+	// `Refused` when an explicit Enabled fails its prerequisite check.
+	conditionNodeCATrustDeployed  = "NodeCATrustDeployed"
+	conditionRemoteAccessDeployed = "RemoteAccessDeployed"
 )
 
 // SessionManagerReconciler drives the SessionManager CR. Two cross-CR
@@ -83,6 +100,7 @@ type SessionManagerReconciler struct {
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=sessionmanagers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=sessionmanagers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=secretsmanagers,verbs=get;list;watch
+// +kubebuilder:rbac:groups=platform.educates.dev,resources=lookupservices,verbs=get;list;watch
 
 // Reconcile drives a SessionManager CR through its lifecycle.
 func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -203,6 +221,55 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Namespace: platformNamespace,
 		Name:      sessionManagerDeploymentName,
 	}
+
+	// Optional extras: node-ca-injector and remote-access. These ride
+	// on the main install lifecycle but each has its own tri-state
+	// (Auto|Enabled|Disabled) and prerequisite check. Refuse outcomes
+	// (Enabled + missing prerequisite) demote the aggregate Ready to
+	// False so the user notices their misconfiguration; Skip /
+	// Install outcomes leave Ready=True.
+	nctIntent, nctReason, nctMessage := resolveNodeCATrust(obj, cfg)
+	if err := r.reconcileExtra(ctx, log, obj,
+		conditionNodeCATrustDeployed,
+		nodeCAInjectorReleaseName,
+		vendoredcharts.NodeCAInjector,
+		renderNodeCAInjectorValues,
+		cfg, nctIntent, nctReason, nctMessage,
+	); err != nil {
+		r.markSMReady(obj, metav1.ConditionFalse, "ExtrasFailed", err.Error())
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
+		_ = r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{}, err
+	}
+
+	raIntent, raReason, raMessage, err := r.resolveRemoteAccess(ctx, obj)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("resolve remoteAccess intent: %w", err)
+	}
+	if err := r.reconcileExtra(ctx, log, obj,
+		conditionRemoteAccessDeployed,
+		remoteAccessReleaseName,
+		vendoredcharts.RemoteAccess,
+		renderRemoteAccessValues,
+		cfg, raIntent, raReason, raMessage,
+	); err != nil {
+		r.markSMReady(obj, metav1.ConditionFalse, "ExtrasFailed", err.Error())
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
+		_ = r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{}, err
+	}
+
+	// Refuse outcomes (user wrote Mode=Enabled but the prerequisite
+	// is missing) downgrade the aggregate Ready so the misconfig is
+	// surfaced even though the main install succeeded.
+	if nctIntent == intentRefuse || raIntent == intentRefuse {
+		r.markSMReady(obj, metav1.ConditionFalse, "ExtraRefused",
+			"one or more optional extras is Mode=Enabled with a missing prerequisite; see per-component conditions")
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
+		obj.Status.ObservedGeneration = obj.Generation
+		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+	}
+
 	r.markSMReady(obj, metav1.ConditionTrue, "SessionManagerReady",
 		"session-manager is installed and Available")
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseReady)
@@ -518,6 +585,14 @@ func (r *SessionManagerReconciler) deploymentAvailableSM(ctx context.Context) (b
 
 func (r *SessionManagerReconciler) cleanupSM(ctx context.Context) error {
 	_ = ctx
+	log := logf.FromContext(ctx)
+	// Drain optional extras first (reverse install order). Quiet
+	// uninstalls so a leftover extra release can't block the main
+	// release's cleanup — the user's interest on finalizer drain is
+	// "session-manager is gone".
+	r.uninstallExtraQuietly(log, remoteAccessReleaseName)
+	r.uninstallExtraQuietly(log, nodeCAInjectorReleaseName)
+
 	hc, err := r.HelmClientFor(platformNamespace)
 	if err != nil {
 		return fmt.Errorf("build helm client for cleanup: %w", err)
@@ -603,6 +678,8 @@ func (r *SessionManagerReconciler) updateSMStatusWithTransitionLog(ctx context.C
 //   - SessionManager (For target, GenerationChangedPredicate).
 //   - EducatesClusterConfig (cross-CR gate 1).
 //   - SecretsManager (cross-CR gate 2).
+//   - LookupService (Auto-mode signal for remoteAccess: presence
+//     of a LookupService CR causes Auto to install remote-access).
 //   - apps/v1 Deployment, narrowed to platform-ns + session-manager.
 func (r *SessionManagerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -612,6 +689,8 @@ func (r *SessionManagerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(mapClusterConfigToSessionManager)).
 		Watches(&platformv1alpha1.SecretsManager{},
 			handler.EnqueueRequestsFromMapFunc(mapSecretsManagerToSessionManager)).
+		Watches(&platformv1alpha1.LookupService{},
+			handler.EnqueueRequestsFromMapFunc(mapLookupServiceToSessionManager)).
 		Watches(&appsv1.Deployment{},
 			handler.EnqueueRequestsFromMapFunc(mapSessionManagerDeployment)).
 		Named("platform-sessionmanager").
@@ -626,6 +705,20 @@ func mapClusterConfigToSessionManager(_ context.Context, obj client.Object) []re
 }
 
 func mapSecretsManagerToSessionManager(_ context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetName() != singletonName {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: singletonName}}}
+}
+
+// mapLookupServiceToSessionManager re-enqueues SessionManager when
+// the singleton LookupService CR appears or disappears. The remote-
+// access Auto signal tracks LookupService presence, so this is the
+// trigger that lets a `kubectl apply -f lookupservice.yaml` or a
+// `kubectl delete lookupservice cluster` propagate to remote-access
+// install/uninstall without waiting for the SessionManager's own
+// periodic resync.
+func mapLookupServiceToSessionManager(_ context.Context, obj client.Object) []reconcile.Request {
 	if obj.GetName() != singletonName {
 		return nil
 	}

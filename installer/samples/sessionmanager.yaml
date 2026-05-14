@@ -17,6 +17,18 @@ metadata:
   name: cluster
 spec:
   logLevel: info
+  # nodeCATrust controls the optional node-ca-injector subchart.
+  # Default mode is Auto: install when EducatesClusterConfig publishes
+  # a CA cert ref (status.ingress.caCertificateSecretRef), skip when not.
+  # nodeCATrust:
+  #   mode: Auto | Enabled | Disabled    # default Auto
+  #
+  # remoteAccess controls the optional remote-access subchart.
+  # Default mode is Auto: install when a LookupService CR exists in the
+  # cluster (the signal that cross-cluster federation is being used).
+  # remoteAccess:
+  #   mode: Auto | Enabled | Disabled    # default Auto
+  #
   # workshopPolicyOverride:
   #   engine: None
   # network:

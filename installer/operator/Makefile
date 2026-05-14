@@ -158,7 +158,7 @@ verify-vendored-charts: ## Re-verify SHA256 of every tarball already in vendored
 #   - editors / `go build` work without a separate generate step.
 # Regenerate after editing any of the listed subcharts.
 LOCAL_SUBCHARTS_SRC := $(shell pwd)/../charts/educates-training-platform/charts
-LOCAL_SUBCHARTS := secrets-manager lookup-service session-manager
+LOCAL_SUBCHARTS := secrets-manager lookup-service session-manager node-ca-injector remote-access
 
 .PHONY: package-local-charts
 package-local-charts: ## Repackage in-repo subcharts (secrets-manager, lookup-service, session-manager) into vendored-charts/.

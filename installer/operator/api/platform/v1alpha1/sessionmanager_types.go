@@ -191,6 +191,64 @@ type ImageCache struct {
 	Enabled bool `json:"enabled,omitempty"`
 }
 
+// ComponentMode is a tri-state toggle for optional SessionManager
+// extras. Auto derives intent from cluster state (presence of a CA
+// Secret, presence of a sibling CR, etc.); Enabled and Disabled
+// override that derivation explicitly.
+// +kubebuilder:validation:Enum=Auto;Enabled;Disabled
+type ComponentMode string
+
+const (
+	// ComponentModeAuto evaluates the component's install intent
+	// against cluster state at reconcile time. See each component's
+	// docs for the exact signal Auto uses.
+	ComponentModeAuto ComponentMode = "Auto"
+
+	// ComponentModeEnabled forces installation. If the component has
+	// a prerequisite (e.g., nodeCATrust requires a CA Secret in the
+	// cluster config status) and that prerequisite is missing, the
+	// reconciler refuses with Ready=False and a clear message rather
+	// than silently skipping.
+	ComponentModeEnabled ComponentMode = "Enabled"
+
+	// ComponentModeDisabled keeps the component uninstalled. If a
+	// release exists from a previous Enabled/Auto reconcile, the
+	// reconciler drains it.
+	ComponentModeDisabled ComponentMode = "Disabled"
+)
+
+// NodeCATrust controls installation of the node-ca-injector
+// subchart, which writes per-host containerd registry-CA configuration
+// on every node so workshop image pulls trust a private/self-signed
+// CA. The subchart depends on
+// `EducatesClusterConfig.status.ingress.caCertificateSecretRef`.
+type NodeCATrust struct {
+	// mode defaults to Auto. Auto installs the subchart only when
+	// the cluster config publishes a CA Secret reference; with no CA
+	// configured, Auto skips the install silently. Enabled forces
+	// the install (refuses if no CA is configured). Disabled keeps
+	// it uninstalled.
+	// +kubebuilder:default=Auto
+	// +optional
+	Mode ComponentMode `json:"mode,omitempty"`
+}
+
+// RemoteAccess controls installation of the remote-access subchart,
+// which renders a read-only ServiceAccount + long-lived token Secret
+// + ClusterRole used by external CLIs (e.g., the `educates` CLI
+// pointed at a remote cluster) to enumerate training.educates.dev
+// resources.
+type RemoteAccess struct {
+	// mode defaults to Auto. Auto installs the subchart only when a
+	// `LookupService` CR exists in the cluster (the signal that
+	// cross-cluster federation is being used). Enabled forces the
+	// install regardless of LookupService presence. Disabled keeps
+	// it uninstalled.
+	// +kubebuilder:default=Auto
+	// +optional
+	Mode ComponentMode `json:"mode,omitempty"`
+}
+
 // RegistryMirror declares a registry mirror used by workshop containers.
 type RegistryMirror struct {
 	// mirror is the upstream registry being mirrored
@@ -264,6 +322,14 @@ type SessionManagerSpec struct {
 	// +kubebuilder:default=info
 	// +optional
 	LogLevel LogLevel `json:"logLevel,omitempty"`
+
+	// nodeCATrust controls the optional node-ca-injector install.
+	// +optional
+	NodeCATrust *NodeCATrust `json:"nodeCATrust,omitempty"`
+
+	// remoteAccess controls the optional remote-access install.
+	// +optional
+	RemoteAccess *RemoteAccess `json:"remoteAccess,omitempty"`
 }
 
 // SessionManagerStatus defines the observed state of SessionManager.
@@ -280,7 +346,9 @@ type SessionManagerStatus struct {
 	//   - Ready                    (aggregate)
 	//   - ClusterConfigAvailable   (EducatesClusterConfig.Ready gate)
 	//   - SecretsManagerAvailable  (SecretsManager.Ready gate)
-	//   - Deployed                 (helm release + Deployment Available)
+	//   - Deployed                 (session-manager helm release + Deployment Available)
+	//   - NodeCATrustDeployed      (optional extra; reflects mode evaluation outcome)
+	//   - RemoteAccessDeployed     (optional extra; reflects mode evaluation outcome)
 	// +listType=map
 	// +listMapKey=type
 	// +optional

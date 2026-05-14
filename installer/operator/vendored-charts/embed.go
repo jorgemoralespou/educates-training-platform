@@ -145,6 +145,36 @@ func SessionManager() (*chart.Chart, error) {
 	return helm.LoadArchive(sessionManagerTarball)
 }
 
+// NodeCAInjectorChartVersion is the version stamped onto the in-repo
+// `node-ca-injector` subchart. The operator installs this subchart as
+// an opt-in extra under SessionManager when the cluster carries a CA
+// cert and containerd-level trust is needed.
+const NodeCAInjectorChartVersion = "4.0.0-alpha.1"
+
+//go:embed node-ca-injector-4.0.0-alpha.1.tgz
+var nodeCAInjectorTarball []byte
+
+// NodeCAInjector parses the embedded `node-ca-injector` subchart
+// tarball and returns a chart ready for the Helm SDK.
+func NodeCAInjector() (*chart.Chart, error) {
+	return helm.LoadArchive(nodeCAInjectorTarball)
+}
+
+// RemoteAccessChartVersion is the version stamped onto the in-repo
+// `remote-access` subchart. The operator installs this subchart as
+// an opt-in extra under SessionManager so external CLIs can reach
+// training.educates.dev resources cross-cluster.
+const RemoteAccessChartVersion = "4.0.0-alpha.1"
+
+//go:embed remote-access-4.0.0-alpha.1.tgz
+var remoteAccessTarball []byte
+
+// RemoteAccess parses the embedded `remote-access` subchart tarball
+// and returns a chart ready for the Helm SDK.
+func RemoteAccess() (*chart.Chart, error) {
+	return helm.LoadArchive(remoteAccessTarball)
+}
+
 // KyvernoChartVersion is the upstream Helm chart version
 // (semver of the *chart*, distinct from the Kyverno binary
 // appVersion). Surfaced in status.bundledChartVersions["kyverno"].
