@@ -436,6 +436,11 @@ spec:
                             properties:
                               email:
                                 type: string
+                              server:
+                                description: |-
+                                  server is the ACME directory URL. Defaults to Let's Encrypt
+                                  production. Override for Let's Encrypt staging or another CA.
+                                type: string
                               solvers:
                                 description: |-
                                   ACMESolvers groups the cert-manager solvers used to satisfy the ACME
@@ -457,17 +462,40 @@ spec:
                                         - subscriptionID
                                         type: object
                                       cloudDNS:
-                                        description: CloudDNSConfig configures the
-                                          GCP CloudDNS DNS01 solver.
+                                        description: |-
+                                          CloudDNSConfig configures the cert-manager GCP CloudDNS DNS01
+                                          solver and the GCP-side credentials.
+
+                                          Credentials must be supplied via *exactly one* mechanism:
+                                            - WorkloadIdentityServiceAccount: a GCP service-account email
+                                              bound to cert-manager's K8s ServiceAccount via the
+                                              `iam.gke.io/gcp-service-account` annotation. Recommended on
+                                              GKE.
+                                            - CredentialsSecretRef: a Secret in the operator namespace
+                                              with key `credentials.json` containing a GCP service-account
+                                              JSON key. v1alpha1 reserves the field but rejects it as
+                                              "not yet supported"; static-creds support is a follow-up.
                                         properties:
+                                          credentialsSecretRef:
+                                            description: |-
+                                              LocalObjectReference is a reference to a Kubernetes object by name in
+                                              the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                                              IngressClass) also use this shape.
+                                            properties:
+                                              name:
+                                                description: name of the referent.
+                                                type: string
+                                            required:
+                                            - name
+                                            type: object
                                           project:
-                                            description: project defaults to spec.infrastructure.cloud.project
-                                              when unset.
+                                            type: string
+                                          workloadIdentityServiceAccount:
                                             type: string
                                           zone:
                                             type: string
                                         required:
-                                        - zone
+                                        - project
                                         type: object
                                       cloudflare:
                                         description: CloudflareConfig configures the
@@ -502,14 +530,40 @@ spec:
                                         - AzureDNS
                                         type: string
                                       route53:
-                                        description: Route53Config configures the
-                                          Route53 DNS01 solver.
+                                        description: |-
+                                          Route53Config configures the cert-manager Route53 DNS01 solver
+                                          and the AWS-side credentials it needs to write TXT records during
+                                          ACME challenges.
+
+                                          Credentials must be supplied via *exactly one* mechanism:
+                                            - IAMRoleARN: marks cert-manager's ServiceAccount with an
+                                              `eks.amazonaws.com/role-arn` annotation; cert-manager assumes
+                                              the role via IRSA / Pod Identity. Recommended on EKS.
+                                            - CredentialsSecretRef: a Secret in the operator namespace
+                                              with keys `aws_access_key_id` + `aws_secret_access_key`.
+                                              v1alpha1 reserves the field but rejects it as "not yet
+                                              supported"; static-creds support is a follow-up.
+
+                                          CEL elsewhere enforces the mutual-exclusivity rule; the
+                                          operator validator backs it up with a friendlier message.
                                         properties:
+                                          credentialsSecretRef:
+                                            description: |-
+                                              LocalObjectReference is a reference to a Kubernetes object by name in
+                                              the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                                              IngressClass) also use this shape.
+                                            properties:
+                                              name:
+                                                description: name of the referent.
+                                                type: string
+                                            required:
+                                            - name
+                                            type: object
                                           hostedZoneID:
                                             type: string
+                                          iamRoleARN:
+                                            type: string
                                           region:
-                                            description: region defaults to spec.infrastructure.cloud.region
-                                              when unset.
                                             type: string
                                         required:
                                         - hostedZoneID

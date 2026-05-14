@@ -258,24 +258,59 @@ type Infrastructure struct {
 	Cloud *CloudConfig `json:"cloud,omitempty"`
 }
 
-// Route53Config configures the Route53 DNS01 solver.
+// Route53Config configures the cert-manager Route53 DNS01 solver
+// and the AWS-side credentials it needs to write TXT records during
+// ACME challenges.
+//
+// Credentials must be supplied via *exactly one* mechanism:
+//   - IAMRoleARN: marks cert-manager's ServiceAccount with an
+//     `eks.amazonaws.com/role-arn` annotation; cert-manager assumes
+//     the role via IRSA / Pod Identity. Recommended on EKS.
+//   - CredentialsSecretRef: a Secret in the operator namespace
+//     with keys `aws_access_key_id` + `aws_secret_access_key`.
+//     v1alpha1 reserves the field but rejects it as "not yet
+//     supported"; static-creds support is a follow-up.
+//
+// CEL elsewhere enforces the mutual-exclusivity rule; the
+// operator validator backs it up with a friendlier message.
 type Route53Config struct {
 	// +required
 	HostedZoneID string `json:"hostedZoneID"`
 
-	// region defaults to spec.infrastructure.cloud.region when unset.
 	// +optional
 	Region string `json:"region,omitempty"`
+
+	// +optional
+	CredentialsSecretRef *LocalObjectReference `json:"credentialsSecretRef,omitempty"`
+
+	// +optional
+	IAMRoleARN string `json:"iamRoleARN,omitempty"`
 }
 
-// CloudDNSConfig configures the GCP CloudDNS DNS01 solver.
+// CloudDNSConfig configures the cert-manager GCP CloudDNS DNS01
+// solver and the GCP-side credentials.
+//
+// Credentials must be supplied via *exactly one* mechanism:
+//   - WorkloadIdentityServiceAccount: a GCP service-account email
+//     bound to cert-manager's K8s ServiceAccount via the
+//     `iam.gke.io/gcp-service-account` annotation. Recommended on
+//     GKE.
+//   - CredentialsSecretRef: a Secret in the operator namespace
+//     with key `credentials.json` containing a GCP service-account
+//     JSON key. v1alpha1 reserves the field but rejects it as
+//     "not yet supported"; static-creds support is a follow-up.
 type CloudDNSConfig struct {
-	// +required
-	Zone string `json:"zone"`
-
-	// project defaults to spec.infrastructure.cloud.project when unset.
 	// +optional
-	Project string `json:"project,omitempty"`
+	Zone string `json:"zone,omitempty"`
+
+	// +required
+	Project string `json:"project"`
+
+	// +optional
+	CredentialsSecretRef *LocalObjectReference `json:"credentialsSecretRef,omitempty"`
+
+	// +optional
+	WorkloadIdentityServiceAccount string `json:"workloadIdentityServiceAccount,omitempty"`
 }
 
 // CloudflareConfig configures the Cloudflare DNS01 solver.
@@ -338,6 +373,11 @@ type ACMESolvers struct {
 type ACMEConfig struct {
 	// +required
 	Email string `json:"email"`
+
+	// server is the ACME directory URL. Defaults to Let's Encrypt
+	// production. Override for Let's Encrypt staging or another CA.
+	// +optional
+	Server string `json:"server,omitempty"`
 
 	// +required
 	Solvers ACMESolvers `json:"solvers"`

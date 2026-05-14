@@ -413,8 +413,8 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 //
 // Kept as a standalone function so values-shape changes don't ripple
 // through reconcile control flow.
-func renderCertManagerValues(_ *configv1alpha1.EducatesClusterConfig) map[string]any {
-	return map[string]any{
+func renderCertManagerValues(obj *configv1alpha1.EducatesClusterConfig) map[string]any {
+	values := map[string]any{
 		"crds": map[string]any{
 			"enabled": true,
 			"keep":    false,
@@ -423,6 +423,48 @@ func renderCertManagerValues(_ *configv1alpha1.EducatesClusterConfig) map[string
 			"enabled": false,
 		},
 	}
+
+	// ACME DNS01 with identity-based auth needs the cert-manager
+	// controller's ServiceAccount to carry a cloud-specific
+	// annotation:
+	//   - Route53 / IRSA on EKS: `eks.amazonaws.com/role-arn`,
+	//     which the kube2iam / IRSA webhook turns into an
+	//     AssumeRoleWithWebIdentity flow when cert-manager makes AWS
+	//     SDK calls. cert-manager picks up the role from the env
+	//     vars the webhook injects.
+	//   - CloudDNS / Workload Identity on GKE:
+	//     `iam.gke.io/gcp-service-account`, which the metadata
+	//     server uses to mint short-lived GCP credentials for the
+	//     pod. cert-manager's Google SDK call then uses
+	//     Application Default Credentials.
+	//
+	// We don't ship long-lived static creds in Secrets — the
+	// validator rejects credentialsSecretRef as "not yet supported"
+	// until a follow-up lands that support.
+	if obj != nil && obj.Spec.Ingress != nil &&
+		obj.Spec.Ingress.Certificates.BundledCertManager != nil &&
+		obj.Spec.Ingress.Certificates.BundledCertManager.IssuerType == configv1alpha1.IssuerTypeACME &&
+		obj.Spec.Ingress.Certificates.BundledCertManager.ACME != nil {
+		dns01 := obj.Spec.Ingress.Certificates.BundledCertManager.ACME.Solvers.DNS01
+		annotations := map[string]any{}
+		switch dns01.Provider {
+		case configv1alpha1.DNS01ProviderRoute53:
+			if dns01.Route53 != nil && dns01.Route53.IAMRoleARN != "" {
+				annotations["eks.amazonaws.com/role-arn"] = dns01.Route53.IAMRoleARN
+			}
+		case configv1alpha1.DNS01ProviderCloudDNS:
+			if dns01.CloudDNS != nil && dns01.CloudDNS.WorkloadIdentityServiceAccount != "" {
+				annotations["iam.gke.io/gcp-service-account"] = dns01.CloudDNS.WorkloadIdentityServiceAccount
+			}
+		}
+		if len(annotations) > 0 {
+			values["serviceAccount"] = map[string]any{
+				"annotations": annotations,
+			}
+		}
+	}
+
+	return values
 }
 
 // validateManaged runs the Phase 2 Managed-mode checks. The CRD's CEL
@@ -474,10 +516,14 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 			if err := r.checkCustomCASecret(ctx, certs.BundledCertManager.CustomCA.CACertificateRef.Name); err != nil {
 				return err
 			}
+		case configv1alpha1.IssuerTypeACME:
+			if err := r.validateACMEConfig(certs.BundledCertManager.ACME); err != nil {
+				return err
+			}
 		default:
 			return &validationError{
 				Field:  "spec.ingress.certificates.bundledCertManager.issuerType",
-				Reason: fmt.Sprintf("issuerType %q is not yet supported in v1alpha1 (only CustomCA)", certs.BundledCertManager.IssuerType),
+				Reason: fmt.Sprintf("issuerType %q is not yet supported in v1alpha1 (only CustomCA and ACME)", certs.BundledCertManager.IssuerType),
 			}
 		}
 	default:
@@ -512,6 +558,96 @@ func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Contex
 				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
 				Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", r.OperatorNamespace, name, k),
 			}
+		}
+	}
+	return nil
+}
+
+// validateACMEConfig validates the ACME ClusterIssuer spec for the
+// v1alpha1-supported provider set: Route53 (AWS) and CloudDNS (GCP),
+// identity-based auth only (IRSA on EKS / Workload Identity on GKE).
+// Cloudflare, AzureDNS, HTTP01, and static-credentials Secrets are
+// reserved in the schema but rejected here as "not yet supported".
+func (r *EducatesClusterConfigReconciler) validateACMEConfig(acme *configv1alpha1.ACMEConfig) error {
+	if acme == nil {
+		return &validationError{
+			Field:  "spec.ingress.certificates.bundledCertManager.acme",
+			Reason: "required when issuerType is ACME",
+		}
+	}
+	if acme.Email == "" {
+		return &validationError{
+			Field:  "spec.ingress.certificates.bundledCertManager.acme.email",
+			Reason: "required",
+		}
+	}
+	if acme.Solvers.HTTP01 != nil {
+		return &validationError{
+			Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.http01",
+			Reason: "HTTP01 solver is not yet supported in v1alpha1 (DNS01 only)",
+		}
+	}
+	dns01 := acme.Solvers.DNS01
+	switch dns01.Provider {
+	case configv1alpha1.DNS01ProviderRoute53:
+		if dns01.Route53 == nil {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.route53",
+				Reason: "required when provider is Route53",
+			}
+		}
+		if dns01.Route53.HostedZoneID == "" {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.route53.hostedZoneID",
+				Reason: "required",
+			}
+		}
+		if dns01.Route53.CredentialsSecretRef != nil {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.route53.credentialsSecretRef",
+				Reason: "static-credentials Secret is not yet supported in v1alpha1 (use iamRoleARN with IRSA)",
+			}
+		}
+		if dns01.Route53.IAMRoleARN == "" {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.route53.iamRoleARN",
+				Reason: "required (v1alpha1 supports IRSA only)",
+			}
+		}
+	case configv1alpha1.DNS01ProviderCloudDNS:
+		if dns01.CloudDNS == nil {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.cloudDNS",
+				Reason: "required when provider is CloudDNS",
+			}
+		}
+		if dns01.CloudDNS.Project == "" {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.cloudDNS.project",
+				Reason: "required",
+			}
+		}
+		if dns01.CloudDNS.CredentialsSecretRef != nil {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.cloudDNS.credentialsSecretRef",
+				Reason: "static-credentials Secret is not yet supported in v1alpha1 (use workloadIdentityServiceAccount)",
+			}
+		}
+		if dns01.CloudDNS.WorkloadIdentityServiceAccount == "" {
+			return &validationError{
+				Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.cloudDNS.workloadIdentityServiceAccount",
+				Reason: "required (v1alpha1 supports Workload Identity only)",
+			}
+		}
+	case "":
+		return &validationError{
+			Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.provider",
+			Reason: "required",
+		}
+	default:
+		return &validationError{
+			Field:  "spec.ingress.certificates.bundledCertManager.acme.solvers.dns01.provider",
+			Reason: fmt.Sprintf("DNS01 provider %q is not yet supported in v1alpha1 (only Route53 and CloudDNS)", dns01.Provider),
 		}
 	}
 	return nil

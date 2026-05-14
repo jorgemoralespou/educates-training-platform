@@ -817,4 +817,160 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		Expect(policyReady.Status).To(Equal(metav1.ConditionTrue))
 		Expect(policyReady.Reason).To(Equal("BundledKyvernoReady"))
 	})
+
+	// ACME-DNS01 validator coverage. Driving an end-to-end ACME
+	// install is impossible in envtest (no real cert-manager, no DNS
+	// provider), so these specs cover the validator branches and the
+	// ClusterIssuer shape only.
+	It("accepts ACME + Route53 with IAMRoleARN and writes an ACME ClusterIssuer", func() {
+		spec := validManagedSpec()
+		spec.Ingress.Certificates.BundledCertManager = &configv1alpha1.BundledCertManagerConfig{
+			IssuerType: configv1alpha1.IssuerTypeACME,
+			ACME: &configv1alpha1.ACMEConfig{
+				Email: "ops@example.com",
+				Solvers: configv1alpha1.ACMESolvers{
+					DNS01: configv1alpha1.ACMEDNS01Solver{
+						Provider: configv1alpha1.DNS01ProviderRoute53,
+						Route53: &configv1alpha1.Route53Config{
+							HostedZoneID: "Z0123456789ABCDEF",
+							Region:       "us-east-1",
+							IAMRoleARN:   "arn:aws:iam::123456789012:role/cert-manager",
+						},
+					},
+				},
+			},
+		}
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Drive cert-manager to Ready so the operator reaches
+		// ensureClusterIssuer.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		for _, name := range certManagerDeployments {
+			markDeploymentAvailable(name, certManagerNamespace)
+		}
+
+		Eventually(func(g Gomega) {
+			ci := &cmv1.ClusterIssuer{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wildcardClusterIssuer}, ci)).To(Succeed())
+			g.Expect(ci.Spec.ACME).NotTo(BeNil())
+			g.Expect(ci.Spec.ACME.Email).To(Equal("ops@example.com"))
+			g.Expect(ci.Spec.ACME.Server).To(Equal(letsEncryptProdServer))
+			g.Expect(ci.Spec.ACME.Solvers).To(HaveLen(1))
+			g.Expect(ci.Spec.ACME.Solvers[0].DNS01).NotTo(BeNil())
+			g.Expect(ci.Spec.ACME.Solvers[0].DNS01.Route53).NotTo(BeNil())
+			g.Expect(ci.Spec.ACME.Solvers[0].DNS01.Route53.HostedZoneID).To(Equal("Z0123456789ABCDEF"))
+			g.Expect(ci.Spec.ACME.Solvers[0].DNS01.Route53.Role).To(Equal("arn:aws:iam::123456789012:role/cert-manager"))
+			g.Expect(ci.Spec.CA).To(BeNil())
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+	})
+
+	It("rejects ACME + Route53 without IAMRoleARN", func() {
+		spec := validManagedSpec()
+		spec.Ingress.Certificates.BundledCertManager = &configv1alpha1.BundledCertManagerConfig{
+			IssuerType: configv1alpha1.IssuerTypeACME,
+			ACME: &configv1alpha1.ACMEConfig{
+				Email: "ops@example.com",
+				Solvers: configv1alpha1.ACMESolvers{
+					DNS01: configv1alpha1.ACMEDNS01Solver{
+						Provider: configv1alpha1.DNS01ProviderRoute53,
+						Route53: &configv1alpha1.Route53Config{
+							HostedZoneID: "Z0123456789ABCDEF",
+						},
+					},
+				},
+			},
+		}
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		Eventually(func() string {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionValidationSucceeded)
+			if cond == nil {
+				return ""
+			}
+			return cond.Message
+		}, 30*time.Second, 200*time.Millisecond).Should(ContainSubstring("iamRoleARN"))
+	})
+
+	It("rejects ACME + CloudDNS without workloadIdentityServiceAccount", func() {
+		spec := validManagedSpec()
+		spec.Ingress.Certificates.BundledCertManager = &configv1alpha1.BundledCertManagerConfig{
+			IssuerType: configv1alpha1.IssuerTypeACME,
+			ACME: &configv1alpha1.ACMEConfig{
+				Email: "ops@example.com",
+				Solvers: configv1alpha1.ACMESolvers{
+					DNS01: configv1alpha1.ACMEDNS01Solver{
+						Provider: configv1alpha1.DNS01ProviderCloudDNS,
+						CloudDNS: &configv1alpha1.CloudDNSConfig{
+							Project: "my-gcp-project",
+						},
+					},
+				},
+			},
+		}
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		Eventually(func() string {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionValidationSucceeded)
+			if cond == nil {
+				return ""
+			}
+			return cond.Message
+		}, 30*time.Second, 200*time.Millisecond).Should(ContainSubstring("workloadIdentityServiceAccount"))
+	})
+
+	It("rejects ACME with an unsupported DNS01 provider (Cloudflare)", func() {
+		spec := validManagedSpec()
+		spec.Ingress.Certificates.BundledCertManager = &configv1alpha1.BundledCertManagerConfig{
+			IssuerType: configv1alpha1.IssuerTypeACME,
+			ACME: &configv1alpha1.ACMEConfig{
+				Email: "ops@example.com",
+				Solvers: configv1alpha1.ACMESolvers{
+					DNS01: configv1alpha1.ACMEDNS01Solver{
+						Provider: configv1alpha1.DNS01ProviderCloudflare,
+					},
+				},
+			},
+		}
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		Eventually(func() string {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionValidationSucceeded)
+			if cond == nil {
+				return ""
+			}
+			return cond.Message
+		}, 30*time.Second, 200*time.Millisecond).Should(ContainSubstring("not yet supported"))
+	})
 })

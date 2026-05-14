@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	cmacme "github.com/cert-manager/cert-manager/pkg/apis/acme/v1"
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	"github.com/go-logr/logr"
@@ -64,6 +65,8 @@ const (
 	wildcardClusterIssuer = "educates-wildcard-issuer"
 	wildcardCertificate   = "educates-wildcard"
 	wildcardTLSSecretName = "educates-wildcard-tls"
+	acmeAccountKeySecret  = "educates-acme-account-key"
+	letsEncryptProdServer = "https://acme-v02.api.letsencrypt.org/directory"
 )
 
 // errCertManagerNotReady is returned by ensureCertManagerReady when one
@@ -273,17 +276,22 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 		return phaseStop(ctrl.Result{}, err)
 	}
 
-	// CustomCA Secret → cert-manager namespace, then ClusterIssuer,
-	// then wildcard Certificate. Each helper is idempotent (SSA) so
-	// re-running after a partial failure converges.
-	customCARef := obj.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Name
-	if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
-		if isCertManagerCRDMissingErr(err) {
-			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+	// CustomCA-only prerequisite: copy the CA Secret into the
+	// cert-manager namespace so the CA-typed ClusterIssuer can read
+	// it. ACME issuers don't reference a user-supplied Secret; the
+	// account key is generated on first use into a Secret cert-manager
+	// owns. Each helper is idempotent (SSA) so re-running converges.
+	bcm := obj.Spec.Ingress.Certificates.BundledCertManager
+	if bcm.IssuerType == configv1alpha1.IssuerTypeCustomCA {
+		customCARef := bcm.CustomCA.CACertificateRef.Name
+		if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
+			if isCertManagerCRDMissingErr(err) {
+				return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+			}
+			r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
+			_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+			return phaseStop(ctrl.Result{}, err)
 		}
-		r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
-		return phaseStop(ctrl.Result{}, err)
 	}
 	if err := r.ensureClusterIssuer(ctx, obj); err != nil {
 		if isCertManagerCRDMissingErr(err) {
@@ -456,10 +464,30 @@ func controllerSetOwnerOnCrossNamespaceCopy(owner *configv1alpha1.EducatesCluste
 
 func ptrBool(b bool) *bool { return &b }
 
-// ensureClusterIssuer applies the cluster-wide CA-typed Issuer that
-// signs the wildcard Certificate. SSA so re-running the reconciler
-// converges drift without explicit version tracking.
+// ensureClusterIssuer applies the cluster-wide ClusterIssuer that
+// signs the wildcard Certificate. The Issuer spec is built per
+// issuer type — CA-typed for CustomCA, ACME-typed (DNS01 solver)
+// for ACME. SSA so re-running the reconciler converges drift
+// without explicit version tracking.
 func (r *EducatesClusterConfigReconciler) ensureClusterIssuer(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) error {
+	bcm := owner.Spec.Ingress.Certificates.BundledCertManager
+
+	var issuerCfg cmv1.IssuerConfig
+	switch bcm.IssuerType {
+	case configv1alpha1.IssuerTypeCustomCA:
+		issuerCfg = cmv1.IssuerConfig{
+			CA: &cmv1.CAIssuer{SecretName: customCASecretName},
+		}
+	case configv1alpha1.IssuerTypeACME:
+		acme, err := buildACMEIssuer(bcm.ACME)
+		if err != nil {
+			return err
+		}
+		issuerCfg = cmv1.IssuerConfig{ACME: acme}
+	default:
+		return fmt.Errorf("unsupported issuerType %q", bcm.IssuerType)
+	}
+
 	ci := &cmv1.ClusterIssuer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: cmv1.SchemeGroupVersion.String(),
@@ -471,18 +499,48 @@ func (r *EducatesClusterConfigReconciler) ensureClusterIssuer(ctx context.Contex
 				"app.kubernetes.io/managed-by": managedByLabelValue,
 			},
 		},
-		Spec: cmv1.IssuerSpec{
-			IssuerConfig: cmv1.IssuerConfig{
-				CA: &cmv1.CAIssuer{
-					SecretName: customCASecretName,
-				},
-			},
-		},
+		Spec: cmv1.IssuerSpec{IssuerConfig: issuerCfg},
 	}
 	if err := controllerSetOwnerOnCrossNamespaceCopy(owner, ci, r.Scheme); err != nil {
 		return err
 	}
 	return r.Patch(ctx, ci, client.Apply, client.FieldOwner(fieldManager), client.ForceOwnership)
+}
+
+// buildACMEIssuer translates the operator's ACMEConfig into a
+// cert-manager ACMEIssuer spec. Authentication is identity-based:
+// Route53 sets Role (assumed via IRSA) and CloudDNS sets only the
+// project (cert-manager picks up Application Default Credentials
+// from the SA's Workload Identity annotation). Static credential
+// Secrets are rejected by the validator until follow-up adds them.
+func buildACMEIssuer(acme *configv1alpha1.ACMEConfig) (*cmacme.ACMEIssuer, error) {
+	server := acme.Server
+	if server == "" {
+		server = letsEncryptProdServer
+	}
+	dns01 := acme.Solvers.DNS01
+	solver := cmacme.ACMEChallengeSolver{DNS01: &cmacme.ACMEChallengeSolverDNS01{}}
+	switch dns01.Provider {
+	case configv1alpha1.DNS01ProviderRoute53:
+		solver.DNS01.Route53 = &cmacme.ACMEIssuerDNS01ProviderRoute53{
+			HostedZoneID: dns01.Route53.HostedZoneID,
+			Region:       dns01.Route53.Region,
+			Role:         dns01.Route53.IAMRoleARN,
+		}
+	case configv1alpha1.DNS01ProviderCloudDNS:
+		solver.DNS01.CloudDNS = &cmacme.ACMEIssuerDNS01ProviderCloudDNS{
+			Project:        dns01.CloudDNS.Project,
+			HostedZoneName: dns01.CloudDNS.Zone,
+		}
+	default:
+		return nil, fmt.Errorf("unsupported DNS01 provider %q", dns01.Provider)
+	}
+	return &cmacme.ACMEIssuer{
+		Email:      acme.Email,
+		Server:     server,
+		PrivateKey: cmmeta.SecretKeySelector{LocalObjectReference: cmmeta.LocalObjectReference{Name: acmeAccountKeySecret}},
+		Solvers:    []cmacme.ACMEChallengeSolver{solver},
+	}, nil
 }
 
 // ensureWildcardCertificate applies the wildcard Certificate in the

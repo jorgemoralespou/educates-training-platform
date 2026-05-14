@@ -598,10 +598,144 @@ default when unset (current behaviour). Pass through verbatim
 when the user sets it. Same `[]string`→`[]any` translation as
 the other slice values (helm values.schema.json gotcha).
 
-**Acceptance criteria:**
+**Concrete scenario (observed 2026-05-14, GKE + CloudDNS):**
+
+User has a single top-level CloudDNS zone `google.educates.dev`.
+First install with `domain: academy-01.google.educates.dev`
+failed to publish DNS records *until the user created a dedicated
+sub-zone* `academy-01.google.educates.dev` with NS delegation
+from the parent. Reason: external-dns `--domain-filter` is a
+*record-name* filter, not a zone selector. With the filter
+pinned to `academy-01.google.educates.dev`, external-dns
+rejected the parent zone `google.educates.dev` as "wrong
+suffix" — even though a record like `*.academy-01...` could
+legitimately live inside the parent zone in DNS terms.
+
+In v3 carvel, the user worked around this by setting
+`domain_filter` to the parent zone name (see
+`carvel-packages/installer/bundle/config/ytt/_ytt_lib/packages/
+external-dns/overlays/defaults.star`). v1alpha1 doesn't expose
+the same knob — this follow-up fixes that.
+
+**Scope (v1alpha1 — option 1):**
+
+Add an optional `domainFilters []string` field on
+`BundledExternalDNSConfig`. Use `spec.ingress.domain` as the
+default when unset (current behaviour). Pass through verbatim
+when the user sets it. Same `[]string`→`[]any` translation as
+the other slice values (helm values.schema.json gotcha).
+
+This is backwards-compatible — users with a dedicated sub-zone
+keep working unchanged; users with only a parent zone set
+`domainFilters: [google.educates.dev]` and external-dns writes
+records into the parent.
+
+**Acceptance criteria (v1alpha1):**
 
 - `spec.dns.bundledExternalDNS.domainFilters: ["a.example.com",
   "b.example.com"]` results in external-dns watching both
   domains.
 - Empty / unset preserves the current single-domain default.
 - envtest spec covers both cases.
+
+**Potential follow-on (deferred — option 3):**
+
+If users start sharing a single CloudDNS project across
+multiple clusters with overlapping `domainFilters`, add a
+companion `cloudDNS.zoneIDs []string` (and Route53 mirror)
+that drives external-dns's `--google-zone-id-filter` /
+`--zone-id-filter`. That layers a zone-level guardrail on top
+of the record-level filter so a cluster can't accidentally
+mutate another cluster's records. Defer until a concrete
+multi-cluster-shared-zone ask comes in — record-level
+filtering plus per-cluster `txtOwnerId` already covers the
+common case.
+
+---
+
+### ACME static-credentials Secret support (Route53 + CloudDNS)
+
+**Date added:** 2026-05-14.
+**Trigger to file:** users without IRSA/Workload Identity (on-prem
+or smaller clouds) ask for ACME-DNS01 support backed by long-lived
+credentials.
+
+**Context:**
+
+v1alpha1 lands ACME-DNS01 with identity-based auth only —
+`Route53Config.IAMRoleARN` (IRSA on EKS) and
+`CloudDNSConfig.WorkloadIdentityServiceAccount` (Workload Identity
+on GKE). The CRD already reserves `CredentialsSecretRef` on both
+provider configs, but the operator validator rejects it as "not
+yet supported in v1alpha1".
+
+cert-manager's underlying API does support static credentials —
+`Route53.accessKeyIDSecretRef` + `Route53.secretAccessKeySecretRef`
+on AWS, `CloudDNS.serviceAccountSecretRef` on GCP. The work is in
+the operator: copy the user-supplied Secret from the operator
+namespace into the cert-manager namespace (mirroring the
+CustomCA-copy pattern), then reference the copied Secret from the
+ClusterIssuer's ACME solver spec.
+
+**Scope:**
+
+1. Validator: accept `CredentialsSecretRef` on Route53 and
+   CloudDNS provider configs; enforce key presence
+   (`aws_access_key_id` + `aws_secret_access_key` for Route53,
+   `credentials.json` for CloudDNS) via the same
+   `checkCustomCASecret`-style helper.
+2. Copy step: ensure helper analogous to
+   `ensureCustomCASecretCopy` that mirrors the credentials Secret
+   into the cert-manager namespace under a deterministic name.
+3. `buildACMEIssuer`: when CredentialsSecretRef is set, populate
+   `Route53.SecretAccessKeyID/SecretAccessKey` or
+   `CloudDNS.ServiceAccount` instead of relying on identity-based
+   inference.
+4. Mutual exclusivity: existing CEL/validator already enforces
+   one mechanism only — verify the rule still applies after
+   reactivating CredentialsSecretRef.
+
+**Acceptance criteria:**
+
+- `educates-installer` reaches Ready on a kind cluster (or any
+  cluster without IRSA/WI) using static AWS credentials.
+- Validator returns clear messages on missing keys / both
+  mechanisms set.
+- envtest covers: valid static creds (Route53 + CloudDNS),
+  missing key, and the "both set" rejection.
+
+---
+
+### Expose ACME server URL choice (staging vs production)
+
+**Date added:** 2026-05-14.
+**Trigger to file:** post-Phase-3 polish — testing real ACME on
+fresh clusters quickly hits Let's Encrypt production rate limits.
+
+**Context:**
+
+`ACMEConfig.Server` is exposed in v1alpha1 and defaults to
+`https://acme-v02.api.letsencrypt.org/directory` when unset. The
+field works today; what's missing is good documentation and
+example values for Let's Encrypt staging
+(`https://acme-staging-v02.api.letsencrypt.org/directory`) and
+guidance on when each is appropriate. CLI / docs should call out
+the staging endpoint for first-time testing because the operator
+exits the install pipeline on rate-limit errors and the user
+sees a hard failure rather than a transient one.
+
+**Scope:**
+
+- Reference docs for the `acme.server` field with a worked
+  example for staging.
+- Example CR snippets in `project-docs/` covering both Route53
+  and CloudDNS for production + staging.
+- Consider a `--acme-staging` shortcut on `educates install`
+  when the CLI rewrite (Phase 5) reaches the
+  `EducatesClusterConfig` builder.
+
+**Acceptance criteria:**
+
+- Reference docs clearly differentiate production and staging
+  use cases.
+- Sample CRs in repository demonstrate both setups.
