@@ -221,6 +221,17 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 		}
 	}
 
+	// Always annotate the Envoy Service with the wildcard hostname.
+	// external-dns (when installed in this cluster, or in any other
+	// cluster reading the same source) publishes a wildcard record
+	// pointing at the Envoy LoadBalancer/NodePort. Setting the
+	// annotation unconditionally is harmless when no external-dns is
+	// installed — the annotation is informational metadata. Trailing
+	// dot is FQDN form (matches the v3 Carvel installer's behavior).
+	envoyServiceAnnotations := map[string]any{
+		"external-dns.alpha.kubernetes.io/hostname": fmt.Sprintf("*.%s.", obj.Spec.Ingress.Domain),
+	}
+
 	values := map[string]any{
 		"contour": map[string]any{
 			"replicaCount": replicas,
@@ -233,7 +244,8 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 		},
 		"envoy": map[string]any{
 			"service": map[string]any{
-				"type": string(envoyServiceType),
+				"type":        string(envoyServiceType),
+				"annotations": envoyServiceAnnotations,
 			},
 		},
 	}

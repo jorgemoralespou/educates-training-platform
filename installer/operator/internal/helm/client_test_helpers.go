@@ -63,5 +63,5 @@ func NewMemoryClient(namespace string) (*Client, error) {
 		Capabilities:   &caps,
 		RegistryClient: registryClient,
 	}
-	return &Client{cfg: cfg, namespace: namespace}, nil
+	return &Client{cfg: cfg, namespace: namespace, skipCRDs: true}, nil
 }

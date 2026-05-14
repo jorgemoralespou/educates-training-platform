@@ -113,11 +113,13 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		return res, err
 	}
 
-	// Phase 3: subsequent cluster services land here.
+	// Phase 3: DNS (external-dns).
+	if done, res, err := r.reconcileExternalDNSPhase(ctx, log, obj); !done {
+		return res, err
+	}
+
+	// Phase 4: policy enforcement (Kyverno) — next.
 	//
-	// if done, res, err := r.reconcileExternalDNSPhase(ctx, log, obj); !done {
-	//     return res, err
-	// }
 	// if done, res, err := r.reconcileKyvernoPhase(ctx, log, obj); !done {
 	//     return res, err
 	// }
@@ -245,12 +247,14 @@ func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Cont
 // Cleanups are idempotent — retried reconciles after partial drain
 // failure re-attempt only what's still present.
 func (r *EducatesClusterConfigReconciler) cleanupManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
-	// [Phase 3] Reverse install order. Kyverno + external-dns slot
-	// in above Contour when they land.
+	// Reverse install order. Kyverno will slot in above
+	// external-dns when it lands.
 	//
 	// if err := r.cleanupKyverno(ctx, obj); err != nil { return err }
-	// if err := r.cleanupExternalDNS(ctx, obj); err != nil { return err }
 
+	if err := r.cleanupExternalDNS(ctx, obj); err != nil {
+		return err
+	}
 	if err := r.cleanupContour(ctx, obj); err != nil {
 		return err
 	}
@@ -585,6 +589,40 @@ func (r *EducatesClusterConfigReconciler) markIngressReadyTrue(obj *configv1alph
 		Status:             metav1.ConditionTrue,
 		Reason:             "BundledContourReady",
 		Message:            "Bundled Contour ingress controller is Ready",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markDNSProgressing publishes a DNSReady=False condition while the
+// external-dns install is converging. Same shape as the cert-manager
+// and ingress equivalents.
+func (r *EducatesClusterConfigReconciler) markDNSProgressing(obj *configv1alpha1.EducatesClusterConfig, reason, message string) {
+	obj.Status.ObservedGeneration = obj.Generation
+	obj.Status.Mode = obj.Spec.Mode
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionDNSReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             "Progressing",
+		Message:            "Managed-mode reconciliation in progress",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markDNSReadyTrue flips DNSReady to True. Aggregate Ready stays
+// False until markManagedReady.
+func (r *EducatesClusterConfigReconciler) markDNSReadyTrue(obj *configv1alpha1.EducatesClusterConfig) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionDNSReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "BundledExternalDNSReady",
+		Message:            "Bundled external-dns is Ready",
 		ObservedGeneration: obj.Generation,
 	})
 }

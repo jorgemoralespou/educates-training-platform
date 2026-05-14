@@ -468,10 +468,95 @@ type Ingress struct {
 	Certificates Certificates `json:"certificates"`
 }
 
-// BundledExternalDNSConfig configures the operator-installed external-dns
-// chart. Zone discovery is automatic from Ingress hostnames; explicit
-// zones may be added in a later revision.
+// ExternalDNSRoute53Config configures the AWS Route53 provider for
+// the operator-installed external-dns. HostedZoneID is required to
+// scope external-dns to a specific zone — running unscoped is a
+// production footgun (a broad IAM role plus no zone filter can
+// silently rewrite records across the entire account).
+//
+// Credentials are supplied via *exactly one* of:
+//   - CredentialsSecretRef: a Secret in the operator namespace with
+//     keys `aws_access_key_id` and `aws_secret_access_key`.
+//   - IAMRoleARN: an IRSA / Pod Identity role assumed via the
+//     external-dns ServiceAccount's `eks.amazonaws.com/role-arn`
+//     annotation. Preferred on EKS.
+//
+// CEL elsewhere enforces the exactly-one rule; the operator
+// validator backs it up with a friendlier error message.
+type ExternalDNSRoute53Config struct {
+	// +required
+	HostedZoneID string `json:"hostedZoneID"`
+
+	// region defaults to the AWS SDK's default detection (pod IMDS
+	// / env vars). Set explicitly when running outside AWS or in
+	// air-gapped environments.
+	// +optional
+	Region string `json:"region,omitempty"`
+
+	// +optional
+	CredentialsSecretRef *LocalObjectReference `json:"credentialsSecretRef,omitempty"`
+
+	// +optional
+	IAMRoleARN string `json:"iamRoleARN,omitempty"`
+}
+
+// ExternalDNSCloudDNSConfig configures the GCP CloudDNS provider for
+// the operator-installed external-dns.
+//
+// Credentials are supplied via *exactly one* of:
+//   - CredentialsSecretRef: a Secret in the operator namespace with
+//     key `credentials.json` containing the GCP service-account
+//     JSON key.
+//   - WorkloadIdentityServiceAccount: a GCP service-account email
+//     bound to the external-dns ServiceAccount via the
+//     `iam.gke.io/gcp-service-account` annotation. Preferred on GKE.
+type ExternalDNSCloudDNSConfig struct {
+	// +required
+	Project string `json:"project"`
+
+	// +optional
+	CredentialsSecretRef *LocalObjectReference `json:"credentialsSecretRef,omitempty"`
+
+	// +optional
+	WorkloadIdentityServiceAccount string `json:"workloadIdentityServiceAccount,omitempty"`
+}
+
+// BundledExternalDNSConfig configures the operator-installed
+// external-dns chart. v1alpha1 supports Route53 and CloudDNS; other
+// providers (Cloudflare, AzureDNS, etc.) surface "not yet supported"
+// validation errors.
+//
+// CEL invariants:
+//   - provider==Route53 requires route53 to be set and forbids cloudDNS.
+//   - provider==CloudDNS requires cloudDNS to be set and forbids route53.
+//
+// +kubebuilder:validation:XValidation:rule="self.provider != 'Route53' || (has(self.route53) && !has(self.cloudDNS))",message="provider Route53 requires spec.dns.bundledExternalDNS.route53 and forbids cloudDNS"
+// +kubebuilder:validation:XValidation:rule="self.provider != 'CloudDNS' || (has(self.cloudDNS) && !has(self.route53))",message="provider CloudDNS requires spec.dns.bundledExternalDNS.cloudDNS and forbids route53"
 type BundledExternalDNSConfig struct {
+	// provider selects which DNS provider external-dns publishes
+	// records to. Reuses the DNS01Provider enum for vocabulary
+	// consistency with cert-manager's solver config; validation
+	// rejects Cloudflare/AzureDNS for now.
+	// +kubebuilder:validation:Enum=Route53;CloudDNS
+	// +required
+	Provider DNS01Provider `json:"provider"`
+
+	// +optional
+	Route53 *ExternalDNSRoute53Config `json:"route53,omitempty"`
+
+	// +optional
+	CloudDNS *ExternalDNSCloudDNSConfig `json:"cloudDNS,omitempty"`
+
+	// sources controls which Kubernetes kinds external-dns watches
+	// for hostname records. Defaults to ["service"] because Educates
+	// publishes the wildcard via an annotation on the Envoy Service.
+	// Users can broaden to ["service","ingress"] (or any
+	// chart-accepted source) when they want per-workshop Ingress
+	// records published as well.
+	// +kubebuilder:default={service}
+	// +optional
+	Sources []string `json:"sources,omitempty"`
+
 	// +optional
 	Operational *OperationalBlock `json:"operational,omitempty"`
 }

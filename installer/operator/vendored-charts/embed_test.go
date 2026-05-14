@@ -50,3 +50,19 @@ func TestContour_Embedded(t *testing.T) {
 		t.Errorf("chart appVersion = %q, want ContourAppVersion %q", got, want)
 	}
 }
+
+func TestExternalDNS_Embedded(t *testing.T) {
+	chrt, err := ExternalDNS()
+	if err != nil {
+		t.Fatalf("ExternalDNS: %v", err)
+	}
+	if got, want := chrt.Metadata.Name, "external-dns"; got != want {
+		t.Errorf("chart name = %q, want %q", got, want)
+	}
+	if got, want := chrt.Metadata.Version, ExternalDNSChartVersion; got != want {
+		t.Errorf("chart version = %q, want ExternalDNSChartVersion %q", got, want)
+	}
+	if got, want := chrt.Metadata.AppVersion, ExternalDNSAppVersion; got != want {
+		t.Errorf("chart appVersion = %q, want ExternalDNSAppVersion %q", got, want)
+	}
+}

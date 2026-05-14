@@ -70,3 +70,24 @@ var contourTarball []byte
 func Contour() (*chart.Chart, error) {
 	return helm.LoadArchive(contourTarball)
 }
+
+// ExternalDNSChartVersion is the upstream Helm chart version
+// (semver of the *chart*, distinct from the external-dns
+// appVersion). Surfaced in
+// status.bundledChartVersions["external-dns"].
+const ExternalDNSChartVersion = "1.21.1"
+
+// ExternalDNSAppVersion is the kubernetes-sigs/external-dns binary
+// version the embedded chart installs.
+const ExternalDNSAppVersion = "0.21.0"
+
+//go:embed external-dns-1.21.1.tgz
+var externalDNSTarball []byte
+
+// ExternalDNS parses the embedded kubernetes-sigs external-dns
+// chart tarball and returns a chart ready for the Helm SDK.
+// Source: https://github.com/kubernetes-sigs/external-dns
+// (helm-chart-1.21.1 release).
+func ExternalDNS() (*chart.Chart, error) {
+	return helm.LoadArchive(externalDNSTarball)
+}

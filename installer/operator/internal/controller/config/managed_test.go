@@ -242,6 +242,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		// in subsequent specs can create resources inside.
 		resurrectStuckNamespace(certManagerNamespace)
 		resurrectStuckNamespace(contourNamespace)
+		resurrectStuckNamespace(externalDNSNamespace)
 		helmFac = newMemoryHelmFactory()
 
 		var mgrCtx context.Context
@@ -287,6 +288,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(certManagerNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(contourNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.DaemonSet{}, client.InNamespace(contourNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(externalDNSNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.ClusterIssuer{})
 		// Intentionally do NOT delete the cert-manager namespace: envtest
@@ -623,5 +625,128 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		got := &configv1alpha1.EducatesClusterConfig{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
 		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+	})
+
+	It("installs external-dns (Route53/IRSA) and reaches Ready when DNS+ingress+cert are all up", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+
+		spec := validManagedSpec()
+		spec.DNS = &configv1alpha1.DNS{
+			Provider: configv1alpha1.DNSProviderBundledExternalDNS,
+			BundledExternalDNS: &configv1alpha1.BundledExternalDNSConfig{
+				Provider: configv1alpha1.DNS01ProviderRoute53,
+				Route53: &configv1alpha1.ExternalDNSRoute53Config{
+					HostedZoneID: "Z0123456789ABCDEF",
+					IAMRoleARN:   "arn:aws:iam::123456789012:role/external-dns",
+				},
+			},
+		}
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Drive cert-manager + Contour to Ready first (same staging
+		// as the existing happy-path spec).
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		for _, name := range certManagerDeployments {
+			markDeploymentAvailable(name, certManagerNamespace)
+		}
+		Eventually(func() error {
+			cert := &cmv1.Certificate{}
+			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
+		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+
+		// Now the external-dns phase should fire and create its
+		// namespace + Deployment; drive the Deployment to Available.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: externalDNSNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markDeploymentAvailable(externalDNSControllerDeploy, externalDNSNamespace)
+
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionTrue))
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+		Expect(got.Status.BundledChartVersions).To(HaveKeyWithValue("external-dns", vendoredcharts.ExternalDNSChartVersion))
+
+		// DNSReady condition flipped True with the BundledExternalDNS
+		// reason.
+		dnsReady := meta.FindStatusCondition(got.Status.Conditions, conditionDNSReady)
+		Expect(dnsReady).NotTo(BeNil())
+		Expect(dnsReady.Status).To(Equal(metav1.ConditionTrue))
+		Expect(dnsReady.Reason).To(Equal("BundledExternalDNSReady"))
+	})
+
+	It("rejects Route53 with neither IRSA nor static credentials", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+
+		spec := validManagedSpec()
+		spec.DNS = &configv1alpha1.DNS{
+			Provider: configv1alpha1.DNSProviderBundledExternalDNS,
+			BundledExternalDNS: &configv1alpha1.BundledExternalDNSConfig{
+				Provider: configv1alpha1.DNS01ProviderRoute53,
+				Route53: &configv1alpha1.ExternalDNSRoute53Config{
+					HostedZoneID: "Z0123456789ABCDEF",
+					// neither IAMRoleARN nor CredentialsSecretRef → degraded
+				},
+			},
+		}
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Drive cert-manager + Contour to Ready so the operator
+		// reaches the external-dns validator.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		for _, name := range certManagerDeployments {
+			markDeploymentAvailable(name, certManagerNamespace)
+		}
+		Eventually(func() error {
+			cert := &cmv1.Certificate{}
+			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
+		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+
+		// Validator surfaces a Degraded with a useful message.
+		Eventually(func() string {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionValidationSucceeded)
+			if cond == nil {
+				return ""
+			}
+			return cond.Message
+		}, 30*time.Second, 200*time.Millisecond).Should(ContainSubstring("exactly one of iamRoleARN or credentialsSecretRef"))
 	})
 })

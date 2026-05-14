@@ -200,7 +200,7 @@ func (r *EducatesClusterConfigReconciler) mapCertificateToSingleton(_ context.Co
 // reconciler.
 func (r *EducatesClusterConfigReconciler) mapDeploymentToSingleton(_ context.Context, obj client.Object) []reconcile.Request {
 	switch obj.GetNamespace() {
-	case certManagerNamespace, contourNamespace:
+	case certManagerNamespace, contourNamespace, externalDNSNamespace:
 		return singletonRequest
 	}
 	return nil

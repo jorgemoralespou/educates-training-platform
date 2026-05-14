@@ -54,6 +54,18 @@ var ErrReleaseNotFound = errors.New("helm release not found")
 type Client struct {
 	cfg       *action.Configuration
 	namespace string
+
+	// skipCRDs, when true, instructs the underlying Install action
+	// to bypass the special-case CRD-install code path in Helm. Set
+	// only by NewMemoryClient: kubefake.PrintingKubeClient.Build()
+	// returns an empty resource list, and Helm's installCRDs guards
+	// against that with a "resources are empty" hard error. Charts
+	// that ship CRDs in the special `crds/` directory (e.g.,
+	// external-dns) would otherwise be uninstallable through the
+	// memory client. Production NewClient uses the real Kubernetes
+	// KubeClient, which parses YAML correctly, so this stays false
+	// there.
+	skipCRDs bool
 }
 
 // NewClient builds a Client backed by the cluster reachable via cfg.
@@ -86,6 +98,7 @@ func (c *Client) Install(ctx context.Context, releaseName string, chrt *chart.Ch
 	act.Namespace = c.namespace
 	act.CreateNamespace = false              // operator manages cluster-service namespaces explicitly elsewhere
 	act.WaitStrategy = kube.HookOnlyStrategy // readiness is enforced by the reconciler, not Helm
+	act.SkipCRDs = c.skipCRDs
 
 	rel, err := act.RunWithContext(ctx, chrt, vals)
 	if err != nil {

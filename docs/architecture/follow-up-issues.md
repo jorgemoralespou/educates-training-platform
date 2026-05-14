@@ -562,3 +562,46 @@ operator pod log until the pod restarts.
 **Out of scope here:** the operator's own error-path
 classification — that lands with the deferred-watch pattern and
 is the user-facing fix.
+
+---
+
+### Expose an external-dns `domainFilters` override on the CRD
+
+**Date added:** 2026-05-14.
+**Trigger to file:** when a user reports they want external-dns
+to manage records under a domain different from
+`spec.ingress.domain`, or to manage multiple domains, or to
+narrow further by record name. v1alpha1 hard-codes
+`domainFilters: [spec.ingress.domain]` to match what the v3
+Carvel installer did; this is fine for the single-domain Educates
+flow but doesn't cover legitimate multi-tenant / multi-domain
+setups.
+
+**Context:**
+
+`renderExternalDNSValues` (installer/operator/internal/controller/
+config/externaldns.go) currently sets
+`domainFilters: [spec.ingress.domain]` unconditionally. The v3
+installer's EKS/GKE overlays optionally let the user point at a
+different zone via `clusterInfrastructure.aws.route53.hostedZone`
+or `clusterInfrastructure.gcp.cloudDNS.zone`. Our zoneIdFilters
+(for AWS) is already driven from
+`spec.dns.bundledExternalDNS.route53.hostedZoneID`, so the AWS
+case is partially covered — but the `domainFilters` value is
+still pinned to the ingress domain.
+
+**Scope:**
+
+Add an optional `domainFilters []string` field on
+`BundledExternalDNSConfig`. Use `spec.ingress.domain` as the
+default when unset (current behaviour). Pass through verbatim
+when the user sets it. Same `[]string`→`[]any` translation as
+the other slice values (helm values.schema.json gotcha).
+
+**Acceptance criteria:**
+
+- `spec.dns.bundledExternalDNS.domainFilters: ["a.example.com",
+  "b.example.com"]` results in external-dns watching both
+  domains.
+- Empty / unset preserves the current single-domain default.
+- envtest spec covers both cases.
