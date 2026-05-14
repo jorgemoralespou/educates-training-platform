@@ -33,6 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
@@ -61,6 +62,11 @@ var _ = BeforeSuite(func() {
 
 	var err error
 	err = platformv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	// Platform reconcilers read EducatesClusterConfig.status as their
+	// input contract; the CRD has to be registered + installed in
+	// envtest for specs to create the gating resource.
+	err = configv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

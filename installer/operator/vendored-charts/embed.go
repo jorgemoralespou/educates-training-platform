@@ -92,6 +92,25 @@ func ExternalDNS() (*chart.Chart, error) {
 	return helm.LoadArchive(externalDNSTarball)
 }
 
+// SecretsManagerChartVersion is the version stamped onto the in-repo
+// `secrets-manager` subchart. Distinct from the runtime appVersion the
+// subchart deploys (the operator surfaces this in
+// status.installedVersion on SecretsManager CRs). Regenerate the
+// tarball via `make package-local-charts` after editing the chart.
+const SecretsManagerChartVersion = "4.0.0-alpha.1"
+
+//go:embed secrets-manager-4.0.0-alpha.1.tgz
+var secretsManagerTarball []byte
+
+// SecretsManager parses the embedded `secrets-manager` subchart
+// tarball and returns a chart ready for the Helm SDK. The subchart
+// lives at `installer/charts/educates-training-platform/charts/secrets-manager`
+// in source form and is repackaged into this directory by
+// `make package-local-charts`.
+func SecretsManager() (*chart.Chart, error) {
+	return helm.LoadArchive(secretsManagerTarball)
+}
+
 // KyvernoChartVersion is the upstream Helm chart version
 // (semver of the *chart*, distinct from the Kyverno binary
 // appVersion). Surfaced in status.bundledChartVersions["kyverno"].

@@ -146,6 +146,33 @@ vendor-charts: ## Download upstream Helm charts into vendored-charts/ and verify
 verify-vendored-charts: ## Re-verify SHA256 of every tarball already in vendored-charts/.
 	@set -e; cd "$(VENDORED_CHARTS_DIR)" && shasum -a 256 -c SHA256SUMS
 
+# In-repo subcharts of the umbrella `educates-training-platform` chart.
+# Operator-driven installs use the same tarball+go:embed pattern as the
+# upstream cluster-services charts (cert-manager, Contour, etc.) so the
+# install mechanism stays uniform across phases. The tarballs are
+# committed to the repo because:
+#   - the operator image embeds them at build time;
+#   - the source charts are deliberately stable (subchart version bumps
+#     are a reviewable git event, not a side effect of every operator
+#     build);
+#   - editors / `go build` work without a separate generate step.
+# Regenerate after editing any of the listed subcharts.
+LOCAL_SUBCHARTS_SRC := $(shell pwd)/../charts/educates-training-platform/charts
+LOCAL_SUBCHARTS := secrets-manager lookup-service session-manager
+
+.PHONY: package-local-charts
+package-local-charts: ## Repackage in-repo subcharts (secrets-manager, lookup-service, session-manager) into vendored-charts/.
+	@set -e; \
+	for name in $(LOCAL_SUBCHARTS); do \
+		src="$(LOCAL_SUBCHARTS_SRC)/$$name"; \
+		if [ ! -d "$$src" ]; then \
+			echo "skip $$name (not present at $$src)"; \
+			continue; \
+		fi; \
+		echo ">> packaging $$name from $$src"; \
+		helm package "$$src" --destination "$(VENDORED_CHARTS_DIR)"; \
+	done
+
 ##@ Build
 
 .PHONY: build

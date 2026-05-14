@@ -45,9 +45,10 @@ type SecretsManagerSpec struct {
 }
 
 // SecretsManagerStatus defines the observed state of SecretsManager.
-// Phase 0 publishes only the minimum surface; richer fields
-// (installedVersion, deploymentRef) are added in Phase 4 alongside the
-// reconciler that produces them.
+// Mirrors the CRD draft r3 §2 status contract: phase + conditions
+// (aggregate Ready plus ClusterConfigAvailable + Deployed), plus the
+// installedVersion / deploymentRef pair that downstream tooling can
+// observe to discover the runtime install.
 type SecretsManagerStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -55,14 +56,26 @@ type SecretsManagerStatus struct {
 	// +optional
 	Phase ComponentPhase `json:"phase,omitempty"`
 
-	// conditions report the resource's state. Standard type "Ready"
-	// reflects overall readiness; phase-specific types
-	// (ClusterConfigAvailable, Deployed) are added with their producing
-	// reconcilers.
+	// conditions report the resource's state. Phase 4 publishes:
+	//   - Ready                  (aggregate)
+	//   - ClusterConfigAvailable (EducatesClusterConfig.Ready gate)
+	//   - Deployed               (helm release present + Deployment Available)
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// installedVersion records the secrets-manager chart version the
+	// operator most recently applied. Reads back from the embedded
+	// chart's metadata; mirrors what `helm get values` would show.
+	// +optional
+	InstalledVersion string `json:"installedVersion,omitempty"`
+
+	// deploymentRef names the upstream Deployment the operator is
+	// gating Ready on. Stable across reconciles; populated once the
+	// helm install lands.
+	// +optional
+	DeploymentRef *NamespacedRef `json:"deploymentRef,omitempty"`
 }
 
 // SecretsManager is the singleton resource that drives installation of

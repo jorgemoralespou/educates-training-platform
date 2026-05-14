@@ -52,6 +52,18 @@ type LocalObjectReference struct {
 	Name string `json:"name"`
 }
 
+// NamespacedRef points at a namespaced object in the cluster by
+// namespace+name. Used in status fields where the operator publishes
+// the location of a resource it owns (typically the upstream
+// component Deployment) so downstream tooling can discover the
+// install without re-deriving the namespace convention.
+type NamespacedRef struct {
+	// +required
+	Namespace string `json:"namespace"`
+	// +required
+	Name string `json:"name"`
+}
+
 // ImageRef declares a chart-render-time image override as a separable
 // repository + tag pair. The split shape matches what helm dt
 // wrap/unwrap (and similar relocation tools) expect.
