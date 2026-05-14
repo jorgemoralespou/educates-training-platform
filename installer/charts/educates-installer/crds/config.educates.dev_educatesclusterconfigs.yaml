@@ -643,6 +643,19 @@ spec:
                           BundledContourConfig configures the operator-installed Contour ingress
                           controller.
                         properties:
+                          envoyServiceType:
+                            default: LoadBalancer
+                            description: |-
+                              envoyServiceType selects the Kubernetes Service type for the
+                              Envoy DaemonSet. Defaults to LoadBalancer so cloud-provider
+                              installs (EKS, GKE, AKS, OpenShift) work out of the box;
+                              set explicitly to NodePort on kind / minikube / vCluster
+                              installs where no in-cluster LoadBalancer controller exists.
+                            enum:
+                            - LoadBalancer
+                            - NodePort
+                            - ClusterIP
+                            type: string
                           operational:
                             description: |-
                               OperationalBlock collects the per-Deployment operational knobs that

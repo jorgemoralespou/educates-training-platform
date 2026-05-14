@@ -405,9 +405,35 @@ type Certificates struct {
 	StaticCertificate *StaticCertificateConfig `json:"staticCertificate,omitempty"`
 }
 
+// EnvoyServiceType selects the Kubernetes Service type for the
+// Envoy DaemonSet's Service when Contour is the bundled ingress
+// controller. Important because it determines how external traffic
+// reaches the cluster: LoadBalancer requires an in-cluster LB
+// controller (cloud providers; MetalLB or equivalent on bare metal);
+// NodePort works on every cluster including kind/minikube but
+// requires the user to know the node IP + port; ClusterIP is for
+// service-mesh-fronted topologies.
+// +kubebuilder:validation:Enum=LoadBalancer;NodePort;ClusterIP
+type EnvoyServiceType string
+
+const (
+	EnvoyServiceTypeLoadBalancer EnvoyServiceType = "LoadBalancer"
+	EnvoyServiceTypeNodePort     EnvoyServiceType = "NodePort"
+	EnvoyServiceTypeClusterIP    EnvoyServiceType = "ClusterIP"
+)
+
 // BundledContourConfig configures the operator-installed Contour ingress
 // controller.
 type BundledContourConfig struct {
+	// envoyServiceType selects the Kubernetes Service type for the
+	// Envoy DaemonSet. Defaults to LoadBalancer so cloud-provider
+	// installs (EKS, GKE, AKS, OpenShift) work out of the box;
+	// set explicitly to NodePort on kind / minikube / vCluster
+	// installs where no in-cluster LoadBalancer controller exists.
+	// +kubebuilder:default=LoadBalancer
+	// +optional
+	EnvoyServiceType EnvoyServiceType `json:"envoyServiceType,omitempty"`
+
 	// +optional
 	Operational *OperationalBlock `json:"operational,omitempty"`
 }

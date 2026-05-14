@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
@@ -260,7 +261,14 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 		if errors.Is(err, errCertManagerNotReady) {
 			r.markCertificatesProgressing(obj, "WaitingForCertManager", "cert-manager Deployments not yet Available")
 			r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj))
+			// RequeueAfter as belt-and-suspenders: in practice the
+			// 3 cert-manager Deployments roll out in stagger, so the
+			// final Available transition usually has at least one
+			// other status event behind it that re-triggers the
+			// reconciler. But a tight cache-vs-apiserver race could
+			// still leave us stuck with no further watch events;
+			// 15s of self-poll matches Contour's gate.
+			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -310,7 +318,11 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 	if !ready {
 		r.markCertificatesProgressing(obj, "WaitingForCertificate", "wildcard Certificate not yet Ready")
 		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-		return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj))
+		// Same belt-and-suspenders RequeueAfter as the other
+		// "Waiting" branches — there's exactly one Ready=False→True
+		// transition on the Certificate, so missing that watch event
+		// would leave us stuck.
+		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
 	}
 
 	// Phase complete — mark CertificatesReady=True so a reader can

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -43,15 +44,23 @@ const (
 	contourReleaseName = "contour"
 )
 
-// Workload names installed by the chart (verified against
-// contour-0.5.0 templates: a single "contour" Deployment runs the
-// control plane; "envoy" runs as a DaemonSet on every node serving
-// HTTP/HTTPS). Readiness is gated on the Deployment reporting
-// Available and the DaemonSet reporting NumberReady ==
-// DesiredNumberScheduled.
+// Workload names installed by the chart. Verified against
+// contour-0.5.0 templates: workload names are produced via
+//
+//	{{ printf "%s-contour" (include "common.names.fullname" .) }}
+//	{{ printf "%s-envoy"   (include "common.names.fullname" .) }}
+//
+// where common.names.fullname resolves to the release name when
+// the release name already contains the chart name (Bitnami's
+// standard fullname helper). With release name "contour" and
+// chart name "contour", fullname == "contour", so the final
+// resource names are `contour-contour` (Deployment) and
+// `contour-envoy` (DaemonSet). Readiness is gated on the
+// Deployment reporting Available and the DaemonSet reporting
+// NumberReady >= DesiredNumberScheduled.
 const (
-	contourControllerDeployment = "contour"
-	envoyDaemonSet              = "envoy"
+	contourControllerDeployment = "contour-contour"
+	envoyDaemonSet              = "contour-envoy"
 )
 
 // errContourNotReady is the sentinel ensureContourReady returns
@@ -98,7 +107,17 @@ func (r *EducatesClusterConfigReconciler) reconcileContourPhase(ctx context.Cont
 		if errors.Is(err, errContourNotReady) {
 			r.markIngressProgressing(obj, "WaitingForContour", "contour Deployment + envoy DaemonSet not yet Ready")
 			r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj))
+			// RequeueAfter is required here: with only one Deployment
+			// + one DaemonSet, Contour's final Available/Ready
+			// transitions produce only ~2 watch events. If this
+			// reconcile observed not-yet-Ready from a cache snapshot
+			// taken a hair before the apiserver-side transition,
+			// the workload watch may not fire again (the workload's
+			// status is now stable) and we'd be stuck. cert-manager
+			// avoids this naturally by staggering 3 Deployments;
+			// Contour can't. 15s of self-poll matches the
+			// WaitingForWebhook pattern.
+			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -170,10 +189,10 @@ func (r *EducatesClusterConfigReconciler) reconcileContour(ctx context.Context, 
 //   - spec.ingress.ingressClassName → contour.ingressClass.name
 //     (the chart creates the IngressClass with this name and
 //     marks it as default).
-//   - spec.infrastructure.provider → envoy.service.type (Kind /
-//     Minikube / VCluster default to NodePort because they have
-//     no in-cluster LoadBalancer controller by default; everything
-//     else uses LoadBalancer).
+//   - spec.ingress.controller.bundledContour.envoyServiceType →
+//     envoy.service.type. Defaults to LoadBalancer at the CRD
+//     level (kubebuilder default); we re-default defensively here
+//     for the case where the field somehow arrives empty.
 //   - spec.ingress.controller.bundledContour.operational.replicas →
 //     contour.replicaCount.
 //   - spec.imageRegistry.prefix → global.imageRegistry (chart
@@ -183,12 +202,23 @@ func (r *EducatesClusterConfigReconciler) reconcileContour(ctx context.Context, 
 // more; ingressClass.create=true + ingressClass.default=true so
 // fresh installs work without users needing to mark the class
 // default elsewhere.
+//
+// Note: the operator is intentionally **infra-agnostic** — it does
+// not branch on spec.infrastructure.provider here. Cluster
+// topology that affects the chart values (service type, etc.) is
+// the user's explicit declaration via the bundledContour block.
 func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]any {
 	ingressClassName := obj.Spec.Ingress.IngressClassName
 
 	var replicas int32 = 1
-	if bc := obj.Spec.Ingress.Controller.BundledContour; bc != nil && bc.Operational != nil && bc.Operational.Replicas != nil {
-		replicas = *bc.Operational.Replicas
+	envoyServiceType := configv1alpha1.EnvoyServiceTypeLoadBalancer
+	if bc := obj.Spec.Ingress.Controller.BundledContour; bc != nil {
+		if bc.Operational != nil && bc.Operational.Replicas != nil {
+			replicas = *bc.Operational.Replicas
+		}
+		if bc.EnvoyServiceType != "" {
+			envoyServiceType = bc.EnvoyServiceType
+		}
 	}
 
 	values := map[string]any{
@@ -203,7 +233,7 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 		},
 		"envoy": map[string]any{
 			"service": map[string]any{
-				"type": envoyServiceTypeFor(obj),
+				"type": string(envoyServiceType),
 			},
 		},
 	}
@@ -215,29 +245,6 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 	}
 
 	return values
-}
-
-// envoyServiceTypeFor returns the chart `envoy.service.type` value
-// derived from the cluster's infrastructure provider. Kind /
-// Minikube / VCluster default to NodePort because they have no
-// real LoadBalancer controller installed by default; everything
-// else (EKS / GKE / OpenShift / Generic) gets LoadBalancer.
-// Generic includes on-prem clusters where a LB controller (MetalLB,
-// kube-vip, etc.) is assumed to be present — if it isn't, the
-// user can override at chart-values level (a spec-level override
-// is a follow-up).
-func envoyServiceTypeFor(obj *configv1alpha1.EducatesClusterConfig) string {
-	if obj.Spec.Infrastructure == nil {
-		return "LoadBalancer"
-	}
-	switch obj.Spec.Infrastructure.Provider {
-	case configv1alpha1.InfrastructureProviderKind,
-		configv1alpha1.InfrastructureProviderMinikube,
-		configv1alpha1.InfrastructureProviderVCluster:
-		return "NodePort"
-	default:
-		return "LoadBalancer"
-	}
 }
 
 // ensureContourReady gates the rest of the pipeline on Contour's
