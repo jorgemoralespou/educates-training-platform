@@ -118,11 +118,10 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		return res, err
 	}
 
-	// Phase 4: policy enforcement (Kyverno) — next.
-	//
-	// if done, res, err := r.reconcileKyvernoPhase(ctx, log, obj); !done {
-	//     return res, err
-	// }
+	// Phase 4: policy enforcement (Kyverno).
+	if done, res, err := r.reconcileKyvernoPhase(ctx, log, obj); !done {
+		return res, err
+	}
 
 	r.markManagedReady(obj)
 	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
@@ -247,11 +246,10 @@ func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Cont
 // Cleanups are idempotent — retried reconciles after partial drain
 // failure re-attempt only what's still present.
 func (r *EducatesClusterConfigReconciler) cleanupManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
-	// Reverse install order. Kyverno will slot in above
-	// external-dns when it lands.
-	//
-	// if err := r.cleanupKyverno(ctx, obj); err != nil { return err }
-
+	// Reverse install order.
+	if err := r.cleanupKyverno(ctx, obj); err != nil {
+		return err
+	}
 	if err := r.cleanupExternalDNS(ctx, obj); err != nil {
 		return err
 	}
@@ -623,6 +621,40 @@ func (r *EducatesClusterConfigReconciler) markDNSReadyTrue(obj *configv1alpha1.E
 		Status:             metav1.ConditionTrue,
 		Reason:             "BundledExternalDNSReady",
 		Message:            "Bundled external-dns is Ready",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markPolicyEnforcementProgressing publishes a
+// PolicyEnforcementReady=False condition while the Kyverno install
+// is converging. Same shape as the other progressing markers.
+func (r *EducatesClusterConfigReconciler) markPolicyEnforcementProgressing(obj *configv1alpha1.EducatesClusterConfig, reason, message string) {
+	obj.Status.ObservedGeneration = obj.Generation
+	obj.Status.Mode = obj.Spec.Mode
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionPolicyEnforcementReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             "Progressing",
+		Message:            "Managed-mode reconciliation in progress",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markPolicyEnforcementReadyTrue flips PolicyEnforcementReady to
+// True. Aggregate Ready stays False until markManagedReady.
+func (r *EducatesClusterConfigReconciler) markPolicyEnforcementReadyTrue(obj *configv1alpha1.EducatesClusterConfig) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionPolicyEnforcementReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "BundledKyvernoReady",
+		Message:            "Bundled Kyverno is Ready",
 		ObservedGeneration: obj.Generation,
 	})
 }

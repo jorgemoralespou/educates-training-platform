@@ -66,3 +66,19 @@ func TestExternalDNS_Embedded(t *testing.T) {
 		t.Errorf("chart appVersion = %q, want ExternalDNSAppVersion %q", got, want)
 	}
 }
+
+func TestKyverno_Embedded(t *testing.T) {
+	chrt, err := Kyverno()
+	if err != nil {
+		t.Fatalf("Kyverno: %v", err)
+	}
+	if got, want := chrt.Metadata.Name, "kyverno"; got != want {
+		t.Errorf("chart name = %q, want %q", got, want)
+	}
+	if got, want := chrt.Metadata.Version, KyvernoChartVersion; got != want {
+		t.Errorf("chart version = %q, want KyvernoChartVersion %q", got, want)
+	}
+	if got, want := chrt.Metadata.AppVersion, KyvernoAppVersion; got != want {
+		t.Errorf("chart appVersion = %q, want KyvernoAppVersion %q", got, want)
+	}
+}

@@ -91,3 +91,22 @@ var externalDNSTarball []byte
 func ExternalDNS() (*chart.Chart, error) {
 	return helm.LoadArchive(externalDNSTarball)
 }
+
+// KyvernoChartVersion is the upstream Helm chart version
+// (semver of the *chart*, distinct from the Kyverno binary
+// appVersion). Surfaced in status.bundledChartVersions["kyverno"].
+const KyvernoChartVersion = "3.8.0"
+
+// KyvernoAppVersion is the Kyverno binary version the embedded
+// chart installs.
+const KyvernoAppVersion = "v1.18.0"
+
+//go:embed kyverno-3.8.0.tgz
+var kyvernoTarball []byte
+
+// Kyverno parses the embedded Kyverno chart tarball and returns a
+// chart ready for the Helm SDK. Source:
+// https://kyverno.github.io/kyverno/.
+func Kyverno() (*chart.Chart, error) {
+	return helm.LoadArchive(kyvernoTarball)
+}

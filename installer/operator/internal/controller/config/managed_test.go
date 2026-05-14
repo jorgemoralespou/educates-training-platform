@@ -243,6 +243,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		resurrectStuckNamespace(certManagerNamespace)
 		resurrectStuckNamespace(contourNamespace)
 		resurrectStuckNamespace(externalDNSNamespace)
+		resurrectStuckNamespace(kyvernoNamespace)
 		helmFac = newMemoryHelmFactory()
 
 		var mgrCtx context.Context
@@ -289,6 +290,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(contourNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.DaemonSet{}, client.InNamespace(contourNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(externalDNSNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(kyvernoNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.ClusterIssuer{})
 		// Intentionally do NOT delete the cert-manager namespace: envtest
@@ -748,5 +750,71 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			}
 			return cond.Message
 		}, 30*time.Second, 200*time.Millisecond).Should(ContainSubstring("exactly one of iamRoleARN or credentialsSecretRef"))
+	})
+
+	It("installs Kyverno and reaches Ready when all four controllers are Available", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+
+		spec := validManagedSpec()
+		spec.PolicyEnforcement = &configv1alpha1.PolicyEnforcement{
+			ClusterPolicy: configv1alpha1.ClusterPolicyConfig{
+				Engine: configv1alpha1.ClusterPolicyEngineKyverno,
+			},
+			WorkshopPolicy: configv1alpha1.WorkshopPolicyConfig{
+				Engine: configv1alpha1.WorkshopPolicyEngineKyverno,
+			},
+			Kyverno: &configv1alpha1.KyvernoConfig{
+				Provider: configv1alpha1.KyvernoProviderBundled,
+			},
+		}
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Drive prior phases (cert-manager, Contour) to Ready first.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		for _, name := range certManagerDeployments {
+			markDeploymentAvailable(name, certManagerNamespace)
+		}
+		Eventually(func() error {
+			cert := &cmv1.Certificate{}
+			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
+		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+
+		// Now wait for Kyverno's namespace to appear, then drive
+		// each of the four controller Deployments to Available.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: kyvernoNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		for _, name := range kyvernoDeployments {
+			markDeploymentAvailable(name, kyvernoNamespace)
+		}
+
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionTrue))
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+		Expect(got.Status.BundledChartVersions).To(HaveKeyWithValue("kyverno", vendoredcharts.KyvernoChartVersion))
+
+		policyReady := meta.FindStatusCondition(got.Status.Conditions, conditionPolicyEnforcementReady)
+		Expect(policyReady).NotTo(BeNil())
+		Expect(policyReady.Status).To(Equal(metav1.ConditionTrue))
+		Expect(policyReady.Reason).To(Equal("BundledKyvernoReady"))
 	})
 })
