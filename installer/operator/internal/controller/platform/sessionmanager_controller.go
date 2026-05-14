@@ -103,8 +103,19 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			if err := r.cleanupSM(ctx); err != nil {
 				return ctrl.Result{}, err
 			}
-			controllerutil.RemoveFinalizer(obj, finalizerSessionManager)
-			if err := r.Update(ctx, obj); err != nil {
+			// See SecretsManager rationale: status update above leaves
+			// the local obj stale; re-Get under RetryOnConflict.
+			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				live := &platformv1alpha1.SessionManager{}
+				if err := r.Get(ctx, req.NamespacedName, live); err != nil {
+					return client.IgnoreNotFound(err)
+				}
+				if !controllerutil.ContainsFinalizer(live, finalizerSessionManager) {
+					return nil
+				}
+				controllerutil.RemoveFinalizer(live, finalizerSessionManager)
+				return r.Update(ctx, live)
+			}); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
 			}
 		}

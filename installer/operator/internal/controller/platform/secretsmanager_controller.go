@@ -161,8 +161,21 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			if err := r.cleanup(ctx); err != nil {
 				return ctrl.Result{}, err
 			}
-			controllerutil.RemoveFinalizer(obj, finalizerSecretsManager)
-			if err := r.Update(ctx, obj); err != nil {
+			// updateStatusWithTransitionLog above re-Gets a live copy and
+			// updates status against it; our local `obj` ResourceVersion
+			// is now stale. Wrap finalizer removal in RetryOnConflict so
+			// a concurrent watch event can't race the cleanup path.
+			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				live := &platformv1alpha1.SecretsManager{}
+				if err := r.Get(ctx, req.NamespacedName, live); err != nil {
+					return client.IgnoreNotFound(err)
+				}
+				if !controllerutil.ContainsFinalizer(live, finalizerSecretsManager) {
+					return nil
+				}
+				controllerutil.RemoveFinalizer(live, finalizerSecretsManager)
+				return r.Update(ctx, live)
+			}); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
 			}
 		}

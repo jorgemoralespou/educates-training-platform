@@ -104,8 +104,19 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			if err := r.cleanupLS(ctx); err != nil {
 				return ctrl.Result{}, err
 			}
-			controllerutil.RemoveFinalizer(obj, finalizerLookupService)
-			if err := r.Update(ctx, obj); err != nil {
+			// See SecretsManager rationale: status update above leaves
+			// the local obj stale; re-Get under RetryOnConflict.
+			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				live := &platformv1alpha1.LookupService{}
+				if err := r.Get(ctx, req.NamespacedName, live); err != nil {
+					return client.IgnoreNotFound(err)
+				}
+				if !controllerutil.ContainsFinalizer(live, finalizerLookupService) {
+					return nil
+				}
+				controllerutil.RemoveFinalizer(live, finalizerLookupService)
+				return r.Update(ctx, live)
+			}); err != nil {
 				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
 			}
 		}
