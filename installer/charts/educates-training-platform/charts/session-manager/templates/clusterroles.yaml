@@ -16,7 +16,12 @@ aggregationRule:
   clusterRoleSelectors:
     - matchLabels:
         rbac.educates.dev/extends-workshop-permissions: "true"
-rules: []
+# `rules` is intentionally omitted: the clusterrole-aggregation-controller
+# owns the .rules field on aggregate ClusterRoles, populating it by merging
+# rules from labelled child roles. Declaring `rules: []` here would claim
+# field ownership under server-side-apply (Helm v3+ uses SSA on upgrade),
+# fighting the aggregation controller and producing a conflict error every
+# reconcile: `conflict with "clusterrole-aggregation-controller": .rules`.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
