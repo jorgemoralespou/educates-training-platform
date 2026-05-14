@@ -231,6 +231,9 @@ func (r *SessionManagerReconciler) secretsManagerReady(ctx context.Context) (boo
 }
 
 func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) error {
+	if err := ensurePlatformNamespace(ctx, r.Client); err != nil {
+		return err
+	}
 	chrt, err := vendoredcharts.SessionManager()
 	if err != nil {
 		return fmt.Errorf("load embedded chart: %w", err)

@@ -275,6 +275,9 @@ func (r *SecretsManagerReconciler) clusterConfigReady(ctx context.Context) (*con
 // installOrUpgrade renders chart values from CR + cluster config and
 // drives helm install (or upgrade if the release already exists).
 func (r *SecretsManagerReconciler) installOrUpgrade(ctx context.Context, obj *platformv1alpha1.SecretsManager, cfg *configv1alpha1.EducatesClusterConfig) error {
+	if err := ensurePlatformNamespace(ctx, r.Client); err != nil {
+		return err
+	}
 	chrt, err := vendoredcharts.SecretsManager()
 	if err != nil {
 		return fmt.Errorf("load embedded chart: %w", err)

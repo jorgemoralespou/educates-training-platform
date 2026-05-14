@@ -208,6 +208,9 @@ func lookupServiceHost(obj *platformv1alpha1.LookupService, cfg *configv1alpha1.
 }
 
 func (r *LookupServiceReconciler) installOrUpgradeLS(ctx context.Context, obj *platformv1alpha1.LookupService, cfg *configv1alpha1.EducatesClusterConfig) error {
+	if err := ensurePlatformNamespace(ctx, r.Client); err != nil {
+		return err
+	}
 	chrt, err := vendoredcharts.LookupService()
 	if err != nil {
 		return fmt.Errorf("load embedded chart: %w", err)
