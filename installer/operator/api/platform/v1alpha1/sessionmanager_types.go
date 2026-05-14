@@ -267,9 +267,8 @@ type SessionManagerSpec struct {
 }
 
 // SessionManagerStatus defines the observed state of SessionManager.
-// Phase 0 minimum surface; component refs, installedVersion, and
-// trainingCRDsGroup land in Phase 4 alongside the reconciler that
-// produces them.
+// Phase 4 publishes the full CRD draft r3 §4 contract: phase +
+// conditions + installedVersion + deploymentRef.
 type SessionManagerStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -277,15 +276,25 @@ type SessionManagerStatus struct {
 	// +optional
 	Phase ComponentPhase `json:"phase,omitempty"`
 
-	// conditions report the resource's state. Standard type "Ready"
-	// reflects overall readiness; phase-specific types
-	// (ClusterConfigAvailable, SecretsManagerAvailable,
-	// ComponentsDeployed, CRDsRegistered) are added with their
-	// producing reconcilers.
+	// conditions report the resource's state. Phase 4 publishes:
+	//   - Ready                    (aggregate)
+	//   - ClusterConfigAvailable   (EducatesClusterConfig.Ready gate)
+	//   - SecretsManagerAvailable  (SecretsManager.Ready gate)
+	//   - Deployed                 (helm release + Deployment Available)
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// installedVersion records the session-manager chart version most
+	// recently applied.
+	// +optional
+	InstalledVersion string `json:"installedVersion,omitempty"`
+
+	// deploymentRef names the upstream session-manager Deployment the
+	// operator is gating Ready on.
+	// +optional
+	DeploymentRef *NamespacedRef `json:"deploymentRef,omitempty"`
 }
 
 // SessionManager is the singleton resource that drives installation of

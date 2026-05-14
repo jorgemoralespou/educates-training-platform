@@ -739,3 +739,58 @@ sees a hard failure rather than a transient one.
 - Reference docs clearly differentiate production and staging
   use cases.
 - Sample CRs in repository demonstrate both setups.
+
+---
+
+### SessionManager: wire remaining spec fields into chart values
+
+**Date added:** 2026-05-14.
+**Trigger to file:** any user reporting that themes, image cache,
+registry mirrors, or default access credentials configured on the
+SessionManager CR don't take effect.
+
+**Context:**
+
+`renderSessionManagerValues` (installer/operator/internal/controller/
+platform/sessionmanager_controller.go) maps the SessionManagerSpec
+fields the v1alpha1 CRD exposes today onto the session-manager
+subchart's values shape. Four spec blocks are reserved in the CRD
+but not yet wired through; the reconciler explicitly discards them
+via `_ = obj.Spec.<Field>` so the gap is visible in the source:
+
+1. **`spec.themes` + `spec.defaultTheme`** — the subchart accepts
+   `websiteStyling.themeDataRefs` (Secret refs only) plus an inline
+   blob. The CRD's `ThemeSource` supports `ConfigMap`, `Secret`, and
+   `URL`. Translating ConfigMap-sourced themes requires either
+   extending the subchart to accept ConfigMap refs or having the
+   operator copy/transform the ConfigMap into a Secret in the
+   release namespace at apply time.
+2. **`spec.defaultAccessCredentials`** — the runtime carries an
+   admin/robot credentials pipeline (now stable via Helm `lookup`
+   in `resolvedTrainingPortal`), but the CRD's
+   `DefaultAccessCredentials` is a separate concept that pre-seeds
+   *workshop* (not portal-admin) credentials. The subchart has no
+   typed value for it yet; landing it requires a chart-side
+   addition plus an operator mapping.
+3. **`spec.imageCache`** — `imageCache.enabled: true` should toggle
+   the chart's `imagePuller.enabled` plus pre-populate `prePullImages`
+   from the resolved image inventory. Neither half is in place yet.
+4. **`spec.registryMirrors`** — the v3 carvel runtime had a
+   workshop-side registry mirror story (rewriting workshop
+   container pulls to internal mirrors). No chart wiring in v4 yet;
+   needs a runtime-config field and a chart values shape.
+
+**Scope:**
+
+One follow-up PR per item, in order of demand. (1) likely first
+because themes are user-facing; (3) and (4) tend to land together
+because they share the air-gap/mirror story.
+
+**Acceptance criteria:**
+
+- Each item's spec block, when set on a SessionManager CR, takes
+  effect at runtime on a real cluster (verified manually).
+- envtest specs assert the values map renders the expected
+  subchart-values shape for each.
+- Reconciler removes the `_ = obj.Spec.<Field>` placeholder and
+  notes the mapping in `renderSessionManagerValues`'s comment.

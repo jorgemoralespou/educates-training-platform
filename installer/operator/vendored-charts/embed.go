@@ -128,6 +128,23 @@ func LookupService() (*chart.Chart, error) {
 	return helm.LoadArchive(lookupServiceTarball)
 }
 
+// SessionManagerChartVersion is the version stamped onto the in-repo
+// `session-manager` subchart. Regenerate the tarball via
+// `make package-local-charts` after editing the chart. Surfaced in
+// SessionManager.status.installedVersion.
+const SessionManagerChartVersion = "4.0.0-alpha.1"
+
+//go:embed session-manager-4.0.0-alpha.1.tgz
+var sessionManagerTarball []byte
+
+// SessionManager parses the embedded `session-manager` subchart
+// tarball and returns a chart ready for the Helm SDK. The subchart
+// lives at `installer/charts/educates-training-platform/charts/session-manager`
+// in source form.
+func SessionManager() (*chart.Chart, error) {
+	return helm.LoadArchive(sessionManagerTarball)
+}
+
 // KyvernoChartVersion is the upstream Helm chart version
 // (semver of the *chart*, distinct from the Kyverno binary
 // appVersion). Surfaced in status.bundledChartVersions["kyverno"].

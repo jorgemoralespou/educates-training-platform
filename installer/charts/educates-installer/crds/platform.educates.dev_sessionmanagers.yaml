@@ -334,17 +334,16 @@ spec:
           status:
             description: |-
               SessionManagerStatus defines the observed state of SessionManager.
-              Phase 0 minimum surface; component refs, installedVersion, and
-              trainingCRDsGroup land in Phase 4 alongside the reconciler that
-              produces them.
+              Phase 4 publishes the full CRD draft r3 §4 contract: phase +
+              conditions + installedVersion + deploymentRef.
             properties:
               conditions:
                 description: |-
-                  conditions report the resource's state. Standard type "Ready"
-                  reflects overall readiness; phase-specific types
-                  (ClusterConfigAvailable, SecretsManagerAvailable,
-                  ComponentsDeployed, CRDsRegistered) are added with their
-                  producing reconcilers.
+                  conditions report the resource's state. Phase 4 publishes:
+                    - Ready                    (aggregate)
+                    - ClusterConfigAvailable   (EducatesClusterConfig.Ready gate)
+                    - SecretsManagerAvailable  (SecretsManager.Ready gate)
+                    - Deployed                 (helm release + Deployment Available)
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -403,6 +402,24 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              deploymentRef:
+                description: |-
+                  deploymentRef names the upstream session-manager Deployment the
+                  operator is gating Ready on.
+                properties:
+                  name:
+                    type: string
+                  namespace:
+                    type: string
+                required:
+                - name
+                - namespace
+                type: object
+              installedVersion:
+                description: |-
+                  installedVersion records the session-manager chart version most
+                  recently applied.
+                type: string
               observedGeneration:
                 format: int64
                 type: integer

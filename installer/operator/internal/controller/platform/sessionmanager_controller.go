@@ -18,39 +18,609 @@ package platform
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
+	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
+	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
 
-// SessionManagerReconciler reconciles a SessionManager object
+const (
+	// sessionManagerReleaseName is the Helm release name for the
+	// session-manager subchart. Co-located with secrets-manager +
+	// lookup-service in platformNamespace.
+	sessionManagerReleaseName = "session-manager"
+
+	// sessionManagerDeploymentName matches the chart template's fixed
+	// Deployment name. Readiness gate for Ready=True.
+	sessionManagerDeploymentName = "session-manager"
+
+	// finalizerSessionManager guarantees the reconciler drains the
+	// helm release before the CR is removed.
+	finalizerSessionManager = "sessionmanager.platform.educates.dev/finalizer"
+
+	// conditionSecretsManagerAvailable is the second cross-CR gate.
+	// session-manager's runtime relies on secrets-manager to propagate
+	// pull secrets and ingress TLS into workshop namespaces; we refuse
+	// to install until SecretsManager.Ready.
+	conditionSecretsManagerAvailable = "SecretsManagerAvailable"
+)
+
+// SessionManagerReconciler drives the SessionManager CR. Two cross-CR
+// gates (EducatesClusterConfig.Ready + SecretsManager.Ready) plus the
+// largest values surface of the three platform reconcilers.
 type SessionManagerReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// HelmClientFor returns a Helm client scoped to the given
+	// namespace. Production: REST-config-backed. Envtest: in-memory.
+	HelmClientFor func(namespace string) (*helm.Client, error)
 }
 
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=sessionmanagers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=sessionmanagers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=sessionmanagers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=platform.educates.dev,resources=secretsmanagers,verbs=get;list;watch
 
-// Reconcile is the entry point for the SessionManager controller.
-//
-// Phase 0: stub. Logs the observed object and returns without making any
-// state changes. Real reconciliation lands in Phase 4.
+// Reconcile drives a SessionManager CR through its lifecycle.
 func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
-	log.Info("Reconciling SessionManager", "name", req.Name)
-	return ctrl.Result{}, nil
+
+	obj := &platformv1alpha1.SessionManager{}
+	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	log.V(1).Info("Reconciling SessionManager")
+
+	if !obj.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(obj, finalizerSessionManager) {
+			r.markSMPhase(obj, platformv1alpha1.ComponentPhaseUninstalling)
+			if err := r.updateSMStatusWithTransitionLog(ctx, log, obj); err != nil {
+				return ctrl.Result{}, err
+			}
+			if err := r.cleanupSM(ctx); err != nil {
+				return ctrl.Result{}, err
+			}
+			controllerutil.RemoveFinalizer(obj, finalizerSessionManager)
+			if err := r.Update(ctx, obj); err != nil {
+				return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if !controllerutil.ContainsFinalizer(obj, finalizerSessionManager) {
+		controllerutil.AddFinalizer(obj, finalizerSessionManager)
+		if err := r.Update(ctx, obj); err != nil {
+			return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
+		}
+		if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Gate 1: EducatesClusterConfig.Ready
+	cfg, ready, err := r.clusterConfigReadySM(ctx)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("read EducatesClusterConfig: %w", err)
+	}
+	if !ready {
+		r.markSMClusterConfigAvailable(obj, metav1.ConditionFalse, "ClusterConfigNotReady",
+			"EducatesClusterConfig 'cluster' is not yet Ready; waiting")
+		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForClusterConfig",
+			"EducatesClusterConfig 'cluster' must reach Ready before session-manager can install")
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+	}
+	r.markSMClusterConfigAvailable(obj, metav1.ConditionTrue, "ClusterConfigReady",
+		"EducatesClusterConfig 'cluster' is Ready")
+
+	// session-manager additionally needs the cluster ingress contract
+	// (TLS Secret, ingress class) to render its runtime config.
+	if cfg.Status.Ingress == nil {
+		r.markSMReady(obj, metav1.ConditionFalse, "MissingIngressContract",
+			"EducatesClusterConfig.status.ingress is not populated; waiting")
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+	}
+
+	// Gate 2: SecretsManager.Ready. session-manager relies on
+	// secrets-manager's SecretCopier+SecretInjector controllers to
+	// propagate pull secrets and TLS into workshop namespaces; we
+	// refuse to install until it's healthy.
+	smReady, err := r.secretsManagerReady(ctx)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("read SecretsManager: %w", err)
+	}
+	if !smReady {
+		r.markSMSecretsManagerAvailable(obj, metav1.ConditionFalse, "SecretsManagerNotReady",
+			"SecretsManager 'cluster' is not yet Ready; waiting")
+		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
+			"SecretsManager 'cluster' must reach Ready before session-manager can install")
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+	}
+	r.markSMSecretsManagerAvailable(obj, metav1.ConditionTrue, "SecretsManagerReady",
+		"SecretsManager 'cluster' is Ready")
+
+	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
+	if err := r.installOrUpgradeSM(ctx, obj, cfg); err != nil {
+		r.markSMDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
+		r.markSMReady(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
+		_ = r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{}, fmt.Errorf("helm install session-manager: %w", err)
+	}
+	r.markSMDeployed(obj, metav1.ConditionTrue, "ChartInstalled",
+		fmt.Sprintf("session-manager chart %s installed in namespace %s",
+			vendoredcharts.SessionManagerChartVersion, platformNamespace))
+
+	avail, err := r.deploymentAvailableSM(ctx)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("read session-manager Deployment: %w", err)
+	}
+	if !avail {
+		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForDeployment",
+			"session-manager Deployment not yet Available")
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+	}
+
+	obj.Status.InstalledVersion = vendoredcharts.SessionManagerChartVersion
+	obj.Status.DeploymentRef = &platformv1alpha1.NamespacedRef{
+		Namespace: platformNamespace,
+		Name:      sessionManagerDeploymentName,
+	}
+	r.markSMReady(obj, metav1.ConditionTrue, "SessionManagerReady",
+		"session-manager is installed and Available")
+	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseReady)
+	obj.Status.ObservedGeneration = obj.Generation
+	return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
 }
 
-// SetupWithManager sets up the controller with the Manager.
+func (r *SessionManagerReconciler) clusterConfigReadySM(ctx context.Context) (*configv1alpha1.EducatesClusterConfig, bool, error) {
+	cfg := &configv1alpha1.EducatesClusterConfig{}
+	if err := r.Get(ctx, types.NamespacedName{Name: configSingletonName}, cfg); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	cond := meta.FindStatusCondition(cfg.Status.Conditions, conditionReady)
+	if cond == nil || cond.Status != metav1.ConditionTrue {
+		return cfg, false, nil
+	}
+	return cfg, true, nil
+}
+
+// secretsManagerReady fetches the SecretsManager singleton and reports
+// whether its aggregate Ready condition is True. NotFound is treated
+// as "not ready, may appear later" — same shape as the cluster config
+// gate.
+func (r *SessionManagerReconciler) secretsManagerReady(ctx context.Context) (bool, error) {
+	sm := &platformv1alpha1.SecretsManager{}
+	if err := r.Get(ctx, types.NamespacedName{Name: singletonName}, sm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	cond := meta.FindStatusCondition(sm.Status.Conditions, conditionReady)
+	return cond != nil && cond.Status == metav1.ConditionTrue, nil
+}
+
+func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) error {
+	chrt, err := vendoredcharts.SessionManager()
+	if err != nil {
+		return fmt.Errorf("load embedded chart: %w", err)
+	}
+	hc, err := r.HelmClientFor(platformNamespace)
+	if err != nil {
+		return fmt.Errorf("build helm client: %w", err)
+	}
+	vals := renderSessionManagerValues(obj, cfg)
+	if _, err := hc.Status(sessionManagerReleaseName); err != nil {
+		if err == helm.ErrReleaseNotFound {
+			if _, err := hc.Install(ctx, sessionManagerReleaseName, chrt, vals); err != nil {
+				return fmt.Errorf("helm install: %w", err)
+			}
+			return nil
+		}
+		return fmt.Errorf("helm status: %w", err)
+	}
+	if _, err := hc.Upgrade(ctx, sessionManagerReleaseName, chrt, vals); err != nil {
+		return fmt.Errorf("helm upgrade: %w", err)
+	}
+	return nil
+}
+
+// renderSessionManagerValues maps SessionManagerSpec + cluster config
+// status into the session-manager subchart's values shape.
+//
+// Scoped to fields the v1alpha1 CRD exposes today. The richer surface
+// the subchart accepts (themes content, image-cache wiring, registry
+// mirrors, default access credentials, image puller daemonset) is
+// captured in `docs/architecture/follow-up-issues.md` so the gaps
+// don't get lost.
+//
+// Stable across `helm upgrade`: the session-manager chart's own
+// `resolvedTrainingPortal` helper (see installer/charts/.../charts/
+// session-manager/templates/_helpers.tpl) reads back any prior
+// generated credentials from the live `educates-config` Secret via
+// `helm lookup`, so passwords don't rotate on every reconcile.
+func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) map[string]any {
+	values := map[string]any{}
+
+	// development.imageRegistry — split prefix into host + namespace.
+	if cfg.Status.ImageRegistry != nil && cfg.Status.ImageRegistry.Prefix != "" {
+		host, ns := splitImageRegistryPrefix(cfg.Status.ImageRegistry.Prefix)
+		values["development"] = map[string]any{
+			"imageRegistry": map[string]any{
+				"host":      host,
+				"namespace": ns,
+			},
+		}
+	}
+
+	// imagePullSecrets — propagate from cluster config.
+	if cfg.Status.ImageRegistry != nil && len(cfg.Status.ImageRegistry.PullSecrets) > 0 {
+		refs := make([]any, 0, len(cfg.Status.ImageRegistry.PullSecrets))
+		for _, ref := range cfg.Status.ImageRegistry.PullSecrets {
+			refs = append(refs, map[string]any{"name": ref.Name})
+		}
+		values["imagePullSecrets"] = refs
+		// secretPropagation.imagePullSecretNames mirrors the same list
+		// so the chart's SecretCopier renders fan-out into workshop
+		// namespaces. The CRD doesn't distinguish "namespace-local" vs
+		// "pre-existing-to-propagate" pull secrets, so we assume all
+		// configured pull secrets should propagate. This matches v3
+		// carvel behaviour.
+		names := make([]any, 0, len(cfg.Status.ImageRegistry.PullSecrets))
+		for _, ref := range cfg.Status.ImageRegistry.PullSecrets {
+			names = append(names, ref.Name)
+		}
+		values["secretPropagation"] = map[string]any{
+			"imagePullSecretNames": names,
+		}
+	}
+
+	// imageVersions — per-image overrides from CR spec.
+	if obj.Spec.Images != nil && len(obj.Spec.Images.Overrides) > 0 {
+		entries := make([]any, 0, len(obj.Spec.Images.Overrides))
+		for _, o := range obj.Spec.Images.Overrides {
+			entries = append(entries, map[string]any{
+				"name":  o.Name,
+				"image": o.Image,
+			})
+		}
+		values["imageVersions"] = entries
+	}
+
+	// clusterIngress — TLS + CA refs from cluster config status, with
+	// optional per-SessionManager override of the Secret name. The
+	// override resolves against the cluster-config-published
+	// namespace; the chart's auto-SecretCopier handles cross-namespace
+	// placement.
+	tlsRef := map[string]any{
+		"name":      cfg.Status.Ingress.WildcardCertificateSecretRef.Name,
+		"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
+	}
+	if obj.Spec.IngressOverrides != nil && obj.Spec.IngressOverrides.TLSSecretRef != nil {
+		tlsRef = map[string]any{
+			"name":      obj.Spec.IngressOverrides.TLSSecretRef.Name,
+			"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
+		}
+	}
+	clusterIngress := map[string]any{
+		"domain":            cfg.Status.Ingress.Domain,
+		"class":             cfg.Status.Ingress.IngressClassName,
+		"tlsCertificateRef": tlsRef,
+	}
+	caRef := map[string]any{"name": "", "namespace": ""}
+	if cfg.Status.Ingress.CACertificateSecretRef != nil {
+		caRef = map[string]any{
+			"name":      cfg.Status.Ingress.CACertificateSecretRef.Name,
+			"namespace": cfg.Status.Ingress.CACertificateSecretRef.Namespace,
+		}
+	}
+	if obj.Spec.IngressOverrides != nil && obj.Spec.IngressOverrides.CACertificateSecretRef != nil {
+		caRef = map[string]any{
+			"name":      obj.Spec.IngressOverrides.CACertificateSecretRef.Name,
+			"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
+		}
+	}
+	clusterIngress["caCertificateRef"] = caRef
+	values["clusterIngress"] = clusterIngress
+
+	// clusterSecurity.policyEngine — from cluster config status.
+	if cfg.Status.PolicyEnforcement != nil && cfg.Status.PolicyEnforcement.ClusterPolicyEngine != "" {
+		values["clusterSecurity"] = map[string]any{
+			"policyEngine": string(cfg.Status.PolicyEnforcement.ClusterPolicyEngine),
+		}
+	}
+
+	// workshopSecurity.rulesEngine — from cluster config status, with
+	// optional CR override.
+	if cfg.Status.PolicyEnforcement != nil && cfg.Status.PolicyEnforcement.WorkshopPolicyEngine != "" {
+		engine := string(cfg.Status.PolicyEnforcement.WorkshopPolicyEngine)
+		if obj.Spec.WorkshopPolicyOverride != nil && obj.Spec.WorkshopPolicyOverride.Engine != "" {
+			engine = string(obj.Spec.WorkshopPolicyOverride.Engine)
+		}
+		values["workshopSecurity"] = map[string]any{
+			"rulesEngine": engine,
+		}
+	}
+
+	// sessionCookies.domain — empty defaults to the ingress domain in
+	// the runtime (handled inside the chart helpers).
+	if obj.Spec.SessionCookieDomain != "" {
+		values["sessionCookies"] = map[string]any{
+			"domain": obj.Spec.SessionCookieDomain,
+		}
+	}
+
+	// clusterStorage — pass through directly.
+	if obj.Spec.Storage != nil {
+		storage := map[string]any{}
+		if obj.Spec.Storage.StorageClass != "" {
+			storage["class"] = obj.Spec.Storage.StorageClass
+		}
+		if obj.Spec.Storage.StorageGroup != nil {
+			storage["group"] = *obj.Spec.Storage.StorageGroup
+		}
+		if obj.Spec.Storage.StorageUser != nil {
+			storage["user"] = *obj.Spec.Storage.StorageUser
+		}
+		if len(storage) > 0 {
+			values["clusterStorage"] = storage
+		}
+	}
+
+	// clusterNetwork.blockCIDRs — from CR (empty means "leave chart
+	// defaults" which is the AWS IMDS block).
+	if obj.Spec.Network != nil && len(obj.Spec.Network.BlockedCIDRs) > 0 {
+		entries := make([]any, 0, len(obj.Spec.Network.BlockedCIDRs))
+		for _, c := range obj.Spec.Network.BlockedCIDRs {
+			entries = append(entries, c)
+		}
+		values["clusterNetwork"] = map[string]any{
+			"blockCIDRs": entries,
+		}
+	}
+
+	// dockerDaemon.networkMTU — from spec.network.packetSize (the same
+	// concept, named differently per CRD draft).
+	if obj.Spec.Network != nil && obj.Spec.Network.PacketSize != nil {
+		values["dockerDaemon"] = map[string]any{
+			"networkMTU": *obj.Spec.Network.PacketSize,
+		}
+	}
+
+	// workshopAnalytics — three named providers + a webhook.
+	if obj.Spec.Tracking != nil {
+		analytics := map[string]any{}
+		if obj.Spec.Tracking.GoogleAnalytics != nil {
+			analytics["google"] = map[string]any{
+				"trackingId": obj.Spec.Tracking.GoogleAnalytics.TrackingID,
+			}
+		}
+		if obj.Spec.Tracking.Clarity != nil {
+			analytics["clarity"] = map[string]any{
+				"trackingId": obj.Spec.Tracking.Clarity.TrackingID,
+			}
+		}
+		if obj.Spec.Tracking.Amplitude != nil {
+			analytics["amplitude"] = map[string]any{
+				"trackingId": obj.Spec.Tracking.Amplitude.TrackingID,
+			}
+		}
+		if obj.Spec.Tracking.Webhook != nil {
+			analytics["webhook"] = map[string]any{
+				"url": obj.Spec.Tracking.Webhook.URL,
+			}
+		}
+		if len(analytics) > 0 {
+			values["workshopAnalytics"] = analytics
+		}
+	}
+
+	// websiteStyling.frameAncestors — CSP allow-list for workshop frame
+	// embedding.
+	if len(obj.Spec.AllowedEmbeddingHosts) > 0 {
+		hosts := make([]any, 0, len(obj.Spec.AllowedEmbeddingHosts))
+		for _, h := range obj.Spec.AllowedEmbeddingHosts {
+			hosts = append(hosts, h)
+		}
+		values["websiteStyling"] = map[string]any{
+			"frameAncestors": hosts,
+		}
+	}
+
+	// Themes content sourcing (ConfigMap/Secret/URL) is reserved in
+	// the CRD but not yet wired into renderSessionManagerValues — the
+	// chart accepts Secret refs only and the CRD's ConfigMap source
+	// needs a translation step (operator ConfigMap → in-namespace
+	// Secret with the same keys). Follow-up filed under "SessionManager
+	// theme sourcing" in docs/architecture/follow-up-issues.md.
+	_ = obj.Spec.Themes
+	_ = obj.Spec.DefaultTheme
+
+	// DefaultAccessCredentials, ImageCache, RegistryMirrors: reserved
+	// in the CRD; mapping awaits chart additions. See follow-ups.
+	_ = obj.Spec.DefaultAccessCredentials
+	_ = obj.Spec.ImageCache
+	_ = obj.Spec.RegistryMirrors
+
+	// logLevel doesn't have a typed top-level chart value; the runtime
+	// reads it from the rendered operator-config Secret. Route through
+	// the chart's `config` escape hatch so it lands in the right place
+	// without burning a typed field for it pre-v1.
+	if obj.Spec.LogLevel != "" {
+		values["config"] = map[string]any{
+			"logLevel": strings.ToLower(string(obj.Spec.LogLevel)),
+		}
+	}
+
+	return values
+}
+
+func (r *SessionManagerReconciler) deploymentAvailableSM(ctx context.Context) (bool, error) {
+	dep := &appsv1.Deployment{}
+	key := types.NamespacedName{Namespace: platformNamespace, Name: sessionManagerDeploymentName}
+	if err := r.Get(ctx, key, dep); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, c := range dep.Status.Conditions {
+		if c.Type == appsv1.DeploymentAvailable {
+			return c.Status == corev1.ConditionTrue, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *SessionManagerReconciler) cleanupSM(ctx context.Context) error {
+	_ = ctx
+	hc, err := r.HelmClientFor(platformNamespace)
+	if err != nil {
+		return fmt.Errorf("build helm client for cleanup: %w", err)
+	}
+	if err := hc.Uninstall(sessionManagerReleaseName); err != nil {
+		return fmt.Errorf("uninstall release: %w", err)
+	}
+	return nil
+}
+
+// --- Status helpers -------------------------------------------------
+
+func (r *SessionManagerReconciler) markSMReady(obj *platformv1alpha1.SessionManager, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionReady,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+func (r *SessionManagerReconciler) markSMClusterConfigAvailable(obj *platformv1alpha1.SessionManager, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionClusterConfigAvailable,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+func (r *SessionManagerReconciler) markSMSecretsManagerAvailable(obj *platformv1alpha1.SessionManager, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionSecretsManagerAvailable,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+func (r *SessionManagerReconciler) markSMDeployed(obj *platformv1alpha1.SessionManager, status metav1.ConditionStatus, reason, message string) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionDeployed,
+		Status:             status,
+		Reason:             reason,
+		Message:            message,
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+func (r *SessionManagerReconciler) markSMPhase(obj *platformv1alpha1.SessionManager, phase platformv1alpha1.ComponentPhase) {
+	obj.Status.Phase = phase
+}
+
+func (r *SessionManagerReconciler) updateSMStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *platformv1alpha1.SessionManager) error {
+	desiredReady := meta.FindStatusCondition(obj.Status.Conditions, conditionReady)
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		live := &platformv1alpha1.SessionManager{}
+		if err := r.Get(ctx, types.NamespacedName{Name: obj.Name}, live); err != nil {
+			return err
+		}
+		priorReady := meta.FindStatusCondition(live.Status.Conditions, conditionReady)
+		live.Status = obj.Status
+		if err := r.Status().Update(ctx, live); err != nil {
+			return err
+		}
+		if desiredReady != nil && (priorReady == nil ||
+			priorReady.Status != desiredReady.Status ||
+			priorReady.Reason != desiredReady.Reason) {
+			log.Info("SessionManager Ready transition",
+				"status", desiredReady.Status, "reason", desiredReady.Reason,
+				"message", desiredReady.Message)
+		}
+		return nil
+	})
+}
+
+// --- Watch wiring ---------------------------------------------------
+
+// SetupWithManager configures the SessionManager controller. Watches:
+//   - SessionManager (For target, GenerationChangedPredicate).
+//   - EducatesClusterConfig (cross-CR gate 1).
+//   - SecretsManager (cross-CR gate 2).
+//   - apps/v1 Deployment, narrowed to platform-ns + session-manager.
 func (r *SessionManagerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&platformv1alpha1.SessionManager{}).
+		For(&platformv1alpha1.SessionManager{},
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(&configv1alpha1.EducatesClusterConfig{},
+			handler.EnqueueRequestsFromMapFunc(mapClusterConfigToSessionManager)).
+		Watches(&platformv1alpha1.SecretsManager{},
+			handler.EnqueueRequestsFromMapFunc(mapSecretsManagerToSessionManager)).
+		Watches(&appsv1.Deployment{},
+			handler.EnqueueRequestsFromMapFunc(mapSessionManagerDeployment)).
 		Named("platform-sessionmanager").
 		Complete(r)
+}
+
+func mapClusterConfigToSessionManager(_ context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetName() != configSingletonName {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: singletonName}}}
+}
+
+func mapSecretsManagerToSessionManager(_ context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetName() != singletonName {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: singletonName}}}
+}
+
+func mapSessionManagerDeployment(_ context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetNamespace() != platformNamespace || obj.GetName() != sessionManagerDeploymentName {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: singletonName}}}
 }
