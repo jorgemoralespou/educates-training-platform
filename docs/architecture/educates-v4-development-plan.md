@@ -559,7 +559,7 @@ ClusterIssuer CRD.
   rewrites nothing). Lands alongside Phase 3's Contour/Kyverno
   chart wiring, which has the same need.
 
-### Phase 3: Remaining cluster services (2–3 weeks)
+### Phase 3: Remaining cluster services (2–3 weeks) — done (2026-05-14)
 
 Now that the patterns are proven, repeat for:
 
@@ -570,9 +570,11 @@ Now that the patterns are proven, repeat for:
 For each: install chart, real readiness check, status fields, finalizer order. 2–4 days each in flow.
 
 **Done when:**
-- A Managed-mode `EducatesClusterConfig` matching the local kind scenario (Scenario A in the CRD draft) reaches `Ready: True` end-to-end.
-- A Managed-mode config matching the GKE production scenario (Scenario B) installs all four cluster services in correct order.
-- Deletion cleans up in reverse order without orphans.
+- A Managed-mode `EducatesClusterConfig` matching the local kind scenario (Scenario A in the CRD draft) reaches `Ready: True` end-to-end. ✅ — `installer/samples/01-local-kind-customca.yaml`.
+- A Managed-mode config matching the GKE production scenario (Scenario B) installs all four cluster services in correct order. ✅ — `installer/samples/02-gke-clouddns-acme.yaml` verified on a real GKE cluster with CloudDNS + Workload Identity + ACME.
+- Deletion cleans up in reverse order without orphans. ✅ — finalizer drains Kyverno → external-dns → Contour → cert-manager.
+
+ACME-DNS01 (Route53 IRSA + CloudDNS Workload Identity) lands here ahead of schedule because real-cluster verification required it. Static-credentials Secrets, Cloudflare/AzureDNS, ACME staging-server docs, and external-dns `domainFilters` configurability are captured in `follow-up-issues.md` for post-Phase-3 polish.
 
 ### Phase 4: Component CRDs (3–4 weeks)
 

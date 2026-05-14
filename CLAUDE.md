@@ -156,7 +156,7 @@ make vendor-charts             # Download upstream charts into vendored-charts/,
 make verify-vendored-charts    # Re-verify SHA256 of tarballs already on disk
 ```
 
-Phase status (as of 2026-05-11):
+Phase status (as of 2026-05-14):
 
 - **Phase 0 (foundations) — done.** Scaffold, CRDs, chart, envtest, smoke
   test, CI all in place. Reconcilers were stubs.
@@ -173,11 +173,21 @@ Phase status (as of 2026-05-11):
   `educates-installer`); `status.ingress` published with
   wildcardCertificateSecretRef + clusterIssuerRef; `CertificatesReady`
   condition tied to `Certificate.Ready`; finalizer drains in reverse
-  install order. Currently scoped to
-  `provider: BundledCertManager, issuerType: CustomCA` —
-  ACME/Static/External providers return explicit "not yet supported"
-  validation errors. Phase 3 picks up Contour/Kyverno/external-dns
-  next.
+  install order.
+- **Phase 3 (Contour + external-dns + Kyverno + ACME) — done.** The
+  remaining three cluster services land with the same shape as Phase 2:
+  vendored Helm chart, Deployment-readiness gate, finalizer drain in
+  reverse-install order, per-service Ready condition
+  (`IngressReady`, `DNSReady`, `PolicyEnforcementReady`) and
+  Bundled-chart version published to `status.bundledChartVersions`.
+  cert-manager grows ACME-DNS01 support for Route53 (IRSA on EKS) and
+  CloudDNS (Workload Identity on GKE); static-credentials Secrets and
+  Cloudflare/AzureDNS providers are reserved in the CRD but rejected as
+  "not yet supported" until follow-ups land them. Real-cluster
+  verification: kind (CustomCA + Contour, samples/01) and GKE
+  (CloudDNS-ACME + external-dns + Kyverno, samples/02).
+  Sample CRs live under `installer/samples/`. Phase 4 picks up the
+  three platform component reconcilers next.
 
 Living conventions (carry across phases unless superseded):
 
