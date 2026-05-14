@@ -28,6 +28,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 
 	"helm.sh/helm/v4/pkg/action"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
@@ -85,6 +87,15 @@ func NewClient(cfg *rest.Config, namespace string) (*Client, error) {
 	if err := actionCfg.Init(getter, namespace, helmDriver); err != nil {
 		return nil, fmt.Errorf("init helm action config: %w", err)
 	}
+	// Pipe helm SDK's internal slog output to the operator pod's
+	// stderr at Debug level. controller-runtime captures the pod's
+	// stderr alongside its own logs. Helm logs critical paths at
+	// Debug — including the per-resource error detail Uninstall
+	// collapses into the opaque "failed to delete release: <name>"
+	// return value. Without this, a botched uninstall is invisible.
+	actionCfg.SetLogger(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}))
 	return &Client{cfg: actionCfg, namespace: namespace}, nil
 }
 

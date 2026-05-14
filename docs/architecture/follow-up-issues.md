@@ -794,3 +794,80 @@ because they share the air-gap/mirror story.
   subchart-values shape for each.
 - Reconciler removes the `_ = obj.Spec.<Field>` placeholder and
   notes the mapping in `renderSessionManagerValues`'s comment.
+
+---
+
+### Block EducatesClusterConfig finalize while platform CRs exist
+
+**Date added:** 2026-05-14.
+**Trigger to file:** observed on a real GKE cluster — deleting
+`EducatesClusterConfig` first then the three platform CRs led to
+SessionManager's finalizer drain failing in a tight loop with the
+opaque helm error `failed to delete release: session-manager`.
+
+**Context:**
+
+The Phase 4 platform reconcilers (SecretsManager, LookupService,
+SessionManager) install helm releases that track resources
+created from cluster-services CRDs (kyverno ClusterPolicy in
+particular). When the user deletes `EducatesClusterConfig`
+first, ECC's finalizer drains the cluster services in reverse
+install order — which removes Kyverno (and its CRDs). The
+SessionManager helm release Secret still references kyverno
+ClusterPolicy resources by name; when the SessionManager
+finalizer subsequently runs `helm uninstall`, helm can't
+enumerate those kinds anymore (CRD gone, NoMatchError under the
+hood) and collapses the per-resource error into a generic
+"failed to delete release" with no detail.
+
+User experience: SessionManager stuck `Uninstalling` forever;
+`kubectl delete sessionmanager cluster` hangs; the only way out
+is to manually patch the finalizer off and clean up the orphan
+`educates` namespace by hand.
+
+The architectural fix is to make EducatesClusterConfig's
+finalizer refuse to proceed while any of the three platform CRs
+exist. The user then sees a clear "Stuck terminating: platform
+CRs still present" status message and learns the order.
+
+**Scope:**
+
+- Extend `EducatesClusterConfigReconciler.cleanupManaged` (or
+  its caller) with a pre-flight check: list SecretsManager,
+  LookupService, SessionManager singletons. If any exist (even
+  in Terminating state), publish a `Ready=False` /
+  `Phase=Uninstalling` condition with reason
+  `PlatformCRsPresent` and message naming the offenders;
+  requeue without proceeding.
+- Watch on the three platform CR kinds from the
+  EducatesClusterConfigReconciler so deletion events re-enqueue
+  ECC.
+- envtest spec: delete ECC while a SecretsManager exists;
+  assert ECC stays terminating and surfaces the condition;
+  delete SecretsManager; assert ECC unblocks.
+
+**Why not "ignore missing kinds during uninstall"?**
+
+Tempting alternative is to make the helm wrapper tolerant of
+NoMatchError during uninstall (treat as "already gone, drain
+proceeds"). This works but masks a real ordering bug: the user
+intended the platform CRs to drain first, and silently completing
+the SessionManager uninstall with kyverno-related resources
+half-orphaned in the `educates` namespace leaves the cluster in
+an inconsistent state. Refusal + clear error is the better UX.
+
+**Related visibility fix already landed:**
+
+helm SDK's slog handler is now wired to the operator pod's
+stderr at Debug level (commit TBD), so future runs surface the
+per-resource error detail behind the collapsed
+"failed to delete release" message. That helps diagnosis even
+when the architectural fix isn't yet in place.
+
+**Acceptance criteria:**
+
+- Deleting ECC while any platform CR exists publishes the
+  `PlatformCRsPresent` condition and does not proceed with
+  cluster-service cleanup.
+- Deleting platform CRs first lets ECC's finalizer run cleanly.
+- envtest covers both ordering paths.

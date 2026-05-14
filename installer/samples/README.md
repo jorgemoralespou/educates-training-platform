@@ -23,7 +23,30 @@ Apply order:
 helm install educates-installer ./installer/charts/educates-installer \
   --namespace educates-installer --create-namespace
 kubectl apply -f installer/samples/<scenario>.yaml
+kubectl apply -f installer/samples/secretsmanager.yaml
+kubectl apply -f installer/samples/lookupservice.yaml      # optional
+kubectl apply -f installer/samples/sessionmanager.yaml
 ```
 
 Each file's comment header lists the prerequisites (Secrets to create,
 IAM/Workload Identity bindings to set up before applying the CR).
+
+## Deletion order
+
+Delete in **reverse** order:
+
+```bash
+kubectl delete sessionmanager cluster
+kubectl delete lookupservice cluster      # if applied
+kubectl delete secretsmanager cluster
+kubectl delete educatesclusterconfig cluster
+```
+
+Deleting `EducatesClusterConfig` first drains the cluster services
+(cert-manager, contour, kyverno, external-dns); platform-component
+finalizers then can't clean up resources whose CRDs are already gone,
+and you'll see opaque `helm uninstall ... failed to delete release`
+errors from the operator. A follow-up
+(`Block EducatesClusterConfig finalize while platform CRs exist`)
+will turn this into an explicit refusal with a clear message; until
+that lands, the order above is required.
