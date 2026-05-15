@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -152,22 +153,7 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 					return ctrl.Result{}, err
 				}
 			}
-			controllerutil.RemoveFinalizer(obj, finalizerName)
-			if err := r.Update(ctx, obj); err != nil {
-				// Once the prior reconcile's finalizer-removal Update
-				// reached etcd, the apiserver deletes the CR. A
-				// follow-up reconcile fired from controller-runtime's
-				// cache (which lags) re-enters this branch with a
-				// stale snapshot showing the finalizer still set; the
-				// Update then collides with the now-deleted object
-				// and surfaces as a Conflict (etcd UID-precondition
-				// failure) or NotFound. Both mean "drain is already
-				// done", not a real error — return nil so we don't
-				// emit a Reconciler-error log with stack trace per
-				// retry.
-				if apierrors.IsNotFound(err) || apierrors.IsConflict(err) {
-					return ctrl.Result{}, nil
-				}
+			if err := r.patchFinalizer(ctx, req.NamespacedName, false); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -177,8 +163,7 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	// Set the finalizer on first sight; requeue so the next pass sees a
 	// stable resource version with status writes.
 	if !controllerutil.ContainsFinalizer(obj, finalizerName) {
-		controllerutil.AddFinalizer(obj, finalizerName)
-		if err := r.Update(ctx, obj); err != nil {
+		if err := r.patchFinalizer(ctx, req.NamespacedName, true); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -245,6 +230,53 @@ func readyConditionIsTrue(obj *configv1alpha1.EducatesClusterConfig) bool {
 //
 // All Managed/Inline status-write sites funnel through here so any new
 // branch added later inherits both behaviours.
+// patchFinalizer adds or removes the operator's finalizer on the
+// singleton CR. Wraps the mutation in RetryOnConflict with a live Get
+// inside the closure, so a concurrent watch event that bumps
+// ResourceVersion (the original `obj` in Reconcile is cache-backed
+// and can be stale) doesn't make this surface a noisy
+// "Operation cannot be fulfilled" ERROR.
+//
+// add=true ensures the finalizer is present; add=false ensures it is
+// absent. Either way:
+//   - If the live object already matches the desired finalizer state,
+//     no Update is issued (avoids burning an apiserver write for a
+//     no-op).
+//   - NotFound is treated as success: on the add path the user
+//     deleted the CR mid-reconcile (nothing to finalize anyway); on
+//     the remove path the prior reconcile's Update already reached
+//     etcd and the CR has been GC'd.
+//   - Conflict on the remove path is also treated as success: it
+//     means the prior Update succeeded and a stale-cache replay is
+//     colliding with the now-deleted UID. Same outcome as NotFound.
+func (r *EducatesClusterConfigReconciler) patchFinalizer(ctx context.Context, key types.NamespacedName, add bool) error {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		live := &configv1alpha1.EducatesClusterConfig{}
+		if err := r.Get(ctx, key, live); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil
+			}
+			return err
+		}
+		has := controllerutil.ContainsFinalizer(live, finalizerName)
+		if add == has {
+			return nil
+		}
+		if add {
+			controllerutil.AddFinalizer(live, finalizerName)
+		} else {
+			controllerutil.RemoveFinalizer(live, finalizerName)
+		}
+		if err := r.Update(ctx, live); err != nil {
+			if !add && (apierrors.IsNotFound(err) || apierrors.IsConflict(err)) {
+				return nil
+			}
+			return err
+		}
+		return nil
+	})
+}
+
 func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) error {
 	intendedStatus := obj.Status
 	key := client.ObjectKeyFromObject(obj)
