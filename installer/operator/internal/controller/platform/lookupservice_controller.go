@@ -84,6 +84,7 @@ type LookupServiceReconciler struct {
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=lookupservices,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=lookupservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=lookupservices/finalizers,verbs=update
+// +kubebuilder:rbac:groups=platform.educates.dev,resources=secretsmanagers,verbs=get;list;watch
 
 // Reconcile drives a LookupService CR through its lifecycle.
 func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -158,6 +159,25 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, log, obj)
 	}
 
+	// LookupService's subchart renders SecretCopier resources to
+	// fan ingress TLS / pull secrets into workshop namespaces. The
+	// `secrets.educates.dev` CRDs that back those kinds ship inside
+	// the secrets-manager subchart's `crds/` directory and only land
+	// once SecretsManager has reconciled. Without this gate, helm
+	// install fails with: `no matches for kind "SecretCopier" in
+	// version "secrets.educates.dev/v1beta1"`. Mirrors the equivalent
+	// gate on SessionManager.
+	smReady, err := r.secretsManagerReadyLS(ctx)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("read SecretsManager: %w", err)
+	}
+	if !smReady {
+		r.markLSReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
+			"SecretsManager 'cluster' must reach Ready before lookup-service can install (SecretCopier CRD ships with secrets-manager)")
+		r.markLSPhase(obj, platformv1alpha1.ComponentPhasePending)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, log, obj)
+	}
+
 	r.markLSPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
 	if err := r.installOrUpgradeLS(ctx, obj, cfg); err != nil {
 		r.markLSDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
@@ -209,6 +229,23 @@ func (r *LookupServiceReconciler) clusterConfigReadyLS(ctx context.Context) (*co
 		return cfg, false, nil
 	}
 	return cfg, true, nil
+}
+
+// secretsManagerReadyLS fetches the SecretsManager singleton and
+// reports whether its aggregate Ready condition is True. NotFound is
+// treated as "not ready" so the gate trips uniformly whether the user
+// hasn't applied SecretsManager yet or has applied it but it's still
+// reconciling.
+func (r *LookupServiceReconciler) secretsManagerReadyLS(ctx context.Context) (bool, error) {
+	sm := &platformv1alpha1.SecretsManager{}
+	if err := r.Get(ctx, types.NamespacedName{Name: singletonName}, sm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	cond := meta.FindStatusCondition(sm.Status.Conditions, conditionReady)
+	return cond != nil && cond.Status == metav1.ConditionTrue, nil
 }
 
 // lookupServiceHost composes the fully-qualified Ingress hostname
@@ -412,7 +449,9 @@ func (r *LookupServiceReconciler) updateLSStatusWithTransitionLog(ctx context.Co
 
 // SetupWithManager configures the LookupService controller. Watches:
 //   - LookupService (For target, GenerationChangedPredicate).
-//   - EducatesClusterConfig (cross-CR gate).
+//   - EducatesClusterConfig (cross-CR gate 1).
+//   - SecretsManager (cross-CR gate 2: ships the SecretCopier CRD
+//     the lookup-service chart depends on).
 //   - apps/v1 Deployment, narrowed to platform-ns + lookup-service.
 func (r *LookupServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -420,6 +459,8 @@ func (r *LookupServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(&configv1alpha1.EducatesClusterConfig{},
 			handler.EnqueueRequestsFromMapFunc(mapClusterConfigToLookupService)).
+		Watches(&platformv1alpha1.SecretsManager{},
+			handler.EnqueueRequestsFromMapFunc(mapSecretsManagerToLookupService)).
 		Watches(&appsv1.Deployment{},
 			handler.EnqueueRequestsFromMapFunc(mapLookupServiceDeployment)).
 		Named("platform-lookupservice").
@@ -428,6 +469,17 @@ func (r *LookupServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func mapClusterConfigToLookupService(_ context.Context, obj client.Object) []reconcile.Request {
 	if obj.GetName() != configSingletonName {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: singletonName}}}
+}
+
+// mapSecretsManagerToLookupService re-enqueues LookupService when
+// the SecretsManager singleton flips Ready — that's the signal that
+// the SecretCopier CRD is installed and the lookup-service install
+// can finally render.
+func mapSecretsManagerToLookupService(_ context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetName() != singletonName {
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: singletonName}}}

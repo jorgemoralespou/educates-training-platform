@@ -95,6 +95,7 @@ var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
 			_ = k8sClient.Update(ctx, ls)
 			_ = k8sClient.Delete(ctx, ls)
 		}
+		_ = k8sClient.DeleteAllOf(ctx, &platformv1alpha1.SecretsManager{})
 		_ = k8sClient.DeleteAllOf(ctx, &configv1alpha1.EducatesClusterConfig{})
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(platformNamespace))
 	})
@@ -125,6 +126,7 @@ var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
 
 	It("installs the chart, derives status.url, and reaches Ready", func() {
 		_ = makeReadyClusterConfig()
+		_ = makeReadySecretsManager()
 
 		ls := &platformv1alpha1.LookupService{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -161,6 +163,7 @@ var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
 
 	It("uninstalls the chart on delete", func() {
 		_ = makeReadyClusterConfig()
+		_ = makeReadySecretsManager()
 		ls := &platformv1alpha1.LookupService{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
 			Spec: platformv1alpha1.LookupServiceSpec{
