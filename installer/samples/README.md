@@ -5,9 +5,10 @@ scenarios verified during Phase 3.
 
 | File | Scenario | Certificates | DNS | Policy |
 |---|---|---|---|---|
-| `01-local-kind-customca.yaml` | Local kind / developer machine | BundledCertManager + CustomCA | — | — |
-| `02-gke-clouddns-acme.yaml` | GKE production with Workload Identity | BundledCertManager + ACME-DNS01 (CloudDNS) | BundledExternalDNS (CloudDNS) | Bundled Kyverno |
-| `03-eks-route53-acme.yaml` | EKS production with IRSA | BundledCertManager + ACME-DNS01 (Route53) | BundledExternalDNS (Route53) | Bundled Kyverno |
+| `01-local-kind-customca.yaml` | Local kind / developer machine (Managed) | BundledCertManager + CustomCA | — | — |
+| `02-gke-clouddns-acme.yaml` | GKE production with Workload Identity (Managed) | BundledCertManager + ACME-DNS01 (CloudDNS) | BundledExternalDNS (CloudDNS) | Bundled Kyverno |
+| `03-eks-route53-acme.yaml` | EKS production with IRSA (Managed) | BundledCertManager + ACME-DNS01 (Route53) | BundledExternalDNS (Route53) | Bundled Kyverno |
+| `04-openshift-inline.yaml` | OpenShift / BYO cluster services (Inline) | pre-existing wildcard TLS Secret | — (cluster-managed) | OpenShiftSCC |
 
 Platform-component CRs (apply *after* `EducatesClusterConfig` is Ready):
 
