@@ -772,9 +772,10 @@ via `_ = obj.Spec.<Field>` so the gap is visible in the source:
    *workshop* (not portal-admin) credentials. The subchart has no
    typed value for it yet; landing it requires a chart-side
    addition plus an operator mapping.
-3. **`spec.imageCache`** — `imageCache.enabled: true` should toggle
-   the chart's `imagePuller.enabled` plus pre-populate `prePullImages`
-   from the resolved image inventory. Neither half is in place yet.
+3. **`spec.imagePrePuller`** — `imagePrePuller.enabled: true` should
+   toggle the chart's `imagePrePuller.enabled` plus pre-populate
+   `imagePrePuller.images` from the resolved image inventory. Neither
+   half is in place yet.
 4. **`spec.registryMirrors`** — the v3 carvel runtime had a
    workshop-side registry mirror story (rewriting workshop
    container pulls to internal mirrors). No chart wiring in v4 yet;
@@ -871,3 +872,71 @@ when the architectural fix isn't yet in place.
   cluster-service cleanup.
 - Deleting platform CRs first lets ECC's finalizer run cleanly.
 - envtest covers both ordering paths.
+
+
+---
+
+### Revisit `imageCache` naming (was `imagePuller` in v3)
+
+*(resolved: 2026-05-27 — standardised on `imagePrePuller` across CRD,
+chart, and CLI; list field renamed to `images`. See decisions.md "Image
+pre-pull feature named `imagePrePuller`". Original analysis kept below.)*
+
+**Date added:** 2026-05-20.
+**Trigger to file:** raised during Phase 5 CLI config design when
+deciding what name to expose in `EducatesLocalConfig`. The mismatch
+between v3 muscle memory (`imagePuller`) and the CRD r3 name
+(`imageCache`) is the kind of papercut that lingers if not chosen
+deliberately.
+
+**Context:**
+
+- **v3 name:** `imagePuller` (under
+  `client-programs/pkg/config/installationconfig.go::ImagePullerConfig`,
+  with fields `enabled` and `prePullImages[]`).
+- **v4 CRD r3 name:** `SessionManager.spec.imageCache` (single
+  `enabled` boolean; pre-pull list is intended to be derived
+  from the chart's resolved image inventory rather than user-
+  listed — see the existing follow-up "SessionManager: wire
+  remaining spec fields into chart values" item 3).
+- **Chart-side name:** session-manager subchart still uses
+  `imagePuller.enabled` / `prePullImages` (matches v3 terminology).
+- **EducatesLocalConfig (Phase 5):** currently planned to expose
+  `imageCache: false` to align with the CRD; will surface to users
+  as the new name on first contact.
+
+**What the feature actually does:**
+
+A DaemonSet runs on each node that pre-pulls (caches) workshop-
+related images so workshop session startup is fast. "Cache" is
+accurate as a noun (the cached images on each node); "puller" is
+accurate as a verb (what populates the cache). Either name is
+defensible.
+
+**Action item:**
+
+Decide which name to standardise on across all surfaces, then
+align the three places:
+
+1. **Option A — keep `imageCache` everywhere.** Rename the chart
+   field `imagePuller` → `imageCache` (breaking for any standalone
+   chart users). v3 terminology is dropped. EducatesLocalConfig
+   stays as drafted.
+2. **Option B — revert to `imagePuller` everywhere.** Rename the
+   CRD field `imageCache` → `imagePuller` (only impacts in-flight
+   v1alpha1 — no users yet). Chart stays as-is. EducatesLocalConfig
+   becomes `imagePuller: false`. Preserves v3 muscle memory.
+3. **Option C — pick a third name.** Candidates: `prePuller`,
+   `imageWarmup`, `nodeImageCache`. Apply consistently.
+
+**Recommendation:** decide before Phase 4 lands the SessionManager
+reconciler — renaming the CRD field is cheap pre-Phase-4 and
+expensive after.
+
+**Acceptance criteria:**
+
+- One name chosen and applied consistently across CRD spec,
+  session-manager subchart values, and `EducatesLocalConfig` /
+  `EducatesConfig` translator.
+- CRD draft r3 (or its successor) updated.
+- decisions.md entry recording the choice and reasoning.

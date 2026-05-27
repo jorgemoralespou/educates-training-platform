@@ -88,10 +88,11 @@ spec:
                   defaultTheme names the entry from themes used as the install-wide
                   default. Must match a Theme.name.
                 type: string
-              imageCache:
+              imagePrePuller:
                 description: |-
-                  ImageCache configures the optional in-cluster image cache used to
-                  accelerate workshop image pulls.
+                  ImagePrePuller configures the optional DaemonSet that pre-pulls workshop
+                  images onto every node ahead of time, so session startup isn't blocked on
+                  image pulls.
                 properties:
                   enabled:
                     default: false

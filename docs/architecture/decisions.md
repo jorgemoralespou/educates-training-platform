@@ -386,7 +386,7 @@ against a fork or a locally-built registry should be able to redirect
 every Educates-image reference with one knob. `imageRegistry.host` /
 `.namespace` (defaulting to `ghcr.io` / `educates`) compose the prefix
 for: the chart-pod (when `image.repository` is empty), the pause image
-(when `imagePuller.pauseImage.repository` is empty), and the Educates-
+(when `imagePrePuller.pauseImage.repository` is empty), and the Educates-
 published entries in the `imageVersions` helper. Upstream pins
 (`docker-in-docker`, `loftsh-*`, `debian-base-image`) are NOT
 relocated by `imageRegistry` — those are public upstream images that
@@ -1026,3 +1026,31 @@ clean; the noisy log line at the controller-runtime layer is a
 cosmetic gap pending an upstream contribution. See
 follow-up-issues.md "Quiet the controller-runtime Kind source
 after cert-manager CRDs are removed".
+
+### Image pre-pull feature named `imagePrePuller`
+
+**Date:** 2026-05-27.
+**Decision:** The optional node-level image pre-pull feature is named
+`imagePrePuller` across every surface — the `SessionManager` CRD
+(`spec.imagePrePuller`), the session-manager subchart
+(`imagePrePuller.{enabled,pauseImage,images}`), and the forthcoming
+Phase 5 CLI config kinds. The list of images to pre-pull is the field
+`images` (renamed from the chart's earlier `prePullImages`). The
+DaemonSet resource, ServiceAccount, and template filename keep the
+shorter `image-puller` name — they describe the running mechanism, not
+the user-facing knob.
+
+**Why:** Three names were in play — v3's `imagePuller`, CRD draft r3's
+`imageCache`, and the chart's `imagePuller`. `imageCache` describes the
+side effect (images cached on nodes); `imagePuller` describes the actor
+but not the *ahead-of-time* intent that is the whole point of the
+feature. `imagePrePuller` names the action and its timing: it pre-pulls
+workshop images onto every node so session startup isn't blocked on
+pulls. It keeps continuity with the existing `imagePuller`/`image-puller`
+terminology while making the "pre" explicit. The list field became
+`images` to avoid the `imagePrePuller.prePullImages` stutter. The rename
+was cheap: v1alpha1 has no users, Phase 4 left the CRD field reserved
+(`_ = obj.Spec.ImagePrePuller`, unwired), and the chart is at
+`4.0.0-alpha.1` with no standalone users. This supersedes the
+`imageCache` name in CRD draft r3 (now updated) and closes the
+follow-up "Revisit `imageCache` naming".

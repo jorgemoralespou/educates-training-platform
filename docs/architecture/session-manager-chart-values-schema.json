@@ -320,13 +320,13 @@
         }
       },
 
-      "imagePuller": {
+      "imagePrePuller": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "enabled":    { "type": "boolean" },
           "pauseImage": { "$ref": "#/definitions/imageRef" },
-          "prePullImages": {
+          "images": {
             "type": "array",
             "items": { "type": "string", "minLength": 1 }
           }

@@ -547,10 +547,10 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 	_ = obj.Spec.Themes
 	_ = obj.Spec.DefaultTheme
 
-	// DefaultAccessCredentials, ImageCache, RegistryMirrors: reserved
+	// DefaultAccessCredentials, ImagePrePuller, RegistryMirrors: reserved
 	// in the CRD; mapping awaits chart additions. See follow-ups.
 	_ = obj.Spec.DefaultAccessCredentials
-	_ = obj.Spec.ImageCache
+	_ = obj.Spec.ImagePrePuller
 	_ = obj.Spec.RegistryMirrors
 
 	// logLevel doesn't have a typed top-level chart value; the runtime

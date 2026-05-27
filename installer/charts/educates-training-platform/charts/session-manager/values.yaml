@@ -300,14 +300,14 @@ websiteStyling:
   frameAncestors: []
 
 # =============================================================================
-# Image puller DaemonSet
+# Image pre-puller DaemonSet
 # =============================================================================
 
-# When enabled, runs an init-container per image in `prePullImages` (each
-# running `/bin/true`) so the kubelet caches them on every node, plus a
-# long-lived pause container to keep the DS alive. Useful for clusters where
-# workshop session start time is dominated by image pull.
-imagePuller:
+# When enabled, runs an init-container per image in `images` (each running
+# `/bin/true`) so the kubelet pre-pulls and caches them on every node ahead of
+# time, plus a long-lived pause container to keep the DS alive. Useful for
+# clusters where workshop session start time is dominated by image pull.
+imagePrePuller:
   enabled: false
   # Pause image used as the long-lived "keepalive" container in the DaemonSet.
   # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-pause-container`.
@@ -319,7 +319,7 @@ imagePuller:
   # Full image references to pre-pull. The chart does not compute these from
   # short names; the operator (or chart user) supplies fully qualified refs so
   # any registry mirror or relocation is honoured.
-  prePullImages: []
+  images: []
     # - ghcr.io/educates/training-portal:4.0.0-alpha.1
 
 # =============================================================================

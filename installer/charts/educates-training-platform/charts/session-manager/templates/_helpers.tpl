@@ -136,20 +136,20 @@ to spawned pods (workshopsession.py) and v3's overlay-ca-injector.yaml.
 {{- end -}}
 
 {{- define "session-manager.pause.image.repository" -}}
-{{- if .Values.imagePuller.pauseImage.repository -}}
-{{ .Values.imagePuller.pauseImage.repository }}
+{{- if .Values.imagePrePuller.pauseImage.repository -}}
+{{ .Values.imagePrePuller.pauseImage.repository }}
 {{- else -}}
 {{ include "session-manager.imageRegistryPrefix" . }}/educates-pause-container
 {{- end -}}
 {{- end -}}
 
 {{- define "session-manager.pause.image.tag" -}}
-{{- default .Chart.AppVersion .Values.imagePuller.pauseImage.tag -}}
+{{- default .Chart.AppVersion .Values.imagePrePuller.pauseImage.tag -}}
 {{- end -}}
 
 {{- define "session-manager.pause.image.pullPolicy" -}}
-{{- if .Values.imagePuller.pauseImage.pullPolicy -}}
-{{ .Values.imagePuller.pauseImage.pullPolicy }}
+{{- if .Values.imagePrePuller.pauseImage.pullPolicy -}}
+{{ .Values.imagePrePuller.pauseImage.pullPolicy }}
 {{- else -}}
 {{- $tag := include "session-manager.pause.image.tag" . -}}
 {{- if or (eq $tag "latest") (eq $tag "main") (eq $tag "master") (eq $tag "develop") -}}

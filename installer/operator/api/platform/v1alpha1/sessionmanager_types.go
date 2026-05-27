@@ -183,9 +183,10 @@ type SessionNetwork struct {
 	BlockedCIDRs []string `json:"blockedCidrs,omitempty"`
 }
 
-// ImageCache configures the optional in-cluster image cache used to
-// accelerate workshop image pulls.
-type ImageCache struct {
+// ImagePrePuller configures the optional DaemonSet that pre-pulls workshop
+// images onto every node ahead of time, so session startup isn't blocked on
+// image pulls.
+type ImagePrePuller struct {
 	// +kubebuilder:default=false
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
@@ -311,7 +312,7 @@ type SessionManagerSpec struct {
 	Network *SessionNetwork `json:"network,omitempty"`
 
 	// +optional
-	ImageCache *ImageCache `json:"imageCache,omitempty"`
+	ImagePrePuller *ImagePrePuller `json:"imagePrePuller,omitempty"`
 
 	// registryMirrors configures per-registry mirrors for workshop
 	// container pulls.

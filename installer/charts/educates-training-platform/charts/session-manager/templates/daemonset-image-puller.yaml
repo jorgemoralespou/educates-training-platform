@@ -1,4 +1,4 @@
-{{- if .Values.imagePuller.enabled }}
+{{- if .Values.imagePrePuller.enabled }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -25,7 +25,7 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
-      {{- with .Values.imagePuller.prePullImages }}
+      {{- with .Values.imagePrePuller.images }}
       initContainers:
         {{- range $i, $image := . }}
         - name: prepull-{{ $i }}

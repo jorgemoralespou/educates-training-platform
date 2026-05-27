@@ -235,7 +235,8 @@ restructure into these top-level blocks (full field list in the doc):
   inline blocks (`workshopDashboard`, `workshopInstructions`,
   `workshopStarted`, `workshopFinished`, `trainingPortal`) plus
   `defaultTheme`, `themeDataRefs[]`, `frameAncestors[]`.
-- `imagePuller` — unchanged in shape (`enabled`, `pauseImage`, `prePullImages[]`).
+- `imagePrePuller` — `enabled`, `pauseImage`, `images[]` (renamed from
+  v3's `imagePuller` / `prePullImages`; see decisions log).
 - `secretPropagation` — `imagePullSecretNames[]` and
   `upstream.{imagePullSecrets,websiteThemes}[]`. The `upstream.ingressTLS`
   and `upstream.ingressCA` fields are **removed** — auto-derived from

@@ -526,8 +526,8 @@ spec:
     blockedCidrs:
       - <cidr>
 
-  # -- IMAGE CACHE ----------------------------------------------------------
-  imageCache:
+  # -- IMAGE PRE-PULLER -----------------------------------------------------
+  imagePrePuller:
     enabled: <bool>
 
   # -- REGISTRY MIRRORS -----------------------------------------------------
