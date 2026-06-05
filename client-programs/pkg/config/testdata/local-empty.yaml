@@ -1,0 +1,2 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesLocalConfig

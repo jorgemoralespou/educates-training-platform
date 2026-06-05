@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.educates.dev/cli/v1alpha1/EducatesLocalConfig.json",
+  "title": "EducatesLocalConfig",
+  "description": "Laptop kind-cluster scenario kind. Narrow, opinionated; empty file (apiVersion + kind only) is valid.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind"],
+  "properties": {
+    "apiVersion": { "const": "cli.educates.dev/v1alpha1" },
+    "kind":       { "const": "EducatesLocalConfig" },
+
+    "cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "listenAddress":         { "type": "string", "default": "127.0.0.1" },
+        "registryListenAddress": { "type": "string" },
+        "apiServer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "address": { "type": "string" },
+            "port":    { "type": "integer", "minimum": 0, "maximum": 65535 }
+          }
+        },
+        "networking": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "serviceSubnet": { "type": "string" },
+            "podSubnet":     { "type": "string" }
+          }
+        },
+        "volumeMounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hostPath", "containerPath"],
+            "properties": {
+              "hostPath":      { "type": "string", "minLength": 1 },
+              "containerPath": { "type": "string", "minLength": 1 },
+              "readOnly":      { "type": "boolean" }
+            }
+          }
+        },
+        "registryMirrors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["mirror"],
+            "properties": {
+              "mirror":   { "type": "string", "minLength": 1 },
+              "url":      { "type": "string" },
+              "username": { "type": "string" },
+              "password": { "type": "string" },
+              "port":     { "type": "string" },
+              "bindIP":   { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "resolver": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "targetAddress": { "type": "string" },
+        "extraDomains":  { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "domain": { "type": "string" }
+      }
+    },
+
+    "clusterAdmin":   { "type": "boolean", "default": true },
+    "lookupService":  { "type": "boolean", "default": true },
+    "imagePrePuller": { "type": "boolean", "default": false },
+
+    "websiteStyling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultTheme": { "type": "string" },
+        "themeDataRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["namespace", "name"],
+            "properties": {
+              "namespace": { "type": "string", "minLength": 1 },
+              "name":      { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "secretPropagation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imagePullSecretNames": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "imageVersions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "image"],
+        "properties": {
+          "name":  { "type": "string", "minLength": 1 },
+          "image": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string" },
+            "tag":        { "type": "string" }
+          }
+        },
+        "imagePullSecrets": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info"
+        }
+      }
+    }
+  }
+}

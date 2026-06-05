@@ -1,0 +1,56 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesLocalConfig
+
+cluster:
+  listenAddress: 192.168.1.10
+  registryListenAddress: 192.168.1.10
+  apiServer:
+    address: 192.168.1.10
+    port: 6443
+  networking:
+    serviceSubnet: 10.96.0.0/12
+    podSubnet: 10.244.0.0/16
+  volumeMounts:
+    - hostPath: /tmp/data
+      containerPath: /data
+      readOnly: true
+  registryMirrors:
+    - mirror: docker.io
+      url: https://my-proxy.local
+      port: "5002"
+      bindIP: 192.168.1.10
+
+resolver:
+  targetAddress: 192.168.1.10
+  extraDomains:
+    - example.test
+    - workshop.test
+
+ingress:
+  domain: workshop.test
+
+clusterAdmin: false
+lookupService: false
+imagePrePuller: true
+
+websiteStyling:
+  defaultTheme: educates-default
+  themeDataRefs:
+    - namespace: educates
+      name: my-theme-data
+
+secretPropagation:
+  imagePullSecretNames:
+    - my-pull-secret
+
+imageVersions:
+  - name: "1.0"
+    image: ghcr.io/educates/example:1.0
+
+operator:
+  image:
+    repository: ghcr.io/educates/educates-operator
+    tag: 4.0.0
+  imagePullSecrets:
+    - operator-pull-secret
+  logLevel: debug
