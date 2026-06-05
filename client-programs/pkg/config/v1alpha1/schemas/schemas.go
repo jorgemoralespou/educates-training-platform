@@ -8,3 +8,6 @@ import _ "embed"
 
 //go:embed EducatesLocalConfig.schema.json
 var EducatesLocalConfig []byte
+
+//go:embed EducatesConfig.schema.json
+var EducatesConfig []byte

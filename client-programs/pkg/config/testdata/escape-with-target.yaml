@@ -1,0 +1,17 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesConfig
+
+target:
+  provider: kind
+  cluster:
+    listenAddress: 127.0.0.1
+  resolver:
+    targetAddress: 127.0.0.1
+
+operator:
+  image:
+    repository: ghcr.io/educates/educates-operator
+    tag: 4.0.0
+  logLevel: debug
+
+secretsManager: {}

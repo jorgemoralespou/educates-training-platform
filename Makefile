@@ -333,6 +333,11 @@ restart-training-platform:
 	kubectl rollout restart deployment/secrets-manager -n educates
 	kubectl rollout restart deployment/session-manager -n educates
 
+generate-cli-schemas:
+	@# Regenerates EducatesConfig.schema.json from the platform CRDs.
+	@# Run after `make manifests` in installer/operator/ when CRD shapes change.
+	go run ./client-programs/hack/gen-cli-schemas
+
 client-programs-educates:
 	rm -rf client-programs/pkg/renderer/files
 	mkdir client-programs/pkg/renderer/files

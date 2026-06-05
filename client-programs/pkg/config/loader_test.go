@@ -103,11 +103,55 @@ func TestLoad_MissingFile(t *testing.T) {
 }
 
 func TestLoadLocal_RejectsNonLocalKind(t *testing.T) {
-	// unknown-kind.yaml is rejected at the discriminator stage, so use
-	// LoadBytes with a kind we'll register later to exercise the type check.
-	// For now LoadLocal will surface the same "unknown kind" path.
-	_, err := LoadLocal(filepath.Join("testdata", "unknown-kind.yaml"))
+	_, err := LoadLocal(filepath.Join("testdata", "escape-minimal.yaml"))
 	if err == nil {
-		t.Fatal("LoadLocal: expected error")
+		t.Fatal("LoadLocal: expected error for EducatesConfig kind")
+	}
+	if !strings.Contains(err.Error(), "expected kind") {
+		t.Errorf("error %q does not mention expected kind", err.Error())
+	}
+}
+
+func TestLoad_EducatesConfig_Minimal(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "escape-minimal.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	esc, ok := cfg.(*v1alpha1.EducatesConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesConfig, got %T", cfg)
+	}
+	if esc.Target != nil {
+		t.Errorf("Target = %+v, want nil", esc.Target)
+	}
+}
+
+func TestLoad_EducatesConfig_WithTarget(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "escape-with-target.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	esc := cfg.(*v1alpha1.EducatesConfig)
+	if esc.Target == nil {
+		t.Fatal("Target = nil, want populated")
+	}
+	if got, want := esc.Target.Provider, "kind"; got != want {
+		t.Errorf("Target.Provider = %q, want %q", got, want)
+	}
+	if got, want := esc.Operator.LogLevel, "debug"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q (no defaulting for escape kind)", got, want)
+	}
+	if esc.SecretsManager == nil {
+		t.Errorf("SecretsManager = nil, want empty map")
+	}
+}
+
+func TestLoad_EducatesConfig_BogusEnvelopeField(t *testing.T) {
+	_, err := Load(filepath.Join("testdata", "escape-bogus-envelope-field.yaml"))
+	if err == nil {
+		t.Fatal("Load: expected error for unknown envelope field")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("error %q does not mention bogus field", err.Error())
 	}
 }

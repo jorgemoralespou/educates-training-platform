@@ -40,6 +40,8 @@ func LoadBytes(data []byte, source string) (v1alpha1.Config, error) {
 	switch meta.Kind {
 	case v1alpha1.KindEducatesLocalConfig:
 		return loadEducatesLocalConfig(data, source)
+	case v1alpha1.KindEducatesConfig:
+		return loadEducatesConfig(data, source)
 	default:
 		return nil, fmt.Errorf("%s: unknown kind %q for apiVersion %q", source, meta.Kind, meta.APIVersion)
 	}
@@ -69,6 +71,21 @@ func loadEducatesLocalConfig(data []byte, source string) (*v1alpha1.EducatesLoca
 		return nil, fmt.Errorf("%s: %w", source, err)
 	}
 	cfg.WithDefaults()
+	return &cfg, nil
+}
+
+// loadEducatesConfig loads the escape-hatch kind. No WithDefaults() — the
+// design contract is that EducatesConfig is passed through verbatim. Strict
+// unmarshal is *not* used: CR-spec fields are untyped maps that carry any
+// shape the CRDs accept; the JSON schema is the only enforcer.
+func loadEducatesConfig(data []byte, source string) (*v1alpha1.EducatesConfig, error) {
+	if err := validateAgainstSchema(data, schemas.EducatesConfig, source); err != nil {
+		return nil, err
+	}
+	var cfg v1alpha1.EducatesConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
 	return &cfg, nil
 }
 
