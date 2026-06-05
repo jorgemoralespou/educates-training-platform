@@ -173,6 +173,22 @@ class TerminalSession {
     }
 
     handle_message(ws: WebSocket, packet: TerminalsPacket) {
+        // Every connection must complete a valid HELLO handshake before any
+        // other packet type is honoured. A successful HELLO validates the
+        // endpoint token and registers the socket against this session (see
+        // the HELLO case below), and this registration happens even when the
+        // terminal subprocess already exists. Requiring membership here means
+        // a connection cannot skip the handshake and send input to, or attach
+        // to, an existing session without first proving it knows the token.
+
+        if (packet.type != TerminalsPacketType.HELLO && this.sockets.indexOf(ws) == -1) {
+            let args: ErrorPacketArgs = { reason: "Forbidden" }
+
+            this.send_message(ws, TerminalsPacketType.ERROR, args)
+
+            return
+        }
+
         switch (packet.type) {
             case TerminalsPacketType.DATA: {
                 if (this.terminal) {
