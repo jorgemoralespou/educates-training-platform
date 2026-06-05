@@ -10,3 +10,12 @@ Features Changed
   being sent as default log level was INFO. Configuration now logged at DEBUG
   log level and will only be logged by the session manager if log level was
   manually overridden to be DEBUG.
+
+* Session IDs for workshop sessions are now obfuscated. So instead of it being
+  of the form `snnn`, where `nnn` is a zero padded incrementing integer, you
+  will now see a random sequence of lower case letters and numbers. This will
+  be reflected in the session URL for accessing the workshop session making it
+  harder to guess what the URL for any workshop session will be. As long as you
+  use appropriate data variables in the workshop defintion or workshop
+  instructions for constructing URLs and other entities based on the session
+  name, existing workshops should continue to work without needing changes.
