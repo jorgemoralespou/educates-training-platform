@@ -180,6 +180,9 @@ class TerminalSession {
 
                     this.terminal.write(args.data)
                 }
+                else {
+                    console.log("Rejecting terminal session data message for session with no terminal", this.id)
+                }
 
                 break
             }
