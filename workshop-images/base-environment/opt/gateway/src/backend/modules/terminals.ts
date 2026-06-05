@@ -315,6 +315,16 @@ class SessionManager {
     }
 
     private retrieve_session(id: string): TerminalSession {
+        // The session id arrives as part of a JSON packet from the client and
+        // may be a number rather than a string. The dashboard reads it from a
+        // data attribute which jQuery coerces to a number for purely numeric
+        // ids, so the default terminals send it as a number. Normalise to a
+        // string so that lookups are consistent regardless of the JSON type
+        // and a single session isn't accidentally split across both a numeric
+        // and a string key.
+
+        id = String(id)
+
         let session: TerminalSession = this.sessions.get(id)
 
         if (!session) {
