@@ -1,6 +1,0 @@
-clusterInfrastructure:
-  provider: "kind"
-imagePuller:
-  enabled: true
-clusterIngress:
-  domain: "educates.example.com"

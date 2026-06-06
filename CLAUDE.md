@@ -8,18 +8,23 @@ the top is what changes day-to-day, the bottom is mostly stable.
 
 ## What's happening right now
 
-This repository is mid-transition between two major versions of Educates.
+The v4 install path is the only install path in this repo. v3
+(Carvel-based installer, `carvel-packages/installer/`, kapp-controller)
+has been deleted from the CLI and tree.
 
-- **Educates v3 (current state of the repo):** Carvel-based installer
-  (`carvel-packages/installer/`), Go CLI embedding ytt/kbld/kapp/imgpkg as
-  libraries, kapp-controller for declarative installs.
-- **Educates v4 (in development):** Helm-chart + Go operator installer.
-  Replaces `carvel-packages/installer/` and the kapp-based deploy/delete CLI
-  flows. Adds four new CRDs and a Go operator that reconciles them.
+- **Install pipeline:** Helm-chart + Go operator. Users run
+  `educates admin platform deploy` (helm install operator chart +
+  kubectl apply 4 platform CRs), or `educates local cluster create`
+  for the laptop flow (kind + registry + deploy in one).
+- **v3 is gone.** There's no in-place migration. Users on v3 delete
+  their old install and follow the v4 path. A first-run
+  `values.yaml` → `config.yaml` schema migration is planned but not
+  yet landed (Phase 5 step 10).
 
-**Critically: v4 is a breaking change from v3.** Users upgrading must
-delete v3 and reinstall under v4. There is no in-place migration; only a
-one-shot config translation tool (`educates migrate-config`).
+**Carvel libraries still live in the CLI** (`carvel.dev/imgpkg`,
+`kapp`, `ytt`, `vendir`) — they power the **workshop tooling**
+(`educates {cluster,docker} workshop ...` commands for publish /
+deploy / serve). The install path no longer touches them.
 
 **The Educates runtime is not changing in v4.** Components in
 `session-manager/`, `secrets-manager/`, `lookup-service/`,
@@ -51,9 +56,7 @@ When working on v4 installer tasks:
   `lookup-service/`, `tunnel-manager/`, `node-ca-injector/`,
   `assets-server/`, `image-cache/` — runtime components, not changing in v4.
 - `workshop-images/` — workshop runtime, orthogonal to installer work.
-- `carvel-packages/` — being replaced wholesale by v4. Don't refactor;
-  it'll be deleted. Only touch for security fixes during v3 maintenance.
-- `vendir.yml` — only relevant to the Carvel-based v3 installer.
+- (Deleted) `carvel-packages/` and `vendir.yml` — gone with v3.
 
 **Special case:** if a v4 task needs a runtime component change (very rare —
 e.g., a config flag the runtime needs to consume differently), flag it
@@ -109,27 +112,29 @@ wrong, we update it explicitly — don't silently diverge from it.
 
 ## Build and run commands
 
-### v3 (existing, still works)
+### Install path (v4 only)
 
-The v3 installer requires a local Docker registry at `localhost:5001`:
+CLI-driven (laptop or single command from CI):
 
 ```bash
-educates create-cluster --cluster-only        # Create kind cluster
-educates local config view > developer-testing/educates-installer-values.yaml
-make build-core-images                        # Build core platform images
-make deploy-platform                          # Deploy v3 platform
-make delete-platform                          # Remove v3 deployment
+educates local secrets add ca <domain>-ca --domain <domain>   # one-time: generate self-signed CA
+educates local config init                                    # one-time: write a minimal config
+educates local cluster create --local-config                  # kind + registry + deploy in one
+# Or after the cluster's already up:
+educates admin platform deploy --local-config
+educates admin platform render --local-config                 # dry-run / GitOps preview
+educates admin platform delete                                # uninstall
 ```
 
-### v4 (under development)
-
-Commands will be added as Phase 5 (CLI rewrite) progresses. Pre-Phase 5,
-the v4 install path is:
+Raw helm + kubectl path (no CLI):
 
 ```bash
-helm install educates-installer ./installer/charts/educates-installer
+helm install educates-installer ./installer/charts/educates-installer \
+  --namespace educates-installer --create-namespace
 kubectl apply -f educates-cluster-config.yaml
-kubectl apply -f educates-components.yaml
+kubectl apply -f educates-secrets-manager.yaml
+kubectl apply -f educates-lookup-service.yaml       # optional
+kubectl apply -f educates-session-manager.yaml
 ```
 
 #### Operator project (Phase 0+)
@@ -264,9 +269,9 @@ make prune-all                                # Clean caches and build artifacts
 
 ---
 
-## Architecture (current state — v3)
+## Architecture
 
-### Runtime components (unchanged in v4)
+### Runtime components
 
 - **session-manager/** — Python/kopf operator managing workshop sessions,
   environments, allocations, training portals, vcluster integration. Main
@@ -280,14 +285,20 @@ make prune-all                                # Clean caches and build artifacts
   Kubernetes nodes.
 - **workshop-images/** — Dockerfiles for workshop session containers.
 
-### Installer (v3 — being replaced or partially replaced)
+### Installer
 
-- **carvel-packages/installer/** — ytt/kapp/imgpkg packaging of the
-  installer.
-- **client-programs/** — Go CLI (`educates`). Embeds Carvel toolchain as
-  Go libraries.
-- **vendir.yml** — vendors upstream charts (cert-manager, contour, kyverno,
-  external-dns, kapp-controller).
+- **installer/charts/educates-installer/** — the operator Helm chart.
+  Installed by `educates admin platform deploy` (via embedded copy at
+  `client-programs/pkg/deployer/chart/files/`) or by raw `helm install`.
+- **installer/operator/** — the Go operator that reconciles the four
+  CRDs (EducatesClusterConfig, SecretsManager, LookupService,
+  SessionManager). Uses helm.sh/helm/v4 SDK to install cluster
+  services (cert-manager, contour, kyverno, external-dns) from
+  vendored upstream charts.
+- **client-programs/** — Go CLI (`educates`). Holds the v4 install
+  pipeline (load → translate → helm install + apply CRs + wait Ready)
+  and the workshop tooling (publish, deploy, render — these still
+  use carvel libs for OCI bundle and kapp deploy).
 
 ### Go workspace
 

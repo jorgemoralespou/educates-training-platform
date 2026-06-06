@@ -1,9 +1,0 @@
-clusterInfrastructure:
-  provider: "kind"
-clusterPackages:
-  educates:
-    settings:
-      clusterIngress:
-        domain: "educates.example.com"
-clusterIngress:
-  class: "clusterIngressClass"

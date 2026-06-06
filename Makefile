@@ -288,47 +288,6 @@ build-node-ca-injector:
 		-t $(IMAGE_REPOSITORY)/educates-node-ca-injector:$(PACKAGE_VERSION) \
 		node-ca-injector
 
-verify-installer-config:
-ifneq ("$(wildcard developer-testing/educates-installer-values.yaml)","")
-	@ytt --file carvel-packages/installer/bundle/config --data-values-file developer-testing/educates-installer-values.yaml
-else
-	@echo "No values file found. Please create developer-testing/educates-installer-values.yaml"
-	exit 1
-endif
-
-push-installer-bundle:
-	ytt -f carvel-packages/installer/config/images.yaml -f carvel-packages/installer/config/schema.yaml -v imageRegistry.host=$(IMAGE_REPOSITORY) -v version=$(PACKAGE_VERSION) > carvel-packages/installer/bundle/kbld/kbld-images.yaml
-   # For local development, we just need to lock educates images. Everything else can be referenced by tag from real origin.
-	cat carvel-packages/installer/bundle/kbld/kbld-images.yaml | kbld -f - --imgpkg-lock-output carvel-packages/installer/bundle/.imgpkg/images.yml
-	imgpkg push -b $(IMAGE_REPOSITORY)/educates-installer:$(RELEASE_VERSION) -f carvel-packages/installer/bundle
-	mkdir -p developer-testing
-	ytt -f carvel-packages/installer/config/app.yaml -f carvel-packages/installer/config/schema.yaml -v imageRegistry.host=$(IMAGE_REPOSITORY) -v version=$(RELEASE_VERSION) > developer-testing/educates-installer-app.yaml
-
-deploy-platform:
-ifneq ("$(wildcard developer-testing/educates-installer-values.yaml)","")
-	ytt --file carvel-packages/installer/bundle/config --data-values-file developer-testing/educates-installer-values.yaml | kapp deploy -a label:installer=educates-installer.app -f - -y
-else
-	@echo "No values file found. Please create developer-testing/educates-installer-values.yaml"
-	exit 1
-endif
-
-delete-platform:
-	kapp delete -a label:installer=educates-installer.app -y
-
-deploy-platform-app: push-installer-bundle
-ifeq ("$(wildcard developer-testing/educates-installer-values.yaml)","")
-	@echo "No values file found. Please create developer-testing/educates-installer-values.yaml"
-	exit 1
-endif
-	-kubectl apply -f carvel-packages/installer/config/rbac.yaml
-	kubectl create secret generic educates-installer --from-file=developer-testing/educates-installer-values.yaml -o yaml --dry-run=client | kubectl apply -n educates-installer -f -
-	kubectl apply --namespace educates-installer -f developer-testing/educates-installer-app.yaml
-
-delete-platform-app:
-	kubectl delete --namespace educates-installer -f developer-testing/educates-installer-app.yaml
-	-kubectl delete secret educates-installer -n educates-installer
-	-kubectl delete -f carvel-packages/installer/config/rbac.yaml
-
 restart-training-platform:
 	kubectl rollout restart deployment/secrets-manager -n educates
 	kubectl rollout restart deployment/session-manager -n educates
