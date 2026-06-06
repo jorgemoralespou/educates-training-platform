@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -73,6 +74,15 @@ func (p *ProjectInfo) runRender(w io.Writer, o *PlatformRenderOptions) error {
 	path, err := resolveConfigPath(o)
 	if err != nil {
 		return err
+	}
+	// Friendlier error for the --local-config case when config.yaml is
+	// missing — covers v3-data-home, first-time-user, and partially-
+	// initialised states with specific guidance. Until step 10 lands the
+	// real v3→v4 migration shim.
+	if o.LocalConfig {
+		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+			return config.MissingLocalConfigError(utils.GetEducatesHomeDir())
+		}
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
