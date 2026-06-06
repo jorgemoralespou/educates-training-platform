@@ -97,6 +97,11 @@ type LocalOperatorConfig struct {
 type OperatorImage struct {
 	Repository string `yaml:"repository,omitempty"`
 	Tag        string `yaml:"tag,omitempty"`
+	// PullPolicy maps to the chart's image.pullPolicy. Empty leaves the
+	// chart default (IfNotPresent). Set to "Always" for local-registry
+	// development where the tag (e.g. :dev) is rebuilt under the same
+	// name on each push.
+	PullPolicy string `yaml:"pullPolicy,omitempty"`
 }
 
 // Static defaults — independent of host environment. Applied after YAML

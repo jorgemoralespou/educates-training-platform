@@ -138,7 +138,11 @@
           "additionalProperties": false,
           "properties": {
             "repository": { "type": "string" },
-            "tag":        { "type": "string" }
+            "tag":        { "type": "string" },
+            "pullPolicy": {
+              "type": "string",
+              "enum": ["Always", "IfNotPresent", "Never"]
+            }
           }
         },
         "imagePullSecrets": {

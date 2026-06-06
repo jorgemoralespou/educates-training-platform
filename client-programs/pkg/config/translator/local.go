@@ -50,13 +50,16 @@ func TranslateLocal(cfg *v1alpha1.EducatesLocalConfig, opts Options) (*Output, e
 
 func localOperatorChartValues(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
 	values := map[string]interface{}{}
-	if cfg.Operator.Image.Repository != "" || cfg.Operator.Image.Tag != "" {
+	if cfg.Operator.Image.Repository != "" || cfg.Operator.Image.Tag != "" || cfg.Operator.Image.PullPolicy != "" {
 		image := map[string]interface{}{}
 		if cfg.Operator.Image.Repository != "" {
 			image["repository"] = cfg.Operator.Image.Repository
 		}
 		if cfg.Operator.Image.Tag != "" {
 			image["tag"] = cfg.Operator.Image.Tag
+		}
+		if cfg.Operator.Image.PullPolicy != "" {
+			image["pullPolicy"] = cfg.Operator.Image.PullPolicy
 		}
 		values["image"] = image
 	}

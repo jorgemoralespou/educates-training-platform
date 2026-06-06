@@ -95,6 +95,13 @@ func (c *Client) upgrade(ctx context.Context, name string, chrt *chart.Chart, va
 	act := action.NewUpgrade(c.cfg)
 	act.Namespace = c.namespace
 	act.WaitStrategy = kube.HookOnlyStrategy
+	// ForceConflicts lets a re-deploy steal field ownership from
+	// 'kubectl edit'/'kubectl patch' (which claim ownership under
+	// the 'kubectl-edit'/'kubectl-patch' field managers). Without
+	// this, any user-side manual edit poisons the next deploy with
+	// an SSA conflict on the edited field. The CLI's deploy is the
+	// source of truth for chart-managed fields.
+	act.ForceConflicts = true
 
 	rel, err := act.RunWithContext(ctx, name, chrt, vals)
 	if err != nil {
