@@ -17,7 +17,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
-	"github.com/educates/educates-training-platform/client-programs/pkg/config"
+	
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/pkg/errors"
 	yaml "gopkg.in/yaml.v2"
@@ -186,7 +186,7 @@ func createRegistryContainer(bindIP string) error {
  * This function is used to deploy a registry mirror and link it to the cluster.
  * It is used when creating a new local registry mirror.
  */
-func DeployMirrorAndLinkToCluster(mirrorConfig *config.RegistryMirrorConfig) error {
+func DeployMirrorAndLinkToCluster(mirrorConfig *MirrorConfig) error {
 	err := createMirrorContainer(mirrorConfig)
 
 	if err != nil {
@@ -206,7 +206,7 @@ func DeployMirrorAndLinkToCluster(mirrorConfig *config.RegistryMirrorConfig) err
 /**
  * This private function only creates the registry mirror container.
  */
-func createMirrorContainer(mirrorConfig *config.RegistryMirrorConfig) error {
+func createMirrorContainer(mirrorConfig *MirrorConfig) error {
 	ctx := context.Background()
 
 	fmt.Printf("Deploying local image registry mirror %s\n", mirrorConfig.Mirror)
@@ -518,7 +518,7 @@ func DeleteRegistry() error {
  * This function is used to delete a local registry mirror and unlink it from the cluster.
  * It is used when deleting a local registry mirror.
  */
-func DeleteMirrorAndUnlinkFromCluster(mirrorConfig *config.RegistryMirrorConfig) error {
+func DeleteMirrorAndUnlinkFromCluster(mirrorConfig *MirrorConfig) error {
 	ctx := context.Background()
 
 	fmt.Printf("Deleting local image registry mirror %s\n", mirrorConfig.Mirror)
@@ -739,7 +739,7 @@ func PruneRegistry() error {
 /**
  * This function is used to get the container name of a registry mirror.
  */
-func registryMirrorContainerName(mirrorConfig *config.RegistryMirrorConfig) string {
+func registryMirrorContainerName(mirrorConfig *MirrorConfig) string {
 	return fmt.Sprintf("%s-mirror-%s", EducatesRegistryContainer, mirrorConfig.Mirror)
 }
 

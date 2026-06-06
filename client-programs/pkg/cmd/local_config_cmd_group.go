@@ -28,7 +28,6 @@ func (p *ProjectInfo) NewLocalConfigCmdGroup() *cobra.Command {
 				p.NewLocalConfigSetCmd(),
 				p.NewLocalConfigEditCmd(),
 				p.NewLocalConfigViewCmd(),
-				p.NewLocalConfigResetCmd(),
 			},
 		},
 	}

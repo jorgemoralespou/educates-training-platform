@@ -2,76 +2,47 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
-	"gopkg.in/yaml.v2"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
-var (
-	localConfigViewExample = `
-  # View local educates cluster configuration by default. Uses nip.io wildcard domain and Kind as provider config defaults
-  educates local config view --config NULL
+func (p *ProjectInfo) NewLocalConfigViewCmd() *cobra.Command {
+	c := &cobra.Command{
+		Args:  cobra.NoArgs,
+		Use:   "view",
+		Short: "Print <data-home>/config.yaml, validating it against the EducatesLocalConfig schema",
+		Long: `Reads <data-home>/config.yaml, validates it against the
+EducatesLocalConfig schema, and prints the raw file contents.
 
-  # View local educates cluster configuration stored. Will show the default if local config file is empty
-  educates local config view
-
-  # View local educates cluster configuration using provided config. If there's secrets for that domain, they will be used
-  educates local config view --config config.yaml
-
-  # View local educates cluster configuration using provided domain. If there's secrets for that domain, they will be used
-  educates local config view --domain test.example.com
-`
-)
-
-type LocalConfigViewOptions struct {
-	Config string
-	Domain string
+For programmatic field reads use 'educates local config get [PATH]' —
+view's job is to surface the file as the user wrote it (including any
+comments) plus assert it would load cleanly at deploy time.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runLocalConfigView(cmd.OutOrStdout())
+		},
+	}
+	return c
 }
 
-func (o *LocalConfigViewOptions) Run() error {
-	fullConfig, err := config.ConfigForLocalClusters(o.Config, o.Domain, true)
+func runLocalConfigView(w interface{ Write([]byte) (int, error) }) error {
+	cfgPath := filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
+	if _, statErr := os.Stat(cfgPath); os.IsNotExist(statErr) {
+		return config.MissingLocalConfigError(utils.GetEducatesHomeDir())
+	}
+	// Validate (Load runs the JSON schema check); we discard the typed
+	// value because view's contract is to surface the raw file.
+	if _, err := config.LoadLocal(cfgPath); err != nil {
+		return fmt.Errorf("%s: %w", cfgPath, err)
+	}
+	body, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return err
 	}
-
-	configData, err := yaml.Marshal(&fullConfig)
-
-	if err != nil {
-		return errors.Wrap(err, "failed to generate installation config")
-	}
-
-	fmt.Print(string(configData))
-
-	return nil
-}
-
-func (p *ProjectInfo) NewLocalConfigViewCmd() *cobra.Command {
-	var o LocalConfigViewOptions
-
-	var c = &cobra.Command{
-		Args:    cobra.NoArgs,
-		Use:     "view",
-		Short:   "View local configuration",
-		Long:    "View local configuration. Uses nip.io wildcard domain and Kind as provider config defaults",
-		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
-		Example: localConfigViewExample,
-	}
-
-	c.Flags().StringVar(
-		&o.Domain,
-		"domain",
-		"",
-		"wildcard ingress subdomain name for Educates",
-	)
-
-	c.Flags().StringVar(
-		&o.Config,
-		"config",
-		"",
-		"path to the installation config file for Educates",
-	)
-
-	return c
+	_, err = w.Write(body)
+	return err
 }

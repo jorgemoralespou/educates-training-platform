@@ -4,7 +4,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"github.com/educates/educates-training-platform/client-programs/pkg/config"
+	
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 )
 
@@ -32,7 +32,7 @@ type LocalMirrorDeployOptions struct {
 }
 
 func (o *LocalMirrorDeployOptions) Run() error {
-	mirrorConfig := &config.RegistryMirrorConfig{
+	mirrorConfig := &registry.MirrorConfig{
 		Mirror:   o.MirrorName,
 		URL:      o.MirrorURL,
 		Username: o.Username,

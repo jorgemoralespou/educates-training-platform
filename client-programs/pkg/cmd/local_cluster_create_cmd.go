@@ -113,7 +113,7 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	// 4. registry mirrors declared in config (pull-through caches).
 	for _, m := range cfg.Cluster.RegistryMirrors {
 		fmt.Fprintf(w, "→ registry mirror %s → %s\n", m.Mirror, m.URL)
-		mc := registryMirrorFromV4(m)
+		mc := registryMirrorFromConfig(m)
 		if err := registry.DeployMirrorAndLinkToCluster(&mc); err != nil {
 			return fmt.Errorf("mirror %s: %w", m.Mirror, err)
 		}
@@ -213,8 +213,8 @@ func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBoo
 	}
 }
 
-func registryMirrorFromV4(m v1alpha1.RegistryMirror) config.RegistryMirrorConfig {
-	return config.RegistryMirrorConfig{
+func registryMirrorFromConfig(m v1alpha1.RegistryMirror) registry.MirrorConfig {
+	return registry.MirrorConfig{
 		Mirror:   m.Mirror,
 		URL:      m.URL,
 		Username: m.Username,
