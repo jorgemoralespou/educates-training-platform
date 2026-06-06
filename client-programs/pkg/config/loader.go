@@ -46,6 +46,8 @@ func LoadBytes(data []byte, source string) (v1alpha1.Config, error) {
 		return loadEducatesInlineConfig(data, source)
 	case v1alpha1.KindEducatesGKEConfig:
 		return loadEducatesGKEConfig(data, source)
+	case v1alpha1.KindEducatesEKSConfig:
+		return loadEducatesEKSConfig(data, source)
 	default:
 		return nil, fmt.Errorf("%s: unknown kind %q for apiVersion %q", source, meta.Kind, meta.APIVersion)
 	}
@@ -71,6 +73,18 @@ func loadEducatesLocalConfig(data []byte, source string) (*v1alpha1.EducatesLoca
 		return nil, err
 	}
 	var cfg v1alpha1.EducatesLocalConfig
+	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	cfg.WithDefaults()
+	return &cfg, nil
+}
+
+func loadEducatesEKSConfig(data []byte, source string) (*v1alpha1.EducatesEKSConfig, error) {
+	if err := validateAgainstSchema(data, schemas.EducatesEKSConfig, source); err != nil {
+		return nil, err
+	}
+	var cfg v1alpha1.EducatesEKSConfig
 	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
 		return nil, fmt.Errorf("%s: %w", source, err)
 	}

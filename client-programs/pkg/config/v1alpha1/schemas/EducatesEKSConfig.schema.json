@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.educates.dev/cli/v1alpha1/EducatesEKSConfig.json",
+  "title": "EducatesEKSConfig",
+  "description": "EKS production scenario. BundledCertManager+ACME(DNS01/Route53) + BundledContour(LoadBalancer) + BundledExternalDNS(Route53) + BundledKyverno. IRSA throughout.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "aws", "domain", "acme"],
+  "properties": {
+    "apiVersion": { "const": "cli.educates.dev/v1alpha1" },
+    "kind":       { "const": "EducatesEKSConfig" },
+
+    "aws": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accountId", "region", "route53HostedZoneId"],
+      "properties": {
+        "accountId":           { "type": "string", "pattern": "^[0-9]{12}$" },
+        "region":              { "type": "string", "minLength": 1 },
+        "route53HostedZoneId": { "type": "string", "minLength": 1 },
+        "certManagerRoleARN":  { "type": "string" },
+        "externalDNSRoleARN":  { "type": "string" }
+      }
+    },
+
+    "domain": { "type": "string", "minLength": 1 },
+
+    "acme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["email"],
+      "properties": {
+        "email":  { "type": "string", "minLength": 1, "format": "email" },
+        "server": { "type": "string", "format": "uri" }
+      }
+    },
+
+    "clusterAdmin":   { "type": "boolean", "default": false },
+    "lookupService":  { "type": "boolean", "default": true },
+    "imagePrePuller": { "type": "boolean", "default": false },
+
+    "websiteStyling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultTheme": { "type": "string" },
+        "themeDataRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["namespace", "name"],
+            "properties": {
+              "namespace": { "type": "string", "minLength": 1 },
+              "name":      { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "secretPropagation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imagePullSecretNames": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+
+    "imageVersions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "image"],
+        "properties": {
+          "name":  { "type": "string", "minLength": 1 },
+          "image": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string" },
+            "tag":        { "type": "string" },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "imagePullSecrets": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info"
+        }
+      }
+    }
+  }
+}

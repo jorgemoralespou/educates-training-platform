@@ -59,6 +59,8 @@ func Translate(cfg v1alpha1.Config, opts Options) (*Output, error) {
 		return TranslateInline(c, opts)
 	case *v1alpha1.EducatesGKEConfig:
 		return TranslateGKE(c, opts)
+	case *v1alpha1.EducatesEKSConfig:
+		return TranslateEKS(c, opts)
 	case *v1alpha1.EducatesConfig:
 		return TranslateEscape(c), nil
 	default:

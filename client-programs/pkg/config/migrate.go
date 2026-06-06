@@ -70,7 +70,8 @@ cli.educates.dev/v1alpha1 and rerun with --config <file>:
                             cert-manager / ingress / policy engine)
   - EducatesGKEConfig      (GKE Managed: Workload Identity + ACME
                             CloudDNS + Contour + Kyverno)
-  - EducatesEKSConfig      (EKS Managed)   — landing in phase 5 step 11c
+  - EducatesEKSConfig      (EKS Managed: IRSA + ACME Route53 +
+                            Contour + Kyverno)
   - EducatesConfig         (escape hatch, full CRD passthrough)
 
 The original %s file is left untouched; you can keep it as a
