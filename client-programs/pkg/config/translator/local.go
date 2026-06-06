@@ -154,13 +154,29 @@ func localLookupServiceSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]interf
 // localSessionManagerSpec carries the session-manager runtime knobs the
 // CLI surfaces in the narrow EducatesLocalConfig shape.
 //
+// Locked invariants applied here:
+//   - storage.storageGroup: 1
+//   - network.blockedCidrs: cloud metadata endpoints
+//     (169.254.169.254/32 covers AWS/GCP/Azure IMDS;
+//     fd00:ec2::254/128 covers AWS IMDS over IPv6).
+//
 // TODO(phase4-followup): clusterAdmin and secretPropagation have no
 // landing field in the current SessionManager CRD. They are dropped here
 // pending the CRD additions tracked in the v4 development plan. The
 // operator will need spec.clusterAdmin (bool) and spec.secretPropagation
 // (imagePullSecretNames list) before this translator can wire them up.
 func localSessionManagerSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
-	spec := map[string]interface{}{}
+	spec := map[string]interface{}{
+		"storage": map[string]interface{}{
+			"storageGroup": 1,
+		},
+		"network": map[string]interface{}{
+			"blockedCidrs": []interface{}{
+				"169.254.169.254/32",
+				"fd00:ec2::254/128",
+			},
+		},
+	}
 	if cfg.Operator.LogLevel != "" {
 		spec["logLevel"] = cfg.Operator.LogLevel
 	}

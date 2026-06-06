@@ -78,6 +78,102 @@ func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 	}
 }
 
+// TestTranslateLocal_AllLockedInvariants is the regression backstop for
+// the locked Phase 5 invariants. Every row here corresponds to a single
+// bullet in the "Translator invariants" section of the locked design
+// (see ~/.claude/plans/reflective-dazzling-finch.md and the project
+// memory). A row failing means either the translator silently dropped
+// the invariant (bug; restore it) or the design changed (update the
+// row + the design doc together).
+//
+// Adding a new locked invariant should land both a translator change
+// AND a row here in the same commit.
+func TestTranslateLocal_AllLockedInvariants(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	out, err := Translate(cfg, testOpts())
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+
+	cases := []struct {
+		cr   string
+		path string // dotted path under <cr>.spec
+		want interface{}
+	}{
+		// EducatesClusterConfig invariants
+		{"EducatesClusterConfig", "mode", "Managed"},
+		{"EducatesClusterConfig", "ingress.ingressClassName", "contour"},
+		{"EducatesClusterConfig", "ingress.controller.provider", "BundledContour"},
+		{"EducatesClusterConfig", "ingress.certificates.provider", "BundledCertManager"},
+		{"EducatesClusterConfig", "ingress.certificates.bundledCertManager.issuerType", "CustomCA"},
+		{"EducatesClusterConfig", "policyEnforcement.clusterPolicy.engine", "Kyverno"},
+		{"EducatesClusterConfig", "policyEnforcement.workshopPolicy.engine", "Kyverno"},
+		{"EducatesClusterConfig", "policyEnforcement.kyverno.provider", "Bundled"},
+
+		// SessionManager invariants
+		{"SessionManager", "storage.storageGroup", 1},
+	}
+	specs := map[string]map[string]interface{}{
+		"EducatesClusterConfig": out.EducatesClusterConfig["spec"].(map[string]interface{}),
+		"SessionManager":        out.SessionManager["spec"].(map[string]interface{}),
+	}
+	for _, tc := range cases {
+		t.Run(tc.cr+":"+tc.path, func(t *testing.T) {
+			got, ok := getNested(specs[tc.cr], tc.path)
+			if !ok {
+				t.Fatalf("invariant missing: %s.spec.%s (translator dropped it?)", tc.cr, tc.path)
+			}
+			if got != tc.want {
+				t.Errorf("invariant value drift: %s.spec.%s = %v (%T), want %v (%T)",
+					tc.cr, tc.path, got, got, tc.want, tc.want)
+			}
+		})
+	}
+
+	// blockedCidrs is a list — assert separately so a single missing
+	// CIDR shows up cleanly.
+	netRaw, ok := getNested(specs["SessionManager"], "network.blockedCidrs")
+	if !ok {
+		t.Fatal("invariant missing: SessionManager.spec.network.blockedCidrs")
+	}
+	cidrs, ok := netRaw.([]interface{})
+	if !ok {
+		t.Fatalf("network.blockedCidrs type = %T, want []interface{}", netRaw)
+	}
+	for _, want := range []string{"169.254.169.254/32", "fd00:ec2::254/128"} {
+		found := false
+		for _, c := range cidrs {
+			if c == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("blockedCidrs missing %q (got %v)", want, cidrs)
+		}
+	}
+}
+
+// getNested walks a nested map[string]interface{} by dotted path.
+// Returns (value, true) on hit, (nil, false) when any segment is
+// missing or the intermediate node isn't a map.
+func getNested(root map[string]interface{}, path string) (interface{}, bool) {
+	segs := strings.Split(path, ".")
+	var cur interface{} = root
+	for _, s := range segs {
+		m, ok := cur.(map[string]interface{})
+		if !ok {
+			return nil, false
+		}
+		v, exists := m[s]
+		if !exists {
+			return nil, false
+		}
+		cur = v
+	}
+	return cur, true
+}
+
 func TestTranslateLocal_EmptyConfig_AppliesBundledKyvernoInvariant(t *testing.T) {
 	cfg := loadCfg(t, "local-empty.yaml")
 	out, err := Translate(cfg, testOpts())
