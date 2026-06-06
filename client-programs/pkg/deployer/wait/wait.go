@@ -86,6 +86,53 @@ func (c *Client) WaitReady(ctx context.Context, gvk schema.GroupVersionKind, nam
 	}
 }
 
+// WaitGone polls until the resource is 404 or ctx times out. Used by the
+// delete command to gate on a finalizer-driven drain completing before
+// moving to the next CR in reverse-install order.
+//
+// "Already gone" at first poll is success: idempotent re-runs of delete
+// (or deleting state the deploy never created) shouldn't fail.
+func (c *Client) WaitGone(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string, timeout time.Duration) error {
+	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return fmt.Errorf("REST mapping for %s: %w", gvk, err)
+	}
+	resource := c.dyn.Resource(mapping.Resource)
+	var typed dynamic.ResourceInterface = resource
+	if namespace != "" {
+		typed = resource.Namespace(namespace)
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		obj, err := typed.Get(ctx, name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("get %s/%s: %w", gvk.Kind, name, err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for %s/%s to be deleted (last phase: %s, finalizers: %v)",
+				gvk.Kind, name, lastPhase(obj), obj.GetFinalizers())
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(PollInterval):
+		}
+	}
+}
+
+// lastPhase pulls .status.phase from an object for the timeout error
+// message. Returns "(none)" when unset.
+func lastPhase(obj *unstructured.Unstructured) string {
+	if p, _, _ := unstructured.NestedString(obj.Object, "status", "phase"); p != "" {
+		return p
+	}
+	return "(none)"
+}
+
 // isReady returns true when status.conditions[?(@.type=="Ready")].status == "True".
 func isReady(obj *unstructured.Unstructured) bool {
 	if obj == nil {
