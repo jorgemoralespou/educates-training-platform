@@ -31,8 +31,8 @@ comments) plus assert it would load cleanly at deploy time.`,
 
 func runLocalConfigView(w interface{ Write([]byte) (int, error) }) error {
 	cfgPath := filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
-	if _, statErr := os.Stat(cfgPath); os.IsNotExist(statErr) {
-		return config.MissingLocalConfigError(utils.GetEducatesHomeDir())
+	if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
+		return err
 	}
 	// Validate (Load runs the JSON schema check); we discard the typed
 	// value because view's contract is to surface the raw file.

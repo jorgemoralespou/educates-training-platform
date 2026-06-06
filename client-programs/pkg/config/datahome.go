@@ -6,6 +6,30 @@ import (
 	"path/filepath"
 )
 
+// EnsureLocalConfigFile is the single entry point for commands that
+// read <data-home>/config.yaml. It composes the v3-to-v4 migration
+// shim with the user-actionable missing-file diagnostic:
+//
+//   - config.yaml exists → return nil (proceed to Load).
+//   - config.yaml missing → attempt v3 → v4 migration. If the v3
+//     migration writes a fresh config.yaml, return nil. If migration
+//     refuses (provider isn't laptop-kind), surface that error.
+//   - config.yaml still missing after migration attempt → return
+//     MissingLocalConfigError (first-time user / partial init).
+func EnsureLocalConfigFile(dataHome string) error {
+	configPath := filepath.Join(dataHome, "config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return nil
+	}
+	if err := MaybeMigrateV3(dataHome); err != nil {
+		return err
+	}
+	if _, err := os.Stat(configPath); err == nil {
+		return nil
+	}
+	return MissingLocalConfigError(dataHome)
+}
+
 // MissingLocalConfigError diagnoses why <data-home>/config.yaml is missing
 // and returns a user-actionable error. Three cases:
 //
@@ -28,45 +52,45 @@ func MissingLocalConfigError(dataHome string) error {
 
 	v3Values := filepath.Join(dataHome, "values.yaml")
 	if _, err := os.Stat(v3Values); err == nil {
+		// EnsureLocalConfigFile would normally have triggered
+		// MaybeMigrateV3 before reaching this branch; landing here
+		// means migration refused (non-laptop provider) and the user
+		// retried without reading that error. Re-state the path
+		// forward briefly.
 		return fmt.Errorf(`no v4 config found at %s, but a v3-style values.yaml is present at %s.
 
-A first-run migration that translates v3 values.yaml into v4 config.yaml is
-planned (phase 5 step 10) but not yet implemented. Until then, you can:
+The migration shim only translates laptop-kind installs
+(clusterInfrastructure.provider empty or "kind"). Other providers
+need a fresh v4 config declared explicitly:
 
-  1. Create a minimal v4 config by hand:
-       printf 'apiVersion: cli.educates.dev/v1alpha1\nkind: EducatesLocalConfig\n' \
-         > %q
-     Then edit %q and copy across any non-default
-     settings from values.yaml (ingress.domain, resolver.*, etc.).
+  educates admin platform render --config <your-v4-config.yaml>
 
-  2. Or point at an explicit v4 config:
-       educates admin platform render --config <your-v4-config.yaml>
-
-The existing values.yaml is left untouched; the upcoming migration shim
-will translate it in place (and rename the original to values.yaml.v3-backup)
-when it lands.`, configPath, v3Values, configPath, configPath)
+The available v4 kinds live under cli.educates.dev/v1alpha1
+(EducatesLocalConfig, EducatesConfig escape hatch, and the
+scenario kinds GKE/EKS/Inline landing in phase 5 step 11).`,
+			configPath, v3Values)
 	}
 
 	if _, err := os.Stat(dataHome); os.IsNotExist(err) {
 		return fmt.Errorf(`no Educates data home found at %s.
 
-First-time setup: create a minimal config and proceed. Until the upcoming
-'educates local config init' lands (phase 5 step 7), do it by hand:
+First-time setup: write a minimal config and re-run.
 
-  mkdir -p %q
-  printf 'apiVersion: cli.educates.dev/v1alpha1\nkind: EducatesLocalConfig\n' \
-    > %q
+  educates local config init
 
-Then re-run your command.`, dataHome, dataHome, filepath.Join(dataHome, "config.yaml"))
+Or, with --config <file>, point at any v4 config file:
+
+  educates admin platform render --config <your-v4-config.yaml>`, dataHome)
 	}
 
 	return fmt.Errorf(`no v4 config found at %s.
 
-The data home directory exists but config.yaml is missing. Until the upcoming
-'educates local config init' lands (phase 5 step 7), create one by hand:
+The data home directory exists but config.yaml is missing. Write a
+minimal config and re-run:
 
-  printf 'apiVersion: cli.educates.dev/v1alpha1\nkind: EducatesLocalConfig\n' \
-    > %s
+  educates local config init
 
-Then re-run your command.`, configPath, configPath)
+Or point at an explicit v4 config:
+
+  educates admin platform render --config <your-v4-config.yaml>`, configPath)
 }

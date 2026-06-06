@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -75,8 +74,8 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		return err
 	}
 	if o.LocalConfig {
-		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			return config.MissingLocalConfigError(utils.GetEducatesHomeDir())
+		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
+			return err
 		}
 	}
 	cfg, err := config.Load(path)

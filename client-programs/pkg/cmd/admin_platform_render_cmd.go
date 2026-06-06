@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -76,13 +75,13 @@ func (p *ProjectInfo) runRender(w io.Writer, o *PlatformRenderOptions) error {
 	if err != nil {
 		return err
 	}
-	// Friendlier error for the --local-config case when config.yaml is
-	// missing — covers v3-data-home, first-time-user, and partially-
-	// initialised states with specific guidance. Until step 10 lands the
-	// real v3→v4 migration shim.
+	// EnsureLocalConfigFile composes the v3→v4 migration shim
+	// (MaybeMigrateV3) with the user-actionable missing-file diagnostic
+	// (MissingLocalConfigError). Returns nil when config.yaml is
+	// either already present or has just been written by migration.
 	if o.LocalConfig {
-		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			return config.MissingLocalConfigError(utils.GetEducatesHomeDir())
+		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
+			return err
 		}
 	}
 	cfg, err := config.Load(path)

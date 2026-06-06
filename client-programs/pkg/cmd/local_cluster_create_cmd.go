@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -140,8 +139,8 @@ func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfi
 	var path string
 	if o.LocalConfig {
 		path = filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
-		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			return nil, "", config.MissingLocalConfigError(utils.GetEducatesHomeDir())
+		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
+			return nil, "", err
 		}
 	} else {
 		path = o.Config

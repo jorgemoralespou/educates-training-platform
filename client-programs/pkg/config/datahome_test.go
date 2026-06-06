@@ -18,7 +18,7 @@ func TestMissingLocalConfigError_V3ValuesPresent(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	s := err.Error()
-	for _, want := range []string{"v3-style values.yaml", "phase 5 step 10", "values.yaml.v3-backup"} {
+	for _, want := range []string{"v3-style values.yaml", "migration shim", "EducatesLocalConfig"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("error missing hint %q in:\n%s", want, s)
 		}
@@ -34,7 +34,7 @@ func TestMissingLocalConfigError_FirstTimeUser(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	s := err.Error()
-	for _, want := range []string{"no Educates data home found", "First-time setup", "config init"} {
+	for _, want := range []string{"no Educates data home found", "First-time setup", "local config init"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("error missing hint %q in:\n%s", want, s)
 		}
@@ -53,7 +53,7 @@ func TestMissingLocalConfigError_DirExistsConfigMissing(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	s := err.Error()
-	for _, want := range []string{"data home directory exists but config.yaml is missing", "config init"} {
+	for _, want := range []string{"data home directory exists but config.yaml is missing", "local config init"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("error missing hint %q in:\n%s", want, s)
 		}

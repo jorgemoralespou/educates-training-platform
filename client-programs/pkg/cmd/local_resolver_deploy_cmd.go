@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
@@ -56,8 +55,8 @@ func loadResolverInputs(configPath string, useLocalConfig bool) (*v1alpha1.Educa
 	var path string
 	if useLocalConfig {
 		path = filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
-		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-			return nil, config.MissingLocalConfigError(utils.GetEducatesHomeDir())
+		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
+			return nil, err
 		}
 	} else {
 		path = configPath
