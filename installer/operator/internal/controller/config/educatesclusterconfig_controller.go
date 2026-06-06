@@ -66,6 +66,16 @@ type EducatesClusterConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
+	// APIReader is an uncached client used for cross-namespace Secret
+	// reads (CustomCA flow when the user points caCertificateRef at a
+	// namespace outside the operator's cache scope). The cached Client
+	// only watches Secrets in OperatorNamespace; reads against other
+	// namespaces fail with "unknown namespace for the cache".
+	//
+	// Production wiring uses mgr.GetAPIReader(); tests can inject a
+	// fake.NewClientBuilder() client (which serves any namespace).
+	APIReader client.Reader
+
 	// OperatorNamespace is where user-supplied Secrets (TLS, CA, image-
 	// pull) referenced from spec.inline are expected to live. Sourced
 	// from the OPERATOR_NAMESPACE env var (downward API).

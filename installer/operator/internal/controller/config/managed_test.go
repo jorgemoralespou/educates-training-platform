@@ -267,6 +267,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 
 		Expect((&EducatesClusterConfigReconciler{
 			Client:            mgr.GetClient(),
+			APIReader:         mgr.GetAPIReader(),
 			Scheme:            mgr.GetScheme(),
 			OperatorNamespace: testOperatorNamespace,
 			HelmClientFor:     helmFac.For,

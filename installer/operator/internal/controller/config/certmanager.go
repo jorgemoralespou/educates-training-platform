@@ -415,7 +415,8 @@ func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.C
 		srcNS = r.OperatorNamespace
 	}
 	secret := &corev1.Secret{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: srcNS, Name: src.Name}, secret); err != nil {
+	// APIReader bypasses the cache; see checkCustomCASecret for rationale.
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: srcNS, Name: src.Name}, secret); err != nil {
 		return fmt.Errorf("read source CustomCA Secret %s/%s: %w", srcNS, src.Name, err)
 	}
 

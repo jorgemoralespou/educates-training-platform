@@ -225,6 +225,7 @@ func main() {
 
 	if err := (&configcontroller.EducatesClusterConfigReconciler{
 		Client:            mgr.GetClient(),
+		APIReader:         mgr.GetAPIReader(),
 		Scheme:            mgr.GetScheme(),
 		OperatorNamespace: operatorNamespace,
 		HelmClientFor: func(ns string) (*helm.Client, error) {

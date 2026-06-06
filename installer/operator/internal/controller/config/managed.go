@@ -548,7 +548,11 @@ func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Contex
 	}
 	s := &corev1.Secret{}
 	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
-	if err := r.Get(ctx, key, s); err != nil {
+	// APIReader bypasses the controller-runtime cache, which is only
+	// configured to watch Secrets in the operator namespace. Cross-
+	// namespace caCertificateRef (laptop flow uses educates-secrets)
+	// would otherwise fail with "unknown namespace for the cache".
+	if err := r.APIReader.Get(ctx, key, s); err != nil {
 		if apierrors.IsNotFound(err) {
 			return &validationError{
 				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",

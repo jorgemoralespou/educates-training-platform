@@ -124,6 +124,7 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 
 		Expect((&EducatesClusterConfigReconciler{
 			Client:            mgr.GetClient(),
+			APIReader:         mgr.GetAPIReader(),
 			Scheme:            mgr.GetScheme(),
 			OperatorNamespace: testOperatorNamespace,
 		}).SetupWithManager(mgr)).To(Succeed())

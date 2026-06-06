@@ -70,7 +70,10 @@ func drainCR() {
 
 func makeReconciler() *EducatesClusterConfigReconciler {
 	return &EducatesClusterConfigReconciler{
-		Client:            k8sClient,
+		Client: k8sClient,
+		// k8sClient is already uncached (constructed directly from
+		// the envtest REST config), so it doubles as the APIReader.
+		APIReader:         k8sClient,
 		Scheme:            k8sClient.Scheme(),
 		OperatorNamespace: testOperatorNamespace,
 	}
