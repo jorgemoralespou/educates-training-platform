@@ -154,17 +154,28 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		return err
 	}
 
-	// 5. LookupService (if present).
+	// 5. LookupService + SessionManager — applied together, waited
+	//    together. SessionManager's remote-access subchart installs in
+	//    Auto mode when a LookupService CR exists in the cluster, and
+	//    produces the 'remote-access-token' Secret that LookupService's
+	//    pod mounts. Applying LookupService first and waiting for
+	//    Ready would deadlock (token never appears); applying
+	//    SessionManager first would skip the remote-access install
+	//    (no LookupService CR yet).
 	if out.LookupService != nil {
-		if err := applyAndWait(ctx, opts, applier, waiter,
-			out.LookupService, "LookupService"); err != nil {
+		if err := apply_(ctx, opts, applier, out.LookupService, "LookupService"); err != nil {
 			return err
 		}
 	}
-
-	// 6. SessionManager.
-	if err := applyAndWait(ctx, opts, applier, waiter,
-		out.SessionManager, "SessionManager"); err != nil {
+	if err := apply_(ctx, opts, applier, out.SessionManager, "SessionManager"); err != nil {
+		return err
+	}
+	if out.LookupService != nil {
+		if err := wait_(ctx, opts, waiter, out.LookupService, "LookupService"); err != nil {
+			return err
+		}
+	}
+	if err := wait_(ctx, opts, waiter, out.SessionManager, "SessionManager"); err != nil {
 		return err
 	}
 
@@ -173,6 +184,13 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 }
 
 func applyAndWait(ctx context.Context, opts Options, applier *apply.Client, waiter *wait.Client, obj map[string]interface{}, label string) error {
+	if err := apply_(ctx, opts, applier, obj, label); err != nil {
+		return err
+	}
+	return wait_(ctx, opts, waiter, obj, label)
+}
+
+func apply_(ctx context.Context, opts Options, applier *apply.Client, obj map[string]interface{}, label string) error {
 	u, err := mapToUnstructured(obj)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
@@ -180,6 +198,14 @@ func applyAndWait(ctx context.Context, opts Options, applier *apply.Client, wait
 	fmt.Fprintf(opts.Out, "→ apply %s/%s\n", label, u.GetName())
 	if _, err := applier.Apply(ctx, u); err != nil {
 		return err
+	}
+	return nil
+}
+
+func wait_(ctx context.Context, opts Options, waiter *wait.Client, obj map[string]interface{}, label string) error {
+	u, err := mapToUnstructured(obj)
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	fmt.Fprintf(opts.Out, "→ wait %s/%s Ready=True (timeout %s)\n", label, u.GetName(), opts.Timeout)
 	if _, err := waiter.WaitReady(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout); err != nil {
