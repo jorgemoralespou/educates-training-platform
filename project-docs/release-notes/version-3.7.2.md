@@ -19,3 +19,8 @@ Features Changed
   use appropriate data variables in the workshop defintion or workshop
   instructions for constructing URLs and other entities based on the session
   name, existing workshops should continue to work without needing changes.
+
+* The buttons to the right of the dashboard tabs now display tooltips indicating
+  what the buttons are for. The tooltip message for the countdown timer will
+  change to indicate when the session can be extended, in addition to the
+  colour being changed to amber.

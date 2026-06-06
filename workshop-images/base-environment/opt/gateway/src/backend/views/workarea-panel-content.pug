@@ -18,25 +18,25 @@ div#workarea-content
             li.nav-item.ms-auto#workarea-controls
                 if config.restart_url
                     span
-                        button.btn.btn-default.btn-sm.btn-transparent.ms-1#restart-button(type="button", data-bs-toggle="modal", data-bs-target="#terminate-session-dialog")
+                        button.btn.btn-default.btn-sm.btn-transparent.ms-1#restart-button(type="button", title="Exit the workshop session", data-bs-toggle="modal", data-bs-target="#terminate-session-dialog")
                             span.fa.fa-sign-out-alt
 
                 if config.enable_countdown
                     span
-                        button.btn.btn-default.btn-sm.btn-transparent.d-none.ms-1#countdown-button(type="button")
+                        button.btn.btn-default.btn-sm.btn-transparent.d-none.ms-1#countdown-button(type="button", title="Session time remaining")
                             span.fa.fa-stopwatch
                             span#countdown-timer
 
                 span
-                    button.btn.btn-default.btn-sm.btn-transparent.ms-1#refresh-button(type="button")
+                    button.btn.btn-default.btn-sm.btn-transparent.ms-1#refresh-button(type="button", title="Reload the current tab")
                         span.fa.fa-sync-alt
 
                 span
-                    button.btn.btn-default.btn-sm.btn-transparent.ms-1#fullscreen-button(type="button")
+                    button.btn.btn-default.btn-sm.btn-transparent.ms-1#fullscreen-button(type="button", title="Enter full screen")
                         span.fa.fa-expand-arrows-alt
 
                 span.btn-group.ms-1
-                    button.btn.btn-default.btn-sm.btn-transparent.ms-1#actions-dropdown(type="button", data-bs-toggle="dropdown", aria-haspopup="true", aria-expanded="false")
+                    button.btn.btn-default.btn-sm.btn-transparent.ms-1#actions-dropdown(type="button", title="More actions", data-bs-toggle="dropdown", aria-haspopup="true", aria-expanded="false")
                         span.fa.fa-bars
 
                     div.dropdown-menu.dropdown-menu-right

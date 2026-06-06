@@ -41,6 +41,52 @@ function string_to_slug(str: string) {
         .replace(/-+$/, "") // trim - from end of text
 }
 
+function update_refresh_button_tooltip() {
+    // Keep the recycle button tooltip in sync with what it will currently do.
+    // When a terminal has dropped, the button reconnects rather than reloads.
+
+    let element = document.getElementById("refresh-button")
+
+    if (!element)
+        return
+
+    let tooltip = bootstrap.Tooltip.getInstance(element)
+
+    if (!tooltip)
+        return
+
+    let text = "Reload the current tab"
+
+    if (element.className.includes("-refresh-required"))
+        text = "Reconnect terminals"
+
+    tooltip.setContent({ ".tooltip-inner": text })
+}
+
+function update_countdown_button_tooltip(text: string) {
+    // Keep the countdown button tooltip in sync with what it will currently
+    // do. The text only changes when the session becomes extendable, but this
+    // is called on every countdown tick so we skip updates when unchanged to
+    // avoid the tooltip flickering while it is being hovered.
+
+    let element = document.getElementById("countdown-button")
+
+    if (!element)
+        return
+
+    if (element.getAttribute("data-tooltip-text") === text)
+        return
+
+    element.setAttribute("data-tooltip-text", text)
+
+    let tooltip = bootstrap.Tooltip.getInstance(element)
+
+    if (!tooltip)
+        return
+
+    tooltip.setContent({ ".tooltip-inner": text })
+}
+
 async function send_analytics_event(event: string, data = {}, timeout = 0) {
     let payload = {
         event: {
@@ -587,6 +633,8 @@ class TerminalSession {
 
         $("#refresh-button").removeClass("terminal-" + this.id + "-refresh-required")
 
+        update_refresh_button_tooltip()
+
         this.socket.onerror = (event) => {
             console.error("WebSocket error observed:", event)
         }
@@ -756,6 +804,8 @@ class TerminalSession {
 
                         $("#refresh-button").addClass("terminal-" + this.id + "-refresh-required")
 
+                        update_refresh_button_tooltip()
+
                         this.scrollToBottom()
                         await this.write("\r\nExited\r\n")
 
@@ -885,6 +935,8 @@ class TerminalSession {
                 $(self.element).addClass("notify-closed")
 
                 $("#refresh-button").addClass("terminal-" + self.id + "-refresh-required")
+
+                update_refresh_button_tooltip()
 
                 self.scrollToBottom()
                 await self.write("\r\nClosed\r\n")
@@ -1528,6 +1580,12 @@ class Dashboard {
                         cursor: '#ffffff'
                     })
                 }
+
+                let fullscreen_button = document.getElementById("fullscreen-button")
+                let fullscreen_tooltip = fullscreen_button ? bootstrap.Tooltip.getInstance(fullscreen_button) : null
+
+                if (fullscreen_tooltip)
+                    fullscreen_tooltip.setContent({ ".tooltip-inner": document.fullscreenElement ? "Exit full screen" : "Enter full screen" })
             })
         }
         else {
@@ -1601,6 +1659,24 @@ class Dashboard {
             window.open($(event.target).data("url"))
         })
 
+        // Enable hover tooltips on the navbar buttons so it is clear what each
+        // one will do. A short show delay stops tooltips flashing as the
+        // pointer sweeps across the row of buttons.
+
+        let tooltip_buttons = [
+            "#restart-button",
+            "#countdown-button",
+            "#refresh-button",
+            "#fullscreen-button",
+            "#actions-dropdown",
+        ]
+
+        tooltip_buttons.forEach((selector) => {
+            let element = $(selector).get(0)
+            if (element)
+                new bootstrap.Tooltip(element, { trigger: "hover", delay: { show: 500, hide: 0 } })
+        })
+
         // Initiate countdown timer if enabled for workshop session. Also
         // add a click action to the button so the workshop session can be
         // extended.
@@ -1668,12 +1744,16 @@ class Dashboard {
                         button.removeClass("btn-default")
                         button.removeClass("btn-transparent")
                         button.removeClass("btn-danger")
+
+                        update_countdown_button_tooltip("Click to extend the session")
                     }
                     else {
                         button.addClass("btn-danger")
                         button.removeClass("btn-default")
                         button.removeClass("btn-transparent")
                         button.removeClass("btn-warning")
+
+                        update_countdown_button_tooltip("Session ending soon")
                     }
                 }
                 else {
@@ -1681,6 +1761,8 @@ class Dashboard {
                     button.addClass("btn-transparent")
                     button.removeClass("btn-warning")
                     button.removeClass("btn-danger")
+
+                    update_countdown_button_tooltip("Session time remaining")
                 }
 
                 if (countdown && !((countdown + 2) % 15))
