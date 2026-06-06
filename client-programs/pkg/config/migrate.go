@@ -66,10 +66,11 @@ config explicitly against one of the kinds in
 cli.educates.dev/v1alpha1 and rerun with --config <file>:
 
   - EducatesLocalConfig    (laptop kind)
-  - EducatesGKEConfig      (GKE Managed)   — landing in phase 5 step 11
-  - EducatesEKSConfig      (EKS Managed)   — landing in phase 5 step 11
-  - EducatesInlineConfig   (BYO)           — landing in phase 5 step 11
-  - EducatesConfig         (escape hatch, full CRD passthrough — available now)
+  - EducatesInlineConfig   (BYO cluster — any provider, pre-existing
+                            cert-manager / ingress / policy engine)
+  - EducatesGKEConfig      (GKE Managed)   — landing in phase 5 step 11b
+  - EducatesEKSConfig      (EKS Managed)   — landing in phase 5 step 11c
+  - EducatesConfig         (escape hatch, full CRD passthrough)
 
 The original %s file is left untouched; you can keep it as a
 reference while re-declaring.`, v3Path, provider, v3Path)

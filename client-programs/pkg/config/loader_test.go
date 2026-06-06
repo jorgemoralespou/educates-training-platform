@@ -146,6 +146,42 @@ func TestLoad_EducatesConfig_WithTarget(t *testing.T) {
 	}
 }
 
+func TestLoad_EducatesInlineConfig_Minimal(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "inline-minimal.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	inline, ok := cfg.(*v1alpha1.EducatesInlineConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesInlineConfig, got %T", cfg)
+	}
+	if got, want := inline.Domain, "workshop.test"; got != want {
+		t.Errorf("Domain = %q, want %q", got, want)
+	}
+	// Defaults applied.
+	if got, want := inline.Operator.LogLevel, "info"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
+	}
+	if got, want := inline.PolicyEnforcement.ClusterEngine, "Kyverno"; got != want {
+		t.Errorf("PolicyEnforcement.ClusterEngine default = %q, want %q", got, want)
+	}
+}
+
+func TestLoad_EducatesInlineConfig_MissingRequired(t *testing.T) {
+	cfg := []byte("apiVersion: cli.educates.dev/v1alpha1\nkind: EducatesInlineConfig\n")
+	_, err := LoadBytes(cfg, "test")
+	if err == nil {
+		t.Fatal("expected error for missing required fields")
+	}
+	// Schema should call out one of the required fields.
+	for _, want := range []string{"domain", "ingressClassName", "wildcardCertificateSecret"} {
+		if strings.Contains(err.Error(), want) {
+			return
+		}
+	}
+	t.Errorf("error %q does not mention any required Inline field", err)
+}
+
 func TestLoad_EducatesConfig_BogusEnvelopeField(t *testing.T) {
 	_, err := Load(filepath.Join("testdata", "escape-bogus-envelope-field.yaml"))
 	if err == nil {

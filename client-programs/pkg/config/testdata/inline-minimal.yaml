@@ -1,0 +1,6 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesInlineConfig
+
+domain: workshop.test
+ingressClassName: contour
+wildcardCertificateSecret: educates-wildcard-tls

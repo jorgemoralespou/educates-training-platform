@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.educates.dev/cli/v1alpha1/EducatesInlineConfig.json",
+  "title": "EducatesInlineConfig",
+  "description": "BYO scenario. User asserts that cert-manager (or pre-issued wildcard cert), an ingress controller, and a policy engine already exist on the cluster.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "domain", "ingressClassName", "wildcardCertificateSecret"],
+  "properties": {
+    "apiVersion": { "const": "cli.educates.dev/v1alpha1" },
+    "kind":       { "const": "EducatesInlineConfig" },
+
+    "domain":                    { "type": "string", "minLength": 1 },
+    "ingressClassName":          { "type": "string", "minLength": 1 },
+    "wildcardCertificateSecret": { "type": "string", "minLength": 1 },
+    "caCertificateSecret":       { "type": "string" },
+    "clusterIssuerName":         { "type": "string" },
+
+    "imageRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prefix":      { "type": "string" },
+        "pullSecrets": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+
+    "policyEnforcement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clusterEngine": {
+          "type": "string",
+          "enum": ["Kyverno", "PodSecurityStandards", "OpenShiftSCC", "None"]
+        },
+        "workshopEngine": {
+          "type": "string",
+          "enum": ["Kyverno", "None"]
+        }
+      }
+    },
+
+    "clusterAdmin":   { "type": "boolean", "default": false },
+    "lookupService":  { "type": "boolean", "default": true },
+    "imagePrePuller": { "type": "boolean", "default": false },
+
+    "websiteStyling": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultTheme": { "type": "string" },
+        "themeDataRefs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["namespace", "name"],
+            "properties": {
+              "namespace": { "type": "string", "minLength": 1 },
+              "name":      { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "secretPropagation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imagePullSecretNames": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+
+    "imageVersions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "image"],
+        "properties": {
+          "name":  { "type": "string", "minLength": 1 },
+          "image": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string" },
+            "tag":        { "type": "string" },
+            "pullPolicy": {
+              "type": "string",
+              "enum": ["Always", "IfNotPresent", "Never"]
+            }
+          }
+        },
+        "imagePullSecrets": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info"
+        }
+      }
+    }
+  }
+}

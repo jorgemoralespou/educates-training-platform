@@ -11,3 +11,6 @@ var EducatesLocalConfig []byte
 
 //go:embed EducatesConfig.schema.json
 var EducatesConfig []byte
+
+//go:embed EducatesInlineConfig.schema.json
+var EducatesInlineConfig []byte

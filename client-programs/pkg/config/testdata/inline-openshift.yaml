@@ -1,0 +1,16 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesInlineConfig
+
+domain: workshops.example.com
+ingressClassName: openshift-default
+wildcardCertificateSecret: educates-wildcard-tls
+caCertificateSecret: educates-wildcard-ca
+
+policyEnforcement:
+  clusterEngine: OpenShiftSCC
+  workshopEngine: None
+
+imageRegistry:
+  prefix: registry.internal.example.com/educates
+  pullSecrets:
+    - internal-registry-pull
