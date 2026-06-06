@@ -513,7 +513,7 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 					Reason: "required when issuerType is CustomCA",
 				}
 			}
-			if err := r.checkCustomCASecret(ctx, certs.BundledCertManager.CustomCA.CACertificateRef.Name); err != nil {
+			if err := r.checkCustomCASecret(ctx, certs.BundledCertManager.CustomCA.CACertificateRef); err != nil {
 				return err
 			}
 		case configv1alpha1.IssuerTypeACME:
@@ -537,17 +537,22 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 }
 
 // checkCustomCASecret validates the CustomCA Secret reference in
-// the operator namespace. Mirrors checkCASecret for Inline mode but
-// expects tls.crt + tls.key (cert-manager's CA-issuer needs the
-// private key), not ca.crt.
-func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Context, name string) error {
+// the namespace specified on the reference (defaulting to the operator
+// namespace). Mirrors checkCASecret for Inline mode but expects
+// tls.crt + tls.key (cert-manager's CA-issuer needs the private key),
+// not ca.crt.
+func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Context, ref configv1alpha1.CASecretReference) error {
+	ns := ref.Namespace
+	if ns == "" {
+		ns = r.OperatorNamespace
+	}
 	s := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: r.OperatorNamespace, Name: name}
+	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
 	if err := r.Get(ctx, key, s); err != nil {
 		if apierrors.IsNotFound(err) {
 			return &validationError{
 				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
-				Reason: fmt.Sprintf("Secret %s/%s not found", r.OperatorNamespace, name),
+				Reason: fmt.Sprintf("Secret %s/%s not found", ns, ref.Name),
 			}
 		}
 		return fmt.Errorf("get CustomCA Secret %s: %w", key, err)
@@ -556,7 +561,7 @@ func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Contex
 		if _, ok := s.Data[k]; !ok {
 			return &validationError{
 				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
-				Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", r.OperatorNamespace, name, k),
+				Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", ns, ref.Name, k),
 			}
 		}
 	}

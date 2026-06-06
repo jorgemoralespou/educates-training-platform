@@ -172,6 +172,25 @@ type NamespacedSecretRef struct {
 	Name string `json:"name"`
 }
 
+// CASecretReference is a Secret reference for the CustomCA flow.
+// Name is required; Namespace is optional and defaults to the operator
+// namespace when empty.
+//
+// The optional namespace lets installs (in particular the CLI's
+// laptop-mode flow) keep CA material in a dedicated namespace
+// (educates-secrets, by convention) rather than co-locating it with the
+// operator. v3 installations rely on this separation, and the v4 CLI
+// preserves it for compatibility.
+type CASecretReference struct {
+	// name of the referent.
+	// +required
+	Name string `json:"name"`
+
+	// namespace of the referent. Empty means the operator namespace.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
 // SecretKeyRef references a key within a Secret in the operator namespace.
 type SecretKeyRef struct {
 	// name of the Secret.
@@ -386,9 +405,10 @@ type ACMEConfig struct {
 // CustomCAConfig configures a self-signed/custom CA-backed ClusterIssuer.
 type CustomCAConfig struct {
 	// caCertificateRef references a Secret holding the CA's own cert and
-	// key (keys: tls.crt, tls.key).
+	// key (keys: tls.crt, tls.key). Namespace defaults to the operator
+	// namespace when empty.
 	// +required
-	CACertificateRef LocalObjectReference `json:"caCertificateRef"`
+	CACertificateRef CASecretReference `json:"caCertificateRef"`
 }
 
 // BundledCertManagerConfig configures the operator-installed cert-manager

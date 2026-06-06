@@ -283,8 +283,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 	// owns. Each helper is idempotent (SSA) so re-running converges.
 	bcm := obj.Spec.Ingress.Certificates.BundledCertManager
 	if bcm.IssuerType == configv1alpha1.IssuerTypeCustomCA {
-		customCARef := bcm.CustomCA.CACertificateRef.Name
-		if err := r.ensureCustomCASecretCopy(ctx, obj, customCARef); err != nil {
+		if err := r.ensureCustomCASecretCopy(ctx, obj, bcm.CustomCA.CACertificateRef); err != nil {
 			if isCertManagerCRDMissingErr(err) {
 				return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
 			}
@@ -394,23 +393,30 @@ func deploymentAvailable(d *appsv1.Deployment) bool {
 }
 
 // ensureCustomCASecretCopy mirrors the user-supplied CustomCA Secret
-// from the operator namespace into the cert-manager namespace so the
-// CA-typed ClusterIssuer can read it.
+// from its declared namespace (or the operator namespace when empty)
+// into the cert-manager namespace so the CA-typed ClusterIssuer can
+// read it.
 //
 // Background: a `kind: ClusterIssuer` with `spec.ca.secretName` reads
 // the Secret from cert-manager's `--cluster-resource-namespace` flag,
 // which defaults to the namespace cert-manager is installed in
-// (cert-manager). The user-supplied Secret lives in the operator
-// namespace per the CRD design; the operator owns the copy.
+// (cert-manager). The user-supplied Secret can live in any namespace
+// the install pipeline chose (the v4 CLI's laptop mode uses
+// 'educates-secrets' for v3 compatibility); the operator copies from
+// there into cert-manager's namespace.
 //
 // Implementation is SSA so subsequent reconciles converge labels and
 // data without read-modify-write races. Owner reference on the copy
 // is the EducatesClusterConfig so `kubectl delete educatesclusterconfig`
 // cascades the copy.
-func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig, srcName string) error {
-	src := &corev1.Secret{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: r.OperatorNamespace, Name: srcName}, src); err != nil {
-		return fmt.Errorf("read source CustomCA Secret %s/%s: %w", r.OperatorNamespace, srcName, err)
+func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig, src configv1alpha1.CASecretReference) error {
+	srcNS := src.Namespace
+	if srcNS == "" {
+		srcNS = r.OperatorNamespace
+	}
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: srcNS, Name: src.Name}, secret); err != nil {
+		return fmt.Errorf("read source CustomCA Secret %s/%s: %w", srcNS, src.Name, err)
 	}
 
 	dst := &corev1.Secret{
@@ -427,8 +433,8 @@ func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.C
 		},
 		Type: corev1.SecretTypeTLS,
 		Data: map[string][]byte{
-			"tls.crt": src.Data["tls.crt"],
-			"tls.key": src.Data["tls.key"],
+			"tls.crt": secret.Data["tls.crt"],
+			"tls.key": secret.Data["tls.key"],
 		},
 	}
 	if err := controllerSetOwnerOnCrossNamespaceCopy(owner, dst, r.Scheme); err != nil {
