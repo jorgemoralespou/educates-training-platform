@@ -32,13 +32,29 @@ type Output struct {
 	SessionManager        map[string]interface{}
 }
 
+// Options carries caller-side inputs that are too environmental for the
+// translator to compute on its own.
+type Options struct {
+	// CASecretName is the name of the Secret in CASecretNamespace that
+	// holds the CustomCA's tls.crt + tls.key. Looked up by domain at
+	// the call site (typically via secrets.LocalCachedSecretForCertificateAuthority).
+	// Required for TranslateLocal; ignored for TranslateEscape (which
+	// passes user-declared CRs through verbatim).
+	CASecretName string
+
+	// CASecretNamespace is the namespace of the CA Secret. Empty means
+	// the operator namespace. For laptop-mode installs aligned with v3,
+	// the caller sets this to "educates-secrets".
+	CASecretNamespace string
+}
+
 // Translate dispatches on kind. Returns ErrUnknownKind if the loaded
 // config is one this translator does not yet handle (e.g. the GKE/EKS/
 // Inline scenario kinds, which land later in Phase 5).
-func Translate(cfg v1alpha1.Config) (*Output, error) {
+func Translate(cfg v1alpha1.Config, opts Options) (*Output, error) {
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
-		return TranslateLocal(c), nil
+		return TranslateLocal(c, opts)
 	case *v1alpha1.EducatesConfig:
 		return TranslateEscape(c), nil
 	default:

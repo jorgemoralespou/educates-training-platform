@@ -88,6 +88,8 @@ func (p *ProjectInfo) runDeployV4(ctx context.Context, w io.Writer, o *PlatformD
 		return err
 	}
 
+	opts := translator.Options{}
+	syncLocalSecrets := false
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
 		c.ApplyCLIDefaults(p.Version, p.ImageRepository)
@@ -100,11 +102,18 @@ func (p *ProjectInfo) runDeployV4(ctx context.Context, w io.Writer, o *PlatformD
 		} else if c.Ingress.Domain == "" {
 			return fmt.Errorf("ingress.domain is required when using --config (set it in %s)", path)
 		}
+		caName, lookupErr := lookupLocalCAByDomain(c.Ingress.Domain)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		opts.CASecretName = caName
+		opts.CASecretNamespace = LocalCASecretNamespace
+		syncLocalSecrets = true
 	case *v1alpha1.EducatesConfig:
 		// Pure passthrough.
 	}
 
-	out, err := translator.Translate(cfg)
+	out, err := translator.Translate(cfg, opts)
 	if err != nil {
 		return err
 	}
@@ -126,10 +135,11 @@ func (p *ProjectInfo) runDeployV4(ctx context.Context, w io.Writer, o *PlatformD
 	}
 
 	return deployer.Deploy(ctx, out, deployer.Options{
-		Getter:  cf,
-		Out:     w,
-		HelmLog: helmLog,
-		Timeout: o.Timeout,
+		Getter:           cf,
+		Out:              w,
+		HelmLog:          helmLog,
+		Timeout:          o.Timeout,
+		SyncLocalSecrets: syncLocalSecrets,
 	})
 }
 

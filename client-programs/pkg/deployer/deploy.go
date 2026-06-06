@@ -21,10 +21,12 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/helm"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/prereq"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
+	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+	"k8s.io/client-go/kubernetes"
 )
 
 const (
@@ -60,6 +62,13 @@ type Options struct {
 	// check. Set when the caller has already verified, or for advanced
 	// users who manage the Secret asynchronously.
 	SkipPrereqCheck bool
+
+	// SyncLocalSecrets, when true, copies <data-home>/secrets/*.yaml into
+	// the cluster's 'educates-secrets' namespace before applying the
+	// platform CRs. Matches the v3 laptop flow: cached CA/TLS material
+	// is pushed at deploy time, ECC's caCertificateRef points there.
+	// Only meaningful for EducatesLocalConfig deploys.
+	SyncLocalSecrets bool
 }
 
 // Deploy executes the install pipeline against the cluster reachable
@@ -83,6 +92,18 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	}
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultTimeout
+	}
+
+	// 0. Push cached local secrets (CA + TLS) into the cluster. For the
+	//    laptop flow this is the source of the Secret that the
+	//    operator's CustomCA path will mirror into cert-manager's
+	//    namespace; ECC.caCertificateRef points at 'educates-secrets'.
+	if opts.SyncLocalSecrets {
+		fmt.Fprintln(opts.Out, "→ syncing cached local secrets to cluster")
+		if err := syncLocalSecrets(opts.Getter); err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Out, "  ✓ secrets synced")
 	}
 
 	// 1. Helm install/upgrade the operator chart.
@@ -115,11 +136,11 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		return err
 	}
 
-	// 3. Prereq check — the SecretsManager controller will error without
-	// the Secret in place, so fail fast with a friendly message rather
-	// than letting it surface as a Ready=False with controller-internal
-	// reason text.
-	if !opts.SkipPrereqCheck {
+	// 3. Prereq check — only meaningful when the caller didn't sync
+	//    local secrets. With SyncLocalSecrets the cache push is the
+	//    prereq; the render-time lookup already verified the cache had
+	//    a CA matching the domain.
+	if !opts.SkipPrereqCheck && !opts.SyncLocalSecrets {
 		fmt.Fprintln(opts.Out, "→ checking prerequisite Secret", prereq.CustomCASecretName)
 		if err := prereq.CheckCustomCASecret(ctx, opts.Getter, OperatorNamespace); err != nil {
 			return err
@@ -165,6 +186,25 @@ func applyAndWait(ctx context.Context, opts Options, applier *apply.Client, wait
 		return err
 	}
 	fmt.Fprintf(opts.Out, "  ✓ %s/%s Ready\n", label, u.GetName())
+	return nil
+}
+
+// syncLocalSecrets copies <data-home>/secrets/*.yaml into the cluster's
+// 'educates-secrets' namespace. Reuses the v3 secrets package so the
+// laptop flow stays the same; deletion of the v3 package in step 9 will
+// fold this through whatever the new home is.
+func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
+	cfg, err := getter.ToRESTConfig()
+	if err != nil {
+		return fmt.Errorf("REST config for secrets sync: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("kubernetes client for secrets sync: %w", err)
+	}
+	if err := secrets.SyncLocalCachedSecretsToCluster(cs); err != nil {
+		return fmt.Errorf("sync local secrets: %w", err)
+	}
 	return nil
 }
 

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
 )
 
 const (
@@ -36,6 +38,38 @@ func writeFixture(t *testing.T, content string) string {
 	return path
 }
 
+// stageCachedCA drops a synthetic CA Secret YAML into <dataHome>/secrets/
+// with the 'training.educates.dev/domain' annotation set to `domain`,
+// matching the v4 lookup criteria (kubernetes.io/tls type with both
+// tls.crt and tls.key data). The byte contents are placeholders — the
+// test only exercises the lookup-by-domain path, not PEM validity.
+func stageCachedCA(t *testing.T, dataHome, domain string) (caName string) {
+	t.Helper()
+	caName = "test-ca"
+	secretsDir := filepath.Join(dataHome, "secrets")
+	if err := os.MkdirAll(secretsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + caName +
+		"\n  annotations:\n    training.educates.dev/domain: " + domain +
+		"\ntype: kubernetes.io/tls\ndata:\n  tls.crt: dGVzdC1jcnQ=\n  tls.key: dGVzdC1rZXk=\n"
+	if err := os.WriteFile(filepath.Join(secretsDir, caName+".yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+// withCachedCA is a convenience wrapper: creates a fresh temp data home,
+// stages a CA for `domain`, and sets $EDUCATES_CLI_DATA_HOME. Use it
+// when the test doesn't already manage its own data home.
+func withCachedCA(t *testing.T, domain string) (dataHome, caName string) {
+	t.Helper()
+	dataHome = t.TempDir()
+	caName = stageCachedCA(t, dataHome, domain)
+	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+	return
+}
+
 func TestRender_Config_MissingDomain_Errors(t *testing.T) {
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
 	o := &PlatformRenderOptions{Config: writeFixture(t, emptyLocal)}
@@ -54,6 +88,7 @@ func TestRender_Config_MissingDomain_Errors(t *testing.T) {
 }
 
 func TestRender_Config_WithDomain_NoHostHeader(t *testing.T) {
+	withCachedCA(t, "workshop.test")
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
 	o := &PlatformRenderOptions{Config: writeFixture(t, localWithDomain)}
 
@@ -86,6 +121,7 @@ func TestRender_Config_WithDomain_NoHostHeader(t *testing.T) {
 
 func TestRender_Config_CLIDefaults_AppliedWhenImageEmpty(t *testing.T) {
 	// Tag and repository come from ProjectInfo when config leaves them empty.
+	withCachedCA(t, "workshop.test")
 	cfgYAML := `apiVersion: cli.educates.dev/v1alpha1
 kind: EducatesLocalConfig
 ingress:
@@ -111,11 +147,19 @@ ingress:
 
 func TestRender_LocalConfig_AutoDomain_EmitsHeader(t *testing.T) {
 	// Point --local-config at a temp data home so the test doesn't touch
-	// the user's actual ~/.educates.
+	// the user's actual data home.
 	dataHome := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(emptyLocal), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Pre-stage a cached CA matching the host-IP-derived domain that
+	// maybeApplyHostDomain will compute. We mirror the same nip.io
+	// derivation here to know which annotation to write.
+	ip, err := hostinfo.DetectHostIP()
+	if err != nil {
+		t.Skipf("no host IP detectable: %v", err)
+	}
+	stageCachedCA(t, dataHome, hostinfo.NipDomain(ip))
 	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
 
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
@@ -139,6 +183,7 @@ func TestRender_LocalConfig_UserDomain_NoHeader(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	stageCachedCA(t, dataHome, "workshop.test")
 	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
 
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}

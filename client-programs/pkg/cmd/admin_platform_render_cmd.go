@@ -12,6 +12,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
+	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
@@ -90,6 +91,7 @@ func (p *ProjectInfo) runRender(w io.Writer, o *PlatformRenderOptions) error {
 	}
 
 	header := ""
+	opts := translator.Options{}
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
 		c.ApplyCLIDefaults(p.Version, p.ImageRepository)
@@ -105,18 +107,66 @@ Set it explicitly in %s, or use --local-config to derive a <host-IP>.nip.io
 fallback (output becomes host-specific and unsuitable for GitOps).`, path)
 		}
 		header = hostNote
+
+		// Local-mode invariant: BundledCertManager+CustomCA. Look up the
+		// CA Secret in the local cache by the configured domain. Failing
+		// here (before any rendering) gives the user a remediation path
+		// before they pipe output to GitOps.
+		caName, lookupErr := lookupLocalCAByDomain(c.Ingress.Domain)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		opts.CASecretName = caName
+		opts.CASecretNamespace = LocalCASecretNamespace
 	case *v1alpha1.EducatesConfig:
 		// Escape-hatch: pure passthrough. No CLI-side defaults. User owns
 		// the full surface; missing required fields are caught by the
 		// CRD-derived schema at load time or by the apiserver at apply.
 	}
 
-	out, err := translator.Translate(cfg)
+	out, err := translator.Translate(cfg, opts)
 	if err != nil {
 		return err
 	}
 
 	return writeRender(w, out, header)
+}
+
+// LocalCASecretNamespace is where laptop-mode CA Secrets live, matching
+// the v3 convention. The deploy command pushes the local secrets cache
+// into this namespace before applying the CRs.
+const LocalCASecretNamespace = "educates-secrets"
+
+// lookupLocalCAByDomain finds the cached CA Secret name whose
+// 'training.educates.dev/domain' annotation matches the configured
+// ingress.domain. Errors with a copy-paste workaround when nothing
+// matches.
+func lookupLocalCAByDomain(domain string) (string, error) {
+	if domain == "" {
+		return "", fmt.Errorf("ingress.domain is empty; cannot look up cached CA")
+	}
+	name := secrets.LocalCachedSecretForCertificateAuthority(domain)
+	if name == "" {
+		return "", fmt.Errorf(`no cached CA Secret found for domain %q.
+
+The Local-mode install configures cert-manager in CustomCA mode and
+needs a CA Secret whose 'training.educates.dev/domain' annotation
+matches this domain. Add one with:
+
+  educates local secrets add ca <name> \
+    --domain %s \
+    --cert ca.crt --key ca.key
+
+For development on a laptop, generate a self-signed CA first:
+
+  openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+    -subj '/CN=educates-dev-ca' \
+    -keyout ca.key -out ca.crt
+
+The cached Secret is pushed into the %q namespace at deploy time.`,
+			domain, domain, LocalCASecretNamespace)
+	}
+	return name, nil
 }
 
 // resolveConfigPath picks the config file based on which flag was set.

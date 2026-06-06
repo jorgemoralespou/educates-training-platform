@@ -18,9 +18,16 @@ func loadCfg(t *testing.T, fixture string) v1alpha1.Config {
 	return cfg
 }
 
+// testOpts supplies a non-empty CA secret name so EducatesLocalConfig
+// translation doesn't fail validation. Cluster-side secrets cache
+// integration is exercised by the command-level tests.
+func testOpts() Options {
+	return Options{CASecretName: "test-ca", CASecretNamespace: "educates-secrets"}
+}
+
 func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 	cfg := loadCfg(t, "local-empty.yaml")
-	out, err := Translate(cfg)
+	out, err := Translate(cfg, testOpts())
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
 	}
@@ -73,7 +80,7 @@ func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 
 func TestTranslateLocal_LookupServiceDisabled_OmitsCR(t *testing.T) {
 	cfg := loadCfg(t, "local-full.yaml") // sets lookupService: false
-	out, _ := Translate(cfg)
+	out, _ := Translate(cfg, testOpts())
 	if out.LookupService != nil {
 		t.Errorf("LookupService = %v, want nil", out.LookupService)
 	}
@@ -81,7 +88,7 @@ func TestTranslateLocal_LookupServiceDisabled_OmitsCR(t *testing.T) {
 
 func TestTranslateLocal_FullConfig_OperatorChartValues(t *testing.T) {
 	cfg := loadCfg(t, "local-full.yaml")
-	out, _ := Translate(cfg)
+	out, _ := Translate(cfg, testOpts())
 
 	values := out.OperatorChartValues
 	image := values["image"].(map[string]interface{})
@@ -107,7 +114,7 @@ func TestTranslateLocal_FullConfig_OperatorChartValues(t *testing.T) {
 
 func TestTranslateLocal_FullConfig_SessionManagerFields(t *testing.T) {
 	cfg := loadCfg(t, "local-full.yaml")
-	out, _ := Translate(cfg)
+	out, _ := Translate(cfg, testOpts())
 	sm := out.SessionManager["spec"].(map[string]interface{})
 
 	if got, want := sm["defaultTheme"], "educates-default"; got != want {
@@ -137,7 +144,7 @@ func TestTranslateLocal_FullConfig_SessionManagerFields(t *testing.T) {
 
 func TestTranslateEscape_Minimal_Passthrough(t *testing.T) {
 	cfg := loadCfg(t, "escape-minimal.yaml")
-	out, err := Translate(cfg)
+	out, err := Translate(cfg, testOpts())
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
 	}
@@ -167,7 +174,7 @@ func TestTranslateEscape_Minimal_Passthrough(t *testing.T) {
 
 func TestTranslateEscape_WithTarget_PassesAllSections(t *testing.T) {
 	cfg := loadCfg(t, "escape-with-target.yaml")
-	out, _ := Translate(cfg)
+	out, _ := Translate(cfg, testOpts())
 
 	if got, want := out.OperatorChartValues["logLevel"], "debug"; got != want {
 		t.Errorf("operator logLevel = %v, want %v", got, want)
@@ -180,7 +187,7 @@ func TestTranslateEscape_WithTarget_PassesAllSections(t *testing.T) {
 
 func TestRender_CRs_MultiDocYAML(t *testing.T) {
 	cfg := loadCfg(t, "local-empty.yaml")
-	out, _ := Translate(cfg)
+	out, _ := Translate(cfg, testOpts())
 	yamlBytes, err := RenderCRs(out)
 	if err != nil {
 		t.Fatalf("RenderCRs: %v", err)
@@ -207,7 +214,7 @@ func TestRender_CRs_MultiDocYAML(t *testing.T) {
 
 func TestRender_OperatorValues_Empty(t *testing.T) {
 	cfg := loadCfg(t, "local-empty.yaml")
-	out, _ := Translate(cfg)
+	out, _ := Translate(cfg, testOpts())
 	values, err := RenderOperatorValues(out)
 	if err != nil {
 		t.Fatalf("RenderOperatorValues: %v", err)
@@ -222,7 +229,7 @@ func TestRender_OperatorValues_Empty(t *testing.T) {
 
 func TestRender_OperatorValues_Full(t *testing.T) {
 	cfg := loadCfg(t, "local-full.yaml")
-	out, _ := Translate(cfg)
+	out, _ := Translate(cfg, testOpts())
 	values, _ := RenderOperatorValues(out)
 	s := string(values)
 	for _, want := range []string{

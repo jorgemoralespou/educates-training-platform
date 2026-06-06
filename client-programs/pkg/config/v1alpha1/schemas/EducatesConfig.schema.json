@@ -486,10 +486,14 @@
                       "description": "CustomCAConfig configures a self-signed/custom CA-backed ClusterIssuer.",
                       "properties": {
                         "caCertificateRef": {
-                          "description": "caCertificateRef references a Secret holding the CA's own cert and\nkey (keys: tls.crt, tls.key).",
+                          "description": "caCertificateRef references a Secret holding the CA's own cert and\nkey (keys: tls.crt, tls.key). Namespace defaults to the operator\nnamespace when empty.",
                           "properties": {
                             "name": {
                               "description": "name of the referent.",
+                              "type": "string"
+                            },
+                            "namespace": {
+                              "description": "namespace of the referent. Empty means the operator namespace.",
                               "type": "string"
                             }
                           },

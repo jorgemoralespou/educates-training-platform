@@ -1,6 +1,8 @@
 package translator
 
 import (
+	"fmt"
+
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 )
 
@@ -12,8 +14,13 @@ import (
 //   - ingress.controller.provider: BundledContour
 //   - ingress.certificates.provider: BundledCertManager
 //   - ingress.certificates.bundledCertManager.issuerType: CustomCA
-//   - ingress.certificates.bundledCertManager.customCA.caCertificateRef.name:
-//     educates-custom-ca
+//
+// The CustomCA caCertificateRef name and namespace come from opts — the
+// caller (typically the cmd code) looks them up by domain via
+// secrets.LocalCachedSecretForCertificateAuthority and supplies them
+// here. Returns an error when opts.CASecretName is empty: the install
+// cannot complete without a CA, so failing at translate time prevents
+// late surprises at deploy time.
 //
 // Static field defaults (clusterAdmin true, lookupService true,
 // imagePrePuller false, operator.logLevel info, cluster.listenAddress
@@ -25,17 +32,20 @@ import (
 //     defaulting belongs upstream of the translator).
 //   - operator.image.tag stays as-is (CLI-binary-version defaulting
 //     belongs in command code that has access to the build info).
-func TranslateLocal(cfg *v1alpha1.EducatesLocalConfig) *Output {
+func TranslateLocal(cfg *v1alpha1.EducatesLocalConfig, opts Options) (*Output, error) {
+	if opts.CASecretName == "" {
+		return nil, fmt.Errorf("translator: CustomCA Secret name is required for EducatesLocalConfig; the caller must look it up by ingress.domain from the local secrets cache before translating")
+	}
 	out := &Output{
 		OperatorChartValues:   localOperatorChartValues(cfg),
-		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", localECCSpec(cfg)),
+		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", localECCSpec(cfg, opts)),
 		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", localSecretsManagerSpec(cfg)),
 		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", localSessionManagerSpec(cfg)),
 	}
 	if cfg.LookupService != nil && *cfg.LookupService {
 		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", localLookupServiceSpec(cfg))
 	}
-	return out
+	return out, nil
 }
 
 func localOperatorChartValues(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
@@ -69,7 +79,14 @@ func localOperatorChartValues(cfg *v1alpha1.EducatesLocalConfig) map[string]inte
 
 // localECCSpec builds the EducatesClusterConfig.spec for Local mode.
 // Always Managed; always BundledContour + CustomCA cert-manager.
-func localECCSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
+// caCertificateRef.name and (optionally) .namespace come from opts —
+// the caller looked them up by ingress.domain in the local secrets cache.
+func localECCSpec(cfg *v1alpha1.EducatesLocalConfig, opts Options) map[string]interface{} {
+	caRef := map[string]interface{}{"name": opts.CASecretName}
+	if opts.CASecretNamespace != "" {
+		caRef["namespace"] = opts.CASecretNamespace
+	}
+
 	ingress := map[string]interface{}{
 		"ingressClassName": "contour",
 		"controller": map[string]interface{}{
@@ -80,9 +97,7 @@ func localECCSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
 			"bundledCertManager": map[string]interface{}{
 				"issuerType": "CustomCA",
 				"customCA": map[string]interface{}{
-					"caCertificateRef": map[string]interface{}{
-						"name": "educates-custom-ca",
-					},
+					"caCertificateRef": caRef,
 				},
 			},
 		},
