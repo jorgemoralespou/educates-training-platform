@@ -806,13 +806,22 @@ class TerminalSession {
 
                         update_refresh_button_tooltip()
 
-                        this.scrollToBottom()
-                        await this.write("\r\nExited\r\n")
-
-                        this.socket.close()
+                        // Mark the session as shut down and detach the socket
+                        // synchronously, before the await below. The backend
+                        // closes the connection immediately after sending the
+                        // EXIT message, so if we yielded to the event loop
+                        // first, the onclose handler would run with shutdown
+                        // still false and wrongly reconnect, spawning a new
+                        // shell. Closing the captured socket here also makes
+                        // onclose bail out as it no longer matches this.socket.
 
                         this.shutdown = true
                         this.socket = null
+
+                        socket.close()
+
+                        this.scrollToBottom()
+                        await this.write("\r\nExited\r\n")
 
                         // Generate analytics event to track terminal exit.
 

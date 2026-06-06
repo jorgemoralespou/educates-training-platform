@@ -24,3 +24,10 @@ Features Changed
   what the buttons are for. The tooltip message for the countdown timer will
   change to indicate when the session can be extended, in addition to the
   colour being changed to amber.
+
+Bugs Fixed
+----------
+
+* Due to a race condition, if `exit` was run in the terminal to exit the shell,
+  it would immediately reconnect when it was supposed to rely on a user to
+  manually click on the reload button above.
