@@ -44,7 +44,7 @@ func (o *LocalSecretsImportOptions) Run() error {
 		err = runtime.DecodeInto(decoder, []byte(yamlData), secretObj)
 
 		if err != nil {
-			return errors.Wrapf(err, "unable to decode secret %q", i)
+			return errors.Wrapf(err, "unable to decode secret #%d", i)
 		}
 
 		// Make sure that the namespace is cleared.

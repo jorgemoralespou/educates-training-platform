@@ -338,6 +338,16 @@ generate-cli-schemas:
 	@# Run after `make manifests` in installer/operator/ when CRD shapes change.
 	go run ./client-programs/hack/gen-cli-schemas
 
+embed-installer-chart:
+	@# Refreshes the CLI-embedded copy of the operator chart from the
+	@# canonical source. Run whenever installer/charts/educates-installer
+	@# changes shape — Chart.yaml updates, new templates, new CRDs.
+	@# The copy is committed (single-source-of-truth via this target);
+	@# a CI drift check belongs in a follow-up.
+	rm -rf client-programs/pkg/deployer/chart/files
+	mkdir -p client-programs/pkg/deployer/chart/files
+	cp -r installer/charts/educates-installer/. client-programs/pkg/deployer/chart/files/
+
 client-programs-educates:
 	rm -rf client-programs/pkg/renderer/files
 	mkdir client-programs/pkg/renderer/files

@@ -24,6 +24,7 @@ func (p *ProjectInfo) NewAdminPlatformCmdGroup() *cobra.Command {
 				p.NewAdminPlatformConfigCmd(),
 				p.NewAdminPlatformValuesCmd(),
 				p.NewAdminPlatformRenderCmd(),
+				p.NewAdminPlatformDeployV4Cmd(),
 			},
 		},
 	}

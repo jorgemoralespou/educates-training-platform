@@ -1,0 +1,34 @@
+# Operator container image. Phase 0 ships a local-development placeholder
+# tag; the publish-time defaults pattern (mirroring the runtime chart's
+# Chart.yaml annotations) lands in Phase 6 alongside release wiring.
+#
+# Local development workflow:
+#   cd installer/operator
+#   make docker-build IMG=ghcr.io/educates/educates-operator:dev
+#   kind load docker-image ghcr.io/educates/educates-operator:dev
+#   helm install educates-installer installer/charts/educates-installer \
+#     --namespace educates-installer --create-namespace
+image:
+  repository: ghcr.io/educates/educates-operator
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# Pull secrets for the operator pod itself. Distinct from
+# EducatesClusterConfig.spec.imageRegistry.pullSecrets, which apply to
+# bundled charts the operator installs.
+imagePullSecrets: []
+
+# Operator pod resources. Empty means no requests or limits set; tune
+# per cluster.
+resources: {}
+
+# Pod placement.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# When false, leader election is disabled — appropriate for the Phase 0
+# single-replica deployment. When the operator scales beyond one replica
+# (not in v4 plan), set to true.
+leaderElection:
+  enabled: false
