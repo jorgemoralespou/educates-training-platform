@@ -17,7 +17,6 @@ import (
 	"sigs.k8s.io/kind/pkg/cluster"
 	"sigs.k8s.io/kind/pkg/cmd"
 
-	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
@@ -60,7 +59,7 @@ func (o *KindClusterConfig) ClusterExists() (bool, error) {
 	return false, nil
 }
 
-func (o *KindClusterConfig) CreateCluster(config *config.InstallationConfig, image string) error {
+func (o *KindClusterConfig) CreateCluster(input *KindBootstrapInput, image string) error {
 	if exists, err := o.ClusterExists(); !exists && err != nil {
 		return err
 	}
@@ -73,7 +72,7 @@ func (o *KindClusterConfig) CreateCluster(config *config.InstallationConfig, ima
 
 	var clusterConfigData bytes.Buffer
 
-	err = clusterConfigTemplate.Execute(&clusterConfigData, config)
+	err = clusterConfigTemplate.Execute(&clusterConfigData, input)
 
 	if err != nil {
 		return errors.Wrap(err, "failed to generate cluster config")
