@@ -596,10 +596,15 @@ spec:
                               caCertificateRef:
                                 description: |-
                                   caCertificateRef references a Secret holding the CA's own cert and
-                                  key (keys: tls.crt, tls.key).
+                                  key (keys: tls.crt, tls.key). Namespace defaults to the operator
+                                  namespace when empty.
                                 properties:
                                   name:
                                     description: name of the referent.
+                                    type: string
+                                  namespace:
+                                    description: namespace of the referent. Empty
+                                      means the operator namespace.
                                     type: string
                                 required:
                                 - name
