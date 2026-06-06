@@ -18,12 +18,17 @@ import (
 	"k8s.io/kubectl/pkg/scheme"
 )
 
-var secretsCacheDir = path.Join(utils.GetEducatesHomeDir(), "secrets")
+// secretsCacheDir resolves the on-disk secrets cache directory at call
+// time rather than at package-init, so $EDUCATES_CLI_DATA_HOME (and
+// tests using t.Setenv) takes effect.
+func secretsCacheDir() string {
+	return path.Join(utils.GetEducatesHomeDir(), "secrets")
+}
 
 const secretsNS = "educates-secrets"
 
 func LocalCachedSecretForIngressDomain(domain string) string {
-	files, err := os.ReadDir(secretsCacheDir)
+	files, err := os.ReadDir(secretsCacheDir())
 
 	if err != nil {
 		return ""
@@ -66,7 +71,7 @@ func LocalCachedSecretForIngressDomain(domain string) string {
 }
 
 func LocalCachedSecretForCertificateAuthority(domain string) string {
-	files, err := os.ReadDir(secretsCacheDir)
+	files, err := os.ReadDir(secretsCacheDir())
 
 	if err != nil {
 		return ""
@@ -87,13 +92,19 @@ func LocalCachedSecretForCertificateAuthority(domain string) string {
 				continue
 			}
 
-			// Type of secret needs to be Opaque.
-			if secretObj.Type != "Opaque" && secretObj.Type != "" {
+			// v4 CustomCA flow: cert-manager signs workshop certs from
+			// this CA, so the Secret must carry both the CA cert and
+			// its private key. v3's Opaque+ca.crt shape (cert only,
+			// for trust distribution) is no longer supported — users
+			// who want a non-signing CA reference switch to the
+			// EducatesConfig escape hatch.
+			if secretObj.Type != apiv1.SecretTypeTLS {
 				continue
 			}
-
-			// Needs contain ca.crt data.
-			if value, exists := secretObj.Data["ca.crt"]; !exists || len(value) == 0 {
+			if v, ok := secretObj.Data["tls.crt"]; !ok || len(v) == 0 {
+				continue
+			}
+			if v, ok := secretObj.Data["tls.key"]; !ok || len(v) == 0 {
 				continue
 			}
 
@@ -108,7 +119,7 @@ func LocalCachedSecretForCertificateAuthority(domain string) string {
  * SyncSecretsToCluster copies secrets from the local cache to the cluster.
  */
 func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset) error {
-	err := os.MkdirAll(secretsCacheDir, os.ModePerm)
+	err := os.MkdirAll(secretsCacheDir(), os.ModePerm)
 
 	if err != nil {
 		return errors.Wrapf(err, "unable to create secrets cache directory")
@@ -130,10 +141,10 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset) error {
 
 	secretsClient := client.CoreV1().Secrets(secretsNS)
 
-	files, err := os.ReadDir(secretsCacheDir)
+	files, err := os.ReadDir(secretsCacheDir())
 
 	if err != nil {
-		return errors.Wrapf(err, "unable to read secrets cache directory %q", secretsCacheDir)
+		return errors.Wrapf(err, "unable to read secrets cache directory %q", secretsCacheDir())
 	}
 
 	for _, f := range files {
@@ -182,7 +193,7 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset) error {
 }
 
 func decodeFileIntoSecret(fileName string) (*apiv1.Secret, error) {
-	fullPath := path.Join(secretsCacheDir, fileName)
+	fullPath := path.Join(secretsCacheDir(), fileName)
 
 	yamlData, err := os.ReadFile(fullPath)
 	if err != nil {
