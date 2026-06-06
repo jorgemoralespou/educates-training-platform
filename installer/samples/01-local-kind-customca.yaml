@@ -28,3 +28,10 @@ spec:
         customCA:
           caCertificateRef:
             name: educates-custom-ca
+  policyEnforcement:
+    clusterPolicy:
+      engine: Kyverno
+    workshopPolicy:
+      engine: Kyverno
+    kyverno:
+      provider: Bundled
