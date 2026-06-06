@@ -14,6 +14,7 @@ import (
 //   - ingress.controller.provider: BundledContour
 //   - ingress.certificates.provider: BundledCertManager
 //   - ingress.certificates.bundledCertManager.issuerType: CustomCA
+//   - policyEnforcement: BundledKyverno (cluster + workshop)
 //
 // The CustomCA caCertificateRef name and namespace come from opts — the
 // caller (typically the cmd code) looks them up by domain via
@@ -112,6 +113,16 @@ func localECCSpec(cfg *v1alpha1.EducatesLocalConfig, opts Options) map[string]in
 	spec := map[string]interface{}{
 		"mode":    "Managed",
 		"ingress": ingress,
+		// BundledKyverno invariant. clusterPolicy.engine and
+		// workshopPolicy.engine both default to Kyverno via kubebuilder
+		// markers, and kyverno.provider defaults to Bundled, but the
+		// PolicyEnforcement.{Cluster,Workshop}Policy fields are +required
+		// so the block must be present explicitly.
+		"policyEnforcement": map[string]interface{}{
+			"clusterPolicy":  map[string]interface{}{"engine": "Kyverno"},
+			"workshopPolicy": map[string]interface{}{"engine": "Kyverno"},
+			"kyverno":        map[string]interface{}{"provider": "Bundled"},
+		},
 	}
 	return spec
 }

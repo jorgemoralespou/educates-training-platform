@@ -78,6 +78,28 @@ func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 	}
 }
 
+func TestTranslateLocal_EmptyConfig_AppliesBundledKyvernoInvariant(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	out, err := Translate(cfg, testOpts())
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec := out.EducatesClusterConfig["spec"].(map[string]interface{})
+	pe, ok := spec["policyEnforcement"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("spec.policyEnforcement = %v, want map (BundledKyverno invariant)", spec["policyEnforcement"])
+	}
+	if got := pe["clusterPolicy"].(map[string]interface{})["engine"]; got != "Kyverno" {
+		t.Errorf("clusterPolicy.engine = %v, want Kyverno", got)
+	}
+	if got := pe["workshopPolicy"].(map[string]interface{})["engine"]; got != "Kyverno" {
+		t.Errorf("workshopPolicy.engine = %v, want Kyverno", got)
+	}
+	if got := pe["kyverno"].(map[string]interface{})["provider"]; got != "Bundled" {
+		t.Errorf("kyverno.provider = %v, want Bundled", got)
+	}
+}
+
 func TestTranslateLocal_LookupServiceDisabled_OmitsCR(t *testing.T) {
 	cfg := loadCfg(t, "local-full.yaml") // sets lookupService: false
 	out, _ := Translate(cfg, testOpts())
