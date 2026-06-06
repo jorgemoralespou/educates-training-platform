@@ -25,6 +25,18 @@ func testOpts() Options {
 	return Options{CASecretName: "test-ca", CASecretNamespace: "educates-secrets"}
 }
 
+// translateBytes is a load+translate helper for tests that build YAML
+// inline (rather than referencing a testdata file). Shorter than
+// writing every variant fixture to disk.
+func translateBytes(t *testing.T, b []byte) (*Output, error) {
+	t.Helper()
+	cfg, err := config.LoadBytes(b, "inline-test")
+	if err != nil {
+		return nil, err
+	}
+	return Translate(cfg, Options{})
+}
+
 func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 	cfg := loadCfg(t, "local-empty.yaml")
 	out, err := Translate(cfg, testOpts())

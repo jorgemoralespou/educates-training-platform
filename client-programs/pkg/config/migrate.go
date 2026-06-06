@@ -68,7 +68,8 @@ cli.educates.dev/v1alpha1 and rerun with --config <file>:
   - EducatesLocalConfig    (laptop kind)
   - EducatesInlineConfig   (BYO cluster — any provider, pre-existing
                             cert-manager / ingress / policy engine)
-  - EducatesGKEConfig      (GKE Managed)   — landing in phase 5 step 11b
+  - EducatesGKEConfig      (GKE Managed: Workload Identity + ACME
+                            CloudDNS + Contour + Kyverno)
   - EducatesEKSConfig      (EKS Managed)   — landing in phase 5 step 11c
   - EducatesConfig         (escape hatch, full CRD passthrough)
 
