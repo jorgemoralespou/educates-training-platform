@@ -102,10 +102,16 @@ type OperatorImage struct {
 // Static defaults — independent of host environment. Applied after YAML
 // unmarshal, before validation.
 //
-// Excluded on purpose (translator/runtime concerns):
-//   - Ingress.Domain — derived from host IP at translate time.
-//   - Operator.Image.Tag — derived from the CLI binary version.
-//   - Cluster.ListenAddress sub-defaults beyond 127.0.0.1.
+// Two further layers of defaulting are applied by callers (typically the
+// command code, not the loader):
+//
+//   - ApplyCLIDefaults uses the CLI binary's compiled-in version/registry
+//     to fill operator.image.{repository,tag} when empty. Deterministic
+//     per CLI binary, so safe for GitOps.
+//   - ApplyHostDefaults uses the laptop's host IP to fill ingress.domain
+//     with a nip.io fallback. Host-specific, NOT safe for GitOps; only
+//     applied when the user opted into laptop-convenience mode
+//     (`--local-config`).
 func (c *EducatesLocalConfig) WithDefaults() *EducatesLocalConfig {
 	if c.Cluster.ListenAddress == "" {
 		c.Cluster.ListenAddress = "127.0.0.1"
@@ -127,3 +133,23 @@ func (c *EducatesLocalConfig) WithDefaults() *EducatesLocalConfig {
 	}
 	return c
 }
+
+// ApplyCLIDefaults fills in operator.image.{repository,tag} from the CLI
+// binary's compiled-in defaults. Deterministic per CLI binary; the output
+// is reproducible as long as the same CLI version is used.
+//
+// repository pattern matches `installer/charts/educates-installer/values.yaml`:
+// `<imageRepository>/educates-operator`. tag = the CLI binary's version.
+func (c *EducatesLocalConfig) ApplyCLIDefaults(projectVersion, imageRepository string) *EducatesLocalConfig {
+	if c.Operator.Image.Repository == "" && imageRepository != "" {
+		c.Operator.Image.Repository = imageRepository + "/educates-operator"
+	}
+	if c.Operator.Image.Tag == "" && projectVersion != "" {
+		c.Operator.Image.Tag = projectVersion
+	}
+	return c
+}
+
+// Host-derived defaulting (e.g. ingress.domain ← <host-IP>.nip.io) is
+// done at the caller, not on the type — the host probe is an external
+// effect that doesn't belong on a value type. See pkg/config/hostinfo.

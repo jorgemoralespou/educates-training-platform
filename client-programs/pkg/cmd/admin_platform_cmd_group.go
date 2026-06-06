@@ -23,6 +23,7 @@ func (p *ProjectInfo) NewAdminPlatformCmdGroup() *cobra.Command {
 				p.NewAdminPlatformDeleteCmd(),
 				p.NewAdminPlatformConfigCmd(),
 				p.NewAdminPlatformValuesCmd(),
+				p.NewAdminPlatformRenderCmd(),
 			},
 		},
 	}

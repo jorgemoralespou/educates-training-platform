@@ -1,0 +1,175 @@
+package cmd
+
+import (
+	"fmt"
+	"io"
+	"path/filepath"
+
+	"github.com/spf13/cobra"
+
+	"github.com/educates/educates-training-platform/client-programs/pkg/config"
+	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
+	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
+	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+)
+
+const adminPlatformRenderExample = `
+  # Render the install for a checked-in config file (GitOps mode).
+  #   - operator.image is defaulted from this CLI's compiled-in version.
+  #   - ingress.domain MUST be set in the config; render errors if empty.
+  educates admin platform render --config env.yaml > install.yaml
+
+  # Render the install for laptop convenience (uses ~/.educates/config.yaml
+  # or $EDUCATES_CLI_DATA_HOME/config.yaml). When ingress.domain is empty,
+  # falls back to <host-IP>.nip.io with a comment header noting the
+  # derivation.
+  educates admin platform render --local-config
+`
+
+type PlatformRenderOptions struct {
+	Config      string
+	LocalConfig bool
+}
+
+func (p *ProjectInfo) NewAdminPlatformRenderCmd() *cobra.Command {
+	var o PlatformRenderOptions
+
+	c := &cobra.Command{
+		Args:  cobra.NoArgs,
+		Use:   "render",
+		Short: "Render the install plan (operator chart values + 4 platform CRs) to stdout",
+		Long: `Render the install plan that "educates admin platform deploy" would apply,
+without touching the cluster. Useful for inspection, GitOps, and diffing.
+
+Output is a single YAML stream with two sections, in deploy order:
+  - operator chart values (consumed by 'helm install -f - educates-installer')
+  - the four platform CRs (consumed by 'kubectl apply -f -')
+
+Defaulting is flag-driven:
+  --config <file>   Explicit / GitOps mode. operator.image defaults from
+                    this CLI binary; ingress.domain MUST be set in the
+                    config. Render is deterministic for a given (input,
+                    CLI version) pair.
+  --local-config    Laptop convenience mode. Same defaults, plus a
+                    <host-IP>.nip.io fallback for ingress.domain when
+                    empty. Output is host-specific.`,
+		Example: adminPlatformRenderExample,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return p.runRender(cmd.OutOrStdout(), &o)
+		},
+	}
+
+	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
+	c.Flags().BoolVar(&o.LocalConfig, "local-config", false,
+		"use <data-home>/config.yaml; applies host-IP nip.io fallback for ingress.domain")
+	c.MarkFlagsMutuallyExclusive("config", "local-config")
+	c.MarkFlagsOneRequired("config", "local-config")
+
+	return c
+}
+
+func (p *ProjectInfo) runRender(w io.Writer, o *PlatformRenderOptions) error {
+	path, err := resolveConfigPath(o)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+
+	header := ""
+	switch c := cfg.(type) {
+	case *v1alpha1.EducatesLocalConfig:
+		c.ApplyCLIDefaults(p.Version, p.ImageRepository)
+		var hostNote string
+		if o.LocalConfig {
+			hostNote, err = maybeApplyHostDomain(c)
+			if err != nil {
+				return err
+			}
+		} else if c.Ingress.Domain == "" {
+			return fmt.Errorf(`ingress.domain is required when using --config.
+Set it explicitly in %s, or use --local-config to derive a <host-IP>.nip.io
+fallback (output becomes host-specific and unsuitable for GitOps).`, path)
+		}
+		header = hostNote
+	case *v1alpha1.EducatesConfig:
+		// Escape-hatch: pure passthrough. No CLI-side defaults. User owns
+		// the full surface; missing required fields are caught by the
+		// CRD-derived schema at load time or by the apiserver at apply.
+	}
+
+	out, err := translator.Translate(cfg)
+	if err != nil {
+		return err
+	}
+
+	return writeRender(w, out, header)
+}
+
+// resolveConfigPath picks the config file based on which flag was set.
+// --local-config resolves to <data-home>/config.yaml, where <data-home>
+// is $EDUCATES_CLI_DATA_HOME or $XDG_DATA_HOME/educates.
+func resolveConfigPath(o *PlatformRenderOptions) (string, error) {
+	if o.LocalConfig {
+		return filepath.Join(utils.GetEducatesHomeDir(), "config.yaml"), nil
+	}
+	if o.Config == "" {
+		return "", fmt.Errorf("internal: neither --config nor --local-config set (should have been caught by cobra)")
+	}
+	return o.Config, nil
+}
+
+// maybeApplyHostDomain applies <host-IP>.nip.io to ingress.domain when
+// empty. Returns the header comment block to emit at the top of the
+// rendered output (empty when no defaulting was needed).
+func maybeApplyHostDomain(c *v1alpha1.EducatesLocalConfig) (string, error) {
+	if c.Ingress.Domain != "" {
+		return "", nil
+	}
+	ip, err := hostinfo.DetectHostIP()
+	if err != nil {
+		return "", fmt.Errorf("auto-detect host IP for ingress.domain default: %w", err)
+	}
+	c.Ingress.Domain = hostinfo.NipDomain(ip)
+	return fmt.Sprintf(`# NOTE: ingress.domain was auto-derived from host IP %s as a last-resort
+# nip.io fallback. For configuration that is portable across networks,
+# consider configuring the resolver block (resolver.targetAddress +
+# resolver.extraDomains) and setting ingress.domain to a fixed name like
+# 'workshop.test'.
+`, ip), nil
+}
+
+// writeRender emits the rendered install plan in deploy order:
+//   - optional host-defaulting header
+//   - "# === operator chart values ===" + values YAML
+//   - "# === platform CRs ===" + multi-doc CR YAML
+func writeRender(w io.Writer, out *translator.Output, hostHeader string) error {
+	values, err := translator.RenderOperatorValues(out)
+	if err != nil {
+		return fmt.Errorf("render operator values: %w", err)
+	}
+	crs, err := translator.RenderCRs(out)
+	if err != nil {
+		return fmt.Errorf("render CRs: %w", err)
+	}
+
+	if hostHeader != "" {
+		if _, err := fmt.Fprint(w, hostHeader); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintln(w, "# === operator chart values (helm install -f - educates-installer ...) ==="); err != nil {
+		return err
+	}
+	if _, err := w.Write(values); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(w, "# === platform CRs (kubectl apply -f - ...) ==="); err != nil {
+		return err
+	}
+	_, err = w.Write(crs)
+	return err
+}
