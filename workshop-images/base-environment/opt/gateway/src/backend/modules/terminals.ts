@@ -145,7 +145,7 @@ class TerminalSession {
         ws.send(message)
     }
 
-    private broadcast_message(type: TerminalsPacketType, args?: any) {
+    private broadcast_message(type: TerminalsPacketType, args?: any, exclude?: WebSocket) {
         let packet = {
             type: type,
             id: this.id
@@ -157,6 +157,9 @@ class TerminalSession {
         let message = JSON.stringify(packet)
 
         this.sockets.forEach((ws) => {
+            if (ws === exclude)
+                return
+
             if (ws.readyState === WebSocket.OPEN)
                 ws.send(message)
         })
@@ -288,6 +291,15 @@ class TerminalSession {
                     else {
                         this.terminal.resize(args.cols, args.rows)
                     }
+
+                    // Let any other connected clients know the terminal size
+                    // has changed so they can tell whether the shared terminal
+                    // no longer matches their own window size. We broadcast the
+                    // requested size rather than the transient size used by the
+                    // refresh trick above, and skip the client that asked for
+                    // the resize as it already matches.
+
+                    this.broadcast_message(TerminalsPacketType.RESIZE, { cols: args.cols, rows: args.rows }, ws)
                 }
 
                 break

@@ -25,6 +25,16 @@ Features Changed
   change to indicate when the session can be extended, in addition to the
   colour being changed to amber.
 
+* When a second browser window was loaded on the workshop session dashboard,
+  a "HIJACKED" banner would be displayed across the background of the terminals.
+  This has been changed to display a more neutral popup message explain that
+  multiple views with different sizes for terminals can cause problems. The
+  recycle button has also been changed now to flag when underlying terminal
+  size differs to current window size and when clicked will resize underlying
+  terminal size back to the current window size. The "FORBIDDEN" banner
+  message which could appear when a terminal connection was rejected for some
+  reason has also been replaced with a popup.
+
 Bugs Fixed
 ----------
 

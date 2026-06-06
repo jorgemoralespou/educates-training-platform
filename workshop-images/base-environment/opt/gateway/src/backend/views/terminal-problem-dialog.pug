@@ -1,0 +1,10 @@
+div.modal.fade#terminal-problem-dialog(tabindex="-1", role="dialog", aria-labelledby="terminal-problem-dialog-title", aria-hidden="true")
+    div.modal-dialog.modal-dialog-centered(role="document")
+        div.modal-content
+            div.modal-header
+                h5.modal-title#terminal-problem-dialog-title Terminal Connection Problem
+                button.btn.btn-close(type="button", data-bs-dismiss="modal", aria-label="Close")
+            div.modal-body
+                p This terminal session couldn't be connected. This is unexpected and usually means the session is no longer valid. Click the recycle button (top right) to reconnect the terminals. If the problem continues, you may need to restart the workshop session.
+            div.modal-footer
+                button.btn.btn-primary(type="button", data-bs-dismiss="modal") Dismiss
