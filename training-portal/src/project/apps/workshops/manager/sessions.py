@@ -22,6 +22,7 @@ from ..models import Session
 from .operator import background_task
 from .locking import resources_lock
 from .analytics import report_analytics_event
+from .suffix import get_suffix_codec
 
 logger = logging.getLogger("educates")
 
@@ -382,7 +383,12 @@ def setup_workshop_session(environment, **session_kwargs):
 
     tally = environment.tally = environment.tally + 1
 
-    session_id = f"s{tally:03}"
+    if settings.RANDOMIZE_SESSION_IDS:
+        codec = get_suffix_codec(int(environment.created_at.timestamp()), min_width=4)
+        session_id = codec.encode(tally)
+    else:
+        session_id = f"s{tally:03}"
+
     session_name = f"{environment.name}-{session_id}"
 
     environment.save()

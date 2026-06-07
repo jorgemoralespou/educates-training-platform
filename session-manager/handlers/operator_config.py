@@ -176,4 +176,4 @@ def resolve_workshop_image(name):
 
 for name, value in sorted(globals().items()):
     if name.isupper():
-        logger.info(f"{name}: {repr(value)}")
+        logger.debug(f"{name}: {repr(value)}")

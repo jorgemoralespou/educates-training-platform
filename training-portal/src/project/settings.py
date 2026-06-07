@@ -208,6 +208,14 @@ REGISTRATION_TYPE = os.environ.get("REGISTRATION_TYPE", "one-step")
 ENABLE_REGISTRATION = os.environ.get("ENABLE_REGISTRATION", "true")
 CATALOG_VISIBILITY = os.environ.get("CATALOG_VISIBILITY", "private")
 
+# Whether session IDs should be pseudo randomised using a reversible codec
+# instead of using the integer tally directly. Defaults to using the integer
+# tally.
+
+RANDOMIZE_SESSION_IDS = (
+    os.environ.get("RANDOMIZE_SESSION_IDS", "false").lower() == "true"
+)
+
 if REGISTRATION_TYPE == "one-step" and ENABLE_REGISTRATION == "true":
     REGISTRATION_OPEN = True
 else:

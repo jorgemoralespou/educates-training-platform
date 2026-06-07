@@ -145,7 +145,7 @@ class TerminalSession {
         ws.send(message)
     }
 
-    private broadcast_message(type: TerminalsPacketType, args?: any) {
+    private broadcast_message(type: TerminalsPacketType, args?: any, exclude?: WebSocket) {
         let packet = {
             type: type,
             id: this.id
@@ -157,6 +157,9 @@ class TerminalSession {
         let message = JSON.stringify(packet)
 
         this.sockets.forEach((ws) => {
+            if (ws === exclude)
+                return
+
             if (ws.readyState === WebSocket.OPEN)
                 ws.send(message)
         })
@@ -173,12 +176,31 @@ class TerminalSession {
     }
 
     handle_message(ws: WebSocket, packet: TerminalsPacket) {
+        // Every connection must complete a valid HELLO handshake before any
+        // other packet type is honoured. A successful HELLO validates the
+        // endpoint token and registers the socket against this session (see
+        // the HELLO case below), and this registration happens even when the
+        // terminal subprocess already exists. Requiring membership here means
+        // a connection cannot skip the handshake and send input to, or attach
+        // to, an existing session without first proving it knows the token.
+
+        if (packet.type != TerminalsPacketType.HELLO && this.sockets.indexOf(ws) == -1) {
+            let args: ErrorPacketArgs = { reason: "Forbidden" }
+
+            this.send_message(ws, TerminalsPacketType.ERROR, args)
+
+            return
+        }
+
         switch (packet.type) {
             case TerminalsPacketType.DATA: {
                 if (this.terminal) {
                     let args: InboundDataPacketArgs = packet.args
 
                     this.terminal.write(args.data)
+                }
+                else {
+                    console.log("Rejecting terminal session data message for session with no terminal", this.id)
                 }
 
                 break
@@ -269,6 +291,15 @@ class TerminalSession {
                     else {
                         this.terminal.resize(args.cols, args.rows)
                     }
+
+                    // Let any other connected clients know the terminal size
+                    // has changed so they can tell whether the shared terminal
+                    // no longer matches their own window size. We broadcast the
+                    // requested size rather than the transient size used by the
+                    // refresh trick above, and skip the client that asked for
+                    // the resize as it already matches.
+
+                    this.broadcast_message(TerminalsPacketType.RESIZE, { cols: args.cols, rows: args.rows }, ws)
                 }
 
                 break
@@ -315,6 +346,16 @@ class SessionManager {
     }
 
     private retrieve_session(id: string): TerminalSession {
+        // The session id arrives as part of a JSON packet from the client and
+        // may be a number rather than a string. The dashboard reads it from a
+        // data attribute which jQuery coerces to a number for purely numeric
+        // ids, so the default terminals send it as a number. Normalise to a
+        // string so that lookups are consistent regardless of the JSON type
+        // and a single session isn't accidentally split across both a numeric
+        // and a string key.
+
+        id = String(id)
+
         let session: TerminalSession = this.sessions.get(id)
 
         if (!session) {

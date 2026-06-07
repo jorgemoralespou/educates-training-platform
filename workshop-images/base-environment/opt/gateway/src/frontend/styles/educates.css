@@ -231,6 +231,21 @@ div.notify-hijacked:after {
 	content: "HIJACKED"
 }
 
+.terminal-1-redraw-required {
+	background-color: #ffc107 !important;
+	border-color: #ffc107 !important;
+}
+
+.terminal-2-redraw-required {
+	background-color: #ffc107 !important;
+	border-color: #ffc107 !important;
+}
+
+.terminal-3-redraw-required {
+	background-color: #ffc107 !important;
+	border-color: #ffc107 !important;
+}
+
 .terminal-1-refresh-required {
 	color: #fff;
 	background-color: #dc3545 !important;
