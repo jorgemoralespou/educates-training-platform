@@ -26,6 +26,39 @@ type DeleteOptions struct {
 	HelmLog  io.Writer
 	Timeout  time.Duration
 	Progress progress.Reporter
+
+	// Purge, when true, extends the delete pipeline AFTER helm
+	// uninstall to remove the four CRDs, the operator namespace, and
+	// the 'educates-secrets' namespace. Local <data-home>/config.yaml
+	// + cached CA Secrets are intentionally preserved — they're user
+	// authoring inputs and survive cluster reinstalls.
+	Purge bool
+}
+
+// PurgeTargets is the inventory --purge will delete in addition to the
+// standard delete pipeline. Exported so the cmd-layer confirmation
+// prompt can render it for the user before they accept.
+type PurgeTargets struct {
+	CRDs       []string
+	Namespaces []string
+}
+
+// PurgePlan returns the list of cluster resources Purge would remove
+// after helm uninstall. Stable order so the confirmation prompt is
+// reproducible.
+func PurgePlan() PurgeTargets {
+	return PurgeTargets{
+		CRDs: []string{
+			"educatesclusterconfigs.config.educates.dev",
+			"secretsmanagers.platform.educates.dev",
+			"lookupservices.platform.educates.dev",
+			"sessionmanagers.platform.educates.dev",
+		},
+		Namespaces: []string{
+			OperatorNamespace, // educates-installer
+			"educates-secrets",
+		},
+	}
 }
 
 // Delete executes the uninstall pipeline:
@@ -92,7 +125,60 @@ func Delete(ctx context.Context, opts DeleteOptions) error {
 		return err
 	}
 	step.Done("uninstalled")
+
+	if opts.Purge {
+		if err := purge(ctx, opts, applier); err != nil {
+			return err
+		}
+	}
 	opts.Progress.Note("delete complete")
+	return nil
+}
+
+// purge removes the four platform CRDs and the operator + secrets
+// namespaces. Idempotent: NotFound at any step closes that step with
+// "already gone" rather than erroring.
+//
+// Order matters: CRDs first (their deletion cascade-removes any
+// lingering CR instances cluster-wide; we've already deleted ours
+// from the operator-owned namespace, but other teams may have ECC
+// resources we don't want to leave dangling against deleted CRDs).
+// Namespaces last (they cascade Pod/Secret/ConfigMap cleanup; finalizer
+// drain on the operator namespace is what waits the longest).
+func purge(ctx context.Context, opts DeleteOptions, applier *apply.Client) error {
+	plan := PurgePlan()
+	crdGVK := schema.GroupVersionKind{
+		Group:   "apiextensions.k8s.io",
+		Version: "v1",
+		Kind:    "CustomResourceDefinition",
+	}
+	for _, name := range plan.CRDs {
+		step := opts.Progress.Start(fmt.Sprintf("purge CRD %s", name))
+		if err := applier.Delete(ctx, crdGVK, "", name); err != nil {
+			var statusErr *apierrors.StatusError
+			if errors.As(err, &statusErr) && apierrors.IsNotFound(err) {
+				step.Done("already gone")
+				continue
+			}
+			step.Fail(err)
+			return err
+		}
+		step.Done("removed")
+	}
+	nsGVK := schema.GroupVersionKind{Version: "v1", Kind: "Namespace"}
+	for _, name := range plan.Namespaces {
+		step := opts.Progress.Start(fmt.Sprintf("purge namespace %s", name))
+		if err := applier.Delete(ctx, nsGVK, "", name); err != nil {
+			var statusErr *apierrors.StatusError
+			if errors.As(err, &statusErr) && apierrors.IsNotFound(err) {
+				step.Done("already gone")
+				continue
+			}
+			step.Fail(err)
+			return err
+		}
+		step.Done("deletion initiated")
+	}
 	return nil
 }
 
