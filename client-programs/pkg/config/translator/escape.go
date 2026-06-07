@@ -13,7 +13,7 @@ import (
 // config — its presence is the deploy signal.
 func TranslateEscape(cfg *v1alpha1.EducatesConfig) *Output {
 	out := &Output{
-		OperatorChartValues:   escapeOperatorChartValues(cfg),
+		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
 		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", normaliseSpec(cfg.EducatesClusterConfig)),
 		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", normaliseSpec(cfg.SecretsManager)),
 		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", normaliseSpec(cfg.SessionManager)),
@@ -22,31 +22,6 @@ func TranslateEscape(cfg *v1alpha1.EducatesConfig) *Output {
 		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", normaliseSpec(cfg.LookupService))
 	}
 	return out
-}
-
-func escapeOperatorChartValues(cfg *v1alpha1.EducatesConfig) map[string]interface{} {
-	values := map[string]interface{}{}
-	if cfg.Operator.Image.Repository != "" || cfg.Operator.Image.Tag != "" {
-		image := map[string]interface{}{}
-		if cfg.Operator.Image.Repository != "" {
-			image["repository"] = cfg.Operator.Image.Repository
-		}
-		if cfg.Operator.Image.Tag != "" {
-			image["tag"] = cfg.Operator.Image.Tag
-		}
-		values["image"] = image
-	}
-	if len(cfg.Operator.ImagePullSecrets) > 0 {
-		secrets := make([]interface{}, len(cfg.Operator.ImagePullSecrets))
-		for i, name := range cfg.Operator.ImagePullSecrets {
-			secrets[i] = map[string]interface{}{"name": name}
-		}
-		values["imagePullSecrets"] = secrets
-	}
-	if cfg.Operator.LogLevel != "" {
-		values["logLevel"] = cfg.Operator.LogLevel
-	}
-	return values
 }
 
 // normaliseSpec converts yaml.v2's map[interface{}]interface{} values

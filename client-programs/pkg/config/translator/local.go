@@ -38,7 +38,7 @@ func TranslateLocal(cfg *v1alpha1.EducatesLocalConfig, opts Options) (*Output, e
 		return nil, fmt.Errorf("translator: CustomCA Secret name is required for EducatesLocalConfig; the caller must look it up by ingress.domain from the local secrets cache before translating")
 	}
 	out := &Output{
-		OperatorChartValues:   localOperatorChartValues(cfg),
+		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
 		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", localECCSpec(cfg, opts)),
 		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", localSecretsManagerSpec(cfg)),
 		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", localSessionManagerSpec(cfg)),
@@ -47,38 +47,6 @@ func TranslateLocal(cfg *v1alpha1.EducatesLocalConfig, opts Options) (*Output, e
 		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", localLookupServiceSpec(cfg))
 	}
 	return out, nil
-}
-
-func localOperatorChartValues(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
-	values := map[string]interface{}{}
-	if cfg.Operator.Image.Repository != "" || cfg.Operator.Image.Tag != "" || cfg.Operator.Image.PullPolicy != "" {
-		image := map[string]interface{}{}
-		if cfg.Operator.Image.Repository != "" {
-			image["repository"] = cfg.Operator.Image.Repository
-		}
-		if cfg.Operator.Image.Tag != "" {
-			image["tag"] = cfg.Operator.Image.Tag
-		}
-		if cfg.Operator.Image.PullPolicy != "" {
-			image["pullPolicy"] = cfg.Operator.Image.PullPolicy
-		}
-		values["image"] = image
-	}
-	if len(cfg.Operator.ImagePullSecrets) > 0 {
-		// Helm template emits this verbatim into the pod spec; k8s
-		// expects [{name: ...}] not [string].
-		secrets := make([]interface{}, len(cfg.Operator.ImagePullSecrets))
-		for i, name := range cfg.Operator.ImagePullSecrets {
-			secrets[i] = map[string]interface{}{"name": name}
-		}
-		values["imagePullSecrets"] = secrets
-	}
-	if cfg.Operator.LogLevel != "" {
-		// Chart does not yet template a logLevel value; setting it here
-		// is forward-compatible and ignored by current renders.
-		values["logLevel"] = cfg.Operator.LogLevel
-	}
-	return values
 }
 
 // localECCSpec builds the EducatesClusterConfig.spec for Local mode.
