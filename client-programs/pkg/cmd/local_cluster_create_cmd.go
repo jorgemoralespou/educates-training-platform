@@ -8,12 +8,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
-	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
@@ -24,6 +22,7 @@ type LocalClusterCreateOptions struct {
 	Config         string
 	LocalConfig    bool
 	Kubeconfig     string
+	Context        string
 	ClusterImage   string
 	ClusterOnly    bool
 	RegistryBindIP string
@@ -62,6 +61,7 @@ deploy against a hand-prepared cluster.`,
 	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
 	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml")
 	c.Flags().StringVar(&o.Kubeconfig, "kubeconfig", "", "kubeconfig file (defaults to $KUBECONFIG / ~/.kube/config)")
+	c.Flags().StringVar(&o.Context, "context", "", "context name to use within the kubeconfig (for the platform deploy tail-call)")
 	c.Flags().StringVar(&o.ClusterImage, "kind-cluster-image", "", "docker image to use when booting the kind cluster")
 	c.Flags().BoolVar(&o.ClusterOnly, "cluster-only", false, "create kind cluster + registry; skip the platform deploy")
 	c.Flags().StringVar(&o.RegistryBindIP, "registry-bind-ip", "127.0.0.1", "bind IP for the always-on localhost:5001 registry")
@@ -242,41 +242,19 @@ func registryMirrorFromConfig(m v1alpha1.RegistryMirror) registry.MirrorConfig {
 	}
 }
 
-// tailCallDeploy mirrors the inner part of runDeploy but uses the
-// already-defaulted EducatesLocalConfig rather than re-reading from disk.
-// Step 9 cleanup factors the shared loader→translate→deploy chain into
-// a helper both call sites use.
-func tailCallDeploy(ctx context.Context, w io.Writer, cfg *v1alpha1.EducatesLocalConfig, configPath string, p *ProjectInfo, o *LocalClusterCreateOptions) error {
-	caName, lookupErr := lookupLocalCAByDomain(cfg.Ingress.Domain)
-	if lookupErr != nil {
-		return lookupErr
-	}
-	opts := translator.Options{
-		CASecretName:      caName,
-		CASecretNamespace: LocalCASecretNamespace,
-	}
-	out, err := translator.Translate(cfg, opts)
+// tailCallDeploy translates the already-loaded+defaulted config and
+// runs the install. Shares the translate → deploy plumbing with
+// runDeploy via translateAndDeploy; configPath isn't used by the shared
+// helper (it kept the file-path around for the now-deleted re-load).
+func tailCallDeploy(ctx context.Context, w io.Writer, cfg *v1alpha1.EducatesLocalConfig, _ string, _ *ProjectInfo, o *LocalClusterCreateOptions) error {
+	caName, caNS, err := caRefForLocal(cfg)
 	if err != nil {
 		return err
 	}
-
-	cf := genericclioptions.NewConfigFlags(true)
-	if o.Kubeconfig != "" {
-		cf.KubeConfig = &o.Kubeconfig
-	}
-	ns := deployer.OperatorNamespace
-	cf.Namespace = &ns
-
-	helmLog := io.Discard
-	if o.Verbose {
-		helmLog = w
-	}
-
-	return deployer.Deploy(ctx, out, deployer.Options{
-		Getter:           cf,
-		Out:              w,
-		HelmLog:          helmLog,
-		Timeout:          o.Timeout,
-		SyncLocalSecrets: true,
+	return translateAndDeploy(ctx, w, cfg, caName, caNS, true, deployPipelineFlags{
+		Kubeconfig: o.Kubeconfig,
+		Context:    o.Context,
+		Timeout:    o.Timeout,
+		Verbose:    o.Verbose,
 	})
 }

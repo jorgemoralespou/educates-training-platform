@@ -8,11 +8,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"k8s.io/cli-runtime/pkg/genericclioptions"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
-	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
@@ -83,7 +81,7 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		return err
 	}
 
-	opts := translator.Options{}
+	var caSecretName, caSecretNamespace string
 	syncLocalSecrets := false
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
@@ -97,44 +95,21 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		} else if c.Ingress.Domain == "" {
 			return fmt.Errorf("ingress.domain is required when using --config (set it in %s)", path)
 		}
-		caName, lookupErr := lookupLocalCAByDomain(c.Ingress.Domain)
+		var lookupErr error
+		caSecretName, caSecretNamespace, lookupErr = caRefForLocal(c)
 		if lookupErr != nil {
 			return lookupErr
 		}
-		opts.CASecretName = caName
-		opts.CASecretNamespace = LocalCASecretNamespace
 		syncLocalSecrets = true
 	case *v1alpha1.EducatesConfig:
 		// Pure passthrough.
 	}
 
-	out, err := translator.Translate(cfg, opts)
-	if err != nil {
-		return err
-	}
-
-	// Build the kubectl-style RESTClientGetter from the connection flags.
-	cf := genericclioptions.NewConfigFlags(true)
-	if o.Kubeconfig != "" {
-		cf.KubeConfig = &o.Kubeconfig
-	}
-	if o.Context != "" {
-		cf.Context = &o.Context
-	}
-	ns := deployer.OperatorNamespace
-	cf.Namespace = &ns
-
-	helmLog := io.Discard
-	if o.Verbose {
-		helmLog = w
-	}
-
-	return deployer.Deploy(ctx, out, deployer.Options{
-		Getter:           cf,
-		Out:              w,
-		HelmLog:          helmLog,
-		Timeout:          o.Timeout,
-		SyncLocalSecrets: syncLocalSecrets,
+	return translateAndDeploy(ctx, w, cfg, caSecretName, caSecretNamespace, syncLocalSecrets, deployPipelineFlags{
+		Kubeconfig: o.Kubeconfig,
+		Context:    o.Context,
+		Timeout:    o.Timeout,
+		Verbose:    o.Verbose,
 	})
 }
 
