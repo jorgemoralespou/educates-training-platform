@@ -183,14 +183,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Scope the Secret cache to the operator namespace. User-supplied
-	// Secrets referenced from EducatesClusterConfig (TLS, CA, image-pull)
-	// are expected here; we have no need to cache Secrets cluster-wide.
+	// Scope the Secret cache to the operator namespace + the
+	// 'educates-secrets' namespace. CustomCA.caCertificateRef is now
+	// allowed to be cross-namespace (CASecretReference), and the v4
+	// CLI's laptop flow puts the CA there. Without including the
+	// target namespace, the watch never fires when the user rotates
+	// the CA; the reconciler would miss the change until pod restart
+	// or 10h relist. APIReader still handles ad-hoc reads from
+	// elsewhere; the cache here only affects watch-driven enqueue.
+	//
+	// Long-term: drive cached namespaces dynamically from CR
+	// references (e.g. CRDWatcher-style). Today the only cross-NS
+	// case is the laptop CA convention, so the static set is enough.
+	const externalSecretsNS = "educates-secrets"
 	cacheOpts := cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
 			&corev1.Secret{}: {
 				Namespaces: map[string]cache.Config{
 					operatorNamespace: {},
+					externalSecretsNS: {},
 				},
 			},
 		},

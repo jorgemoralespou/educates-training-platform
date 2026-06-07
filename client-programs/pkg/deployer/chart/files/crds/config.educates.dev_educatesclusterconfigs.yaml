@@ -1041,6 +1041,10 @@ spec:
                           name:
                             description: name of the referent.
                             type: string
+                          namespace:
+                            description: namespace of the referent. Empty means the
+                              operator namespace.
+                            type: string
                         required:
                         - name
                         type: object

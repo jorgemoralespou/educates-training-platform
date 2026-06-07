@@ -99,11 +99,11 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 		return nil
 	}
 
-	// User-supplied Secrets always live in the operator namespace per
-	// the CRD design (LocalObjectReference resolved against
-	// r.OperatorNamespace by the validator). Drop anything else.
-	if ns != r.OperatorNamespace {
-		return nil
+	// matchesOpNamespaceRef holds for refs that are operator-namespace-
+	// scoped by design (everything except CustomCA, which can be
+	// cross-namespace via CASecretReference).
+	matchesOpNamespaceRef := func(refName string) bool {
+		return ns == r.OperatorNamespace && name == refName
 	}
 
 	switch cr.Spec.Mode {
@@ -111,16 +111,21 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 		if cr.Spec.Inline == nil {
 			return nil
 		}
-		if name == cr.Spec.Inline.Ingress.WildcardCertificateSecretRef.Name {
+		if matchesOpNamespaceRef(cr.Spec.Inline.Ingress.WildcardCertificateSecretRef.Name) {
 			return singletonRequest
 		}
-		if cr.Spec.Inline.Ingress.CACertificateSecretRef != nil &&
-			name == cr.Spec.Inline.Ingress.CACertificateSecretRef.Name {
-			return singletonRequest
+		if ref := cr.Spec.Inline.Ingress.CACertificateSecretRef; ref != nil {
+			refNS := ref.Namespace
+			if refNS == "" {
+				refNS = r.OperatorNamespace
+			}
+			if ns == refNS && name == ref.Name {
+				return singletonRequest
+			}
 		}
 		if cr.Spec.Inline.ImageRegistry != nil {
 			for _, ref := range cr.Spec.Inline.ImageRegistry.PullSecrets {
-				if name == ref.Name {
+				if matchesOpNamespaceRef(ref.Name) {
 					return singletonRequest
 				}
 			}
@@ -128,13 +133,23 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 	case configv1alpha1.ClusterConfigModeManaged:
 		if bcm := cr.Spec.Ingress; bcm != nil &&
 			bcm.Certificates.BundledCertManager != nil &&
-			bcm.Certificates.BundledCertManager.CustomCA != nil &&
-			name == bcm.Certificates.BundledCertManager.CustomCA.CACertificateRef.Name {
-			return singletonRequest
+			bcm.Certificates.BundledCertManager.CustomCA != nil {
+			ref := bcm.Certificates.BundledCertManager.CustomCA.CACertificateRef
+			refNS := ref.Namespace
+			if refNS == "" {
+				refNS = r.OperatorNamespace
+			}
+			// CASecretReference allows cross-namespace; compare both
+			// namespace and name. Without this, watches on a CA Secret
+			// in (e.g.) educates-secrets never enqueued a reconcile and
+			// rotations went unnoticed.
+			if ns == refNS && name == ref.Name {
+				return singletonRequest
+			}
 		}
 		if cr.Spec.ImageRegistry != nil {
 			for _, ref := range cr.Spec.ImageRegistry.PullSecrets {
-				if name == ref.Name {
+				if matchesOpNamespaceRef(ref.Name) {
 					return singletonRequest
 				}
 			}

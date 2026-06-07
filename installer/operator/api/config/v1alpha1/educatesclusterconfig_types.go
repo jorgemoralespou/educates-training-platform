@@ -717,7 +717,7 @@ type InlineIngress struct {
 	// caCertificateSecretRef references a Secret with the ca.crt key
 	// for the issuing CA chain. Optional.
 	// +optional
-	CACertificateSecretRef *LocalObjectReference `json:"caCertificateSecretRef,omitempty"`
+	CACertificateSecretRef *CASecretReference `json:"caCertificateSecretRef,omitempty"`
 
 	// clusterIssuerRef references an existing ClusterIssuer that must be
 	// Ready. Optional; informational for components.

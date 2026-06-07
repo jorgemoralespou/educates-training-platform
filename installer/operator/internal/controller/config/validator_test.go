@@ -250,7 +250,7 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
 
 		spec := validInlineSpec()
-		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.LocalObjectReference{Name: "ca-bundle"}
+		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.CASecretReference{Name: "ca-bundle"}
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},

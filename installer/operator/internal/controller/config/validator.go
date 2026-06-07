@@ -67,13 +67,17 @@ func (r *EducatesClusterConfigReconciler) validateInline(ctx context.Context, in
 		},
 	}
 
-	if inline.Ingress.CACertificateSecretRef != nil {
-		if err := r.checkCASecret(ctx, inline.Ingress.CACertificateSecretRef.Name); err != nil {
+	if ref := inline.Ingress.CACertificateSecretRef; ref != nil {
+		if err := r.checkCASecret(ctx, *ref); err != nil {
 			return nil, err
 		}
+		ns := ref.Namespace
+		if ns == "" {
+			ns = r.OperatorNamespace
+		}
 		out.CACertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
-			Namespace: r.OperatorNamespace,
-			Name:      inline.Ingress.CACertificateSecretRef.Name,
+			Namespace: ns,
+			Name:      ref.Name,
 		}
 	}
 
@@ -126,14 +130,24 @@ func (r *EducatesClusterConfigReconciler) checkWildcardSecret(ctx context.Contex
 	return nil
 }
 
-func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, name string) error {
+// checkCASecret validates the Inline-mode caCertificateSecretRef. The
+// ref's optional Namespace is honoured (defaulting to the operator
+// namespace when empty) — mirrors the Managed-mode CustomCA flow's
+// CASecretReference semantics. Bypasses the cache via APIReader so
+// cross-namespace reads (e.g. educates-secrets) don't fail with
+// "unknown namespace for the cache".
+func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, ref configv1alpha1.CASecretReference) error {
+	ns := ref.Namespace
+	if ns == "" {
+		ns = r.OperatorNamespace
+	}
 	s := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: r.OperatorNamespace, Name: name}
-	if err := r.Get(ctx, key, s); err != nil {
+	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
+	if err := r.APIReader.Get(ctx, key, s); err != nil {
 		if apierrors.IsNotFound(err) {
 			return &validationError{
 				Field:  "spec.inline.ingress.caCertificateSecretRef",
-				Reason: fmt.Sprintf("Secret %s/%s not found", r.OperatorNamespace, name),
+				Reason: fmt.Sprintf("Secret %s/%s not found", ns, ref.Name),
 			}
 		}
 		return fmt.Errorf("get CA Secret %s: %w", key, err)
@@ -141,7 +155,7 @@ func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, nam
 	if _, ok := s.Data["ca.crt"]; !ok {
 		return &validationError{
 			Field:  "spec.inline.ingress.caCertificateSecretRef",
-			Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", r.OperatorNamespace, name, "ca.crt"),
+			Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", ns, ref.Name, "ca.crt"),
 		}
 	}
 	return nil

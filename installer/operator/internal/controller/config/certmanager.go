@@ -433,16 +433,30 @@ func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.C
 			},
 		},
 		Type: corev1.SecretTypeTLS,
-		Data: map[string][]byte{
-			"tls.crt": secret.Data["tls.crt"],
-			"tls.key": secret.Data["tls.key"],
-		},
+		Data: copyCASecretData(secret.Data),
 	}
 	if err := controllerSetOwnerOnCrossNamespaceCopy(owner, dst, r.Scheme); err != nil {
 		return err
 	}
 
 	return r.Patch(ctx, dst, client.Apply, client.FieldOwner(fieldManager), client.ForceOwnership)
+}
+
+// copyCASecretData picks the keys cert-manager's CA issuer reads from
+// the source Secret and preserves any ca.crt the user included (a
+// common shape when the CA is itself signed by an upstream root —
+// downstream consumers expect the chain). The previous implementation
+// hardcoded only tls.crt + tls.key, silently dropping ca.crt and any
+// other auxiliary keys.
+func copyCASecretData(src map[string][]byte) map[string][]byte {
+	out := map[string][]byte{
+		"tls.crt": src["tls.crt"],
+		"tls.key": src["tls.key"],
+	}
+	if v, ok := src["ca.crt"]; ok && len(v) > 0 {
+		out["ca.crt"] = v
+	}
+	return out
 }
 
 // controllerSetOwnerOnCrossNamespaceCopy attaches the
