@@ -546,6 +546,7 @@ func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Contex
 	if ns == "" {
 		ns = r.OperatorNamespace
 	}
+	r.warnIfCacheMiss(ctx, ns, "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef")
 	s := &corev1.Secret{}
 	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
 	// APIReader bypasses the controller-runtime cache, which is only

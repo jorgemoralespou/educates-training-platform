@@ -141,6 +141,7 @@ func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, ref
 	if ns == "" {
 		ns = r.OperatorNamespace
 	}
+	r.warnIfCacheMiss(ctx, ns, "spec.inline.ingress.caCertificateSecretRef")
 	s := &corev1.Secret{}
 	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
 	if err := r.APIReader.Get(ctx, key, s); err != nil {

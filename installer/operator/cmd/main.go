@@ -183,31 +183,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Scope the Secret cache to the operator namespace + the
-	// 'educates-secrets' namespace. CustomCA.caCertificateRef is now
-	// allowed to be cross-namespace (CASecretReference), and the v4
-	// CLI's laptop flow puts the CA there. Without including the
-	// target namespace, the watch never fires when the user rotates
-	// the CA; the reconciler would miss the change until pod restart
-	// or 10h relist. APIReader still handles ad-hoc reads from
-	// elsewhere; the cache here only affects watch-driven enqueue.
+	restCfg := ctrl.GetConfigOrDie()
+
+	// SetupSignalHandler can only be called once; share the context
+	// between the boot-time Secret-namespace discovery and the main
+	// manager.Start below.
+	signalCtx := ctrl.SetupSignalHandler()
+
+	// Scope the Secret cache to: operator namespace, 'educates-secrets'
+	// (v3 / CLI laptop convention), plus any cross-namespace refs the
+	// current EducatesClusterConfig singleton points at. APIReader still
+	// handles ad-hoc reads from elsewhere; the cache scope here only
+	// affects watch-driven enqueue.
 	//
-	// Long-term: drive cached namespaces dynamically from CR
-	// references (e.g. CRDWatcher-style). Today the only cross-NS
-	// case is the laptop CA convention, so the static set is enough.
-	const externalSecretsNS = "educates-secrets"
+	// Boot-time discovery: if the user later edits the ECC to point at
+	// a new namespace, the operator pod needs to restart to pick up the
+	// watch. The reconciler emits a Warning event in that case so it's
+	// user-visible. Live re-scoping of the cache mid-process is a
+	// follow-up (would require unwinding the manager / using a separate
+	// informer pool).
+	secretCacheNamespaces, err := discoverCachedSecretNamespaces(signalCtx, restCfg, scheme, operatorNamespace)
+	if err != nil {
+		setupLog.Error(err, "failed to discover cached Secret namespaces")
+		os.Exit(1)
+	}
+	setupLog.Info("Secret cache scope", "namespaces", secretCacheNamespaces)
+	namespaceConfigs := make(map[string]cache.Config, len(secretCacheNamespaces))
+	for _, ns := range secretCacheNamespaces {
+		namespaceConfigs[ns] = cache.Config{}
+	}
 	cacheOpts := cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Secret{}: {
-				Namespaces: map[string]cache.Config{
-					operatorNamespace: {},
-					externalSecretsNS: {},
-				},
-			},
+			&corev1.Secret{}: {Namespaces: namespaceConfigs},
 		},
 	}
-
-	restCfg := ctrl.GetConfigOrDie()
 
 	mgr, err := ctrl.NewManager(restCfg, ctrl.Options{
 		Scheme:                 scheme,
@@ -234,11 +243,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	cachedSecretNSSet := make(map[string]bool, len(secretCacheNamespaces))
+	for _, ns := range secretCacheNamespaces {
+		cachedSecretNSSet[ns] = true
+	}
 	if err := (&configcontroller.EducatesClusterConfigReconciler{
-		Client:            mgr.GetClient(),
-		APIReader:         mgr.GetAPIReader(),
-		Scheme:            mgr.GetScheme(),
-		OperatorNamespace: operatorNamespace,
+		Client:                 mgr.GetClient(),
+		APIReader:              mgr.GetAPIReader(),
+		Scheme:                 mgr.GetScheme(),
+		OperatorNamespace:      operatorNamespace,
+		CachedSecretNamespaces: cachedSecretNSSet,
 		HelmClientFor: func(ns string) (*helm.Client, error) {
 			return helm.NewClient(restCfg, ns)
 		},
@@ -288,7 +302,7 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(signalCtx); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}

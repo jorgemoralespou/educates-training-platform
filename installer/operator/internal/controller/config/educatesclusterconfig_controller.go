@@ -81,6 +81,20 @@ type EducatesClusterConfigReconciler struct {
 	// from the OPERATOR_NAMESPACE env var (downward API).
 	OperatorNamespace string
 
+	// CachedSecretNamespaces is the set of namespaces the operator's
+	// Secret informer covers. Determined at startup from
+	// (operatorNamespace ∪ educates-secrets ∪ namespaces referenced by
+	// the current ECC's CASecretReference fields). The reconciler uses
+	// this to detect when a freshly-edited ref points outside the
+	// cached set — in that case Secret watch events won't fire there,
+	// so a Warning event is emitted asking the user to restart the
+	// operator pod for change-detection on the new namespace. APIReader
+	// reads still work regardless of cache scope.
+	//
+	// Empty set disables the warning (used by tests that don't supply
+	// the cache scope).
+	CachedSecretNamespaces map[string]bool
+
 	// HelmClientFor returns a Helm client scoped to the given
 	// namespace. Production wiring builds a REST-config-backed client
 	// (main.go); reconciler tests inject a factory returning an
