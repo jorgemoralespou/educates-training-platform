@@ -79,6 +79,11 @@ func (c *Client) install(ctx context.Context, name string, chrt *chart.Chart, va
 	act.Namespace = c.namespace
 	act.CreateNamespace = true
 	act.WaitStrategy = kube.HookOnlyStrategy
+	// CRD lifecycle is owned by pkg/deployer/crds (applied separately
+	// before this install so the same path runs on first-install and
+	// on every subsequent re-deploy — helm's default would only install
+	// CRDs on first install).
+	act.SkipCRDs = true
 
 	rel, err := act.RunWithContext(ctx, chrt, vals)
 	if err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/apply"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/chart"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/crds"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/helm"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/prereq"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
@@ -63,6 +64,14 @@ type Options struct {
 	// users who manage the Secret asynchronously.
 	SkipPrereqCheck bool
 
+	// SkipCRDApply bypasses the operator CRD apply step. The default
+	// is to push CRDs from the embedded chart before helm-install so a
+	// CRD shape change reaches the cluster on re-deploy (helm itself
+	// only installs CRDs on first install, never on upgrade). Set true
+	// when the user manages CRDs out of band (GitOps, separate
+	// kubectl apply, etc.).
+	SkipCRDApply bool
+
 	// SyncLocalSecrets, when true, copies <data-home>/secrets/*.yaml into
 	// the cluster's 'educates-secrets' namespace before applying the
 	// platform CRs. Matches the v3 laptop flow: cached CA/TLS material
@@ -106,12 +115,39 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		fmt.Fprintln(opts.Out, "  ✓ secrets synced")
 	}
 
-	// 1. Helm install/upgrade the operator chart.
-	fmt.Fprintln(opts.Out, "→ helm upgrade --install", OperatorReleaseName)
 	chrt, err := chart.Load()
 	if err != nil {
 		return fmt.Errorf("load embedded chart: %w", err)
 	}
+
+	// Applier needs to exist before the CRD step (which uses it) so
+	// hoist its construction before helm.
+	applier, err := apply.New(opts.Getter)
+	if err != nil {
+		return err
+	}
+	waiter, err := wait.New(opts.Getter)
+	if err != nil {
+		return err
+	}
+
+	// 1. CRDs. helm only installs CRDs from a chart's crds/ directory
+	// on first install (never on upgrade), so a CRD shape change
+	// would leave the cluster on the old schema. Owning CRD lifecycle
+	// here means re-deploys always have the latest. SkipCRDApply
+	// opts out for users managing CRDs out of band.
+	if !opts.SkipCRDApply {
+		fmt.Fprintln(opts.Out, "→ apply CRDs")
+		applied, err := crds.Apply(ctx, applier, chrt)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(opts.Out, "  ✓ %d CRDs applied\n", len(applied))
+	}
+
+	// 2. Helm install/upgrade the operator chart. SkipCRDs=true on the
+	// helm side because step 1 already owns the CRD lifecycle.
+	fmt.Fprintln(opts.Out, "→ helm upgrade --install", OperatorReleaseName)
 	helmClient, err := helm.New(opts.Getter, OperatorNamespace, opts.HelmLog)
 	if err != nil {
 		return err
@@ -121,15 +157,7 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	}
 	fmt.Fprintln(opts.Out, "  ✓ helm release installed")
 
-	// 2. Apply EducatesClusterConfig + wait.
-	applier, err := apply.New(opts.Getter)
-	if err != nil {
-		return err
-	}
-	waiter, err := wait.New(opts.Getter)
-	if err != nil {
-		return err
-	}
+	// 3. Apply EducatesClusterConfig + wait.
 
 	if err := applyAndWait(ctx, opts, applier, waiter,
 		out.EducatesClusterConfig, "EducatesClusterConfig"); err != nil {
