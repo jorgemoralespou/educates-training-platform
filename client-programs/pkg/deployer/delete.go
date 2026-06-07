@@ -13,6 +13,7 @@ import (
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/apply"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/helm"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 )
 
@@ -20,10 +21,11 @@ import (
 // differ: we don't need translator output here since the resources are
 // always the same four CRs at metadata.name=cluster + the helm release.
 type DeleteOptions struct {
-	Getter  genericclioptions.RESTClientGetter
-	Out     io.Writer
-	HelmLog io.Writer
-	Timeout time.Duration
+	Getter   genericclioptions.RESTClientGetter
+	Out      io.Writer
+	HelmLog  io.Writer
+	Timeout  time.Duration
+	Progress progress.Reporter
 }
 
 // Delete executes the uninstall pipeline:
@@ -57,6 +59,9 @@ func Delete(ctx context.Context, opts DeleteOptions) error {
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultTimeout
 	}
+	if opts.Progress == nil {
+		opts.Progress = progress.New(io.Discard, 0, false)
+	}
 
 	applier, err := apply.New(opts.Getter)
 	if err != nil {
@@ -67,45 +72,51 @@ func Delete(ctx context.Context, opts DeleteOptions) error {
 		return err
 	}
 
-	for _, step := range deleteOrder() {
-		if err := deleteCR(ctx, opts, applier, waiter, step.gvk, step.name, step.label); err != nil {
+	for _, st := range deleteOrder() {
+		if err := deleteCRStep(ctx, opts, applier, waiter, st.gvk, st.name, st.label); err != nil {
 			return err
 		}
 	}
 
 	// helm uninstall the operator chart.
-	fmt.Fprintln(opts.Out, "→ helm uninstall", OperatorReleaseName)
+	step := opts.Progress.Start(fmt.Sprintf("helm uninstall %s", OperatorReleaseName))
 	helmClient, err := helm.New(opts.Getter, OperatorNamespace, opts.HelmLog)
 	if err != nil {
+		step.Fail(err)
 		return err
 	}
 	if err := helmClient.Uninstall(OperatorReleaseName); err != nil {
 		// Uninstall already swallows "release not found"; surface other
 		// errors as-is.
+		step.Fail(err)
 		return err
 	}
-	fmt.Fprintln(opts.Out, "  ✓ helm release uninstalled")
-	fmt.Fprintln(opts.Out, "✓ delete complete")
+	step.Done("uninstalled")
+	opts.Progress.Note("delete complete")
 	return nil
 }
 
-// deleteCR removes one CR by GVK + name and waits for it to be 404.
-// NotFound at the delete call → log + continue (idempotent).
-func deleteCR(ctx context.Context, opts DeleteOptions, applier *apply.Client, waiter *wait.Client, gvk schema.GroupVersionKind, name, label string) error {
-	fmt.Fprintf(opts.Out, "→ delete %s/%s\n", label, name)
+// deleteCRStep removes one CR by GVK + name and waits for it to be
+// 404, reporting both halves through a single progress step. NotFound
+// at the delete call → step closes with "already gone" + return nil
+// (idempotent re-run).
+func deleteCRStep(ctx context.Context, opts DeleteOptions, applier *apply.Client, waiter *wait.Client, gvk schema.GroupVersionKind, name, label string) error {
+	step := opts.Progress.Start(fmt.Sprintf("delete %s/%s", label, name))
 	if err := applier.Delete(ctx, gvk, "", name); err != nil {
 		var statusErr *apierrors.StatusError
 		if errors.As(err, &statusErr) && apierrors.IsNotFound(err) {
-			fmt.Fprintf(opts.Out, "  · %s/%s already gone\n", label, name)
+			step.Done("already gone")
 			return nil
 		}
+		step.Fail(err)
 		return err
 	}
-	fmt.Fprintf(opts.Out, "→ wait %s/%s gone (timeout %s)\n", label, name, opts.Timeout)
+	step.Update("waiting for finalizer drain")
 	if err := waiter.WaitGone(ctx, gvk, "", name, opts.Timeout); err != nil {
+		step.Fail(err)
 		return err
 	}
-	fmt.Fprintf(opts.Out, "  ✓ %s/%s gone\n", label, name)
+	step.Done("gone")
 	return nil
 }
 

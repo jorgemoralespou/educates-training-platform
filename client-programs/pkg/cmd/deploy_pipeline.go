@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -11,6 +12,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 )
 
 // deployPipelineFlags collects the kubectl/helm connection flags shared
@@ -70,7 +72,24 @@ func translateAndDeploy(
 		HelmLog:          helmLog,
 		Timeout:          flags.Timeout,
 		SyncLocalSecrets: syncLocalSecrets,
+		Progress:         progress.New(w, 0, isStdoutTTY(w)),
 	})
+}
+
+// isStdoutTTY tells the progress reporter whether to use \r-based
+// in-place updates. Cmd code passes cmd.OutOrStdout() into the
+// pipeline; that's *os.File when running interactively, *bytes.Buffer
+// in tests.
+func isStdoutTTY(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 // caRefForLocal looks up the cached CA Secret name + the conventional

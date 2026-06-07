@@ -54,6 +54,15 @@ const PollInterval = 2 * time.Second
 // Returns the last-observed object on success — callers use it for the
 // summary line (status.url, status.observedDomain, etc.).
 func (c *Client) WaitReady(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string, timeout time.Duration) (*unstructured.Unstructured, error) {
+	return c.WaitReadyWithPhase(ctx, gvk, namespace, name, timeout, nil)
+}
+
+// WaitReadyWithPhase is WaitReady with a callback that fires every
+// time the observed phase changes (or first becomes set). The callback
+// runs on the poll goroutine; reporter implementations are expected to
+// be cheap (write a single status line). A nil callback is equivalent
+// to WaitReady.
+func (c *Client) WaitReadyWithPhase(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string, timeout time.Duration, onPhase func(phase string)) (*unstructured.Unstructured, error) {
 	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	if err != nil {
 		return nil, fmt.Errorf("REST mapping for %s: %w", gvk, err)
@@ -65,10 +74,17 @@ func (c *Client) WaitReady(ctx context.Context, gvk schema.GroupVersionKind, nam
 	}
 
 	deadline := time.Now().Add(timeout)
+	var lastPhase string
 	for {
 		obj, err := typed.Get(ctx, name, metav1.GetOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("get %s/%s: %w", gvk.Kind, name, err)
+		}
+		if onPhase != nil && obj != nil {
+			if phase, _, _ := unstructured.NestedString(obj.Object, "status", "phase"); phase != "" && phase != lastPhase {
+				onPhase(phase)
+				lastPhase = phase
+			}
 		}
 		if err == nil && isReady(obj) {
 			return obj, nil

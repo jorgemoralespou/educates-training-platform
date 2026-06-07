@@ -9,6 +9,7 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 )
 
 type PlatformDeleteOptions struct {
@@ -72,9 +73,10 @@ func (p *ProjectInfo) runDelete(ctx context.Context, w io.Writer, o *PlatformDel
 	}
 
 	return deployer.Delete(ctx, deployer.DeleteOptions{
-		Getter:  cf,
-		Out:     w,
-		HelmLog: helmLog,
-		Timeout: o.Timeout,
+		Getter:   cf,
+		Out:      w,
+		HelmLog:  helmLog,
+		Timeout:  o.Timeout,
+		Progress: progress.New(w, 0, isStdoutTTY(w)),
 	})
 }

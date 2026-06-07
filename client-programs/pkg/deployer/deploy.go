@@ -21,6 +21,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/crds"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/helm"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/prereq"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 
@@ -78,6 +79,13 @@ type Options struct {
 	// is pushed at deploy time, ECC's caCertificateRef points there.
 	// Only meaningful for EducatesLocalConfig deploys.
 	SyncLocalSecrets bool
+
+	// Progress is the structured progress reporter. When nil, plain
+	// io.Discard-backed reporter is used (no progress output, but the
+	// helpers still call into it so the call-site code is uniform).
+	// Cmd code typically passes progress.NewForStdout(...) to render
+	// to the user's terminal with TTY-aware overwriting.
+	Progress progress.Reporter
 }
 
 // Deploy executes the install pipeline against the cluster reachable
@@ -102,26 +110,24 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	if opts.Timeout == 0 {
 		opts.Timeout = DefaultTimeout
 	}
+	if opts.Progress == nil {
+		opts.Progress = progress.New(io.Discard, 0, false)
+	}
 
-	// 0. Push cached local secrets (CA + TLS) into the cluster. For the
-	//    laptop flow this is the source of the Secret that the
-	//    operator's CustomCA path will mirror into cert-manager's
-	//    namespace; ECC.caCertificateRef points at 'educates-secrets'.
+	// Note-class lines (no step counter) for the setup operations
+	// that aren't part of the install sequence proper.
 	if opts.SyncLocalSecrets {
-		fmt.Fprintln(opts.Out, "→ syncing cached local secrets to cluster")
+		opts.Progress.Note("syncing cached local secrets to cluster")
 		if err := syncLocalSecrets(opts.Getter); err != nil {
 			return err
 		}
-		fmt.Fprintln(opts.Out, "  ✓ secrets synced")
 	}
 
 	chrt, err := chart.Load()
 	if err != nil {
 		return fmt.Errorf("load embedded chart: %w", err)
 	}
-
-	// Applier needs to exist before the CRD step (which uses it) so
-	// hoist its construction before helm.
+	// Applier needs to exist before the CRD step; hoist before helm.
 	applier, err := apply.New(opts.Getter)
 	if err != nil {
 		return err
@@ -131,115 +137,118 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		return err
 	}
 
-	// 1. CRDs. helm only installs CRDs from a chart's crds/ directory
-	// on first install (never on upgrade), so a CRD shape change
-	// would leave the cluster on the old schema. Owning CRD lifecycle
-	// here means re-deploys always have the latest. SkipCRDApply
-	// opts out for users managing CRDs out of band.
+	// 1. CRDs.
 	if !opts.SkipCRDApply {
-		fmt.Fprintln(opts.Out, "→ apply CRDs")
+		step := opts.Progress.Start("apply CRDs")
 		applied, err := crds.Apply(ctx, applier, chrt)
 		if err != nil {
+			step.Fail(err)
 			return err
 		}
-		fmt.Fprintf(opts.Out, "  ✓ %d CRDs applied\n", len(applied))
+		step.Done(fmt.Sprintf("%d applied", len(applied)))
 	}
 
-	// 2. Helm install/upgrade the operator chart. SkipCRDs=true on the
-	// helm side because step 1 already owns the CRD lifecycle.
-	fmt.Fprintln(opts.Out, "→ helm upgrade --install", OperatorReleaseName)
+	// 2. Helm install/upgrade the operator chart.
+	step := opts.Progress.Start(fmt.Sprintf("helm upgrade --install %s", OperatorReleaseName))
 	helmClient, err := helm.New(opts.Getter, OperatorNamespace, opts.HelmLog)
 	if err != nil {
+		step.Fail(err)
 		return err
 	}
 	if _, err := helmClient.UpgradeOrInstall(ctx, OperatorReleaseName, chrt, out.OperatorChartValues); err != nil {
+		step.Fail(err)
 		return err
 	}
-	fmt.Fprintln(opts.Out, "  ✓ helm release installed")
+	step.Done("released")
 
 	// 3. Apply EducatesClusterConfig + wait.
-
-	if err := applyAndWait(ctx, opts, applier, waiter,
-		out.EducatesClusterConfig, "EducatesClusterConfig"); err != nil {
+	if err := applyAndWaitStep(ctx, opts, applier, waiter, out.EducatesClusterConfig, "EducatesClusterConfig"); err != nil {
 		return err
 	}
 
-	// 3. Prereq check — only meaningful when the caller didn't sync
+	// 4. Prereq check — only meaningful when the caller didn't sync
 	//    local secrets. With SyncLocalSecrets the cache push is the
 	//    prereq; the render-time lookup already verified the cache had
 	//    a CA matching the domain.
 	if !opts.SkipPrereqCheck && !opts.SyncLocalSecrets {
-		fmt.Fprintln(opts.Out, "→ checking prerequisite Secret", prereq.CustomCASecretName)
+		step := opts.Progress.Start(fmt.Sprintf("check prerequisite Secret %s", prereq.CustomCASecretName))
 		if err := prereq.CheckCustomCASecret(ctx, opts.Getter, OperatorNamespace); err != nil {
+			step.Fail(err)
 			return err
 		}
-		fmt.Fprintln(opts.Out, "  ✓ prerequisite present")
+		step.Done("present")
 	}
 
-	// 4. SecretsManager + wait.
-	if err := applyAndWait(ctx, opts, applier, waiter,
-		out.SecretsManager, "SecretsManager"); err != nil {
+	// 5. SecretsManager + wait.
+	if err := applyAndWaitStep(ctx, opts, applier, waiter, out.SecretsManager, "SecretsManager"); err != nil {
 		return err
 	}
 
-	// 5. LookupService + SessionManager — applied together, waited
-	//    together. SessionManager's remote-access subchart installs in
-	//    Auto mode when a LookupService CR exists in the cluster, and
-	//    produces the 'remote-access-token' Secret that LookupService's
-	//    pod mounts. Applying LookupService first and waiting for
-	//    Ready would deadlock (token never appears); applying
-	//    SessionManager first would skip the remote-access install
-	//    (no LookupService CR yet).
+	// 6. LookupService + SessionManager — applied together, waited
+	//    together. See remote-access-token cycle comment from commit
+	//    0d79afc6.
 	if out.LookupService != nil {
-		if err := apply_(ctx, opts, applier, out.LookupService, "LookupService"); err != nil {
+		if err := applyOnlyStep(ctx, opts, applier, out.LookupService, "LookupService"); err != nil {
 			return err
 		}
 	}
-	if err := apply_(ctx, opts, applier, out.SessionManager, "SessionManager"); err != nil {
+	if err := applyOnlyStep(ctx, opts, applier, out.SessionManager, "SessionManager"); err != nil {
 		return err
 	}
 	if out.LookupService != nil {
-		if err := wait_(ctx, opts, waiter, out.LookupService, "LookupService"); err != nil {
+		if err := waitOnlyStep(ctx, opts, waiter, out.LookupService, "LookupService"); err != nil {
 			return err
 		}
 	}
-	if err := wait_(ctx, opts, waiter, out.SessionManager, "SessionManager"); err != nil {
+	if err := waitOnlyStep(ctx, opts, waiter, out.SessionManager, "SessionManager"); err != nil {
 		return err
 	}
 
-	fmt.Fprintln(opts.Out, "✓ deploy complete")
+	opts.Progress.Note("deploy complete")
 	return nil
 }
 
-func applyAndWait(ctx context.Context, opts Options, applier *apply.Client, waiter *wait.Client, obj map[string]interface{}, label string) error {
-	if err := apply_(ctx, opts, applier, obj, label); err != nil {
+// applyAndWaitStep does apply + wait under a single progress step.
+// Used by ECC and SecretsManager where the two operations are
+// strictly sequential.
+func applyAndWaitStep(ctx context.Context, opts Options, applier *apply.Client, waiter *wait.Client, obj map[string]interface{}, label string) error {
+	if err := applyOnlyStep(ctx, opts, applier, obj, label); err != nil {
 		return err
 	}
-	return wait_(ctx, opts, waiter, obj, label)
+	return waitOnlyStep(ctx, opts, waiter, obj, label)
 }
 
-func apply_(ctx context.Context, opts Options, applier *apply.Client, obj map[string]interface{}, label string) error {
+// applyOnlyStep is one progress step that just applies and reports
+// the apply outcome. Used by the interleaved LookupService /
+// SessionManager path where applies and waits are deliberately split.
+func applyOnlyStep(ctx context.Context, opts Options, applier *apply.Client, obj map[string]interface{}, label string) error {
 	u, err := mapToUnstructured(obj)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	fmt.Fprintf(opts.Out, "→ apply %s/%s\n", label, u.GetName())
+	step := opts.Progress.Start(fmt.Sprintf("apply %s/%s", label, u.GetName()))
 	if _, err := applier.Apply(ctx, u); err != nil {
+		step.Fail(err)
 		return err
 	}
+	step.Done("applied")
 	return nil
 }
 
-func wait_(ctx context.Context, opts Options, waiter *wait.Client, obj map[string]interface{}, label string) error {
+// waitOnlyStep is one progress step that just polls for Ready and
+// surfaces phase changes (when the CR's status.phase field updates)
+// as Update calls on the step.
+func waitOnlyStep(ctx context.Context, opts Options, waiter *wait.Client, obj map[string]interface{}, label string) error {
 	u, err := mapToUnstructured(obj)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	fmt.Fprintf(opts.Out, "→ wait %s/%s Ready=True (timeout %s)\n", label, u.GetName(), opts.Timeout)
-	if _, err := waiter.WaitReady(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout); err != nil {
+	step := opts.Progress.Start(fmt.Sprintf("wait %s/%s Ready", label, u.GetName()))
+	if _, err := waiter.WaitReadyWithPhase(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout, step.Update); err != nil {
+		step.Fail(err)
 		return err
 	}
-	fmt.Fprintf(opts.Out, "  ✓ %s/%s Ready\n", label, u.GetName())
+	step.Done("Ready")
 	return nil
 }
 
