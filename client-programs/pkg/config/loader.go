@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -25,31 +27,42 @@ func Load(path string) (v1alpha1.Config, error) {
 
 // LoadBytes is the path-free variant — useful for stdin and tests. The
 // source string is woven into error messages so users can locate the file.
+//
+// Single-pass: one yaml.Unmarshal → normalise → json.Marshal. The JSON
+// bytes drive both schema validation and the typed strict decode (via
+// json.Decoder.DisallowUnknownFields, which is the json equivalent of
+// yaml.UnmarshalStrict's behaviour around unknown fields).
 func LoadBytes(data []byte, source string) (v1alpha1.Config, error) {
-	var meta v1alpha1.TypeMeta
-	if err := yaml.Unmarshal(data, &meta); err != nil {
-		return nil, fmt.Errorf("%s: parse apiVersion/kind: %w", source, err)
+	jsonData, raw, err := yamlToJSON(data, source)
+	if err != nil {
+		return nil, err
 	}
-	if meta.APIVersion == "" || meta.Kind == "" {
+	apiVersion, _ := raw["apiVersion"].(string)
+	kind, _ := raw["kind"].(string)
+	if apiVersion == "" || kind == "" {
 		return nil, fmt.Errorf("%s: missing required field 'apiVersion' or 'kind'", source)
 	}
-	if meta.APIVersion != v1alpha1.APIVersion {
-		return nil, fmt.Errorf("%s: unsupported apiVersion %q (want %q)", source, meta.APIVersion, v1alpha1.APIVersion)
+	if apiVersion != v1alpha1.APIVersion {
+		return nil, fmt.Errorf("%s: unsupported apiVersion %q (want %q)", source, apiVersion, v1alpha1.APIVersion)
 	}
 
-	switch meta.Kind {
+	switch kind {
 	case v1alpha1.KindEducatesLocalConfig:
-		return loadEducatesLocalConfig(data, source)
+		return decodeAndDefault(jsonData, schemas.EducatesLocalConfig, source, &v1alpha1.EducatesLocalConfig{}, true)
 	case v1alpha1.KindEducatesConfig:
-		return loadEducatesConfig(data, source)
+		// Escape-hatch: CR-spec fields are untyped maps; don't reject
+		// unknown fields inside them (the typed struct only declares
+		// the envelope; the CR specs are map[string]interface{} that
+		// json's strict mode would happily accept any keys for anyway).
+		return decodeAndDefault(jsonData, schemas.EducatesConfig, source, &v1alpha1.EducatesConfig{}, false)
 	case v1alpha1.KindEducatesInlineConfig:
-		return loadEducatesInlineConfig(data, source)
+		return decodeAndDefault(jsonData, schemas.EducatesInlineConfig, source, &v1alpha1.EducatesInlineConfig{}, true)
 	case v1alpha1.KindEducatesGKEConfig:
-		return loadEducatesGKEConfig(data, source)
+		return decodeAndDefault(jsonData, schemas.EducatesGKEConfig, source, &v1alpha1.EducatesGKEConfig{}, true)
 	case v1alpha1.KindEducatesEKSConfig:
-		return loadEducatesEKSConfig(data, source)
+		return decodeAndDefault(jsonData, schemas.EducatesEKSConfig, source, &v1alpha1.EducatesEKSConfig{}, true)
 	default:
-		return nil, fmt.Errorf("%s: unknown kind %q for apiVersion %q", source, meta.Kind, meta.APIVersion)
+		return nil, fmt.Errorf("%s: unknown kind %q for apiVersion %q", source, kind, apiVersion)
 	}
 }
 
@@ -68,84 +81,70 @@ func LoadLocal(path string) (*v1alpha1.EducatesLocalConfig, error) {
 	return local, nil
 }
 
-func loadEducatesLocalConfig(data []byte, source string) (*v1alpha1.EducatesLocalConfig, error) {
-	if err := validateAgainstSchema(data, schemas.EducatesLocalConfig, source); err != nil {
-		return nil, err
-	}
-	var cfg v1alpha1.EducatesLocalConfig
-	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
-	}
-	cfg.WithDefaults()
-	return &cfg, nil
-}
-
-func loadEducatesEKSConfig(data []byte, source string) (*v1alpha1.EducatesEKSConfig, error) {
-	if err := validateAgainstSchema(data, schemas.EducatesEKSConfig, source); err != nil {
-		return nil, err
-	}
-	var cfg v1alpha1.EducatesEKSConfig
-	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
-	}
-	cfg.WithDefaults()
-	return &cfg, nil
-}
-
-func loadEducatesGKEConfig(data []byte, source string) (*v1alpha1.EducatesGKEConfig, error) {
-	if err := validateAgainstSchema(data, schemas.EducatesGKEConfig, source); err != nil {
-		return nil, err
-	}
-	var cfg v1alpha1.EducatesGKEConfig
-	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
-	}
-	cfg.WithDefaults()
-	return &cfg, nil
-}
-
-func loadEducatesInlineConfig(data []byte, source string) (*v1alpha1.EducatesInlineConfig, error) {
-	if err := validateAgainstSchema(data, schemas.EducatesInlineConfig, source); err != nil {
-		return nil, err
-	}
-	var cfg v1alpha1.EducatesInlineConfig
-	if err := yaml.UnmarshalStrict(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
-	}
-	cfg.WithDefaults()
-	return &cfg, nil
-}
-
-// loadEducatesConfig loads the escape-hatch kind. No WithDefaults() — the
-// design contract is that EducatesConfig is passed through verbatim. Strict
-// unmarshal is *not* used: CR-spec fields are untyped maps that carry any
-// shape the CRDs accept; the JSON schema is the only enforcer.
-func loadEducatesConfig(data []byte, source string) (*v1alpha1.EducatesConfig, error) {
-	if err := validateAgainstSchema(data, schemas.EducatesConfig, source); err != nil {
-		return nil, err
-	}
-	var cfg v1alpha1.EducatesConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%s: %w", source, err)
-	}
-	return &cfg, nil
-}
-
-// validateAgainstSchema converts the YAML to a generic Go value, then runs
-// it through gojsonschema. We rely on the schema for the readable error
-// messages (path + reason + value); yaml.UnmarshalStrict is the safety net
-// for any Go-side mismatch.
-func validateAgainstSchema(yamlData, schemaBytes []byte, source string) error {
+// yamlToJSON parses YAML once, normalises yaml.v2's
+// map[interface{}]interface{} to map[string]interface{}, then marshals
+// to JSON. Returns both the normalised top-level map (for cheap
+// apiVersion/kind extraction) and the JSON bytes (for schema
+// validation + typed decode).
+func yamlToJSON(data []byte, source string) ([]byte, map[string]interface{}, error) {
 	var raw interface{}
-	if err := yaml.Unmarshal(yamlData, &raw); err != nil {
-		return fmt.Errorf("%s: parse YAML: %w", source, err)
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, nil, fmt.Errorf("%s: parse YAML: %w", source, err)
 	}
-	// gojsonschema needs JSON-compatible types; yaml.v2 returns
-	// map[interface{}]interface{} for objects, which json.Marshal rejects.
 	normalised := normaliseForJSON(raw)
+	rootMap, _ := normalised.(map[string]interface{})
+	if rootMap == nil {
+		// Empty document or scalar root — keep going; downstream
+		// schema/decode steps will produce the actionable error.
+		rootMap = map[string]interface{}{}
+	}
+	jsonBytes, err := json.Marshal(normalised)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: marshal to JSON: %w", source, err)
+	}
+	return jsonBytes, rootMap, nil
+}
 
+// decodeAndDefault validates jsonData against schemaBytes, strict-decodes
+// (or loose for the escape kind which holds untyped maps), then applies
+// any per-kind WithDefaults.
+func decodeAndDefault(
+	jsonData []byte,
+	schemaBytes []byte,
+	source string,
+	target v1alpha1.Config,
+	strict bool,
+) (v1alpha1.Config, error) {
+	if err := validateAgainstSchema(jsonData, schemaBytes, source); err != nil {
+		return nil, err
+	}
+	dec := json.NewDecoder(bytes.NewReader(jsonData))
+	if strict {
+		dec.DisallowUnknownFields()
+	}
+	if err := dec.Decode(target); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	switch t := target.(type) {
+	case *v1alpha1.EducatesLocalConfig:
+		t.WithDefaults()
+	case *v1alpha1.EducatesInlineConfig:
+		t.WithDefaults()
+	case *v1alpha1.EducatesGKEConfig:
+		t.WithDefaults()
+	case *v1alpha1.EducatesEKSConfig:
+		t.WithDefaults()
+	case *v1alpha1.EducatesConfig:
+		// Escape kind: verbatim passthrough, no defaulting.
+	}
+	return target, nil
+}
+
+// validateAgainstSchema runs gojsonschema against the already-marshalled
+// JSON bytes (caller has done the YAML→JSON conversion once).
+func validateAgainstSchema(jsonData, schemaBytes []byte, source string) error {
 	loader := gojsonschema.NewBytesLoader(schemaBytes)
-	docLoader := gojsonschema.NewGoLoader(normalised)
+	docLoader := gojsonschema.NewBytesLoader(jsonData)
 	result, err := gojsonschema.Validate(loader, docLoader)
 	if err != nil {
 		return fmt.Errorf("%s: schema validation error: %w", source, err)
@@ -153,7 +152,6 @@ func validateAgainstSchema(yamlData, schemaBytes []byte, source string) error {
 	if result.Valid() {
 		return nil
 	}
-
 	var msgs []string
 	for _, e := range result.Errors() {
 		msgs = append(msgs, fmt.Sprintf("  - %s: %s", e.Field(), e.Description()))
@@ -162,8 +160,7 @@ func validateAgainstSchema(yamlData, schemaBytes []byte, source string) error {
 }
 
 // normaliseForJSON recursively converts yaml.v2's map[interface{}]interface{}
-// into map[string]interface{} so the value can be JSON-marshalled (which
-// gojsonschema uses internally).
+// into map[string]interface{} so the value can be JSON-marshalled.
 func normaliseForJSON(v interface{}) interface{} {
 	switch x := v.(type) {
 	case map[interface{}]interface{}:
