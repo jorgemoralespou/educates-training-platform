@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -96,7 +97,64 @@ reference while re-declaring.`, v3Path, provider, v3Path)
 
 	fmt.Fprintf(os.Stderr, "migrated %s → %s; original saved as %s\n",
 		v3Path, v4Path, backupPath)
+
+	// Warn about v3-shape cached CA Secrets (Opaque + ca.crt) that
+	// the v4 LocalCachedSecretForCertificateAuthority lookup will
+	// silently skip. We can't auto-regenerate them — the v3 file
+	// holds only the cert, not the private key cert-manager needs to
+	// sign workshop certs — so the user has to re-run
+	// 'educates local secrets add ca'.
+	if domain := strV3Path(v3raw, "clusterIngress", "domain"); domain != "" {
+		warnIfV3CACachePresent(os.Stderr, filepath.Join(dataHome, "secrets"), domain)
+	}
 	return nil
+}
+
+// warnIfV3CACachePresent scans the secrets cache for any file shaped
+// like the v3 CA cache (Opaque + ca.crt + matching domain annotation)
+// and writes a one-time warning to w. Best-effort — failures (no
+// secrets dir, unreadable files) silently no-op; the next CLI op
+// that needs the CA will give a clear "no cached CA Secret found"
+// error anyway.
+//
+// w is parameterised for tests; production callers pass os.Stderr.
+func warnIfV3CACachePresent(w io.Writer, secretsDir, domain string) {
+	entries, err := os.ReadDir(secretsDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(secretsDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var raw map[string]interface{}
+		if err := yaml.Unmarshal(body, &raw); err != nil {
+			continue
+		}
+		ann := asMap(asMap(raw["metadata"])["annotations"])
+		if ann == nil {
+			continue
+		}
+		if d, _ := ann["training.educates.dev/domain"].(string); d != domain {
+			continue
+		}
+		t, _ := raw["type"].(string)
+		data := asMap(raw["data"])
+		if (t == "Opaque" || t == "") && data["ca.crt"] != nil {
+			fmt.Fprintf(w, `WARNING: cached v3-shape CA Secret detected at %s.
+The v4 lookup expects kubernetes.io/tls + tls.crt + tls.key. Re-run:
+
+  educates local secrets add ca %s --domain %s
+
+to regenerate the cached CA (auto-generated unless you pass --cert/--key).
+`, filepath.Join(secretsDir, e.Name()), domain+"-ca", domain)
+			return
+		}
+	}
 }
 
 // translateV3ToV4 builds the v4 EducatesLocalConfig from a v3 values map

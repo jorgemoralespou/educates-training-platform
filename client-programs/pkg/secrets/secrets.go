@@ -136,7 +136,17 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset) error {
 			},
 		}
 
-		namespacesClient.Create(context.TODO(), &namespaceObj, metav1.CreateOptions{})
+		// Surface RBAC / admission / transient errors here rather than
+		// proceeding to write Secrets into a namespace that doesn't
+		// exist — the subsequent secret writes would fail with a
+		// confusing 'namespaces "educates-secrets" not found' that
+		// masks the real cause (typically: kubeconfig user lacks
+		// 'create namespaces').
+		if _, err := namespacesClient.Create(context.TODO(), &namespaceObj, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
+			return errors.Wrapf(err, "unable to create namespace %q for local secrets sync", secretsNS)
+		}
+	} else if err != nil {
+		return errors.Wrapf(err, "unable to check namespace %q for local secrets sync", secretsNS)
 	}
 
 	secretsClient := client.CoreV1().Secrets(secretsNS)

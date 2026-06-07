@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,6 +171,58 @@ func TestEnsureLocalConfigFile_MigratesAndPasses(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataHome, "config.yaml")); err != nil {
 		t.Errorf("config.yaml missing after Ensure: %v", err)
+	}
+}
+
+func TestWarnIfV3CACachePresent_OpaqueCACertOnly_Warns(t *testing.T) {
+	dataHome := t.TempDir()
+	secretsDir := filepath.Join(dataHome, "secrets")
+	must(t, os.MkdirAll(secretsDir, 0o755))
+	v3CASecret := `apiVersion: v1
+kind: Secret
+metadata:
+  name: workshop.test-ca
+  annotations:
+    training.educates.dev/domain: workshop.test
+type: Opaque
+data:
+  ca.crt: dGVzdA==
+`
+	must(t, os.WriteFile(filepath.Join(secretsDir, "workshop.test-ca.yaml"), []byte(v3CASecret), 0o644))
+
+	var buf bytes.Buffer
+	warnIfV3CACachePresent(&buf, secretsDir, "workshop.test")
+
+	s := buf.String()
+	for _, want := range []string{"v3-shape CA Secret detected", "kubernetes.io/tls + tls.crt + tls.key", "educates local secrets add ca workshop.test-ca --domain workshop.test"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("warning missing %q in:\n%s", want, s)
+		}
+	}
+}
+
+func TestWarnIfV3CACachePresent_TLSShape_NoWarn(t *testing.T) {
+	dataHome := t.TempDir()
+	secretsDir := filepath.Join(dataHome, "secrets")
+	must(t, os.MkdirAll(secretsDir, 0o755))
+	// v4-shape — kubernetes.io/tls — should NOT warn.
+	v4Secret := `apiVersion: v1
+kind: Secret
+metadata:
+  name: workshop.test-ca
+  annotations:
+    training.educates.dev/domain: workshop.test
+type: kubernetes.io/tls
+data:
+  tls.crt: dGVzdA==
+  tls.key: dGVzdA==
+`
+	must(t, os.WriteFile(filepath.Join(secretsDir, "workshop.test-ca.yaml"), []byte(v4Secret), 0o644))
+
+	var buf bytes.Buffer
+	warnIfV3CACachePresent(&buf, secretsDir, "workshop.test")
+	if buf.Len() != 0 {
+		t.Errorf("v4-shape Secret should not warn, got:\n%s", buf.String())
 	}
 }
 
