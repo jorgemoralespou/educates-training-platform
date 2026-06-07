@@ -45,23 +45,25 @@ func NewKindClusterConfig(kubeconfig string) *KindClusterConfig {
 //go:embed kindclusterconfig.yaml.tpl
 var clusterConfigTemplateData string
 
+// ClusterExists reports whether the 'educates' kind cluster currently
+// exists. err is set only when the underlying list call failed; the
+// existence outcome itself is not an error — callers decide whether
+// "exists" or "does not exist" is acceptable for the operation they're
+// performing (CreateCluster wants !exists; Delete/Start/Stop/Status
+// want exists).
 func (o *KindClusterConfig) ClusterExists() (bool, error) {
 	clusters, err := o.provider.List()
-
 	if err != nil {
 		return false, errors.Wrap(err, "unable to get list of clusters")
 	}
-
-	if slices.Contains(clusters, "educates") {
-		return true, errors.New("cluster for Educates already exists")
-	}
-
-	return false, nil
+	return slices.Contains(clusters, "educates"), nil
 }
 
 func (o *KindClusterConfig) CreateCluster(input *KindBootstrapInput, image string) error {
-	if exists, err := o.ClusterExists(); !exists && err != nil {
+	if exists, err := o.ClusterExists(); err != nil {
 		return err
+	} else if exists {
+		return errors.New("cluster for Educates already exists")
 	}
 
 	clusterConfigTemplate, err := template.New("kind-cluster-config").Parse(clusterConfigTemplateData)

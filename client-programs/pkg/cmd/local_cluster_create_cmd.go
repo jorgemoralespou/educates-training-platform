@@ -82,11 +82,24 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 		return err
 	}
 
+	// 0. Preflight: fail fast (before any docker / kind / k8s mutation)
+	//    when the cluster already exists OR host 80/443 are bound. The
+	//    second case is the v3 busybox probe — kind itself fails later
+	//    with a much less actionable error if Envoy can't publish.
+	clusterConfig := cluster.NewKindClusterConfig(o.Kubeconfig)
+	if exists, err := clusterConfig.ClusterExists(); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("kind cluster 'educates' already exists; run 'educates local cluster delete' first or use the existing cluster directly")
+	}
+	if err := checkHostPortsAvailable(ctx, cfg.Cluster.ListenAddress, o.Verbose, w); err != nil {
+		return err
+	}
+
 	// 1. kind bootstrap. kindBootstrapFromConfig builds the focused
 	//    KindBootstrapInput from EducatesLocalConfig.Cluster fields
 	//    the template reads.
 	fmt.Fprintln(w, "→ creating kind cluster 'educates'")
-	clusterConfig := cluster.NewKindClusterConfig(o.Kubeconfig)
 	if err := clusterConfig.CreateCluster(kindBootstrapFromConfig(cfg), o.ClusterImage); err != nil {
 		return err
 	}
