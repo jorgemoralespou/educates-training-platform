@@ -41,6 +41,24 @@ func TestKindBootstrapFromConfig_CarriesTemplateFields(t *testing.T) {
 	if got, want := in.VolumeMounts[0].HostPath, "/tmp/data"; got != want {
 		t.Errorf("VolumeMounts[0].HostPath = %q, want %q", got, want)
 	}
+	if !in.VolumeMounts[0].HasReadOnly || !in.VolumeMounts[0].ReadOnly {
+		t.Errorf("VolumeMounts[0] readOnly pair = {Has=%v, RO=%v}, want {true, true}",
+			in.VolumeMounts[0].HasReadOnly, in.VolumeMounts[0].ReadOnly)
+	}
+}
+
+func TestKindBootstrapFromConfig_VolumeMountWithoutReadOnly_LeavesPairUnset(t *testing.T) {
+	cfg := &v1alpha1.EducatesLocalConfig{
+		Cluster: v1alpha1.LocalClusterConfig{
+			VolumeMounts: []v1alpha1.VolumeMount{
+				{HostPath: "/tmp/data", ContainerPath: "/data"}, // ReadOnly nil
+			},
+		},
+	}
+	in := kindBootstrapFromConfig(cfg)
+	if in.VolumeMounts[0].HasReadOnly {
+		t.Errorf("HasReadOnly = true, want false (source ReadOnly was nil)")
+	}
 }
 
 func TestKindBootstrapFromConfig_Empty_NoCrash(t *testing.T) {

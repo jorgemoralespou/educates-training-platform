@@ -46,6 +46,9 @@ nodes:
   {{- range .VolumeMounts }}
   - hostPath: {{ .HostPath }}
     containerPath: {{ .ContainerPath }}
+    {{- if .HasReadOnly }}
+    readOnly: {{ .ReadOnly }}
+    {{- end }}
   {{- end }}
   {{- end }}
 containerdConfigPatches:

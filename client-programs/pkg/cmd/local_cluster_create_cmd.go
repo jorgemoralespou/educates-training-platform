@@ -210,6 +210,12 @@ func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBoo
 			HostPath:      m.HostPath,
 			ContainerPath: m.ContainerPath,
 		}
+		// The v4 source-of-truth is *bool (so "unset" round-trips
+		// through YAML); collapse to the template-friendly pair here.
+		if m.ReadOnly != nil {
+			mounts[i].HasReadOnly = true
+			mounts[i].ReadOnly = *m.ReadOnly
+		}
 	}
 	return &cluster.KindBootstrapInput{
 		ListenAddress: cfg.Cluster.ListenAddress,

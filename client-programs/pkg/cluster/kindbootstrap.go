@@ -25,4 +25,11 @@ type KindNetworking struct {
 type KindVolumeMount struct {
 	HostPath      string
 	ContainerPath string
+	// HasReadOnly + ReadOnly map to kind's extraMounts[].readOnly.
+	// The pair models a nullable bool without requiring text/template
+	// pointer dereference: HasReadOnly=false leaves the field unset
+	// (kind defaults to read-write); HasReadOnly=true emits the
+	// explicit ReadOnly value into the template.
+	HasReadOnly bool
+	ReadOnly    bool
 }
