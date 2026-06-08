@@ -18,13 +18,32 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	helmchart "helm.sh/helm/v4/pkg/chart/v2"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/apply"
+)
+
+// crdGVK is apiextensions.k8s.io/v1 CustomResourceDefinition — used to
+// poll Established=True on freshly-applied CRDs.
+var crdGVK = schema.GroupVersionKind{
+	Group:   "apiextensions.k8s.io",
+	Version: "v1",
+	Kind:    "CustomResourceDefinition",
+}
+
+// establishedPollInterval and establishedTimeout bound the post-apply
+// wait. CRD establishment is normally sub-second on a healthy apiserver;
+// the timeout is just a safety net against a wedged apiserver.
+const (
+	establishedPollInterval = 250 * time.Millisecond
+	establishedTimeout      = 60 * time.Second
 )
 
 // Apply pushes every CRD found in chrt.CRDObjects() via SSA. Returns
@@ -57,7 +76,66 @@ func Apply(ctx context.Context, applier *apply.Client, chrt *helmchart.Chart) ([
 			applied = append(applied, u.GetName())
 		}
 	}
+	if err := waitEstablished(ctx, applier, applied); err != nil {
+		return applied, err
+	}
+	// The mapper's discovery cache was populated before these CRDs
+	// existed. Invalidate it so the next CR apply re-fetches /apis and
+	// resolves the new kinds.
+	applier.InvalidateDiscovery()
 	return applied, nil
+}
+
+// waitEstablished polls each applied CRD until its Established=True
+// condition flips. The apply call returns as soon as the CRD object
+// lands, but the apiserver needs an extra moment to wire up the
+// discovery endpoint for the new kind. Without this gate, the very next
+// CR apply races discovery and surfaces as
+// "no matches for kind ... in version ...".
+func waitEstablished(ctx context.Context, applier *apply.Client, names []string) error {
+	deadline := time.Now().Add(establishedTimeout)
+	for _, name := range names {
+		for {
+			obj, err := applier.Get(ctx, crdGVK, "", name)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("get CRD %s: %w", name, err)
+			}
+			if err == nil && isEstablished(obj) {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for CRD %s to become Established", name)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(establishedPollInterval):
+			}
+		}
+	}
+	return nil
+}
+
+// isEstablished returns true when the CRD's Established condition is True.
+// NamesAccepted is implicit — Established only flips after NamesAccepted.
+func isEstablished(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+	conds, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found {
+		return false
+	}
+	for _, c := range conds {
+		m, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if m["type"] == "Established" && m["status"] == "True" {
+			return true
+		}
+	}
+	return false
 }
 
 // splitYAMLDocs handles multi-document YAML files (---  separated).

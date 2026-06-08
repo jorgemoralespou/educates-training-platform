@@ -32,6 +32,7 @@ const FieldManager = "educates-cli"
 // One Client per `educates admin platform deploy` run.
 type Client struct {
 	dyn    dynamic.Interface
+	cache  discovery.CachedDiscoveryInterface
 	mapper *restmapper.DeferredDiscoveryRESTMapper
 }
 
@@ -52,8 +53,19 @@ func New(getter genericclioptions.RESTClientGetter) (*Client, error) {
 	// memory.NewMemCacheClient is the standard wrapper for the REST
 	// mapper. A fresh cache per deploy run avoids the trap where CRDs
 	// installed earlier in this run aren't seen by later apply calls.
-	mapper := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc))
-	return &Client{dyn: dyn, mapper: mapper}, nil
+	cache := memory.NewMemCacheClient(dc)
+	mapper := restmapper.NewDeferredDiscoveryRESTMapper(cache)
+	return &Client{dyn: dyn, cache: cache, mapper: mapper}, nil
+}
+
+// InvalidateDiscovery clears the cached discovery snapshot and resets the
+// deferred mapper. Call this after applying CRDs so the next RESTMapping
+// lookup re-fetches `/apis` and picks up the newly registered kinds.
+// Without it, the mapper's reset-on-NoMatchError retry path rebuilds from
+// the same stale cache and the new GVK stays invisible.
+func (c *Client) InvalidateDiscovery() {
+	c.cache.Invalidate()
+	c.mapper.Reset()
 }
 
 // Apply server-side-applies one Unstructured. force=true so re-runs
@@ -88,6 +100,22 @@ func (c *Client) Apply(ctx context.Context, obj *unstructured.Unstructured) (*un
 		return nil, fmt.Errorf("apply %s/%s: %w", gvk.Kind, obj.GetName(), err)
 	}
 	return applied, nil
+}
+
+// Get returns the live object for a GVK + name, or NotFound. Used by
+// callers that need to poll a status field (e.g. CRD Established) without
+// also pulling in the wait package.
+func (c *Client) Get(ctx context.Context, gvk schema.GroupVersionKind, namespace, name string) (*unstructured.Unstructured, error) {
+	mapping, err := c.mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		return nil, fmt.Errorf("REST mapping for %s: %w", gvk, err)
+	}
+	resource := c.dyn.Resource(mapping.Resource)
+	var typed dynamic.ResourceInterface = resource
+	if namespace != "" {
+		typed = resource.Namespace(namespace)
+	}
+	return typed.Get(ctx, name, metav1.GetOptions{})
 }
 
 // Delete removes one object by GVK + name. Idempotent: missing → nil.
