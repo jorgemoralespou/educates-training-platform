@@ -59,7 +59,7 @@ deploy against a hand-prepared cluster.`,
 	}
 
 	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
-	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml")
+	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml (default when --config is not given)")
 	c.Flags().StringVar(&o.Kubeconfig, "kubeconfig", "", "kubeconfig file (defaults to $KUBECONFIG / ~/.kube/config)")
 	c.Flags().StringVar(&o.Context, "context", "", "context name to use within the kubeconfig (for the platform deploy tail-call)")
 	c.Flags().StringVar(&o.ClusterImage, "kind-cluster-image", "", "docker image to use when booting the kind cluster")
@@ -68,7 +68,6 @@ deploy against a hand-prepared cluster.`,
 	c.Flags().DurationVar(&o.Timeout, "timeout", deployer.DefaultTimeout, "per-CR Ready=True wait timeout (passed through to deploy)")
 	c.Flags().BoolVar(&o.Verbose, "verbose", false, "show helm SDK debug output on stderr")
 	c.MarkFlagsMutuallyExclusive("config", "local-config")
-	c.MarkFlagsOneRequired("config", "local-config")
 
 	return c
 }
@@ -150,13 +149,16 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 // EducatesConfig with target.provider=kind; everything else errors.
 func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfig, string, error) {
 	var path string
-	if o.LocalConfig {
+	// --local-config is the default for laptop create — matches v3
+	// behaviour where running the command with no flags pointed at
+	// <data-home>/config.yaml. --config still wins when set.
+	if o.Config != "" {
+		path = o.Config
+	} else {
 		path = filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
 		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
 			return nil, "", err
 		}
-	} else {
-		path = o.Config
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
