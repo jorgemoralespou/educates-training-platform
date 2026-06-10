@@ -940,3 +940,124 @@ expensive after.
   `EducatesConfig` translator.
 - CRD draft r3 (or its successor) updated.
 - decisions.md entry recording the choice and reasoning.
+
+---
+
+### CLI: CI drift checks for embedded operator chart and generated `EducatesConfig` schema
+
+**Date added:** 2026-06-10 (accumulated during Phase 5 steps 2 + 5).
+**Trigger to file:** immediately — both artifacts can silently drift
+today.
+
+**Context:**
+
+Two CLI-embedded artifacts are copies of generated/canonical sources:
+`client-programs/pkg/deployer/chart/files/` is a copy of
+`installer/charts/educates-installer/` (refreshed by `make
+embed-installer-chart`; the Makefile comment explicitly notes the CI
+check is a follow-up), and
+`client-programs/pkg/config/v1alpha1/schemas/EducatesConfig.schema.json`
+is generated from the CRD OpenAPI schemas by `make
+generate-cli-schemas`. Neither is verified in CI; a CRD or chart
+change without the corresponding regen ships a CLI that installs
+stale manifests or validates against a stale schema.
+
+**Scope:**
+
+CI steps (CLI workflow or installer-operator-ci.yaml) that run both
+make targets and fail on `git diff --exit-code` over the embedded
+copies.
+
+**Acceptance criteria:**
+
+- CI fails when `installer/charts/educates-installer/` and the
+  embedded chart copy differ.
+- CI fails when the committed `EducatesConfig.schema.json` differs
+  from freshly generated output.
+- Failure message names the make target to run.
+
+---
+
+### CLI: deploy/delete hardening follow-ups
+
+**Date added:** 2026-06-10 (accumulated during Phase 5 steps 5–6).
+**Trigger to file:** post-Phase-5; none block daily use.
+
+Already landed from the same accumulation: deploy-side CRD lifecycle
+(`14216722`, `a9109bf1`), structured progress reporting (`8909ff53`),
+`--yes` + `--purge` on delete (`4b4a1741`), create-preflight existence
+guard + port probe (`c4b59f15`).
+
+**Still open, in rough priority order:**
+
+1. **Mocked tests for cluster-touching deploy code.**
+   `client-programs/pkg/deployer/{apply,wait,prereq,helm}` have no
+   unit tests — confidence currently comes from kind smoke runs only.
+   fake.NewClientBuilder + the helm in-memory client wrapper would
+   unblock CI-time coverage.
+2. **`--force-finalizers` on delete.** A wedged finalizer currently
+   requires a manual `kubectl patch`; flag automates it for users who
+   accept the loss.
+3. **Apply-all-then-wait-all CR orchestration.** Sequential
+   apply-then-wait is fragile with bidirectional CR readiness deps
+   (the LookupService/SessionManager cycle, worked around in
+   `0d79afc6` by pairing them). Cleaner: apply every CR upfront, then
+   poll the set for Ready with a shared deadline.
+4. **Operator image rebuild guidance.** Detect a dev-tag pod whose
+   image digest doesn't match the latest local build; warn or accept
+   `--rebuild-operator` (docker-build + kind load + rollout).
+5. **Helm release labels/annotations.** Stamp releases with CLI
+   version + build SHA so `helm list` shows provenance.
+
+**Acceptance criteria:** each item lands as its own small PR with
+tests; this entry gets per-item `*(landed: ...)*` marks.
+
+---
+
+### CLI: `local config` UX papercuts
+
+**Date added:** 2026-06-10 (accumulated during Phase 5 step 7).
+**Trigger to file:** on user demand; cheap wins for daily ergonomics.
+
+1. **Path suggestions on missing-field errors** — `get ingress.domian`
+   → "did you mean `ingress.domain`?" via a schema-walker producing
+   valid paths + fuzzy match.
+2. **Tab completion on dotted paths** — Cobra `ValidArgsFunction`
+   walking the embedded JSON schema.
+3. **`set` for list paths** — e.g. `set resolver.extraDomains[0]
+   foo.test`; today only map paths work.
+4. **`unset PATH`** — remove a key without re-initing the file.
+
+**Acceptance criteria:** each papercut fixed with schema-driven tests;
+no hand-maintained path lists.
+
+---
+
+### CLI: scenario-kind regression tests (escape-hatch round-trip, sample-CR parity)
+
+**Date added:** 2026-06-10 (accumulated during Phase 5 step 11).
+**Trigger to file:** before the next scenario kind or CRD field change.
+
+**Context:**
+
+The scenario kinds (Local/GKE/EKS/Inline) and the `EducatesConfig`
+escape hatch both translate to the same four CRs, and each scenario
+kind was admitted against a tested sample CR in `installer/samples/`.
+Neither relationship is pinned by a test today.
+
+**Scope:**
+
+1. **Round-trip test:** `render --config inline.yaml` and `render
+   --config escape.yaml` declaring the same EducatesClusterConfig must
+   produce identical output.
+2. **Sample-CR parity test:** render the minimal scenario config per
+   kind and diff against its `installer/samples/` CR — catches drift
+   in either direction.
+3. Clearer error when `local cluster create` is given a non-Local
+   kind (today's message doesn't say which kinds are accepted).
+4. **Cloud auth alternatives** (static credentials for GKE/EKS) stay
+   rejected until the operator-side follow-up "ACME static-credentials
+   Secret support" lands; CLI schema + translator follow it.
+
+**Acceptance criteria:** tests live with the translator package and
+run in CI; the error message names accepted kinds.

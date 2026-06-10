@@ -1054,3 +1054,125 @@ was cheap: v1alpha1 has no users, Phase 4 left the CRD field reserved
 `4.0.0-alpha.1` with no standalone users. This supersedes the
 `imageCache` name in CRD draft r3 (now updated) and closes the
 follow-up "Revisit `imageCache` naming".
+
+### Platform components install as per-component vendored subcharts into a shared `educates` namespace
+
+**Date:** 2026-05-14 (recorded 2026-06-10).
+**Decision:** The Phase 4 platform reconcilers do not install the
+umbrella `educates-training-platform` chart. Each reconciler installs
+its component as its own Helm release from a vendored subchart tarball
+under `installer/operator/vendored-charts/` — `secrets-manager`,
+`lookup-service`, and `session-manager` (the latter also installing the
+`node-ca-injector` and `remote-access` extras as separate releases when
+enabled) — all into the single `educates` namespace, mirroring v3's
+shared-namespace layout. The umbrella chart remains the standalone
+no-operator install path and is what the project publishes for users
+who don't want the operator.
+
+**Why:** One release per CR keeps install, upgrade, and finalizer-drain
+boundaries aligned with the CR that owns them — deleting a
+`LookupService` CR uninstalls exactly the lookup-service release,
+without helm three-way-merging a shared umbrella release from three
+independent reconcilers. The umbrella's value remains packaging
+convenience for humans; the operator needs per-component control. The
+subchart tarballs are vendored and SHA256-verified through the same
+`make vendor-charts` machinery as the upstream cluster-service charts.
+
+### CLI config is a kind ladder of scenario configs plus an escape hatch
+
+**Date:** 2026-05-20.
+**Decision:** The Phase 5 CLI consumes kind-discriminated YAML config
+files under API group `cli.educates.dev/v1alpha1`. The ladder:
+`EducatesLocalConfig` (laptop kind cluster; narrow and opinionated;
+empty file valid), `EducatesGKEConfig` and `EducatesEKSConfig` (Managed
+prod on GKE/EKS), `EducatesInlineConfig` (BYO / Inline mode), and
+`EducatesConfig` — the escape hatch exposing the full CRD surface. A
+new scenario kind is only admitted once a tested sample CR exists in
+`installer/samples/`. Naming scheme is `Educates*Config`, escape hatch
+bare `EducatesConfig`.
+
+**Why:** A single config shape must either expose everything (and stop
+being opinionated) or hide things (and dead-end power users). Narrow
+kinds make the common scenarios short, validated, and defaultable; the
+escape hatch guarantees no expressiveness ceiling. The sample-CR
+admission rule keeps the ladder from sprawling into untested shapes.
+
+### CLI data home unchanged from v3; `EDUCATES_CLI_DATA_HOME` overrides
+
+**Date:** 2026-05-20.
+**Decision:** All Educates CLI state stays under
+`$XDG_DATA_HOME/educates/` (subdirs `{config.yaml, secrets/, kind/,
+resolver/, workshops/}` unchanged). A new `EDUCATES_CLI_DATA_HOME` env
+var takes precedence when set. `config.yaml` holds an
+`EducatesLocalConfig` only — singular, one per machine (or one per
+`EDUCATES_CLI_DATA_HOME` value); no profiles. Non-Local kinds live in
+the user's own repo (docs-recommended convention:
+`educates-<env>.yaml`).
+
+**Why:** Keeping the v3 path avoids churning ~18 `GetEducatesHomeDir()`
+call sites and avoids migrating existing on-disk user state (secrets,
+kind, resolver caches all keep working). The env var gives CI and
+power users relocation without touching XDG. One-Local-per-machine
+mirrors how the laptop flow is actually used; profile demand can
+reopen this later.
+
+### CLI schema strategy: embedded JSON schema per kind; `EducatesConfig` generated from CRDs
+
+**Date:** 2026-05-20.
+**Decision:** Every CLI config kind has a JSON schema embedded into the
+binary via `//go:embed` at
+`client-programs/pkg/config/v1alpha1/schemas/<Kind>.schema.json`.
+Scenario-kind schemas are hand-authored; the `EducatesConfig` schema is
+generated from the CRD OpenAPI output via `make generate-cli-schemas`
+(no hand-maintained schema for the escape hatch). Schemas drive
+command-time validation, `local config set` path/type checks, and IDE
+support; publishing them at
+`https://schemas.educates.dev/cli/v1alpha1/<Kind>.json` plus
+SchemaStore.org registration is Phase 6 work.
+
+**Why:** One artifact serves validation, tooling, and docs without
+drifting from the code. Generating the escape-hatch schema from the
+CRDs makes "the CLI accepts exactly what the CRDs accept" a build-time
+guarantee rather than a maintenance promise.
+
+### `EducatesConfig` escape hatch carries CR specs verbatim (layout B1)
+
+**Date:** 2026-05-20.
+**Decision:** The escape-hatch kind uses section keys named by
+camelCase CRD kind (`educatesClusterConfig`, `secretsManager`,
+`lookupService`, `sessionManager`), each body being that CR's `.spec`
+verbatim; the CLI wraps `apiVersion`/`kind`/`metadata.name: cluster` at
+translate time. An optional `target:` block (provider + the Local
+kind's `cluster`/`resolver` shapes) controls CLI side-effects; when
+absent the CLI just applies what's declared. No CLI-inferred defaults,
+no invariants — every CRD field is settable; only apiserver-side
+kubebuilder defaults apply. `educates local cluster create` accepts
+`EducatesLocalConfig` or `EducatesConfig` with `target.provider: kind`;
+nothing else.
+
+**Why:** Verbatim passthrough means translation is mechanical YAML
+slicing — no field-level mapping to maintain, no possibility of the
+escape hatch lagging the CRDs. Defaults and invariants are exactly
+what the user escalated away from; injecting them back in would
+recreate the ceiling the kind exists to remove.
+
+### v3→v4 config migration is a silent first-run shim, not a command
+
+**Date:** 2026-05-20 (implemented 2026-06-06, Phase 5 step 10).
+**Decision:** There is no `educates migrate-config` command. On first
+v4 CLI use, a v3 `values.yaml` under the data home is silently
+translated to a v4 `config.yaml` (`EducatesLocalConfig`) only when
+`clusterInfrastructure.provider` is `kind` or empty; the original is
+stashed as `values.yaml.v3-backup`. Any other provider leaves the file
+untouched and subsequent CLI operations error with instructions to
+re-declare against a v4 kind. This supersedes the development plan's
+original "migration tool produces valid CRs for three real v3 configs"
+criterion.
+
+**Why:** The laptop case is the only one where the v3 file is the
+system of record the CLI itself owns — migrating it silently preserves
+the "it just keeps working" experience. Cloud/BYO configs live in user
+repos with intent the CLI can't infer (DNS, ACME, identity wiring);
+a lossy auto-translation would produce plausible-but-wrong CRs, which
+is worse than an honest error. v3 and v4 installs can't coexist
+anyway, so there's no runtime adapter to maintain.

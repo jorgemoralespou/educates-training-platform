@@ -147,7 +147,14 @@ The current toggle shape (`bundledKyvernoPolicies.{cluster,workshop}Policies`,
 is superseded by `clusterSecurity` / `workshopSecurity` in the typed-values
 follow-up below; the on-disk policy files do not move.
 
-### Pre-phase follow-up: typed runtime-config values  *(planned, ready to start)*
+### Pre-phase follow-up: typed runtime-config values  *(done — 2026-04-30)*
+
+Landed in commits `41fab46f` (typed session-manager values + JSON
+schema), `2a14a50c` (scenarios converted to typed values), and
+`ea3c6cae` (decisions.md superseding entry). The "Done when" criteria
+below were all met; later refactors promoted `imageRegistry` under
+`development.` and cross-cutting values to umbrella `global:` (see
+decisions.md). Original section preserved below for the rationale.
 
 **Trigger met (2026-04):** scenarios 01–06 now cover local-HTTP, TLS
 wildcard, cert-manager issuer, website theme, image-pull secrets, and
@@ -577,7 +584,30 @@ For each: install chart, real readiness check, status fields, finalizer order. 2
 
 ACME-DNS01 (Route53 IRSA + CloudDNS Workload Identity) lands here ahead of schedule because real-cluster verification required it. Static-credentials Secrets, Cloudflare/AzureDNS, ACME staging-server docs, and external-dns `domainFilters` configurability are captured in `follow-up-issues.md` for post-Phase-3 polish.
 
-### Phase 4: Component CRDs (3–4 weeks)
+### Phase 4: Component CRDs (3–4 weeks)  *(done — 2026-05-14)*
+
+Landed in three sessions, one per component (commits `acf69f00`,
+`966da457`, `1dfb7cff`), in the planned order. Deviation from the
+original sketch below: components are **not** installed via the
+umbrella `educates-training-platform` chart. Each reconciler installs
+its own vendored subchart tarball (secrets-manager, lookup-service,
+session-manager, plus the node-ca-injector and remote-access extras)
+as its own Helm release in the shared `educates` namespace; the
+umbrella chart remains the standalone no-operator install path. See
+decisions.md.
+
+**Carried out of Phase 4** (tracked in follow-up-issues.md):
+
+- Four SessionManager spec blocks reserved but unwired
+  (`themes`/`defaultTheme`, `defaultAccessCredentials`,
+  `imagePrePuller`, `registryMirrors`) — "SessionManager: wire
+  remaining spec fields into chart values".
+- Deleting EducatesClusterConfig before the platform CRs wedges
+  SessionManager's helm uninstall (Kyverno CRDs already drained) —
+  "Block EducatesClusterConfig finalize while platform CRs exist".
+- Scenario E (full BYO on OpenShift, Inline mode) has never been
+  verified on a real cluster — folded into Phase 6's real-environment
+  testing matrix.
 
 Order: SecretsManager → LookupService → SessionManager.
 
@@ -596,39 +626,96 @@ Order: SecretsManager → LookupService → SessionManager.
 - Finalizer with chart uninstall.
 
 **Done when:**
-- Scenario A from the CRD draft works fully end-to-end: local kind cluster install with `EducatesClusterConfig` + `SecretsManager` + `SessionManager` (+ optionally `LookupService`), all reaching Ready.
-- Scenario B (GKE production with all components) works end-to-end.
-- Scenario E (full BYO on OpenShift, Inline mode) works.
-- Deletion order is correct: SessionManager → LookupService → SecretsManager → EducatesClusterConfig.
+- Scenario A from the CRD draft works fully end-to-end: local kind cluster install with `EducatesClusterConfig` + `SecretsManager` + `SessionManager` (+ optionally `LookupService`), all reaching Ready. ✅ — verified on kind, and again end-to-end via `educates local cluster create` during Phase 5.
+- Scenario B (GKE production with all components) works end-to-end. ✅ — verified on a real GKE cluster.
+- Scenario E (full BYO on OpenShift, Inline mode) works. ❌ — never verified; moved to Phase 6 real-environment testing.
+- Deletion order is correct: SessionManager → LookupService → SecretsManager → EducatesClusterConfig. ⚠️ — correct when deleted in that order; deleting EducatesClusterConfig first wedges SessionManager (open follow-up, `PlatformCRsPresent` guard).
 
-### Phase 5: CLI rewrite (1–2 weeks)
+### Phase 5: CLI rewrite (1–2 weeks)  *(done — 2026-06-06)*
 
-The CLI shrinks dramatically because the operator owns the heavy lifting.
+The CLI shrank dramatically because the operator owns the heavy
+lifting. This section was rewritten after the fact (2026-06-10): the
+original "thin wrapper" sketch predated the two design sessions
+(2026-05-19/20) that locked the config-file format, which gated every
+Phase 5 task. The locked design is recorded in decisions.md (kind
+ladder, data home, schema strategy, escape-hatch layout, silent
+migration); the step-by-step implementation plan lived outside the
+repo and its still-open follow-ups are now in follow-up-issues.md.
 
-**What to build:**
-- `educates admin platform deploy` — installs the operator Helm chart + applies the four CRs derived from input config.
-- `educates admin platform delete` — deletes CRs (waits for finalizers) + uninstalls Helm chart.
-- `educates admin platform render` — outputs CR YAML for GitOps without applying.
-- `educates admin platform values` — replaced by `educates admin platform render` + `kubectl get -o yaml` (defaults are visible in spec post-apply).
-- `educates local cluster create` — internally calls the new platform deploy at the end. CLI-side concerns (kind, registry, resolver) unchanged externally.
-- `educates migrate-config` — translates v3 config YAML to v4 CR YAML files. One-shot tool, not a runtime adapter.
+**Locked design (see decisions.md for rationale):**
+- CLI config is a **kind ladder** under `cli.educates.dev/v1alpha1`:
+  `EducatesLocalConfig` (laptop kind cluster; the only kind living at
+  `<data-home>/config.yaml`), narrow scenario kinds
+  `EducatesGKEConfig` / `EducatesEKSConfig` / `EducatesInlineConfig`
+  (live in the user's repo), and `EducatesConfig` — the escape hatch
+  carrying the four CR `.spec`s verbatim with no CLI defaults and no
+  invariants. New scenario kinds only ship when a tested sample CR
+  exists in `installer/samples/`.
+- Data home stays `$XDG_DATA_HOME/educates/`;
+  `EDUCATES_CLI_DATA_HOME` env var overrides it.
+- One JSON schema per kind, embedded via `//go:embed` at
+  `client-programs/pkg/config/v1alpha1/schemas/`; the
+  `EducatesConfig` schema is generated from the CRD OpenAPI schemas
+  (`make generate-cli-schemas`).
+- **No `migrate-config` command.** First-run silent migration
+  translates v3 `values.yaml` → `config.yaml` when the v3 provider is
+  kind/empty (old file stashed as `values.yaml.v3-backup`); any other
+  provider gets a refuse-with-instructions error. This supersedes the
+  original "migration tool for three real v3 configs" done-criterion.
 
-**What to delete from the CLI:**
-- All Carvel-related code: ytt invocation, kbld invocation, kapp invocation, the in-process Carvel libraries.
-- The kapp-controller declarative path (replaced by Helm + CRs).
+**What landed (steps 1–11, 2026-06-05/06):**
+- Kind-discriminated loader + translator (kind → operator chart
+  values + 4 CRs) + embedded schemas (steps 1–3).
+- `educates admin platform render / deploy / delete` (steps 4–6):
+  deploy owns the CRD lifecycle (apply CRDs, wait Established),
+  helm-installs the embedded operator chart
+  (`client-programs/pkg/deployer/chart/files/`, refreshed by `make
+  embed-installer-chart`), applies CRs, waits for Ready with
+  structured progress; delete drains CRs in reverse order then
+  uninstalls, with `--yes` and `--purge`.
+- Schema-aware `educates local config init/get/set/view/edit`
+  (step 7).
+- `educates local cluster create` tail-calls platform deploy, with
+  preflight (cached-CA existence, cluster existence, port
+  availability) (step 8).
+- Carvel install path deleted: ytt/kbld/kapp install code paths, v3
+  `InstallationConfig` types, `carvel-packages/` sources, `vendir.yml`
+  (step 9). Carvel libraries remain in the CLI for workshop tooling
+  only.
+- First-run v3→v4 schema migration shim (step 10).
+- Scenario kinds GKE / EKS / Inline (step 11).
 
-**Done when:**
-- All today-supported CLI flows work against the new operator.
-- Migration tool produces valid CRs for at least three real v3 configs (local kind, GKE, OpenShift).
+**Still open from Phase 5** (tracked in follow-up-issues.md):
+CI drift checks for the embedded chart and generated schemas; mocked
+tests for the cluster-touching deploy path; `--force-finalizers` on
+delete; operator-image rebuild guidance; helm release
+labels/annotations; apply-all-then-wait-all CR orchestration;
+local-config UX papercuts (path suggestions, tab completion, list
+`set`, `unset`); scenario-kind regression tests (escape-hatch
+round-trip, sample-CR parity); schema publishing at
+`schemas.educates.dev` + SchemaStore registration (Phase 6).
 
 ### Phase 6: Polish and release prep (2–3 weeks)
 
 - Documentation rewrite (current `docs.educates.dev` content for installation).
 - Migration guide for v3 → v4 users.
 - Helm chart distribution (OCI registry, GitHub releases).
+- Operator image publish story: publish-time `educates.dev/image-*`
+  annotations + release workflow (deferred from Phase 0; today the
+  chart defaults to a local-dev placeholder image).
 - Image relocation pipeline: evaluate `helm dt`, decide Apache fork or alternative, integrate into release pipeline.
 - Release process documentation.
+- Remove the dangling carvel release machinery: two generated
+  artifacts under `carvel-packages/installer/bundle/` plus the
+  `build-and-publish-images.yaml` "Publish educates-installer bundle"
+  job, which is already broken — it references
+  `carvel-packages/installer/config/` and `bundle/config` trees that
+  Phase 5 step 9d deleted. Replace with the v4 chart-publish step.
+- Publish CLI JSON schemas at `https://schemas.educates.dev/cli/v1alpha1/`
+  and register filename patterns with SchemaStore.org.
 - Test against real environments: GKE, EKS, OpenShift (Inline mode), local kind.
+  EKS and OpenShift have never been exercised; OpenShift covers the
+  outstanding Scenario E criterion from Phase 4.
 
 **Done when:**
 - A user external to the project can install Educates v4 from published artifacts following the docs alone.

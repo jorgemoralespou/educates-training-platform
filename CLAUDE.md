@@ -17,9 +17,18 @@ has been deleted from the CLI and tree.
   kubectl apply 4 platform CRs), or `educates local cluster create`
   for the laptop flow (kind + registry + deploy in one).
 - **v3 is gone.** There's no in-place migration. Users on v3 delete
-  their old install and follow the v4 path. A first-run
-  `values.yaml` → `config.yaml` schema migration is planned but not
-  yet landed (Phase 5 step 10).
+  their old install and follow the v4 path. The CLI silently migrates
+  a v3 `values.yaml` → v4 `config.yaml` on first run when the v3
+  provider was kind (or empty); other providers get a clear
+  re-declare error (Phase 5 step 10, landed 2026-06-06).
+- **CLI config is a kind ladder** (`cli.educates.dev/v1alpha1`):
+  `EducatesLocalConfig` (laptop; lives at `<data-home>/config.yaml`),
+  scenario kinds `EducatesGKEConfig` / `EducatesEKSConfig` /
+  `EducatesInlineConfig`, and the `EducatesConfig` escape hatch (CR
+  specs verbatim, no CLI defaults). JSON schemas are embedded at
+  `client-programs/pkg/config/v1alpha1/schemas/`. Data home is
+  `$XDG_DATA_HOME/educates/`, overridable via `EDUCATES_CLI_DATA_HOME`.
+  See decisions log.
 
 **Carvel libraries still live in the CLI** (`carvel.dev/imgpkg`,
 `kapp`, `ytt`, `vendir`) — they power the **workshop tooling**
@@ -32,8 +41,10 @@ deploy / serve). The install path no longer touches them.
 services keep their current Python/kopf/Django implementations. Only the
 installation mechanism and packaging changes.
 
-The active work is the v4 installer. Day-to-day, that's what code changes
-should advance.
+Phases 0–5 are complete. The active work is post-Phase-5 hardening
+(operator follow-ups from `docs/architecture/follow-up-issues.md`, CI
+drift checks) and Phase 6 release prep. Day-to-day, that's what code
+changes should advance.
 
 ---
 
@@ -56,7 +67,11 @@ When working on v4 installer tasks:
   `lookup-service/`, `tunnel-manager/`, `node-ca-injector/`,
   `assets-server/`, `image-cache/` — runtime components, not changing in v4.
 - `workshop-images/` — workshop runtime, orthogonal to installer work.
-- (Deleted) `carvel-packages/` and `vendir.yml` — gone with v3.
+- (Deleted) `carvel-packages/` and `vendir.yml` — gone with v3. Two
+  generated artifacts under `carvel-packages/installer/bundle/` and the
+  release workflow's "Publish educates-installer bundle" job (now broken
+  — it references the deleted config trees) still dangle; removing them
+  is Phase 6 work.
 
 **Special case:** if a v4 task needs a runtime component change (very rare —
 e.g., a config flag the runtime needs to consume differently), flag it
@@ -88,6 +103,9 @@ How I expect to collaborate:
   Wrong code costs me 30 minutes of debugging plus the time to undo it.
 - **When uncertain about a design decision, stop and ask.** Don't pick a
   direction and run with it.
+- **Always draft a plan or check-list when working with complex tasks**. If you envision
+  the task is going to be long, either plan properly if needed, or at least create
+  a task-list to track progress.
 
 ---
 
@@ -119,7 +137,7 @@ CLI-driven (laptop or single command from CI):
 ```bash
 educates local secrets add ca <domain>-ca --domain <domain>   # one-time: generate self-signed CA
 educates local config init                                    # one-time: write a minimal config
-educates local cluster create --local-config                  # kind + registry + deploy in one
+educates local cluster create                                 # kind + registry + deploy in one
 # Or after the cluster's already up:
 educates admin platform deploy --local-config
 educates admin platform render --local-config                 # dry-run / GitOps preview
@@ -161,7 +179,7 @@ make vendor-charts             # Download upstream charts into vendored-charts/,
 make verify-vendored-charts    # Re-verify SHA256 of tarballs already on disk
 ```
 
-Phase status (as of 2026-05-14):
+Phase status (as of 2026-06-10):
 
 - **Phase 0 (foundations) — done.** Scaffold, CRDs, chart, envtest, smoke
   test, CI all in place. Reconcilers were stubs.
@@ -191,8 +209,33 @@ Phase status (as of 2026-05-14):
   "not yet supported" until follow-ups land them. Real-cluster
   verification: kind (CustomCA + Contour, samples/01) and GKE
   (CloudDNS-ACME + external-dns + Kyverno, samples/02).
-  Sample CRs live under `installer/samples/`. Phase 4 picks up the
-  three platform component reconcilers next.
+  Sample CRs live under `installer/samples/`.
+- **Phase 4 (platform component reconcilers) — done (2026-05-14).**
+  Three sessions: SecretsManagerReconciler, LookupServiceReconciler,
+  SessionManagerReconciler. Each gates on
+  `EducatesClusterConfig.status` being Ready (SessionManager
+  additionally on SecretsManager.Ready), installs its component as a
+  Helm release from the vendored runtime subchart tarballs
+  (secrets-manager, lookup-service, session-manager + the
+  node-ca-injector / remote-access extras) into the shared `educates`
+  namespace, and drains it via finalizer. Four SessionManager spec
+  blocks are reserved but unwired (`themes`/`defaultTheme`,
+  `defaultAccessCredentials`, `imagePrePuller`, `registryMirrors`) —
+  see follow-up-issues.md. Known gap: deleting EducatesClusterConfig
+  before the platform CRs wedges SessionManager's helm uninstall
+  (Kyverno CRDs already gone) — fix tracked as the
+  `PlatformCRsPresent` finalizer guard.
+- **Phase 5 (CLI rewrite) — done (2026-06-06).** All 11 steps landed:
+  kind-discriminated config loader + embedded JSON schemas,
+  CRD-derived `EducatesConfig` schema (`make generate-cli-schemas`),
+  translator (kind → operator chart values + 4 CRs), `admin platform
+  render/deploy/delete` (deploy owns the CRD lifecycle and waits
+  Ready; delete drains in reverse order with `--yes`/`--purge`),
+  schema-aware `local config init/get/set/view/edit`, `local cluster
+  create` tail-calling platform deploy with preflight checks, Carvel
+  install path deleted, first-run v3→v4 migration shim, and the
+  GKE/EKS/Inline scenario kinds. Open follow-ups tracked in
+  follow-up-issues.md.
 
 Living conventions (carry across phases unless superseded):
 
@@ -203,8 +246,9 @@ Living conventions (carry across phases unless superseded):
   The three platform CRDs have singleton-name only.
 - **RBAC:** EducatesClusterConfig reconciler has read-only `get/list/watch`
   on its referenced kinds (Secrets, ClusterIssuers, IngressClasses) plus
-  full access on its own kind. Platform reconcilers have only their own
-  kinds — they grow when their reconcilers come online in Phase 4.
+  full access on its own kind. Platform reconcilers carry full access
+  on their own kinds plus what their chart installs need — grown in
+  Phase 4 when the reconcilers came online.
 - **Watches:** Secret + IngressClass + Deployment are registered
   in `SetupWithManager` (operator-namespace-scoped Secret cache;
   cluster-scoped IngressClass; Deployment cluster-wide).
