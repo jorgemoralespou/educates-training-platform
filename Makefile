@@ -297,15 +297,31 @@ generate-cli-schemas:
 	@# Run after `make manifests` in installer/operator/ when CRD shapes change.
 	go run ./client-programs/hack/gen-cli-schemas
 
+verify-cli-schemas: generate-cli-schemas
+	@# Fails when the committed EducatesConfig.schema.json differs from
+	@# freshly generated output. Run by client-programs CI.
+	@if ! git diff --exit-code -- client-programs/pkg/config/v1alpha1/schemas/EducatesConfig.schema.json; then \
+		echo "ERROR: EducatesConfig.schema.json drifted from the CRDs. Run 'make generate-cli-schemas' and commit the result."; \
+		exit 1; \
+	fi
+
 embed-installer-chart:
 	@# Refreshes the CLI-embedded copy of the operator chart from the
 	@# canonical source. Run whenever installer/charts/educates-installer
 	@# changes shape — Chart.yaml updates, new templates, new CRDs.
 	@# The copy is committed (single-source-of-truth via this target);
-	@# a CI drift check belongs in a follow-up.
+	@# CI runs verify-installer-chart to catch drift.
 	rm -rf client-programs/pkg/deployer/chart/files
 	mkdir -p client-programs/pkg/deployer/chart/files
 	cp -r installer/charts/educates-installer/. client-programs/pkg/deployer/chart/files/
+
+verify-installer-chart: embed-installer-chart
+	@# Fails when the committed embedded chart copy differs from the
+	@# canonical chart. Run by client-programs CI.
+	@if ! git diff --exit-code -- client-programs/pkg/deployer/chart/files; then \
+		echo "ERROR: embedded operator chart drifted from installer/charts/educates-installer. Run 'make embed-installer-chart' and commit the result."; \
+		exit 1; \
+	fi
 
 client-programs-educates:
 	rm -rf client-programs/pkg/renderer/files

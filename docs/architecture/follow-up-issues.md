@@ -963,6 +963,12 @@ expensive after.
 ### CLI: CI drift checks for embedded operator chart and generated `EducatesConfig` schema
 
 **Date added:** 2026-06-10 (accumulated during Phase 5 steps 2 + 5).
+*(landed: 2026-06-10 — `make verify-installer-chart` /
+`make verify-cli-schemas` regen-and-diff targets in the root Makefile,
+run by the new `client-programs-ci.yaml` workflow alongside CLI
+vet/build/test, triggered on client-programs and
+installer/charts/educates-installer changes.)*
+
 **Trigger to file:** immediately — both artifacts can silently drift
 today.
 
