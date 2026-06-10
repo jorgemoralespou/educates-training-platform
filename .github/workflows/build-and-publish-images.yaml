@@ -386,126 +386,6 @@ jobs:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-${{matrix.image}}-${{github.sha}}
 
-  publish-carvel-bundles:
-    name: Bundle
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    needs:
-      - publish-generic-images
-      - publish-workshop-images
-
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Install Carvel tools
-        shell: bash
-        run: curl -L https://carvel.dev/install.sh | bash
-
-      - name: Calculate variables
-        shell: bash
-        run: |
-          REPOSITORY_OWNER=${{github.repository_owner}}
-          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
-          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
-          echo "REPOSITORY_SHA_TAG=sha-${GITHUB_SHA::7}" >>${GITHUB_ENV}
-
-      - name: Create publish values file
-        shell: bash
-        run: |
-          cat <<EOF > publish-values.yaml
-          clusterInfrastructure:
-            provider: "custom"
-          clusterPackages:
-            contour:
-              enabled: true
-              settings:
-                infraProvider: custom
-            cert-manager:
-              enabled: true
-              settings: {}
-            external-dns:
-              enabled: true
-              settings:
-                infraProvider: custom
-                deployment:
-                  args:
-                    - --provider=custom
-                    - --source=custom
-            certs:
-              enabled: true
-              settings:
-                certProvider: local
-                domains:
-                  - "example.com"
-                local:
-                  caCertificate:
-                    ca.crt: "AA"
-                    ca.key: "BB"
-            kyverno:
-              enabled: true
-              settings: {}
-            educates:
-              enabled: true
-              settings:
-                clusterIngress:
-                  domain: "educates.example.com"
-                imageRegistry:
-                  host: "ghcr.io"
-                  namespace: ${{env.REPOSITORY_OWNER}}
-                version: ${{env.REPOSITORY_TAG}}
-                lookupService:
-                  enabled: true
-          EOF
-
-      - name: Publish educates-installer bundle
-        shell: bash
-        run: |
-          # Create the kbld-images.yaml file with references to educates images
-          ytt -f carvel-packages/installer/config/images.yaml \
-              -f carvel-packages/installer/config/schema.yaml \
-              -v imageRegistry.host=ghcr.io \
-              -v imageRegistry.namespace=${{env.REPOSITORY_OWNER}} \
-              -v version=${{env.REPOSITORY_TAG}} > carvel-packages/installer/bundle/kbld/kbld-images.yaml
-          # Cat the generated file for debugging purposes
-          cat carvel-packages/installer/bundle/kbld/kbld-images.yaml
-          # Create images lock file. We use a sample values file to pass validations
-          # We properly rewrite references to images via kbld
-          ytt --data-values-file publish-values.yaml \
-              -f carvel-packages/installer/bundle/config | kbld -f - \
-              -f carvel-packages/installer/bundle/kbld/kbld-images.yaml \
-            --imgpkg-lock-output carvel-packages/installer/bundle/.imgpkg/images.yml
-          # Push the bundle to the registry
-          imgpkg push \
-            -b ghcr.io/${{env.REPOSITORY_OWNER}}/educates-installer:${{env.REPOSITORY_TAG}} \
-            -f carvel-packages/installer/bundle \
-            --registry-username=${{github.actor}} \
-            --registry-password=${{secrets.GITHUB_TOKEN}}
-          ytt -f carvel-packages/installer/config/app.yaml \
-            -f carvel-packages/installer/config/schema.yaml \
-            -v version=${{env.REPOSITORY_TAG}} \
-            -v imageRegistry.host=ghcr.io \
-            -v imageRegistry.namespace=${{env.REPOSITORY_OWNER}} > educates-installer-app.yaml
-          # Copy and rename rbac.yaml file
-          cp carvel-packages/installer/config/rbac.yaml educates-installer-app-rbac.yaml
-
-      - name: Save educates-installer-app.yaml
-        uses: actions/upload-artifact@v4
-        with:
-          name: educates-installer-app.yaml
-          path: educates-installer-app.yaml
-
-      - name: Save educates-installer-app-rbac.yaml
-        uses: actions/upload-artifact@v4
-        with:
-          name: educates-installer-app-rbac.yaml
-          path: educates-installer-app-rbac.yaml
-
   build-client-programs-linux-amd64:
     name: Build (clients) / amd64@linux
     runs-on: ubuntu-latest
@@ -879,7 +759,6 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     needs:
-      - publish-carvel-bundles
       - build-client-programs-linux-amd64
       - build-client-programs-linux-arm64
       - build-client-programs-darwin-amd64
@@ -898,16 +777,6 @@ jobs:
           fi
           echo "REPOSITORY_TAG=${REPOSITORY_TAG}" >>${GITHUB_ENV}
           echo "PRERELEASE=${PRERELEASE}" >>${GITHUB_ENV}
-
-      - name: Restore educates-installer-app.yaml
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-installer-app.yaml
-
-      - name: Restore educates-installer-app-rbac.yaml
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-installer-app-rbac.yaml
 
       - name: Restore educates-linux-amd64
         uses: actions/download-artifact@v4
@@ -936,8 +805,6 @@ jobs:
           sha256sum educates-darwin-arm64 >> checksums.txt
           sha256sum educates-linux-amd64 >> checksums.txt
           sha256sum educates-linux-arm64 >> checksums.txt
-          sha256sum educates-installer-app.yaml >> checksums.txt
-          sha256sum educates-installer-app-rbac.yaml >> checksums.txt
           echo 'File Checksums' >> release-notes.md
           echo '--------------' >> release-notes.md
           echo '```' >> release-notes.md
@@ -967,8 +834,6 @@ jobs:
           body_path: release-notes.md
           files: |
             checksums.txt
-            educates-installer-app.yaml
-            educates-installer-app-rbac.yaml
             educates-linux-amd64
             educates-linux-arm64
             educates-darwin-amd64

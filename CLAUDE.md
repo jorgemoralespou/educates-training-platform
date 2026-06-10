@@ -67,11 +67,10 @@ When working on v4 installer tasks:
   `lookup-service/`, `tunnel-manager/`, `node-ca-injector/`,
   `assets-server/`, `image-cache/` — runtime components, not changing in v4.
 - `workshop-images/` — workshop runtime, orthogonal to installer work.
-- (Deleted) `carvel-packages/` and `vendir.yml` — gone with v3. Two
-  generated artifacts under `carvel-packages/installer/bundle/` and the
-  release workflow's "Publish educates-installer bundle" job (now broken
-  — it references the deleted config trees) still dangle; removing them
-  is Phase 6 work.
+- (Deleted) `carvel-packages/` and `vendir.yml` — gone with v3,
+  including the release workflow's old "Publish educates-installer
+  bundle" job (removed 2026-06-10; a v4 chart-publish step replaces it
+  in Phase 6).
 
 **Special case:** if a v4 task needs a runtime component change (very rare —
 e.g., a config flag the runtime needs to consume differently), flag it

@@ -705,12 +705,13 @@ round-trip, sample-CR parity); schema publishing at
   chart defaults to a local-dev placeholder image).
 - Image relocation pipeline: evaluate `helm dt`, decide Apache fork or alternative, integrate into release pipeline.
 - Release process documentation.
-- Remove the dangling carvel release machinery: two generated
-  artifacts under `carvel-packages/installer/bundle/` plus the
-  `build-and-publish-images.yaml` "Publish educates-installer bundle"
-  job, which is already broken — it references
-  `carvel-packages/installer/config/` and `bundle/config` trees that
-  Phase 5 step 9d deleted. Replace with the v4 chart-publish step.
+- ~~Remove the dangling carvel release machinery~~ *(done 2026-06-10:
+  the leftover `carvel-packages/` build artifacts (gitignored, never
+  tracked), their `.gitignore` entries, and the broken
+  `publish-carvel-bundles` job + its `educates-installer-app*.yaml`
+  release attachments are gone.)* The v4 chart-publish step that
+  replaces the bundle publish lands with the chart-distribution item
+  above.
 - Publish CLI JSON schemas at `https://schemas.educates.dev/cli/v1alpha1/`
   and register filename patterns with SchemaStore.org.
 - Test against real environments: GKE, EKS, OpenShift (Inline mode), local kind.
