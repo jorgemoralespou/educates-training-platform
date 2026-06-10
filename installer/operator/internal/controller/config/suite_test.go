@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -63,6 +64,11 @@ var _ = BeforeSuite(func() {
 
 	var err error
 	err = configv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	// platformv1alpha1 is needed by the deletion-ordering guard specs:
+	// the EducatesClusterConfig reconciler watches the three platform
+	// singletons to know when its finalizer may drain cluster services.
+	err = platformv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 	err = cmv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())

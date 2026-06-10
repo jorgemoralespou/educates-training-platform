@@ -43,6 +43,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
@@ -283,6 +284,12 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	AfterEach(func() {
 		mgrCancel()
 		Eventually(mgrDone, 10*time.Second).Should(Receive())
+		// Platform CRs first: a lingering singleton would block the
+		// next spec's finalizer drain via the deletion-ordering guard.
+		// No platform reconciler runs in this suite, so no finalizers.
+		_ = k8sClient.DeleteAllOf(ctx, &platformv1alpha1.SecretsManager{})
+		_ = k8sClient.DeleteAllOf(ctx, &platformv1alpha1.LookupService{})
+		_ = k8sClient.DeleteAllOf(ctx, &platformv1alpha1.SessionManager{})
 		drainCR()
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.Certificate{}, client.InNamespace(testOperatorNamespace))
@@ -538,6 +545,74 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 		_, statusErr := cmClient.Status(certManagerReleaseName)
 		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
 		_, statusErr = contourClient.Status(contourReleaseName)
+		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+	})
+
+	It("refuses to drain cluster services while platform CRs exist, then unblocks once they are gone", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       validManagedSpec(),
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// Let the install pipeline progress at least past the
+		// cert-manager helm install so teardown has something real
+		// to (not) undo.
+		Eventually(func() error {
+			ns := &corev1.Namespace{}
+			return k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		// A platform component CR exists (no platform reconciler runs
+		// in this suite, so it carries no finalizer of its own).
+		sm := &platformv1alpha1.SecretsManager{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		}
+		Expect(k8sClient.Create(ctx, sm)).To(Succeed())
+
+		// Deleting the EducatesClusterConfig must NOT drain cluster
+		// services: status surfaces the ordering requirement instead.
+		Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+
+		Eventually(func() string {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+			if cond == nil {
+				return ""
+			}
+			return cond.Reason
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal(reasonPlatformCRsPresent))
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseUninstalling))
+		cond := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+		Expect(cond.Message).To(ContainSubstring("SecretsManager"))
+
+		// The guard must hold, not just lag: the CR stays terminating
+		// and the cert-manager release stays installed.
+		Consistently(func() error {
+			return k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, &configv1alpha1.EducatesClusterConfig{})
+		}, 3*time.Second, 500*time.Millisecond).Should(Succeed())
+		cmClient, err := helmFac.For(certManagerNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = cmClient.Status(certManagerReleaseName)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Deleting the platform CR unblocks the drain end-to-end.
+		Expect(k8sClient.Delete(ctx, sm)).To(Succeed())
+
+		Eventually(func() bool {
+			err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, &configv1alpha1.EducatesClusterConfig{})
+			return apierrors.IsNotFound(err)
+		}, 30*time.Second, 200*time.Millisecond).Should(BeTrue())
+
+		_, statusErr := cmClient.Status(certManagerReleaseName)
 		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
 	})
 

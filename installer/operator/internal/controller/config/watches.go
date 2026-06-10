@@ -209,6 +209,19 @@ func (r *EducatesClusterConfigReconciler) mapCertificateToSingleton(_ context.Co
 	return nil
 }
 
+// mapPlatformCRToSingleton fires for the three platform component
+// singletons (SecretsManager, LookupService, SessionManager). The
+// Managed-mode finalizer refuses to drain cluster services while any
+// of them exist, so their deletion events are what unblock a pending
+// EducatesClusterConfig teardown. CEL enforces the singleton name;
+// anything else is dropped defensively.
+func (r *EducatesClusterConfigReconciler) mapPlatformCRToSingleton(_ context.Context, obj client.Object) []reconcile.Request {
+	if obj.GetName() == "cluster" {
+		return singletonRequest
+	}
+	return nil
+}
+
 // mapDeploymentToSingleton fires only for Deployments in namespaces
 // the operator manages cluster-services in. Each new Phase 3 cluster
 // service adds its namespace here so its readiness signals reach the

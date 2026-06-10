@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -44,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
 )
 
@@ -60,6 +62,14 @@ const (
 	conditionReady               = "Ready"
 	conditionValidationSucceeded = "ValidationSucceeded"
 )
+
+// reasonPlatformCRsPresent is published on Ready=False while a deleted
+// Managed-mode EducatesClusterConfig refuses to drain its cluster
+// services because platform component CRs still exist. Tearing down
+// Kyverno (and its CRDs) before the SessionManager helm release is
+// uninstalled leaves helm unable to enumerate the release's
+// ClusterPolicy resources and wedges the SessionManager finalizer.
+const reasonPlatformCRsPresent = "PlatformCRsPresent"
 
 // EducatesClusterConfigReconciler reconciles a EducatesClusterConfig object.
 type EducatesClusterConfigReconciler struct {
@@ -114,6 +124,13 @@ type EducatesClusterConfigReconciler struct {
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs/finalizers,verbs=update
+
+// Deletion-ordering guard: the finalizer refuses to drain Managed-mode
+// cluster services while any platform component CR exists, so the
+// reconciler reads (and watches) the three platform singletons to know
+// when teardown may proceed. Read-only — the platform reconcilers own
+// their kinds.
+// +kubebuilder:rbac:groups=platform.educates.dev,resources=secretsmanagers;lookupservices;sessionmanagers,verbs=get;list;watch
 
 // Inline-mode validation reads user-supplied references in the operator
 // namespace (Secrets) plus cluster-scoped objects (ClusterIssuers,
@@ -172,6 +189,27 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	if !obj.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(obj, finalizerName) {
 			if obj.Spec.Mode == configv1alpha1.ClusterConfigModeManaged {
+				// Refuse to drain cluster services while platform
+				// component CRs exist. Their helm releases track
+				// resources created from cluster-service CRDs (Kyverno
+				// ClusterPolicy in particular); removing Kyverno first
+				// leaves helm unable to enumerate those kinds and the
+				// platform finalizers wedge with an opaque "failed to
+				// delete release". Surface the required order instead
+				// and wait — platform-CR deletion events re-enqueue us.
+				present, err := r.platformCRsPresent(ctx)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+				if len(present) > 0 {
+					r.markUninstallBlocked(obj, present)
+					if err := r.updateStatusWithTransitionLog(ctx, log, obj); err != nil {
+						return ctrl.Result{}, err
+					}
+					// Watch-driven wakeup is the primary signal; the
+					// requeue is a backstop against missed events.
+					return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+				}
 				if err := r.cleanupManaged(ctx, obj); err != nil {
 					log.Error(err, "Managed-mode cleanup failed; reconcile will retry")
 					return ctrl.Result{}, err
@@ -471,6 +509,51 @@ func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.Educa
 	})
 }
 
+// platformCRsPresent returns the kinds of the platform component
+// singletons (SecretsManager, LookupService, SessionManager) that
+// still exist, in install order. Terminating CRs count as present —
+// their finalizers may still need the cluster services this config
+// would tear down.
+func (r *EducatesClusterConfigReconciler) platformCRsPresent(ctx context.Context) ([]string, error) {
+	probes := []struct {
+		kind string
+		obj  client.Object
+	}{
+		{"SecretsManager", &platformv1alpha1.SecretsManager{}},
+		{"LookupService", &platformv1alpha1.LookupService{}},
+		{"SessionManager", &platformv1alpha1.SessionManager{}},
+	}
+	var present []string
+	for _, probe := range probes {
+		if err := r.Get(ctx, types.NamespacedName{Name: "cluster"}, probe.obj); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		present = append(present, probe.kind)
+	}
+	return present, nil
+}
+
+// markUninstallBlocked publishes the deletion-ordering refusal: the
+// config is terminating but cluster-service teardown can't start until
+// the named platform CRs are gone. Interface fields (status.ingress
+// etc.) are left untouched — components still uninstalling may read
+// them.
+func (r *EducatesClusterConfigReconciler) markUninstallBlocked(obj *configv1alpha1.EducatesClusterConfig, present []string) {
+	obj.Status.Phase = configv1alpha1.ClusterConfigPhaseUninstalling
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:   conditionReady,
+		Status: metav1.ConditionFalse,
+		Reason: reasonPlatformCRsPresent,
+		Message: fmt.Sprintf(
+			"cluster-service teardown blocked: platform CRs still present (%s); delete them first so their components uninstall while the cluster services they depend on are still running",
+			strings.Join(present, ", ")),
+		ObservedGeneration: obj.Generation,
+	})
+}
+
 // SetupWithManager sets up the controller with the Manager.
 //
 // Watches:
@@ -513,6 +596,13 @@ func (r *EducatesClusterConfigReconciler) SetupWithManager(mgr ctrl.Manager) err
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.mapSecretToSingleton)).
 		Watches(&networkingv1.IngressClass{}, handler.EnqueueRequestsFromMapFunc(r.mapIngressClassToSingleton)).
 		Watches(&appsv1.Deployment{}, handler.EnqueueRequestsFromMapFunc(r.mapDeploymentToSingleton)).
+		// Platform component CRs gate the Managed-mode finalizer drain;
+		// their deletion events are what unblock a pending teardown.
+		// Their CRDs ship in the same chart as ours, so unlike the
+		// cert-manager kinds these can be registered at startup.
+		Watches(&platformv1alpha1.SecretsManager{}, handler.EnqueueRequestsFromMapFunc(r.mapPlatformCRToSingleton)).
+		Watches(&platformv1alpha1.LookupService{}, handler.EnqueueRequestsFromMapFunc(r.mapPlatformCRToSingleton)).
+		Watches(&platformv1alpha1.SessionManager{}, handler.EnqueueRequestsFromMapFunc(r.mapPlatformCRToSingleton)).
 		Named("config-educatesclusterconfig").
 		Build(r)
 	if err != nil {

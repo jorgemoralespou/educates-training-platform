@@ -801,6 +801,13 @@ because they share the air-gap/mirror story.
 ### Block EducatesClusterConfig finalize while platform CRs exist
 
 **Date added:** 2026-05-14.
+*(landed: 2026-06-10 — Managed-mode deletion path checks the three
+platform singletons before `cleanupManaged`; while any exist it
+publishes `Ready=False reason=PlatformCRsPresent` /
+`phase=Uninstalling` naming the offenders and requeues. Watches on the
+three platform kinds re-enqueue the ECC on their deletion; a 15s
+requeue backstops missed events. envtest covers both ordering paths.)*
+
 **Trigger to file:** observed on a real GKE cluster — deleting
 `EducatesClusterConfig` first then the three platform CRs led to
 SessionManager's finalizer drain failing in a tight loop with the
