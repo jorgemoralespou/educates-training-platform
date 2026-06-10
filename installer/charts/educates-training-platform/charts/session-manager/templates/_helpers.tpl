@@ -135,6 +135,31 @@ to spawned pods (workshopsession.py) and v3's overlay-ca-injector.yaml.
 {{- if $caRef.name }}true{{- end -}}
 {{- end -}}
 
+{{/*
+Image references the image-puller DaemonSet pre-pulls, as a YAML array.
+An explicit imagePrePuller.images wins verbatim. When empty, default to
+the v3-equivalent set — training-portal + base-environment — resolved
+through the imageVersions inventory so registry relocation
+(development.imageRegistry) and per-name imageVersions overrides are
+honoured. Mirrors v3's image-puller DaemonSet, which always pre-pulled
+training-portal plus a prePullImages list defaulting to
+["base-environment"].
+*/}}
+{{- define "session-manager.prePullImages" -}}
+{{- if .Values.imagePrePuller.images -}}
+{{ toYaml .Values.imagePrePuller.images }}
+{{- else -}}
+{{- $inventory := include "session-manager.imageVersions" . | fromYamlArray -}}
+{{- $defaults := list -}}
+{{- range $inventory -}}
+{{- if or (eq .name "training-portal") (eq .name "base-environment") -}}
+{{- $defaults = append $defaults .image -}}
+{{- end -}}
+{{- end -}}
+{{ toYaml $defaults }}
+{{- end -}}
+{{- end -}}
+
 {{- define "session-manager.pause.image.repository" -}}
 {{- if .Values.imagePrePuller.pauseImage.repository -}}
 {{ .Values.imagePrePuller.pauseImage.repository }}

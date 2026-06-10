@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	release "helm.sh/helm/v4/pkg/release/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -211,6 +212,120 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 		Expect(got.Status.DeploymentRef).NotTo(BeNil())
 		Expect(got.Status.DeploymentRef.Namespace).To(Equal(platformNamespace))
 		Expect(got.Status.DeploymentRef.Name).To(Equal(sessionManagerDeploymentName))
+	})
+
+	It("renders Secret-sourced themes and the imagePrePuller toggle into chart values", func() {
+		_ = makeReadyClusterConfig()
+		_ = makeReadySecretsManager()
+
+		smgr := &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec: platformv1alpha1.SessionManagerSpec{
+				Themes: []platformv1alpha1.Theme{
+					{
+						Name: "corporate",
+						Source: platformv1alpha1.ThemeSource{
+							Type: platformv1alpha1.ThemeSourceTypeSecret,
+							SecretRef: &platformv1alpha1.NamespacedObjectReference{
+								Name:      "corporate-theme",
+								Namespace: "themes-source",
+							},
+						},
+					},
+				},
+				DefaultTheme:   "corporate",
+				ImagePrePuller: &platformv1alpha1.ImagePrePuller{Enabled: true},
+			},
+		}
+		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
+
+		var rel *release.Release
+		Eventually(func() error {
+			hc, err := helmFac.For(platformNamespace)
+			if err != nil {
+				return err
+			}
+			rel, err = hc.Status(sessionManagerReleaseName)
+			return err
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		styling, ok := rel.Config["websiteStyling"].(map[string]any)
+		Expect(ok).To(BeTrue(), "websiteStyling missing from rendered values")
+		// The chart keys themes by Secret name; the CR-level theme name
+		// translates to its backing Secret.
+		Expect(styling["defaultTheme"]).To(Equal("corporate-theme"))
+		refs, ok := styling["themeDataRefs"].([]any)
+		Expect(ok).To(BeTrue())
+		Expect(refs).To(HaveLen(1))
+		Expect(refs[0]).To(Equal(map[string]any{
+			"name":      "corporate-theme",
+			"namespace": "themes-source",
+		}))
+
+		prePuller, ok := rel.Config["imagePrePuller"].(map[string]any)
+		Expect(ok).To(BeTrue(), "imagePrePuller missing from rendered values")
+		Expect(prePuller["enabled"]).To(Equal(true))
+	})
+
+	It("rejects reserved-but-unsupported spec surface with field-specific validation errors", func() {
+		_ = makeReadyClusterConfig()
+		_ = makeReadySecretsManager()
+
+		smgr := &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec: platformv1alpha1.SessionManagerSpec{
+				DefaultAccessCredentials: &platformv1alpha1.DefaultAccessCredentials{
+					Username: "educates",
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
+
+		Eventually(func() string {
+			return smgrConditionReason(singletonName, conditionReady)
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("ValidationFailed"))
+
+		got := &platformv1alpha1.SessionManager{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(platformv1alpha1.ComponentPhaseDegraded))
+		cond := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+		Expect(cond.Message).To(ContainSubstring("spec.defaultAccessCredentials"))
+		Expect(cond.Message).To(ContainSubstring("not yet supported"))
+
+		// Validation refusals must not install the chart.
+		hc, err := helmFac.For(platformNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, statusErr := hc.Status(sessionManagerReleaseName)
+		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+
+		// A ConfigMap-sourced theme is refused the same way after the
+		// spec is corrected to drop the credentials block.
+		got.Spec.DefaultAccessCredentials = nil
+		got.Spec.Themes = []platformv1alpha1.Theme{
+			{
+				Name: "corporate",
+				Source: platformv1alpha1.ThemeSource{
+					Type: platformv1alpha1.ThemeSourceTypeConfigMap,
+					ConfigMapRef: &platformv1alpha1.NamespacedObjectReference{
+						Name:      "corporate-theme",
+						Namespace: "themes-source",
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Update(ctx, got)).To(Succeed())
+
+		Eventually(func() string {
+			latest := &platformv1alpha1.SessionManager{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, latest); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(latest.Status.Conditions, conditionReady)
+			if cond == nil {
+				return ""
+			}
+			return cond.Message
+		}, 30*time.Second, 200*time.Millisecond).Should(ContainSubstring("spec.themes[0].source.type"))
 	})
 
 	It("uninstalls the chart on delete", func() {

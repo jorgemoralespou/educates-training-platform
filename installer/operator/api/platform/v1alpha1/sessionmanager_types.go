@@ -94,10 +94,18 @@ type NamespacedObjectReference struct {
 }
 
 // ThemeSource sources theme content. Exactly one of the per-type fields
-// (configMapRef, etc.) should be populated for the selected type.
+// (secretRef, configMapRef) should be populated for the selected type.
+// Secret is the only source the reconciler supports in v1alpha1;
+// ConfigMap and URL are reserved and rejected as "not yet supported".
 type ThemeSource struct {
 	// +required
 	Type ThemeSourceType `json:"type"`
+
+	// secretRef applies when type is Secret. It names a Secret holding
+	// the theme assets; when its namespace differs from the release
+	// namespace the runtime chart auto-creates a SecretCopier for it.
+	// +optional
+	SecretRef *NamespacedObjectReference `json:"secretRef,omitempty"`
 
 	// configMapRef applies when type is ConfigMap.
 	// +optional

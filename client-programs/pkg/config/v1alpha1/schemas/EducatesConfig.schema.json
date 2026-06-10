@@ -1628,10 +1628,26 @@
                 "type": "string"
               },
               "source": {
-                "description": "ThemeSource sources theme content. Exactly one of the per-type fields\n(configMapRef, etc.) should be populated for the selected type.",
+                "description": "ThemeSource sources theme content. Exactly one of the per-type fields\n(secretRef, configMapRef) should be populated for the selected type.\nSecret is the only source the reconciler supports in v1alpha1;\nConfigMap and URL are reserved and rejected as \"not yet supported\".",
                 "properties": {
                   "configMapRef": {
                     "description": "configMapRef applies when type is ConfigMap.",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "namespace"
+                    ],
+                    "type": "object"
+                  },
+                  "secretRef": {
+                    "description": "secretRef applies when type is Secret. It names a Secret holding\nthe theme assets; when its namespace differs from the release\nnamespace the runtime chart auto-creates a SecretCopier for it.",
                     "properties": {
                       "name": {
                         "type": "string"

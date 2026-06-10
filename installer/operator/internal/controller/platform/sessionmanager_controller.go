@@ -194,6 +194,17 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	r.markSMSecretsManagerAvailable(obj, metav1.ConditionTrue, "SecretsManagerReady",
 		"SecretsManager 'cluster' is Ready")
 
+	// Reserved-but-unsupported spec surface is rejected explicitly,
+	// never silently discarded — same convention as the cluster
+	// config's "not yet supported in v1alpha1" providers. A spec
+	// change re-triggers reconcile via the generation watch.
+	if err := validateSessionManagerSpec(obj); err != nil {
+		r.markSMReady(obj, metav1.ConditionFalse, "ValidationFailed", err.Error())
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
+		obj.Status.ObservedGeneration = obj.Generation
+		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+	}
+
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
 	if err := r.installOrUpgradeSM(ctx, obj, cfg); err != nil {
 		r.markSMDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
@@ -526,32 +537,58 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 		}
 	}
 
-	// websiteStyling.frameAncestors — CSP allow-list for workshop frame
-	// embedding.
+	// websiteStyling — CSP frame-ancestors allow-list plus
+	// Secret-sourced themes. validateSessionManagerSpec has already
+	// rejected non-Secret theme sources and unknown defaultTheme
+	// names, so this mapping only sees the supported shape.
+	styling := map[string]any{}
 	if len(obj.Spec.AllowedEmbeddingHosts) > 0 {
 		hosts := make([]any, 0, len(obj.Spec.AllowedEmbeddingHosts))
 		for _, h := range obj.Spec.AllowedEmbeddingHosts {
 			hosts = append(hosts, h)
 		}
-		values["websiteStyling"] = map[string]any{
-			"frameAncestors": hosts,
+		styling["frameAncestors"] = hosts
+	}
+	if len(obj.Spec.Themes) > 0 {
+		refs := make([]any, 0, len(obj.Spec.Themes))
+		for _, t := range obj.Spec.Themes {
+			refs = append(refs, map[string]any{
+				"name":      t.Source.SecretRef.Name,
+				"namespace": t.Source.SecretRef.Namespace,
+			})
+		}
+		styling["themeDataRefs"] = refs
+		// The chart keys themes by Secret name; translate the
+		// CR-level theme name to its backing Secret.
+		if obj.Spec.DefaultTheme != "" {
+			for _, t := range obj.Spec.Themes {
+				if t.Name == obj.Spec.DefaultTheme {
+					styling["defaultTheme"] = t.Source.SecretRef.Name
+					break
+				}
+			}
+		}
+	}
+	if len(styling) > 0 {
+		values["websiteStyling"] = styling
+	}
+
+	// imagePrePuller — toggle only. When enabled with no explicit
+	// image list, the chart derives the v3-equivalent default
+	// (training-portal + base-environment) from its imageVersions
+	// inventory, so relocation and per-name overrides are honoured.
+	// Per-image control stays a chart-level concern; the CRD exposes
+	// just the switch.
+	if obj.Spec.ImagePrePuller != nil {
+		values["imagePrePuller"] = map[string]any{
+			"enabled": obj.Spec.ImagePrePuller.Enabled,
 		}
 	}
 
-	// Themes content sourcing (ConfigMap/Secret/URL) is reserved in
-	// the CRD but not yet wired into renderSessionManagerValues — the
-	// chart accepts Secret refs only and the CRD's ConfigMap source
-	// needs a translation step (operator ConfigMap → in-namespace
-	// Secret with the same keys). Follow-up filed under "SessionManager
-	// theme sourcing" in docs/architecture/follow-up-issues.md.
-	_ = obj.Spec.Themes
-	_ = obj.Spec.DefaultTheme
-
-	// DefaultAccessCredentials, ImagePrePuller, RegistryMirrors: reserved
-	// in the CRD; mapping awaits chart additions. See follow-ups.
-	_ = obj.Spec.DefaultAccessCredentials
-	_ = obj.Spec.ImagePrePuller
-	_ = obj.Spec.RegistryMirrors
+	// DefaultAccessCredentials and RegistryMirrors are reserved in the
+	// CRD; validateSessionManagerSpec rejects them as "not yet
+	// supported in v1alpha1" until the chart grows their values. See
+	// follow-ups.
 
 	// logLevel doesn't have a typed top-level chart value; the runtime
 	// reads it from the rendered operator-config Secret. Route through
@@ -564,6 +601,39 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 	}
 
 	return values
+}
+
+// validateSessionManagerSpec enforces the v1alpha1 support envelope on
+// reserved spec surface. Anything listed here is shaped in the CRD but
+// not yet implemented end-to-end; setting it gets an explicit
+// field-specific refusal (Ready=False reason=ValidationFailed) instead
+// of a silent discard.
+func validateSessionManagerSpec(obj *platformv1alpha1.SessionManager) error {
+	if obj.Spec.DefaultAccessCredentials != nil {
+		return fmt.Errorf("spec.defaultAccessCredentials: not yet supported in v1alpha1")
+	}
+	if len(obj.Spec.RegistryMirrors) > 0 {
+		return fmt.Errorf("spec.registryMirrors: not yet supported in v1alpha1")
+	}
+	themeNames := make(map[string]bool, len(obj.Spec.Themes))
+	for i, t := range obj.Spec.Themes {
+		if themeNames[t.Name] {
+			return fmt.Errorf("spec.themes[%d].name: duplicate theme name %q", i, t.Name)
+		}
+		themeNames[t.Name] = true
+		switch t.Source.Type {
+		case platformv1alpha1.ThemeSourceTypeSecret:
+			if t.Source.SecretRef == nil {
+				return fmt.Errorf("spec.themes[%d].source.secretRef: required when type is Secret", i)
+			}
+		default:
+			return fmt.Errorf("spec.themes[%d].source.type: %q is not yet supported in v1alpha1 (Secret only)", i, t.Source.Type)
+		}
+	}
+	if obj.Spec.DefaultTheme != "" && !themeNames[obj.Spec.DefaultTheme] {
+		return fmt.Errorf("spec.defaultTheme: no entry named %q in spec.themes", obj.Spec.DefaultTheme)
+	}
+	return nil
 }
 
 func (r *SessionManagerReconciler) deploymentAvailableSM(ctx context.Context) (bool, error) {

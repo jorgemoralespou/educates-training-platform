@@ -315,9 +315,11 @@ imagePrePuller:
     repository: ""
     tag: ""
     pullPolicy: ""
-  # Full image references to pre-pull. The chart does not compute these from
-  # short names; the operator (or chart user) supplies fully qualified refs so
-  # any registry mirror or relocation is honoured.
+  # Full image references to pre-pull. Empty defaults to the v3-equivalent
+  # set -- training-portal + base-environment -- resolved through the
+  # imageVersions inventory, so registry relocation and per-name overrides
+  # are honoured. A non-empty list replaces the default verbatim (fully
+  # qualified refs only; short names are not resolved here).
   images: []
     # - ghcr.io/educates/training-portal:4.0.0-alpha.1
 

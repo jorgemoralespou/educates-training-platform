@@ -1176,3 +1176,28 @@ repos with intent the CLI can't infer (DNS, ACME, identity wiring);
 a lossy auto-translation would produce plausible-but-wrong CRs, which
 is worse than an honest error. v3 and v4 installs can't coexist
 anyway, so there's no runtime adapter to maintain.
+
+### `imagePrePuller` default image list is chart-derived; CRD exposes only the toggle
+
+**Date:** 2026-06-10.
+**Decision:** When `imagePrePuller.enabled: true` and
+`imagePrePuller.images` is empty, the session-manager subchart derives
+the pre-pull list itself — `training-portal` + `base-environment`,
+resolved through the `session-manager.imageVersions` inventory helper
+(new helper `session-manager.prePullImages`). A non-empty `images`
+list replaces the default verbatim. The `SessionManager` CRD keeps
+only `spec.imagePrePuller.enabled`; the operator passes the toggle
+through and never computes image refs. This supersedes the chart
+comment that said the operator (or chart user) always supplies fully
+qualified refs.
+
+**Why:** The chart's imageVersions helper is the single source of
+truth for resolved, relocation-aware image references — duplicating
+that inventory in the operator would drift on every image addition,
+and an enabled-but-empty DaemonSet that pre-pulls nothing is a silent
+no-op. The default set mirrors v3 exactly: its image-puller DaemonSet
+always pre-pulled `training-portal` plus a `prePullImages` list
+defaulting to `["base-environment"]`. Per-image control remains a
+chart-level concern (standalone users set `imagePrePuller.images`;
+operator users needing custom lists escalate via the chart, not the
+CRD).

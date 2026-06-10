@@ -745,6 +745,16 @@ sees a hard failure rather than a transient one.
 ### SessionManager: wire remaining spec fields into chart values
 
 **Date added:** 2026-05-14.
+*(partially landed: 2026-06-10 — items 1 and 3 are done for their
+supported scope. Secret-sourced themes map to
+`websiteStyling.themeDataRefs` + `defaultTheme` (a `secretRef` field
+was added to `ThemeSource`; ConfigMap/URL sources are rejected as "not
+yet supported in v1alpha1"). `spec.imagePrePuller.enabled` passes
+through to the chart, which now derives the default pre-pull list
+(training-portal + base-environment) from its imageVersions helper —
+see decisions.md. Items 2 (`defaultAccessCredentials`) and 4
+(`registryMirrors`) remain reserved and are now rejected explicitly by
+`validateSessionManagerSpec` instead of silently discarded.)*
 **Trigger to file:** any user reporting that themes, image cache,
 registry mirrors, or default access credentials configured on the
 SessionManager CR don't take effect.
