@@ -107,28 +107,25 @@ func ensureNamespace(name string) {
 	}
 }
 
-func makeIngressClass(name string) *networkingv1.IngressClass {
+func makeIngressClass() *networkingv1.IngressClass {
 	return &networkingv1.IngressClass{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		ObjectMeta: metav1.ObjectMeta{Name: "contour"},
 		Spec: networkingv1.IngressClassSpec{
 			Controller: "test/example",
 		},
 	}
 }
 
-func makeWildcardSecret(name string, withTLSCrt, withTLSKey bool) *corev1.Secret {
-	data := map[string][]byte{}
+func makeWildcardSecret(withTLSCrt bool) *corev1.Secret {
+	data := map[string][]byte{"tls.key": []byte("dummy-key")}
 	if withTLSCrt {
 		data["tls.crt"] = []byte("dummy-cert")
-	}
-	if withTLSKey {
-		data["tls.key"] = []byte("dummy-key")
 	}
 	// Type intentionally Opaque — kubernetes.io/tls Secrets are
 	// apiserver-validated to require both tls.crt + tls.key, which would
 	// block tests that exercise the "missing key" validator path.
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testOperatorNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "wildcard-tls", Namespace: testOperatorNamespace},
 		Data:       data,
 	}
 }
@@ -146,8 +143,8 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 	})
 
 	It("flips to Ready and publishes status when all refs validate", func() {
-		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
-		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -182,7 +179,7 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 	})
 
 	It("flips to Degraded when the wildcard Secret is missing", func() {
-		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
 		// No wildcard Secret created.
 
 		obj := &configv1alpha1.EducatesClusterConfig{
@@ -204,8 +201,8 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 	})
 
 	It("flips to Degraded when the wildcard Secret is missing tls.crt", func() {
-		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
-		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", false, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(false))).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -226,7 +223,7 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 
 	It("flips to Degraded when the IngressClass is missing", func() {
 		// No IngressClass created.
-		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -246,8 +243,8 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 	})
 
 	It("flips to Degraded when an optional CA Secret is referenced but missing", func() {
-		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
-		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 
 		spec := validInlineSpec()
 		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.CASecretReference{Name: "ca-bundle"}
@@ -269,8 +266,8 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 	})
 
 	It("clears the finalizer on delete", func() {
-		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
-		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},

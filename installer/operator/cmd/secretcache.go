@@ -44,7 +44,12 @@ const defaultExternalSecretsNS = "educates-secrets"
 // Boot-time only: if the user later edits the ECC to point at a new
 // namespace, the operator needs to restart to pick up watches there.
 // The reconciler emits a Warning event in that case so it's user-visible.
-func discoverCachedSecretNamespaces(ctx context.Context, restCfg *rest.Config, scheme *runtime.Scheme, operatorNamespace string) ([]string, error) {
+func discoverCachedSecretNamespaces(
+	ctx context.Context,
+	restCfg *rest.Config,
+	scheme *runtime.Scheme,
+	operatorNamespace string,
+) ([]string, error) {
 	// One-shot uncached client just for this read. Manager isn't built
 	// yet, so the regular cached client isn't available; the request is
 	// cheap (one Get against a cluster-scoped singleton) and only happens

@@ -145,8 +145,8 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 	})
 
 	It("flips status from Ready to Degraded when the wildcard Secret is deleted", func() {
-		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
-		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -169,8 +169,8 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 	})
 
 	It("flips status from Ready to Degraded when a referenced ClusterIssuer is deleted", func() {
-		Expect(k8sClient.Create(ctx, makeIngressClass("contour"))).To(Succeed())
-		Expect(k8sClient.Create(ctx, makeWildcardSecret("wildcard-tls", true, true))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 		Expect(k8sClient.Create(ctx, makeReadyClusterIssuer("test-issuer"))).To(Succeed())
 		markClusterIssuerReady("test-issuer", true)
 

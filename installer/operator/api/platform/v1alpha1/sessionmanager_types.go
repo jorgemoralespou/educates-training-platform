@@ -407,5 +407,5 @@ type SessionManagerList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&SessionManager{}, &SessionManagerList{})
+	register(&SessionManager{}, &SessionManagerList{})
 }

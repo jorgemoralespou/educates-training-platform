@@ -71,7 +71,7 @@ func (f *memoryHelmFactory) For(ns string) (*helm.Client, error) {
 // reconciler's gate passes. Mode + ingress are minimal — the
 // reconciler only consults Status.Ready + Status.ImageRegistry +
 // Status.PolicyEnforcement.
-func makeReadyClusterConfig() *configv1alpha1.EducatesClusterConfig {
+func makeReadyClusterConfig() {
 	GinkgoHelper()
 	cc := &configv1alpha1.EducatesClusterConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: configSingletonName},
@@ -123,13 +123,13 @@ func makeReadyClusterConfig() *configv1alpha1.EducatesClusterConfig {
 		},
 	}
 	Expect(k8sClient.Status().Update(ctx, cc)).To(Succeed())
-	return cc
 }
 
 // markDeploymentAvailable creates (if missing) and patches the named
 // Deployment to Available=True. envtest has no controllers, so specs
 // drive the transition manually.
-func markDeploymentAvailable(name, namespace string) {
+func markDeploymentAvailable(name string) {
+	namespace := platformNamespace
 	GinkgoHelper()
 	one := int32(1)
 	dep := &appsv1.Deployment{
@@ -256,7 +256,7 @@ var _ = Describe("SecretsManager reconciler (Phase 4 Session 1)", func() {
 	})
 
 	It("installs the chart and reaches Ready=True when the Deployment is Available", func() {
-		_ = makeReadyClusterConfig()
+		makeReadyClusterConfig()
 
 		sm := &platformv1alpha1.SecretsManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -277,7 +277,7 @@ var _ = Describe("SecretsManager reconciler (Phase 4 Session 1)", func() {
 
 		// envtest has no Deployment controller, so simulate the
 		// upstream secrets-manager Deployment becoming Available.
-		markDeploymentAvailable(secretsManagerDeploymentName, platformNamespace)
+		markDeploymentAvailable(secretsManagerDeploymentName)
 
 		Eventually(func() metav1.ConditionStatus {
 			return smReadyStatus(singletonName)
@@ -293,7 +293,7 @@ var _ = Describe("SecretsManager reconciler (Phase 4 Session 1)", func() {
 	})
 
 	It("uninstalls the chart on delete", func() {
-		_ = makeReadyClusterConfig()
+		makeReadyClusterConfig()
 		sm := &platformv1alpha1.SecretsManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
 			Spec:       platformv1alpha1.SecretsManagerSpec{},
@@ -309,7 +309,7 @@ var _ = Describe("SecretsManager reconciler (Phase 4 Session 1)", func() {
 			_, err = hc.Status(secretsManagerReleaseName)
 			return err
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markDeploymentAvailable(secretsManagerDeploymentName, platformNamespace)
+		markDeploymentAvailable(secretsManagerDeploymentName)
 		Eventually(func() metav1.ConditionStatus {
 			return smReadyStatus(singletonName)
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal(metav1.ConditionTrue))

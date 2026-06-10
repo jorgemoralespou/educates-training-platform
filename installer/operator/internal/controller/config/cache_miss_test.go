@@ -16,7 +16,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -82,5 +81,5 @@ func bufLogContext() (*bytes.Buffer, context.Context) {
 		}
 		buf.WriteString(args + "\n")
 	}, funcr.Options{})
-	return &buf, logf.IntoContext(context.Background(), logr.Logger(log))
+	return &buf, logf.IntoContext(context.Background(), log)
 }

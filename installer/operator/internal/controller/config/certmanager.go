@@ -26,17 +26,18 @@ import (
 	cmacme "github.com/cert-manager/cert-manager/pkg/apis/acme/v1"
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 )
@@ -232,7 +233,8 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 // added, this phase early-returns "done, proceed" without running
 // the install path — the user supplies the issuer/secret and the
 // validator already required them to exist.
-func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	// phaseStop wraps the (Result, error) returned by helpers like
 	// handleCertManagerCRDsMissing into the (done bool, Result,
 	// error) shape this phase returns. done is always false at a
@@ -253,7 +255,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 	if err := r.reconcileCertManager(ctx, obj); err != nil {
 		log.Error(err, "cert-manager reconcile failed")
 		r.markCertificatesProgressing(obj, "InstallFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
 	}
 
@@ -271,7 +273,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 			// reconciler. But a tight cache-vs-apiserver race could
 			// still leave us stuck with no further watch events;
 			// 15s of self-poll matches Contour's gate.
-			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
+			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -285,40 +287,40 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 	if bcm.IssuerType == configv1alpha1.IssuerTypeCustomCA {
 		if err := r.ensureCustomCASecretCopy(ctx, obj, bcm.CustomCA.CACertificateRef); err != nil {
 			if isCertManagerCRDMissingErr(err) {
-				return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+				return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, err))
 			}
 			r.markCertificatesProgressing(obj, "CustomCACopyFailed", err.Error())
-			_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+			_ = r.updateStatusWithTransitionLog(ctx, obj)
 			return phaseStop(ctrl.Result{}, err)
 		}
 	}
 	if err := r.ensureClusterIssuer(ctx, obj); err != nil {
 		if isCertManagerCRDMissingErr(err) {
-			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, err))
 		}
 		if isWebhookNotReadyErr(err) {
-			return phaseStop(r.handleWebhookNotReady(ctx, obj, log, "ClusterIssuer", err))
+			return phaseStop(r.handleWebhookNotReady(ctx, obj, "ClusterIssuer", err))
 		}
 		r.markCertificatesProgressing(obj, "ClusterIssuerApplyFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
 	}
 	if err := r.ensureWildcardCertificate(ctx, obj, obj.Spec.Ingress.Domain); err != nil {
 		if isCertManagerCRDMissingErr(err) {
-			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, err))
 		}
 		if isWebhookNotReadyErr(err) {
-			return phaseStop(r.handleWebhookNotReady(ctx, obj, log, "Certificate", err))
+			return phaseStop(r.handleWebhookNotReady(ctx, obj, "Certificate", err))
 		}
 		r.markCertificatesProgressing(obj, "CertificateApplyFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
 	}
 
 	ready, err := r.certificateReady(ctx)
 	if err != nil {
 		if isCertManagerCRDMissingErr(err) {
-			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, log, err))
+			return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, err))
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -329,7 +331,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 		// "Waiting" branches — there's exactly one Ready=False→True
 		// transition on the Certificate, so missing that watch event
 		// would leave us stuck.
-		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
+		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 	}
 
 	// Phase complete — mark CertificatesReady=True so a reader can
@@ -439,7 +441,32 @@ func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.C
 		return err
 	}
 
-	return r.Patch(ctx, dst, client.Apply, client.FieldOwner(fieldManager), client.ForceOwnership)
+	return r.applySSA(ctx, dst)
+}
+
+// applySSA server-side-applies a fully-specified typed object via the
+// non-deprecated Client.Apply API (the client.Apply patch type is
+// deprecated as of controller-runtime v0.23). Typed structs aren't
+// runtime.ApplyConfigurations, so the object is converted to
+// unstructured with its scheme-resolved GVK stamped (our constructed
+// objects leave TypeMeta empty). The conversion artifacts SSA must
+// not assert ownership of — empty status, null creationTimestamp —
+// are stripped before the apply.
+func (r *EducatesClusterConfigReconciler) applySSA(ctx context.Context, obj client.Object) error {
+	gvk, err := apiutil.GVKForObject(obj, r.Scheme)
+	if err != nil {
+		return fmt.Errorf("resolve GVK for SSA apply: %w", err)
+	}
+	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
+	if err != nil {
+		return fmt.Errorf("convert %s to unstructured: %w", gvk.Kind, err)
+	}
+	u := &unstructured.Unstructured{Object: m}
+	u.SetGroupVersionKind(gvk)
+	unstructured.RemoveNestedField(u.Object, "status")
+	unstructured.RemoveNestedField(u.Object, "metadata", "creationTimestamp")
+	return r.Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
+		client.FieldOwner(fieldManager), client.ForceOwnership)
 }
 
 // copyCASecretData picks the keys cert-manager's CA issuer reads from
@@ -523,7 +550,7 @@ func (r *EducatesClusterConfigReconciler) ensureClusterIssuer(ctx context.Contex
 	if err := controllerSetOwnerOnCrossNamespaceCopy(owner, ci, r.Scheme); err != nil {
 		return err
 	}
-	return r.Patch(ctx, ci, client.Apply, client.FieldOwner(fieldManager), client.ForceOwnership)
+	return r.applySSA(ctx, ci)
 }
 
 // buildACMEIssuer translates the operator's ACMEConfig into a
@@ -584,7 +611,7 @@ func (r *EducatesClusterConfigReconciler) ensureWildcardCertificate(ctx context.
 		Spec: cmv1.CertificateSpec{
 			SecretName: wildcardTLSSecretName,
 			DNSNames:   []string{domain, "*." + domain},
-			IssuerRef: cmmeta.ObjectReference{
+			IssuerRef: cmmeta.IssuerReference{
 				Kind: "ClusterIssuer",
 				Name: wildcardClusterIssuer,
 			},
@@ -593,7 +620,7 @@ func (r *EducatesClusterConfigReconciler) ensureWildcardCertificate(ctx context.
 	if err := controllerSetOwnerOnCrossNamespaceCopy(owner, cert, r.Scheme); err != nil {
 		return err
 	}
-	return r.Patch(ctx, cert, client.Apply, client.FieldOwner(fieldManager), client.ForceOwnership)
+	return r.applySSA(ctx, cert)
 }
 
 // certificateReady reports whether the wildcard Certificate carries

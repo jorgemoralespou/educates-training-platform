@@ -43,10 +43,14 @@ func TestCollectFromECC_NoCR_DefaultsOnly(t *testing.T) {
 	}
 }
 
+// eccSingletonName mirrors the CEL-enforced singleton name every
+// EducatesClusterConfig must carry.
+const eccSingletonName = "cluster"
+
 func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = "cluster"
+	ecc.Name = eccSingletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
 	ecc.Spec.Ingress = &configv1alpha1.Ingress{
 		Certificates: configv1alpha1.Certificates{
@@ -77,7 +81,7 @@ func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = "cluster"
+	ecc.Name = eccSingletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeInline
 	ecc.Spec.Inline = &configv1alpha1.InlineConfig{
 		Ingress: configv1alpha1.InlineIngress{
@@ -109,7 +113,7 @@ func TestCollectFromECC_EmptyNamespaceOnRef_Ignored(t *testing.T) {
 	// default set, so no new entry should be added.
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = "cluster"
+	ecc.Name = eccSingletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
 	ecc.Spec.Ingress = &configv1alpha1.Ingress{
 		Certificates: configv1alpha1.Certificates{

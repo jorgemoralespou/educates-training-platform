@@ -127,5 +127,5 @@ type LookupServiceList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&LookupService{}, &LookupServiceList{})
+	register(&LookupService{}, &LookupServiceList{})
 }

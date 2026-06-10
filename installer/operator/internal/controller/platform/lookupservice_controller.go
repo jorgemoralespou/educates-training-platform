@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -59,13 +58,12 @@ const (
 	// helm release before the CR is removed.
 	finalizerLookupService = "lookupservice.platform.educates.dev/finalizer"
 
-	// conditionIngressReady is reserved per CRD draft r3 §3 status
-	// contract. v1alpha1 doesn't publish it as a separate gate —
-	// Deployment.Available is sufficient signal because the chart
-	// renders the Ingress alongside the Deployment in the same
-	// helm install. A future probe (LoadBalancer.status.ingress
-	// resolution, HTTP reachability) gets this condition wired in.
-	conditionIngressReady = "IngressReady"
+	// An IngressReady condition is reserved per CRD draft r3 §3
+	// status contract but not yet published. v1alpha1 doesn't gate on
+	// it separately — Deployment.Available is sufficient signal
+	// because the chart renders the Ingress alongside the Deployment
+	// in the same helm install. A future probe (LoadBalancer
+	// resolution, HTTP reachability) reintroduces the condition.
 )
 
 // LookupServiceReconciler drives the LookupService CR. Mirrors
@@ -99,7 +97,7 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if !obj.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(obj, finalizerLookupService) {
 			r.markLSPhase(obj, platformv1alpha1.ComponentPhaseUninstalling)
-			if err := r.updateLSStatusWithTransitionLog(ctx, log, obj); err != nil {
+			if err := r.updateLSStatusWithTransitionLog(ctx, obj); err != nil {
 				return ctrl.Result{}, err
 			}
 			if err := r.cleanupLS(ctx); err != nil {
@@ -144,7 +142,7 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.markLSReady(obj, metav1.ConditionFalse, "WaitingForClusterConfig",
 			"EducatesClusterConfig 'cluster' must reach Ready before lookup-service can install")
 		r.markLSPhase(obj, platformv1alpha1.ComponentPhasePending)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, obj)
 	}
 	r.markLSClusterConfigAvailable(obj, metav1.ConditionTrue, "ClusterConfigReady",
 		"EducatesClusterConfig 'cluster' is Ready")
@@ -156,7 +154,7 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.markLSReady(obj, metav1.ConditionFalse, "MissingIngressContract",
 			"EducatesClusterConfig.status.ingress is not populated; waiting")
 		r.markLSPhase(obj, platformv1alpha1.ComponentPhasePending)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, obj)
 	}
 
 	// LookupService's subchart renders SecretCopier resources to
@@ -175,14 +173,14 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.markLSReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
 			"SecretsManager 'cluster' must reach Ready before lookup-service can install (SecretCopier CRD ships with secrets-manager)")
 		r.markLSPhase(obj, platformv1alpha1.ComponentPhasePending)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, obj)
 	}
 
 	r.markLSPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
 	if err := r.installOrUpgradeLS(ctx, obj, cfg); err != nil {
 		r.markLSDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		r.markLSReady(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
-		_ = r.updateLSStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateLSStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, fmt.Errorf("helm install lookup-service: %w", err)
 	}
 	r.markLSDeployed(obj, metav1.ConditionTrue, "ChartInstalled",
@@ -197,7 +195,7 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		r.markLSReady(obj, metav1.ConditionFalse, "WaitingForDeployment",
 			"lookup-service Deployment not yet Available")
 		r.markLSPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, obj)
 	}
 
 	host := lookupServiceHost(obj, cfg)
@@ -211,7 +209,7 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		"lookup-service is installed and Available")
 	r.markLSPhase(obj, platformv1alpha1.ComponentPhaseReady)
 	obj.Status.ObservedGeneration = obj.Generation
-	return ctrl.Result{}, r.updateLSStatusWithTransitionLog(ctx, log, obj)
+	return ctrl.Result{}, r.updateLSStatusWithTransitionLog(ctx, obj)
 }
 
 // clusterConfigReadyLS fetches the EducatesClusterConfig singleton
@@ -422,7 +420,8 @@ func (r *LookupServiceReconciler) markLSPhase(obj *platformv1alpha1.LookupServic
 	obj.Status.Phase = phase
 }
 
-func (r *LookupServiceReconciler) updateLSStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *platformv1alpha1.LookupService) error {
+func (r *LookupServiceReconciler) updateLSStatusWithTransitionLog(ctx context.Context, obj *platformv1alpha1.LookupService) error {
+	log := logf.FromContext(ctx)
 	desiredReady := meta.FindStatusCondition(obj.Status.Conditions, conditionReady)
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		live := &platformv1alpha1.LookupService{}

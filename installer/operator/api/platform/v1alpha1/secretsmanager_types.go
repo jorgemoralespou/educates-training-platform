@@ -110,5 +110,5 @@ type SecretsManagerList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&SecretsManager{}, &SecretsManagerList{})
+	register(&SecretsManager{}, &SecretsManagerList{})
 }

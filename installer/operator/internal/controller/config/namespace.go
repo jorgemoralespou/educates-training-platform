@@ -46,14 +46,9 @@ const managedByLabelValue = "educates-installer"
 //
 // Idempotent: on subsequent calls, missing labels are added via
 // controller-runtime patch; values already in place are left alone.
-// Labels supplied by the caller (e.g., PodSecurity admission tags) are
-// merged with the standard managed-by stamp.
-func (r *EducatesClusterConfigReconciler) ensureNamespace(ctx context.Context, name string, extraLabels map[string]string, owner *configv1alpha1.EducatesClusterConfig) error {
+func (r *EducatesClusterConfigReconciler) ensureNamespace(ctx context.Context, name string, owner *configv1alpha1.EducatesClusterConfig) error {
 	desiredLabels := map[string]string{
 		"app.kubernetes.io/managed-by": managedByLabelValue,
-	}
-	for k, v := range extraLabels {
-		desiredLabels[k] = v
 	}
 
 	ns := &corev1.Namespace{}

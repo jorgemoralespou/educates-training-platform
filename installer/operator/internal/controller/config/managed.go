@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -92,39 +91,37 @@ const (
 //
 // Cleanup is the strict reverse.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
 	if err := r.validateManaged(ctx, obj); err != nil {
 		var verr *validationError
 		if errors.As(err, &verr) {
 			r.markDegraded(obj, verr.Field, verr.Reason)
-			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		return ctrl.Result{}, err
 	}
 
 	// Phase 1: cert-manager + wildcard certificate.
-	if done, res, err := r.reconcileCertManagerPhase(ctx, log, obj); !done {
+	if done, res, err := r.reconcileCertManagerPhase(ctx, obj); !done {
 		return res, err
 	}
 
 	// Phase 2: ingress controller (Contour).
-	if done, res, err := r.reconcileContourPhase(ctx, log, obj); !done {
+	if done, res, err := r.reconcileContourPhase(ctx, obj); !done {
 		return res, err
 	}
 
 	// Phase 3: DNS (external-dns).
-	if done, res, err := r.reconcileExternalDNSPhase(ctx, log, obj); !done {
+	if done, res, err := r.reconcileExternalDNSPhase(ctx, obj); !done {
 		return res, err
 	}
 
 	// Phase 4: policy enforcement (Kyverno).
-	if done, res, err := r.reconcileKyvernoPhase(ctx, log, obj); !done {
+	if done, res, err := r.reconcileKyvernoPhase(ctx, obj); !done {
 		return res, err
 	}
 
 	r.markManagedReady(obj)
-	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 }
 
 // handleCertManagerCRDsMissing handles a NoMatchError (or 404
@@ -163,7 +160,8 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 // retry-loop error at 10s intervals because controller-runtime has
 // no public API to remove a registered Source. Captured as a
 // follow-up — see docs/architecture/follow-up-issues.md.
-func (r *EducatesClusterConfigReconciler) handleCertManagerCRDsMissing(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, log logr.Logger, cause error) (ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) handleCertManagerCRDsMissing(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, cause error) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	if r.certManagerCRDsActuallyPresent() {
 		// Mapper-staleness path. Reset and retry shortly; the user
 		// shouldn't see Degraded for a transient bootstrap race.
@@ -180,7 +178,7 @@ func (r *EducatesClusterConfigReconciler) handleCertManagerCRDsMissing(ctx conte
 	r.markCertificatesProgressing(obj, "CertManagerCRDsMissing",
 		"cert-manager.io CRDs are no longer present in the cluster; reinstall cert-manager or delete this EducatesClusterConfig")
 	r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseDegraded)
-	if err := r.updateStatusWithTransitionLog(ctx, log, obj); err != nil {
+	if err := r.updateStatusWithTransitionLog(ctx, obj); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
@@ -223,14 +221,15 @@ func (r *EducatesClusterConfigReconciler) certManagerCRDsActuallyPresent() bool 
 // the cause is obvious. See certmanager.go::isWebhookNotReadyErr for
 // the substring rationale; the proper fix is the synthetic admission
 // probe captured in follow-up-issues.md.
-func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, log logr.Logger, kind string, cause error) (ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, kind string, cause error) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	log.Info("cert-manager webhook not yet routable; will retry shortly",
 		"kind", kind,
 		"cause", cause.Error())
 	r.markCertificatesProgressing(obj, "WaitingForWebhook",
 		fmt.Sprintf("apply of %s blocked: cert-manager admission webhook not yet serving (cainjector caBundle propagation in flight)", kind))
 	r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
-	if err := r.updateStatusWithTransitionLog(ctx, log, obj); err != nil {
+	if err := r.updateStatusWithTransitionLog(ctx, obj); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
@@ -330,7 +329,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 		return fmt.Errorf("load embedded cert-manager chart: %w", err)
 	}
 
-	if err := r.ensureNamespace(ctx, certManagerNamespace, nil, owner); err != nil {
+	if err := r.ensureNamespace(ctx, certManagerNamespace, owner); err != nil {
 		return err
 	}
 

@@ -22,13 +22,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
@@ -65,7 +65,8 @@ var errExternalDNSNotReady = errors.New("external-dns Deployment not yet Availab
 // style bootstrap race. The chart doesn't manage CRDs (no
 // CRDWatcher additions needed). When provider != BundledExternalDNS,
 // the phase early-returns done=true.
-func (r *EducatesClusterConfigReconciler) reconcileExternalDNSPhase(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) reconcileExternalDNSPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	phaseStop := func(res ctrl.Result, err error) (bool, ctrl.Result, error) {
 		return false, res, err
 	}
@@ -78,7 +79,7 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNSPhase(ctx context.
 		var verr *validationError
 		if errors.As(err, &verr) {
 			r.markDegraded(obj, verr.Field, verr.Reason)
-			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj))
+			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj))
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -86,7 +87,7 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNSPhase(ctx context.
 	if err := r.reconcileExternalDNS(ctx, obj); err != nil {
 		log.Error(err, "external-dns reconcile failed")
 		r.markDNSProgressing(obj, "InstallFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
 	}
 
@@ -97,7 +98,7 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNSPhase(ctx context.
 			// Same cache-vs-watch race mitigation as Contour: single
 			// Deployment means few status transitions, so we self-poll
 			// every 15s instead of trusting watch events alone.
-			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
+			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -127,7 +128,7 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Conte
 		return fmt.Errorf("load embedded external-dns chart: %w", err)
 	}
 
-	if err := r.ensureNamespace(ctx, externalDNSNamespace, nil, owner); err != nil {
+	if err := r.ensureNamespace(ctx, externalDNSNamespace, owner); err != nil {
 		return err
 	}
 

@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
@@ -53,6 +54,10 @@ const (
 // resolveNodeCATrust evaluates the tri-state mode against cluster
 // state. Returns the intent plus a reason+message used for the
 // status condition the reconciler publishes.
+// reasonExtraInstalled is the shared condition reason for every
+// install-outcome branch of the extras resolvers below.
+const reasonExtraInstalled = "Installed"
+
 func resolveNodeCATrust(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) (extrasIntent, string, string) {
 	mode := platformv1alpha1.ComponentModeAuto
 	if obj.Spec.NodeCATrust != nil && obj.Spec.NodeCATrust.Mode != "" {
@@ -68,13 +73,13 @@ func resolveNodeCATrust(obj *platformv1alpha1.SessionManager, cfg *configv1alpha
 			return intentRefuse, "NodeCATrustMissingCA",
 				"nodeCATrust mode=Enabled but EducatesClusterConfig.status.ingress.caCertificateSecretRef is not set"
 		}
-		return intentInstall, "Installed",
+		return intentInstall, reasonExtraInstalled,
 			"node-ca-injector installed (mode=Enabled)"
 	case platformv1alpha1.ComponentModeAuto:
 		fallthrough
 	default:
 		if hasCA {
-			return intentInstall, "Installed",
+			return intentInstall, reasonExtraInstalled,
 				"node-ca-injector installed (mode=Auto: CA configured on the cluster)"
 		}
 		return intentSkip, "ModeAutoNoCA",
@@ -97,7 +102,7 @@ func (r *SessionManagerReconciler) resolveRemoteAccess(ctx context.Context, obj 
 		return intentSkip, "ModeDisabled",
 			"remoteAccess disabled by spec", nil
 	case platformv1alpha1.ComponentModeEnabled:
-		return intentInstall, "Installed",
+		return intentInstall, reasonExtraInstalled,
 			"remote-access installed (mode=Enabled)", nil
 	case platformv1alpha1.ComponentModeAuto:
 		fallthrough
@@ -107,7 +112,7 @@ func (r *SessionManagerReconciler) resolveRemoteAccess(ctx context.Context, obj 
 			return intentSkip, "", "", err
 		}
 		if hasLookup {
-			return intentInstall, "Installed",
+			return intentInstall, reasonExtraInstalled,
 				"remote-access installed (mode=Auto: LookupService present)", nil
 		}
 		return intentSkip, "ModeAutoNoLookupService",
@@ -151,7 +156,6 @@ func (r *SessionManagerReconciler) lookupServiceExists(ctx context.Context) (boo
 //     now.
 func (r *SessionManagerReconciler) reconcileExtra(
 	ctx context.Context,
-	log logr.Logger,
 	obj *platformv1alpha1.SessionManager,
 	conditionType string,
 	releaseName string,
@@ -160,6 +164,7 @@ func (r *SessionManagerReconciler) reconcileExtra(
 	cfg *configv1alpha1.EducatesClusterConfig,
 	intent extrasIntent, reason, message string,
 ) error {
+	log := logf.FromContext(ctx)
 	hc, err := r.HelmClientFor(platformNamespace)
 	if err != nil {
 		return fmt.Errorf("build helm client for %s: %w", releaseName, err)

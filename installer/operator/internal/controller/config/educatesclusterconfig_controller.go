@@ -24,7 +24,6 @@ import (
 	"time"
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -203,7 +202,7 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 				}
 				if len(present) > 0 {
 					r.markUninstallBlocked(obj, present)
-					if err := r.updateStatusWithTransitionLog(ctx, log, obj); err != nil {
+					if err := r.updateStatusWithTransitionLog(ctx, obj); err != nil {
 						return ctrl.Result{}, err
 					}
 					// Watch-driven wakeup is the primary signal; the
@@ -242,7 +241,7 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	// against the API directly without admission).
 	if obj.Spec.Inline == nil {
 		r.markDegraded(obj, "spec.inline", "Inline mode requires spec.inline to be set")
-		return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 	}
 
 	statusIngress, err := r.validateInline(ctx, obj.Spec.Inline)
@@ -250,14 +249,14 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 		var verr *validationError
 		if errors.As(err, &verr) {
 			r.markDegraded(obj, verr.Field, verr.Reason)
-			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		// API error (lookup failed, transient): surface for retry.
 		return ctrl.Result{}, err
 	}
 
 	r.markReady(obj, statusIngress)
-	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 }
 
 // readyConditionIsTrue reports whether the Ready condition is currently
@@ -339,7 +338,8 @@ func (r *EducatesClusterConfigReconciler) patchFinalizer(ctx context.Context, ke
 	})
 }
 
-func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) error {
+func (r *EducatesClusterConfigReconciler) updateStatusWithTransitionLog(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
+	log := logf.FromContext(ctx)
 	intendedStatus := obj.Status
 	key := client.ObjectKeyFromObject(obj)
 	// Per-service reason snapshots are taken from a LIVE Get inside

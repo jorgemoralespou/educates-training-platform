@@ -43,7 +43,7 @@ import (
 // makeReadySecretsManager creates the SecretsManager singleton and
 // stamps Ready=True directly via the status subresource. Used as a
 // fixture for SessionManager specs whose gate-2 depends on it.
-func makeReadySecretsManager() *platformv1alpha1.SecretsManager {
+func makeReadySecretsManager() {
 	GinkgoHelper()
 	sm := &platformv1alpha1.SecretsManager{
 		ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -61,10 +61,10 @@ func makeReadySecretsManager() *platformv1alpha1.SecretsManager {
 		}},
 	}
 	Expect(k8sClient.Status().Update(ctx, sm)).To(Succeed())
-	return sm
 }
 
-func smgrReadyStatus(name string) metav1.ConditionStatus {
+func smgrReadyStatus() metav1.ConditionStatus {
+	name := singletonName
 	got := &platformv1alpha1.SessionManager{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, got); err != nil {
 		return metav1.ConditionUnknown
@@ -76,7 +76,8 @@ func smgrReadyStatus(name string) metav1.ConditionStatus {
 	return c.Status
 }
 
-func smgrConditionReason(name, condType string) string {
+func smgrConditionReason(condType string) string {
+	name := singletonName
 	got := &platformv1alpha1.SessionManager{}
 	if err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, got); err != nil {
 		return ""
@@ -152,14 +153,14 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
 
 		Eventually(func() string {
-			return smgrConditionReason(singletonName, conditionClusterConfigAvailable)
+			return smgrConditionReason(conditionClusterConfigAvailable)
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal("ClusterConfigNotReady"))
 
-		Expect(smgrReadyStatus(singletonName)).To(Equal(metav1.ConditionFalse))
+		Expect(smgrReadyStatus()).To(Equal(metav1.ConditionFalse))
 	})
 
 	It("refuses when SecretsManager is not Ready (ECC Ready, SM missing)", func() {
-		_ = makeReadyClusterConfig()
+		makeReadyClusterConfig()
 
 		smgr := &platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -169,19 +170,19 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 		// ClusterConfigAvailable should flip True; SecretsManagerAvailable
 		// stays False because no SecretsManager CR exists yet.
 		Eventually(func() string {
-			return smgrConditionReason(singletonName, conditionClusterConfigAvailable)
+			return smgrConditionReason(conditionClusterConfigAvailable)
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal("ClusterConfigReady"))
 
 		Eventually(func() string {
-			return smgrConditionReason(singletonName, conditionSecretsManagerAvailable)
+			return smgrConditionReason(conditionSecretsManagerAvailable)
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal("SecretsManagerNotReady"))
 
-		Expect(smgrReadyStatus(singletonName)).To(Equal(metav1.ConditionFalse))
+		Expect(smgrReadyStatus()).To(Equal(metav1.ConditionFalse))
 	})
 
 	It("installs the chart and reaches Ready when both gates pass + Deployment Available", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 
 		smgr := &platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -198,10 +199,10 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 			return err
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 
-		markDeploymentAvailable(sessionManagerDeploymentName, platformNamespace)
+		markDeploymentAvailable(sessionManagerDeploymentName)
 
 		Eventually(func() metav1.ConditionStatus {
-			return smgrReadyStatus(singletonName)
+			return smgrReadyStatus()
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal(metav1.ConditionTrue))
 
 		got := &platformv1alpha1.SessionManager{}
@@ -214,8 +215,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	})
 
 	It("renders Secret-sourced themes and the imagePrePuller toggle into chart values", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 
 		smgr := &platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -267,8 +268,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	})
 
 	It("rejects reserved-but-unsupported spec surface with field-specific validation errors", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 
 		smgr := &platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -281,7 +282,7 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
 
 		Eventually(func() string {
-			return smgrConditionReason(singletonName, conditionReady)
+			return smgrConditionReason(conditionReady)
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal("ValidationFailed"))
 
 		got := &platformv1alpha1.SessionManager{}
@@ -328,8 +329,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	})
 
 	It("uninstalls the chart on delete", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 		smgr := &platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
 		}
@@ -343,9 +344,9 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 			_, err = hc.Status(sessionManagerReleaseName)
 			return err
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markDeploymentAvailable(sessionManagerDeploymentName, platformNamespace)
+		markDeploymentAvailable(sessionManagerDeploymentName)
 		Eventually(func() metav1.ConditionStatus {
-			return smgrReadyStatus(singletonName)
+			return smgrReadyStatus()
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal(metav1.ConditionTrue))
 
 		Expect(k8sClient.Delete(ctx, smgr)).To(Succeed())
@@ -392,7 +393,7 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 			_, err = hc.Status(sessionManagerReleaseName)
 			return err
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markDeploymentAvailable(sessionManagerDeploymentName, platformNamespace)
+		markDeploymentAvailable(sessionManagerDeploymentName)
 	}
 
 	extraConditionReason := func(condType string) string {
@@ -408,8 +409,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	}
 
 	It("nodeCATrust Auto installs when ECC publishes a CA cert ref", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 		withCAOnClusterConfig()
 
 		driveSessionManagerReady(&platformv1alpha1.SessionManager{
@@ -430,8 +431,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	})
 
 	It("nodeCATrust Auto skips when ECC has no CA cert ref", func() {
-		_ = makeReadyClusterConfig() // no CA on the fixture
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig() // no CA on the fixture
+		makeReadySecretsManager()
 
 		driveSessionManagerReady(&platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -448,8 +449,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	})
 
 	It("nodeCATrust Enabled refuses when ECC has no CA cert ref", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 
 		driveSessionManagerReady(&platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -466,14 +467,14 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 
 		// Aggregate Ready should be False with reason ExtraRefused.
 		Eventually(func() metav1.ConditionStatus {
-			return smgrReadyStatus(singletonName)
+			return smgrReadyStatus()
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal(metav1.ConditionFalse))
-		Expect(smgrConditionReason(singletonName, conditionReady)).To(Equal("ExtraRefused"))
+		Expect(smgrConditionReason(conditionReady)).To(Equal("ExtraRefused"))
 	})
 
 	It("remoteAccess Auto installs when a LookupService CR exists", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 		// Create the LookupService CR (presence is the Auto signal —
 		// readiness isn't part of the signal).
 		Expect(k8sClient.Create(ctx, &platformv1alpha1.LookupService{
@@ -501,8 +502,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	})
 
 	It("remoteAccess Auto skips when no LookupService CR exists", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 
 		driveSessionManagerReady(&platformv1alpha1.SessionManager{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -514,8 +515,8 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 	})
 
 	It("Disabled drains a previously-installed extra", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 		withCAOnClusterConfig()
 
 		smgr := &platformv1alpha1.SessionManager{

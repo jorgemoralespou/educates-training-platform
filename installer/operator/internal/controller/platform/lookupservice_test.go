@@ -124,8 +124,8 @@ var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
 	})
 
 	It("installs the chart, derives status.url, and reaches Ready", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 
 		ls := &platformv1alpha1.LookupService{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -144,7 +144,7 @@ var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
 			return err
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 
-		markDeploymentAvailable(lookupServiceDeploymentName, platformNamespace)
+		markDeploymentAvailable(lookupServiceDeploymentName)
 
 		Eventually(func() metav1.ConditionStatus {
 			return lsReadyStatus(singletonName)
@@ -161,8 +161,8 @@ var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
 	})
 
 	It("uninstalls the chart on delete", func() {
-		_ = makeReadyClusterConfig()
-		_ = makeReadySecretsManager()
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
 		ls := &platformv1alpha1.LookupService{
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
 			Spec: platformv1alpha1.LookupServiceSpec{
@@ -179,7 +179,7 @@ var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
 			_, err = hc.Status(lookupServiceReleaseName)
 			return err
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markDeploymentAvailable(lookupServiceDeploymentName, platformNamespace)
+		markDeploymentAvailable(lookupServiceDeploymentName)
 		Eventually(func() metav1.ConditionStatus {
 			return lsReadyStatus(singletonName)
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal(metav1.ConditionTrue))

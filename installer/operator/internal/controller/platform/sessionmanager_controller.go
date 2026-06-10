@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -115,7 +114,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !obj.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(obj, finalizerSessionManager) {
 			r.markSMPhase(obj, platformv1alpha1.ComponentPhaseUninstalling)
-			if err := r.updateSMStatusWithTransitionLog(ctx, log, obj); err != nil {
+			if err := r.updateSMStatusWithTransitionLog(ctx, obj); err != nil {
 				return ctrl.Result{}, err
 			}
 			if err := r.cleanupSM(ctx); err != nil {
@@ -161,7 +160,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForClusterConfig",
 			"EducatesClusterConfig 'cluster' must reach Ready before session-manager can install")
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 	r.markSMClusterConfigAvailable(obj, metav1.ConditionTrue, "ClusterConfigReady",
 		"EducatesClusterConfig 'cluster' is Ready")
@@ -172,7 +171,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.markSMReady(obj, metav1.ConditionFalse, "MissingIngressContract",
 			"EducatesClusterConfig.status.ingress is not populated; waiting")
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 
 	// Gate 2: SecretsManager.Ready. session-manager relies on
@@ -189,7 +188,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
 			"SecretsManager 'cluster' must reach Ready before session-manager can install")
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 	r.markSMSecretsManagerAvailable(obj, metav1.ConditionTrue, "SecretsManagerReady",
 		"SecretsManager 'cluster' is Ready")
@@ -202,14 +201,14 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.markSMReady(obj, metav1.ConditionFalse, "ValidationFailed", err.Error())
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
 		obj.Status.ObservedGeneration = obj.Generation
-		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
 	if err := r.installOrUpgradeSM(ctx, obj, cfg); err != nil {
 		r.markSMDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		r.markSMReady(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
-		_ = r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateSMStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, fmt.Errorf("helm install session-manager: %w", err)
 	}
 	r.markSMDeployed(obj, metav1.ConditionTrue, "ChartInstalled",
@@ -224,7 +223,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForDeployment",
 			"session-manager Deployment not yet Available")
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 
 	obj.Status.InstalledVersion = vendoredcharts.SessionManagerChartVersion
@@ -240,7 +239,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// False so the user notices their misconfiguration; Skip /
 	// Install outcomes leave Ready=True.
 	nctIntent, nctReason, nctMessage := resolveNodeCATrust(obj, cfg)
-	if err := r.reconcileExtra(ctx, log, obj,
+	if err := r.reconcileExtra(ctx, obj,
 		conditionNodeCATrustDeployed,
 		nodeCAInjectorReleaseName,
 		vendoredcharts.NodeCAInjector,
@@ -249,7 +248,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	); err != nil {
 		r.markSMReady(obj, metav1.ConditionFalse, "ExtrasFailed", err.Error())
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
-		_ = r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateSMStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, err
 	}
 
@@ -257,7 +256,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("resolve remoteAccess intent: %w", err)
 	}
-	if err := r.reconcileExtra(ctx, log, obj,
+	if err := r.reconcileExtra(ctx, obj,
 		conditionRemoteAccessDeployed,
 		remoteAccessReleaseName,
 		vendoredcharts.RemoteAccess,
@@ -266,7 +265,7 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	); err != nil {
 		r.markSMReady(obj, metav1.ConditionFalse, "ExtrasFailed", err.Error())
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
-		_ = r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateSMStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, err
 	}
 
@@ -278,14 +277,14 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			"one or more optional extras is Mode=Enabled with a missing prerequisite; see per-component conditions")
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
 		obj.Status.ObservedGeneration = obj.Generation
-		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 
 	r.markSMReady(obj, metav1.ConditionTrue, "SessionManagerReady",
 		"session-manager is installed and Available")
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseReady)
 	obj.Status.ObservedGeneration = obj.Generation
-	return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, log, obj)
+	return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
 }
 
 func (r *SessionManagerReconciler) clusterConfigReadySM(ctx context.Context) (*configv1alpha1.EducatesClusterConfig, bool, error) {
@@ -364,6 +363,47 @@ func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *
 func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) map[string]any {
 	values := map[string]any{}
 
+	applySMImageValues(values, obj, cfg)
+	applySMIngressValues(values, obj, cfg)
+	applySMSecurityValues(values, obj, cfg)
+	applySMSessionValues(values, obj)
+	applySMAnalyticsValues(values, obj)
+	applySMStylingValues(values, obj)
+
+	// imagePrePuller — toggle only. When enabled with no explicit
+	// image list, the chart derives the v3-equivalent default
+	// (training-portal + base-environment) from its imageVersions
+	// inventory, so relocation and per-name overrides are honoured.
+	// Per-image control stays a chart-level concern; the CRD exposes
+	// just the switch.
+	if obj.Spec.ImagePrePuller != nil {
+		values["imagePrePuller"] = map[string]any{
+			"enabled": obj.Spec.ImagePrePuller.Enabled,
+		}
+	}
+
+	// DefaultAccessCredentials and RegistryMirrors are reserved in the
+	// CRD; validateSessionManagerSpec rejects them as "not yet
+	// supported in v1alpha1" until the chart grows their values. See
+	// follow-ups.
+
+	// logLevel doesn't have a typed top-level chart value; the runtime
+	// reads it from the rendered operator-config Secret. Route through
+	// the chart's `config` escape hatch so it lands in the right place
+	// without burning a typed field for it pre-v1.
+	if obj.Spec.LogLevel != "" {
+		values["config"] = map[string]any{
+			"logLevel": strings.ToLower(string(obj.Spec.LogLevel)),
+		}
+	}
+
+	return values
+}
+
+// applySMImageValues maps the image-related inputs: the cluster
+// config's registry prefix and pull secrets plus the CR's per-image
+// overrides.
+func applySMImageValues(values map[string]any, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) {
 	// development.imageRegistry — split prefix into host + namespace.
 	if cfg.Status.ImageRegistry != nil && cfg.Status.ImageRegistry.Prefix != "" {
 		host, ns := splitImageRegistryPrefix(cfg.Status.ImageRegistry.Prefix)
@@ -408,12 +448,14 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 		}
 		values["imageVersions"] = entries
 	}
+}
 
-	// clusterIngress — TLS + CA refs from cluster config status, with
-	// optional per-SessionManager override of the Secret name. The
-	// override resolves against the cluster-config-published
-	// namespace; the chart's auto-SecretCopier handles cross-namespace
-	// placement.
+// applySMIngressValues maps the cluster ingress contract (TLS + CA
+// refs from cluster config status) with optional per-SessionManager
+// override of the Secret name. Overrides resolve against the cluster-
+// config-published namespace; the chart's auto-SecretCopier handles
+// cross-namespace placement.
+func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) {
 	tlsRef := map[string]any{
 		"name":      cfg.Status.Ingress.WildcardCertificateSecretRef.Name,
 		"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
@@ -444,17 +486,20 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 	}
 	clusterIngress["caCertificateRef"] = caRef
 	values["clusterIngress"] = clusterIngress
+}
 
-	// clusterSecurity.policyEngine — from cluster config status.
-	if cfg.Status.PolicyEnforcement != nil && cfg.Status.PolicyEnforcement.ClusterPolicyEngine != "" {
+// applySMSecurityValues maps the policy engines from cluster config
+// status, with the CR's optional workshop-engine override.
+func applySMSecurityValues(values map[string]any, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) {
+	if cfg.Status.PolicyEnforcement == nil {
+		return
+	}
+	if cfg.Status.PolicyEnforcement.ClusterPolicyEngine != "" {
 		values["clusterSecurity"] = map[string]any{
 			"policyEngine": string(cfg.Status.PolicyEnforcement.ClusterPolicyEngine),
 		}
 	}
-
-	// workshopSecurity.rulesEngine — from cluster config status, with
-	// optional CR override.
-	if cfg.Status.PolicyEnforcement != nil && cfg.Status.PolicyEnforcement.WorkshopPolicyEngine != "" {
+	if cfg.Status.PolicyEnforcement.WorkshopPolicyEngine != "" {
 		engine := string(cfg.Status.PolicyEnforcement.WorkshopPolicyEngine)
 		if obj.Spec.WorkshopPolicyOverride != nil && obj.Spec.WorkshopPolicyOverride.Engine != "" {
 			engine = string(obj.Spec.WorkshopPolicyOverride.Engine)
@@ -463,7 +508,11 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 			"rulesEngine": engine,
 		}
 	}
+}
 
+// applySMSessionValues maps the per-session runtime knobs: cookies,
+// storage, network blocks, and the docker daemon MTU.
+func applySMSessionValues(values map[string]any, obj *platformv1alpha1.SessionManager) {
 	// sessionCookies.domain — empty defaults to the ingress domain in
 	// the runtime (handled inside the chart helpers).
 	if obj.Spec.SessionCookieDomain != "" {
@@ -508,39 +557,45 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 			"networkMTU": *obj.Spec.Network.PacketSize,
 		}
 	}
+}
 
-	// workshopAnalytics — three named providers + a webhook.
-	if obj.Spec.Tracking != nil {
-		analytics := map[string]any{}
-		if obj.Spec.Tracking.GoogleAnalytics != nil {
-			analytics["google"] = map[string]any{
-				"trackingId": obj.Spec.Tracking.GoogleAnalytics.TrackingID,
-			}
-		}
-		if obj.Spec.Tracking.Clarity != nil {
-			analytics["clarity"] = map[string]any{
-				"trackingId": obj.Spec.Tracking.Clarity.TrackingID,
-			}
-		}
-		if obj.Spec.Tracking.Amplitude != nil {
-			analytics["amplitude"] = map[string]any{
-				"trackingId": obj.Spec.Tracking.Amplitude.TrackingID,
-			}
-		}
-		if obj.Spec.Tracking.Webhook != nil {
-			analytics["webhook"] = map[string]any{
-				"url": obj.Spec.Tracking.Webhook.URL,
-			}
-		}
-		if len(analytics) > 0 {
-			values["workshopAnalytics"] = analytics
+// applySMAnalyticsValues maps the three named analytics providers and
+// the webhook receiver.
+func applySMAnalyticsValues(values map[string]any, obj *platformv1alpha1.SessionManager) {
+	if obj.Spec.Tracking == nil {
+		return
+	}
+	analytics := map[string]any{}
+	if obj.Spec.Tracking.GoogleAnalytics != nil {
+		analytics["google"] = map[string]any{
+			"trackingId": obj.Spec.Tracking.GoogleAnalytics.TrackingID,
 		}
 	}
+	if obj.Spec.Tracking.Clarity != nil {
+		analytics["clarity"] = map[string]any{
+			"trackingId": obj.Spec.Tracking.Clarity.TrackingID,
+		}
+	}
+	if obj.Spec.Tracking.Amplitude != nil {
+		analytics["amplitude"] = map[string]any{
+			"trackingId": obj.Spec.Tracking.Amplitude.TrackingID,
+		}
+	}
+	if obj.Spec.Tracking.Webhook != nil {
+		analytics["webhook"] = map[string]any{
+			"url": obj.Spec.Tracking.Webhook.URL,
+		}
+	}
+	if len(analytics) > 0 {
+		values["workshopAnalytics"] = analytics
+	}
+}
 
-	// websiteStyling — CSP frame-ancestors allow-list plus
-	// Secret-sourced themes. validateSessionManagerSpec has already
-	// rejected non-Secret theme sources and unknown defaultTheme
-	// names, so this mapping only sees the supported shape.
+// applySMStylingValues maps the CSP frame-ancestors allow-list plus
+// Secret-sourced themes. validateSessionManagerSpec has already
+// rejected non-Secret theme sources and unknown defaultTheme names,
+// so this mapping only sees the supported shape.
+func applySMStylingValues(values map[string]any, obj *platformv1alpha1.SessionManager) {
 	styling := map[string]any{}
 	if len(obj.Spec.AllowedEmbeddingHosts) > 0 {
 		hosts := make([]any, 0, len(obj.Spec.AllowedEmbeddingHosts))
@@ -572,35 +627,6 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 	if len(styling) > 0 {
 		values["websiteStyling"] = styling
 	}
-
-	// imagePrePuller — toggle only. When enabled with no explicit
-	// image list, the chart derives the v3-equivalent default
-	// (training-portal + base-environment) from its imageVersions
-	// inventory, so relocation and per-name overrides are honoured.
-	// Per-image control stays a chart-level concern; the CRD exposes
-	// just the switch.
-	if obj.Spec.ImagePrePuller != nil {
-		values["imagePrePuller"] = map[string]any{
-			"enabled": obj.Spec.ImagePrePuller.Enabled,
-		}
-	}
-
-	// DefaultAccessCredentials and RegistryMirrors are reserved in the
-	// CRD; validateSessionManagerSpec rejects them as "not yet
-	// supported in v1alpha1" until the chart grows their values. See
-	// follow-ups.
-
-	// logLevel doesn't have a typed top-level chart value; the runtime
-	// reads it from the rendered operator-config Secret. Route through
-	// the chart's `config` escape hatch so it lands in the right place
-	// without burning a typed field for it pre-v1.
-	if obj.Spec.LogLevel != "" {
-		values["config"] = map[string]any{
-			"logLevel": strings.ToLower(string(obj.Spec.LogLevel)),
-		}
-	}
-
-	return values
 }
 
 // validateSessionManagerSpec enforces the v1alpha1 support envelope on
@@ -719,7 +745,8 @@ func (r *SessionManagerReconciler) markSMPhase(obj *platformv1alpha1.SessionMana
 	obj.Status.Phase = phase
 }
 
-func (r *SessionManagerReconciler) updateSMStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *platformv1alpha1.SessionManager) error {
+func (r *SessionManagerReconciler) updateSMStatusWithTransitionLog(ctx context.Context, obj *platformv1alpha1.SessionManager) error {
+	log := logf.FromContext(ctx)
 	desiredReady := meta.FindStatusCondition(obj.Status.Conditions, conditionReady)
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		live := &platformv1alpha1.SessionManager{}

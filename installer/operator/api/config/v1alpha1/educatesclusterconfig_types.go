@@ -922,5 +922,5 @@ type EducatesClusterConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&EducatesClusterConfig{}, &EducatesClusterConfigList{})
+	register(&EducatesClusterConfig{}, &EducatesClusterConfigList{})
 }

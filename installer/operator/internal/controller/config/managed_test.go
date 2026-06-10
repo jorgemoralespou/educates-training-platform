@@ -78,9 +78,9 @@ func validManagedSpec() configv1alpha1.EducatesClusterConfigSpec {
 // makeCustomCASecret returns a tls.crt + tls.key Secret in the operator
 // namespace. checkCustomCASecret only verifies key presence, so byte
 // values are irrelevant — the validator never parses them.
-func makeCustomCASecret(name string) *corev1.Secret {
+func makeCustomCASecret() *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testOperatorNamespace},
+		ObjectMeta: metav1.ObjectMeta{Name: "custom-ca", Namespace: testOperatorNamespace},
 		Data: map[string][]byte{
 			"tls.crt": []byte("dummy-ca-cert"),
 			"tls.key": []byte("dummy-ca-key"),
@@ -129,7 +129,8 @@ func markDeploymentAvailable(name, namespace string) {
 // sets its Status to DesiredNumberScheduled=NumberReady=1 so the
 // reconciler's ensureContourReady sees envoy as Ready. envtest runs
 // no DaemonSet controller, hence this helper.
-func markDaemonSetReady(name, namespace string) {
+func markDaemonSetReady() {
+	name, namespace := envoyDaemonSet, contourNamespace
 	GinkgoHelper()
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
@@ -187,7 +188,8 @@ func resurrectStuckNamespace(name string) {
 // markCertificateReady flips the named Certificate's Ready condition
 // to True; cert-manager would normally do this after issuance. envtest
 // has no cert-manager controller, hence this helper.
-func markCertificateReady(name, namespace string) {
+func markCertificateReady() {
+	name, namespace := wildcardCertificate, testOperatorNamespace
 	GinkgoHelper()
 	cert := &cmv1.Certificate{}
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, cert)).To(Succeed())
@@ -309,7 +311,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	})
 
 	It("installs cert-manager from the embedded chart and records its version", func() {
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -408,7 +410,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	})
 
 	It("reaches Ready=True once cert-manager Deployments are Available and the wildcard Certificate is Issued", func() {
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -440,7 +442,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			cert := &cmv1.Certificate{}
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		markCertificateReady()
 
 		// Wait for the operator to reach the Contour phase + create
 		// its namespace, then drive the contour Deployment + envoy
@@ -450,7 +452,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
-		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+		markDaemonSetReady()
 
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionTrue))
@@ -482,7 +484,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	})
 
 	It("tears down installed resources in reverse order on delete", func() {
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -503,13 +505,13 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			cert := &cmv1.Certificate{}
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		markCertificateReady()
 		Eventually(func() error {
 			ns := &corev1.Namespace{}
 			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
-		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+		markDaemonSetReady()
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionTrue))
 
@@ -548,7 +550,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	})
 
 	It("refuses to drain cluster services while platform CRs exist, then unblocks once they are gone", func() {
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -626,7 +628,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -647,13 +649,13 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			cert := &cmv1.Certificate{}
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		markCertificateReady()
 		Eventually(func() error {
 			ns := &corev1.Namespace{}
 			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
-		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+		markDaemonSetReady()
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionTrue))
 
@@ -705,7 +707,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	})
 
 	It("installs external-dns (Route53/IRSA) and reaches Ready when DNS+ingress+cert are all up", func() {
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		spec := validManagedSpec()
 		spec.DNS = &configv1alpha1.DNS{
@@ -738,14 +740,14 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			cert := &cmv1.Certificate{}
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		markCertificateReady()
 
 		Eventually(func() error {
 			ns := &corev1.Namespace{}
 			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
-		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+		markDaemonSetReady()
 
 		// Now the external-dns phase should fire and create its
 		// namespace + Deployment; drive the Deployment to Available.
@@ -772,7 +774,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	})
 
 	It("rejects Route53 with neither IRSA nor static credentials", func() {
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		spec := validManagedSpec()
 		spec.DNS = &configv1alpha1.DNS{
@@ -805,13 +807,13 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			cert := &cmv1.Certificate{}
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		markCertificateReady()
 		Eventually(func() error {
 			ns := &corev1.Namespace{}
 			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
-		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+		markDaemonSetReady()
 
 		// Validator surfaces a Degraded with a useful message.
 		Eventually(func() string {
@@ -828,7 +830,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 	})
 
 	It("installs Kyverno and reaches Ready when all four controllers are Available", func() {
-		Expect(k8sClient.Create(ctx, makeCustomCASecret("custom-ca"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 
 		spec := validManagedSpec()
 		spec.PolicyEnforcement = &configv1alpha1.PolicyEnforcement{
@@ -861,13 +863,13 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 			cert := &cmv1.Certificate{}
 			return k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: wildcardCertificate}, cert)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
-		markCertificateReady(wildcardCertificate, testOperatorNamespace)
+		markCertificateReady()
 		Eventually(func() error {
 			ns := &corev1.Namespace{}
 			return k8sClient.Get(ctx, types.NamespacedName{Name: contourNamespace}, ns)
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		markDeploymentAvailable(contourControllerDeployment, contourNamespace)
-		markDaemonSetReady(envoyDaemonSet, contourNamespace)
+		markDaemonSetReady()
 
 		// Now wait for Kyverno's namespace to appear, then drive
 		// each of the four controller Deployments to Available.

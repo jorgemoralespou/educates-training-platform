@@ -22,13 +22,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
@@ -81,7 +81,8 @@ var errKyvernoNotReady = errors.New("kyverno Deployments not yet Available")
 //
 // When provider != BundledKyverno (or neither policy engine ==
 // Kyverno), the phase early-returns done=true.
-func (r *EducatesClusterConfigReconciler) reconcileKyvernoPhase(ctx context.Context, log logr.Logger, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) reconcileKyvernoPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+	log := logf.FromContext(ctx)
 	phaseStop := func(res ctrl.Result, err error) (bool, ctrl.Result, error) {
 		return false, res, err
 	}
@@ -94,7 +95,7 @@ func (r *EducatesClusterConfigReconciler) reconcileKyvernoPhase(ctx context.Cont
 		var verr *validationError
 		if errors.As(err, &verr) {
 			r.markDegraded(obj, verr.Field, verr.Reason)
-			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj))
+			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj))
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -102,7 +103,7 @@ func (r *EducatesClusterConfigReconciler) reconcileKyvernoPhase(ctx context.Cont
 	if err := r.reconcileKyverno(ctx, obj); err != nil {
 		log.Error(err, "kyverno reconcile failed")
 		r.markPolicyEnforcementProgressing(obj, "InstallFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
 	}
 
@@ -112,7 +113,7 @@ func (r *EducatesClusterConfigReconciler) reconcileKyvernoPhase(ctx context.Cont
 			r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
 			// Same cache-vs-watch race mitigation as the other
 			// service-readiness gates.
-			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
+			return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
@@ -155,7 +156,7 @@ func (r *EducatesClusterConfigReconciler) reconcileKyverno(ctx context.Context, 
 		return fmt.Errorf("load embedded kyverno chart: %w", err)
 	}
 
-	if err := r.ensureNamespace(ctx, kyvernoNamespace, nil, owner); err != nil {
+	if err := r.ensureNamespace(ctx, kyvernoNamespace, owner); err != nil {
 		return err
 	}
 

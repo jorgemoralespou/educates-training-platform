@@ -100,16 +100,16 @@ func (s *filteringLogSink) Enabled(level int) bool {
 	return s.inner.Enabled(level)
 }
 
-func (s *filteringLogSink) Info(level int, msg string, kv ...interface{}) {
+func (s *filteringLogSink) Info(level int, msg string, kv ...any) {
 	s.inner.Info(level, msg, kv...)
 }
 
-func (s *filteringLogSink) Error(err error, msg string, kv ...interface{}) {
+func (s *filteringLogSink) Error(err error, msg string, kv ...any) {
 	switch {
 	case strings.Contains(msg, kindSourceCRDMissingMessage):
 		// controller-runtime source.Kind discovery retry loop.
 		s.inner.Info(1, "watch source retry: kind not currently resolvable (post-uninstall or pre-install race; expected)",
-			append([]interface{}{"originalError", err}, kv...)...)
+			append([]any{"originalError", err}, kv...)...)
 		return
 	case msg == reflectorFailedToWatchMessage &&
 		err != nil &&
@@ -119,7 +119,7 @@ func (s *filteringLogSink) Error(err error, msg string, kv ...interface{}) {
 		// failures (connection refused, transient apiserver errors)
 		// still surface at ERROR.
 		s.inner.Info(1, "watch reflector retry: kind not currently resolvable (post-uninstall or pre-install race; expected)",
-			append([]interface{}{"originalError", err}, kv...)...)
+			append([]any{"originalError", err}, kv...)...)
 		return
 	}
 	s.inner.Error(err, msg, kv...)
@@ -129,6 +129,6 @@ func (s *filteringLogSink) WithName(name string) logr.LogSink {
 	return &filteringLogSink{inner: s.inner.WithName(name)}
 }
 
-func (s *filteringLogSink) WithValues(kv ...interface{}) logr.LogSink {
+func (s *filteringLogSink) WithValues(kv ...any) logr.LogSink {
 	return &filteringLogSink{inner: s.inner.WithValues(kv...)}
 }

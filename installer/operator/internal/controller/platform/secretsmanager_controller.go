@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -155,7 +154,7 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !obj.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(obj, finalizerSecretsManager) {
 			r.markPhase(obj, platformv1alpha1.ComponentPhaseUninstalling)
-			if err := r.updateStatusWithTransitionLog(ctx, log, obj); err != nil {
+			if err := r.updateStatusWithTransitionLog(ctx, obj); err != nil {
 				return ctrl.Result{}, err
 			}
 			if err := r.cleanup(ctx); err != nil {
@@ -218,7 +217,7 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		// Watch on EducatesClusterConfig re-fires when its Ready
 		// condition flips; RequeueAfter is belt-and-suspenders for
 		// the cache-vs-watch race we hit on cluster services.
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 	}
 	r.markClusterConfigAvailable(obj, metav1.ConditionTrue, "ClusterConfigReady",
 		"EducatesClusterConfig 'cluster' is Ready")
@@ -230,7 +229,7 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err := r.installOrUpgrade(ctx, obj, cfg); err != nil {
 		r.markDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		r.markReady(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
-		_ = r.updateStatusWithTransitionLog(ctx, log, obj)
+		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, fmt.Errorf("helm install secrets-manager: %w", err)
 	}
 	r.markDeployed(obj, metav1.ConditionTrue, "ChartInstalled",
@@ -250,7 +249,7 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.markReady(obj, metav1.ConditionFalse, "WaitingForDeployment",
 			"secrets-manager Deployment not yet Available")
 		r.markPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, log, obj)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 	}
 
 	// Publish status surface defined in the CRD draft r3 §2.
@@ -263,7 +262,7 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		"secrets-manager is installed and Available")
 	r.markPhase(obj, platformv1alpha1.ComponentPhaseReady)
 	obj.Status.ObservedGeneration = obj.Generation
-	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, log, obj)
+	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 }
 
 // clusterConfigReady fetches the EducatesClusterConfig singleton and
@@ -377,8 +376,8 @@ func renderSecretsManagerValues(obj *platformv1alpha1.SecretsManager, cfg *confi
 // halves. Anything missing falls back to empty strings; the chart
 // handles empty-as-derive.
 func splitImageRegistryPrefix(prefix string) (host, namespace string) {
-	if i := strings.Index(prefix, "/"); i >= 0 {
-		return prefix[:i], prefix[i+1:]
+	if h, ns, ok := strings.Cut(prefix, "/"); ok {
+		return h, ns
 	}
 	return prefix, ""
 }
@@ -473,7 +472,8 @@ func (r *SecretsManagerReconciler) markPhase(obj *platformv1alpha1.SecretsManage
 // logs the aggregate-Ready transition once per change. Mirrors the
 // pattern in the config-controller package so behavior is consistent
 // across CRD groups.
-func (r *SecretsManagerReconciler) updateStatusWithTransitionLog(ctx context.Context, log logr.Logger, obj *platformv1alpha1.SecretsManager) error {
+func (r *SecretsManagerReconciler) updateStatusWithTransitionLog(ctx context.Context, obj *platformv1alpha1.SecretsManager) error {
+	log := logf.FromContext(ctx)
 	desiredReady := meta.FindStatusCondition(obj.Status.Conditions, conditionReady)
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		live := &platformv1alpha1.SecretsManager{}
