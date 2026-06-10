@@ -116,11 +116,7 @@ func scenarioSessionManagerSpec(logLevel string, ws v1alpha1.LocalWebsiteStyling
 		spec["defaultTheme"] = ws.DefaultTheme
 	}
 	if len(ws.ThemeDataRefs) > 0 {
-		refs := make([]interface{}, len(ws.ThemeDataRefs))
-		for i, r := range ws.ThemeDataRefs {
-			refs[i] = map[string]interface{}{"namespace": r.Namespace, "name": r.Name}
-		}
-		spec["themes"] = map[string]interface{}{"dataRefs": refs}
+		spec["themes"] = themesFromDataRefs(ws.ThemeDataRefs)
 	}
 	if ipp != nil {
 		spec["imagePrePuller"] = map[string]interface{}{"enabled": *ipp}

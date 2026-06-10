@@ -108,11 +108,7 @@ func inlineSessionManagerSpec(cfg *v1alpha1.EducatesInlineConfig) map[string]int
 		spec["defaultTheme"] = cfg.WebsiteStyling.DefaultTheme
 	}
 	if len(cfg.WebsiteStyling.ThemeDataRefs) > 0 {
-		refs := make([]interface{}, len(cfg.WebsiteStyling.ThemeDataRefs))
-		for i, r := range cfg.WebsiteStyling.ThemeDataRefs {
-			refs[i] = map[string]interface{}{"namespace": r.Namespace, "name": r.Name}
-		}
-		spec["themes"] = map[string]interface{}{"dataRefs": refs}
+		spec["themes"] = themesFromDataRefs(cfg.WebsiteStyling.ThemeDataRefs)
 	}
 	if cfg.ImagePrePuller != nil {
 		spec["imagePrePuller"] = map[string]interface{}{"enabled": *cfg.ImagePrePuller}

@@ -66,7 +66,7 @@ func TestLoad_FullLocalConfig_RoundTripsAllFields(t *testing.T) {
 	if got, want := len(local.Resolver.ExtraDomains), 2; got != want {
 		t.Errorf("ExtraDomains len = %d, want %d", got, want)
 	}
-	if got, want := local.WebsiteStyling.DefaultTheme, "educates-default"; got != want {
+	if got, want := local.WebsiteStyling.DefaultTheme, "my-theme-data"; got != want {
 		t.Errorf("WebsiteStyling.DefaultTheme = %q, want %q", got, want)
 	}
 }

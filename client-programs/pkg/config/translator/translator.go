@@ -83,6 +83,28 @@ func wrapCR(apiVersion, kind string, spec map[string]interface{}) map[string]int
 	}
 }
 
+// themesFromDataRefs translates CLI-level themeDataRefs (Secret
+// name+namespace pairs) into the SessionManager CRD's themes list —
+// one Secret-sourced Theme per ref, named after its backing Secret.
+// (An earlier {"dataRefs": [...]} shape predated the CRD's
+// ThemeSource secretRef field and never matched the schema.)
+func themesFromDataRefs(refs []v1alpha1.ThemeDataRef) []interface{} {
+	themes := make([]interface{}, len(refs))
+	for i, r := range refs {
+		themes[i] = map[string]interface{}{
+			"name": r.Name,
+			"source": map[string]interface{}{
+				"type": "Secret",
+				"secretRef": map[string]interface{}{
+					"name":      r.Name,
+					"namespace": r.Namespace,
+				},
+			},
+		}
+	}
+	return themes
+}
+
 const (
 	apiVersionConfig   = "config.educates.dev/v1alpha1"
 	apiVersionPlatform = "platform.educates.dev/v1alpha1"

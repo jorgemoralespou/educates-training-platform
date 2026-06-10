@@ -247,17 +247,24 @@ func TestTranslateLocal_FullConfig_SessionManagerFields(t *testing.T) {
 	out, _ := Translate(cfg, testOpts())
 	sm := out.SessionManager["spec"].(map[string]interface{})
 
-	if got, want := sm["defaultTheme"], "educates-default"; got != want {
+	if got, want := sm["defaultTheme"], "my-theme-data"; got != want {
 		t.Errorf("defaultTheme = %v, want %v", got, want)
 	}
-	themes := sm["themes"].(map[string]interface{})
-	refs := themes["dataRefs"].([]interface{})
-	if len(refs) != 1 {
-		t.Fatalf("dataRefs len = %d", len(refs))
+	themes := sm["themes"].([]interface{})
+	if len(themes) != 1 {
+		t.Fatalf("themes len = %d", len(themes))
 	}
-	ref := refs[0].(map[string]interface{})
-	if got, want := ref["namespace"], "educates"; got != want {
-		t.Errorf("ref.namespace = %v, want %v", got, want)
+	theme := themes[0].(map[string]interface{})
+	source := theme["source"].(map[string]interface{})
+	if got, want := source["type"], "Secret"; got != want {
+		t.Errorf("source.type = %v, want %v", got, want)
+	}
+	secretRef := source["secretRef"].(map[string]interface{})
+	if got, want := secretRef["namespace"], "educates"; got != want {
+		t.Errorf("secretRef.namespace = %v, want %v", got, want)
+	}
+	if got, want := theme["name"], secretRef["name"]; got != want {
+		t.Errorf("theme.name = %v, want backing Secret name %v", got, want)
 	}
 
 	ipp := sm["imagePrePuller"].(map[string]interface{})

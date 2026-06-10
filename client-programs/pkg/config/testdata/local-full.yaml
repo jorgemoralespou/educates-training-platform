@@ -34,7 +34,7 @@ lookupService: false
 imagePrePuller: true
 
 websiteStyling:
-  defaultTheme: educates-default
+  defaultTheme: my-theme-data
   themeDataRefs:
     - namespace: educates
       name: my-theme-data
