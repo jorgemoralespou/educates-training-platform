@@ -5,10 +5,7 @@ ARG TAG=latest
 FROM ${REPOSITORY}/educates-base-environment:${TAG} AS themes-source
 
 # Multi-stage build for client-programs
-FROM golang:1.25.0-alpine AS builder
-
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+FROM golang:1.26 AS builder
 
 # Set working directory
 WORKDIR /src
@@ -34,7 +31,7 @@ COPY --from=themes-source /opt/eduk8s/etc/themes pkg/renderer/files/
 ARG TARGETOS
 ARG TARGETARCH
 
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o bin/educates-${TARGETOS}-${TARGETARCH} \
     cmd/educates/main.go
 

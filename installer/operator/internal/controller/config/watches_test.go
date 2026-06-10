@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -118,7 +117,7 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 			// its own manager, but controller-runtime's name registry is
 			// process-global, so the second spec's SetupWithManager would
 			// otherwise reject the duplicate.
-			Controller: crconfig.Controller{SkipNameValidation: ptr.To(true)},
+			Controller: crconfig.Controller{SkipNameValidation: new(true)},
 		})
 		Expect(err).NotTo(HaveOccurred())
 

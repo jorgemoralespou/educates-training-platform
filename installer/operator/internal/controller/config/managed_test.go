@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -262,7 +261,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session
 				},
 			},
 			Metrics:    metricsserver.Options{BindAddress: "0"},
-			Controller: crconfig.Controller{SkipNameValidation: ptr.To(true)},
+			Controller: crconfig.Controller{SkipNameValidation: new(true)},
 		})
 		Expect(err).NotTo(HaveOccurred())
 

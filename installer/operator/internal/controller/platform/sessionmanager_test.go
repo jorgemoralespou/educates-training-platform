@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -106,7 +105,7 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 			Scheme:     k8sClient.Scheme(),
 			Metrics:    metricsserver.Options{BindAddress: "0"},
-			Controller: crconfig.Controller{SkipNameValidation: ptr.To(true)},
+			Controller: crconfig.Controller{SkipNameValidation: new(true)},
 		})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -264,7 +263,7 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 
 		prePuller, ok := rel.Config["imagePrePuller"].(map[string]any)
 		Expect(ok).To(BeTrue(), "imagePrePuller missing from rendered values")
-		Expect(prePuller["enabled"]).To(Equal(true))
+		Expect(prePuller["enabled"]).To(BeTrue())
 	})
 
 	It("rejects reserved-but-unsupported spec surface with field-specific validation errors", func() {

@@ -78,7 +78,7 @@ WORKDIR /opt/helper
 RUN npm install && \
     npm run vsce-package
 
-FROM golang:1.19-buster as builder-image
+FROM golang:1.26 as builder-image
 
 WORKDIR /app
 

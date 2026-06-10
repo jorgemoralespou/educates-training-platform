@@ -476,14 +476,12 @@ func controllerSetOwnerOnCrossNamespaceCopy(owner *configv1alpha1.EducatesCluste
 		Kind:               gvk.Kind,
 		Name:               owner.GetName(),
 		UID:                owner.GetUID(),
-		Controller:         ptrBool(true),
-		BlockOwnerDeletion: ptrBool(true),
+		Controller:         new(true),
+		BlockOwnerDeletion: new(true),
 	}
 	dst.SetOwnerReferences([]metav1.OwnerReference{ref})
 	return nil
 }
-
-func ptrBool(b bool) *bool { return &b }
 
 // ensureClusterIssuer applies the cluster-wide ClusterIssuer that
 // signs the wildcard Certificate. The Issuer spec is built per
