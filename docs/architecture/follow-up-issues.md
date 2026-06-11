@@ -1149,6 +1149,17 @@ indexes must be copied whole.
 
 **Date added:** 2026-06-11 (expanded same day after design discussion;
 deliberately deferred — see "Why deferred" below).
+**Status:** partially landed 2026-06-11 — the URL-generation half
+shipped as the minimal slice: `SessionManager.spec.ingressOverrides.
+protocol` (http|https) threaded to the chart's `clusterIngress.
+protocol`, exposed as `externalTLSTermination: true` on
+`EducatesGKEConfig` / `EducatesEKSConfig` / `EducatesInlineConfig`
+(and via `EducatesConfig` through the regenerated schema). STILL OPEN:
+certificate-less installs (`ingress.certificates` / Inline wildcard
+secret remain required, so GKE/EKS still provision the unused ACME
+stack behind an external LB), LookupService URL coherence, envoy
+NodePort exposure for ALB-fronted setups, and the full
+externalLoadBalancer modelling below.
 **Trigger to file:** first user report needing Cloudflare Tunnel /
 ALB+ACM / plain-HTTP-behind-proxy with an operator-driven install.
 This is a frequently used v3 capability, so likely soon after v4 ships.

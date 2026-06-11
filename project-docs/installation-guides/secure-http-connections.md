@@ -34,7 +34,9 @@ In some environments, a separate proxy server or CDN (Cloudflare, an AWS ALB wit
 
 If the proxy **re-encrypts** traffic toward the cluster using a private certificate (for example a Cloudflare origin certificate, with the Cloudflare SSL mode set to "Full"), this is just the static-certificate scenario from the cluster's point of view: supply the private certificate (and its CA) as the static wildcard certificate.
 
-If the proxy forwards **plain HTTP** to the cluster (Cloudflare "Flexible", Cloudflare Tunnel, the typical ALB+ACM listener), the cluster itself has no TLS to terminate, but Educates must still generate `https://` URLs for the public-facing domain. The v4 operator does not currently expose a protocol override for this arrangement — the underlying `educates-training-platform` Helm chart supports it (`ingress.protocol: https` with no certificate), so this scenario currently requires the [standalone runtime chart](helm-based-installation) rather than the operator-driven install. If you need this, track the project issue list or raise your use case.
+If the proxy forwards **plain HTTP** to the cluster (Cloudflare "Flexible", Cloudflare Tunnel, the typical ALB+ACM listener), the cluster itself terminates no public TLS, but Educates must still generate `https://` URLs for the public-facing domain. Assert this with `externalTLSTermination: true` in the `EducatesGKEConfig`, `EducatesEKSConfig` or `EducatesInlineConfig` configuration kinds (underneath, it sets `SessionManager.spec.ingressOverrides.protocol: https`, also reachable directly via `EducatesConfig` or when applying the custom resources yourself).
+
+One current limitation: the cluster configuration still requires its certificate settings (the GKE/EKS kinds still provision the ACME stack, and Inline mode still requires the wildcard certificate Secret), even though the external edge never presents that certificate. Fully certificate-less operator-driven installs are tracked as planned work; until then the in-cluster certificate covers the internal hop and the override governs the generated URLs.
 
 When fronting the cluster with a proxy that traverses public networks, restrict inbound traffic to the proxy's published IP ranges so traffic cannot bypass the proxy's TLS and protections.
 
@@ -56,7 +58,8 @@ Summary
 | Existing cert-manager in cluster  | ExternalCertManager + your ClusterIssuer                  |
 | Wildcard certificate in hand      | StaticCertificate / Inline wildcardCertificateSecret      |
 | Proxy re-encrypting to cluster    | StaticCertificate with the private certificate            |
-| Proxy forwarding plain HTTP       | Standalone runtime chart only (no operator support yet)   |
+| Proxy forwarding plain HTTP       | externalTLSTermination: true (in-cluster cert settings    |
+|                                   | still required — certificate-less installs are planned)   |
 ```
 
 In all cases, the ingress domain must be set to the wildcard domain for which DNS has been configured.

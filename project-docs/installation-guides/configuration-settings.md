@@ -60,7 +60,7 @@ acme:
   # server defaults to the Let's Encrypt production endpoint
 ```
 
-`gcp.project`, `domain` and `acme.email` are required. The component toggles (`lookupService`, `clusterAdmin`, ...) and `operator` block from `EducatesLocalConfig` are available here too. The scenario's architecture choices are locked — to deviate, use `EducatesConfig`.
+`gcp.project`, `domain` and `acme.email` are required. The component toggles (`lookupService`, `clusterAdmin`, ...) and `operator` block from `EducatesLocalConfig` are available here too. When TLS for the ingress domain is terminated outside the cluster (a cloud load balancer or proxy forwarding plain HTTP inward), set `externalTLSTermination: true` so generated portal and workshop URLs use `https` — see [secure HTTP connections](secure-http-connections). The scenario's other architecture choices are locked — to deviate, use `EducatesConfig`.
 
 See [infrastructure providers](infrastructure-providers) for the Google Cloud IAM and DNS zone prerequisites.
 
@@ -83,7 +83,7 @@ acme:
   email: admin@example.com
 ```
 
-`aws.accountId`, `aws.region`, `aws.route53HostedZoneId`, `domain` and `acme.email` are required.
+`aws.accountId`, `aws.region`, `aws.route53HostedZoneId`, `domain` and `acme.email` are required. As with the GKE kind, `externalTLSTermination: true` asserts `https` URLs when TLS is terminated at an external load balancer.
 
 (defining-configuration-for-ingress)=
 EducatesInlineConfig
@@ -103,6 +103,7 @@ policyEnforcement:
   workshopEngine: Kyverno                      # Kyverno | None
 imageRegistry:
   prefix: registry.internal/educates           # optional mirror prefix
+externalTLSTermination: false                  # true when a proxy/LB terminates TLS in front of the cluster
 ```
 
 `domain`, `ingressClassName` and `wildcardCertificateSecret` are required. The referenced Secrets must exist in the operator's namespace before deployment. See [secure HTTP connections](secure-http-connections) for the certificate options across all scenarios.
@@ -146,15 +147,18 @@ Session manager settings
 
 Runtime behavior settings live on the `SessionManager` custom resource spec, reachable via the `sessionManager` block of `EducatesConfig` (or directly when applying resources yourself):
 
+* `ingressOverrides` — per-component TLS/CA Secret overrides, plus `protocol` to assert `https` URLs when TLS is terminated outside the cluster (this is what the kinds' `externalTLSTermination` translates to).
 * `tracking` — analytics integrations (Google Analytics, Amplitude, Microsoft Clarity, webhooks).
 * `sessionCookieDomain` — share the authentication cookie across subdomains.
 * `allowedEmbeddingHosts` — sites permitted to embed workshop sessions (CSP frame ancestors).
 * `storage` — storage class plus user/group fixups for NFS-style storage providers.
 * `network` — packet size (MTU) and blocked CIDR ranges for workshop sessions.
 * `images` — per-image overrides for runtime-spawned images.
+* `themes`/`defaultTheme` — Secret-sourced workshop themes.
+* `imagePrePuller` — pre-pull key images on cluster nodes.
 * `nodeCATrust`, `remoteAccess` — node-level CA trust injection and cross-cluster CLI access.
 
-Use `kubectl explain sessionmanager.spec` for the full schema. A few spec blocks (`themes`/`defaultTheme`, `defaultAccessCredentials`, `imagePrePuller`, `registryMirrors`) are reserved in the CRD but not yet acted on by the operator in this release.
+Use `kubectl explain sessionmanager.spec` for the full schema. A few spec blocks (`defaultAccessCredentials`, `registryMirrors`, and ConfigMap/URL-sourced themes) are reserved in the CRD but rejected as not yet supported in this release.
 
 Updating settings
 -----------------

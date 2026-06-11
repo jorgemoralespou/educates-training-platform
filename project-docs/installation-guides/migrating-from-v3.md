@@ -55,8 +55,8 @@ Common v3 values map to v4 fields as follows:
 | clusterIngress.tlsCertificateRef        | wildcardCertificateSecret (Inline) — Secret must live in   |
 |                                         | the operator namespace                                     |
 | clusterIngress.caCertificateRef         | caCertificateSecret (Inline) / local secrets add ca (Local)|
-| clusterIngress.protocol                 | not yet supported by the operator — see secure HTTP        |
-|                                         | connections for the standalone-chart workaround            |
+| clusterIngress.protocol                 | externalTLSTermination: true (GKE/EKS/Inline kinds) /      |
+|                                         | SessionManager ingressOverrides.protocol                   |
 | aws.region / aws.irsaRoles.*            | aws.region / aws.certManagerRoleARN /                      |
 |                                         | aws.externalDNSRoleARN (EKS kind)                          |
 | gcp.project / gcp.workloadIdentity.*    | gcp.project / gcp.certManagerServiceAccount /              |
@@ -107,4 +107,4 @@ Removed in v4
 
 * The Carvel/`kapp-controller` installation path. GitOps installs now point at the published Helm chart — see [Helm-based installation](helm-based-installation).
 * Pre-canned provider configurations for `minikube` and `vcluster`. Equivalent installs are possible via `EducatesConfig` or `EducatesInlineConfig`.
-* The `clusterIngress.protocol` override (external proxy terminates TLS, cluster receives plain HTTP). Currently only available via the standalone runtime chart — see [secure HTTP connections](secure-http-connections). Restoring this through the operator is tracked as planned work.
+* Fully certificate-less installs (v3 allowed installing with no TLS configuration at all). The URL-scheme half of `clusterIngress.protocol` is restored via `externalTLSTermination` / `SessionManager.spec.ingressOverrides.protocol`, but v4 still requires the certificate settings in the cluster configuration — see [secure HTTP connections](secure-http-connections).

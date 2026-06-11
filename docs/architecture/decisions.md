@@ -1315,3 +1315,31 @@ same schemas, with no extra repo or external hosting dependency.
 Schema hosting is deliberately upstream-centric (unlike images and
 charts, where fork self-containment is load-bearing): a fork that
 changes schema shape carries a patch.
+
+### Ingress protocol override lives on SessionManager, surfaced as `externalTLSTermination` in the CLI kinds
+
+**Date:** 2026-06-11.
+**Decision:** The restored v3 `clusterIngress.protocol` capability is
+modelled as `SessionManager.spec.ingressOverrides.protocol`
+(http|https, optional; empty derives from TLS presence as the chart
+already does), NOT as a new `EducatesClusterConfig` certificates
+provider. The reconciler threads it to the session-manager chart's
+existing `clusterIngress.protocol` value. The CLI exposes it as a
+boolean `externalTLSTermination: true` on `EducatesGKEConfig`,
+`EducatesEKSConfig` and `EducatesInlineConfig` (translating to
+protocol: https); `EducatesConfig` reaches the field directly via the
+CRD-generated schema. `EducatesLocalConfig` does not expose it.
+
+**Why:** The protocol is a URL-generation concern owned by the
+session-manager and workshops — an assertion that the public edge is
+https when TLS is terminated at an external load balancer — not a
+certificate-provisioning concern, so it belongs on the component CR
+rather than in the cluster config's certificates discriminated union.
+The boolean naming on the kinds describes the scenario (cloud LB in
+front) rather than the mechanism, making it hard to misuse; the
+generic http|https enum remains available on the CR for completeness.
+This is deliberately the minimal slice of the "External load balancer
+support" follow-up: certificate-less installs, LookupService URL
+coherence and envoy exposure modes remain open there — a full
+end-to-end externalLoadBalancer capability likely touches runtime
+internals, which are out of scope for v4.
