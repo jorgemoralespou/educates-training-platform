@@ -1,10 +1,16 @@
 Release Procedures
 ==================
 
-All changes pertaining to a new release should be worked on in forks of the main Educates GitHub repository, with changes submited via pull requests back to the `develop` branch of the main repository. When it is time for a release, the following steps should be followed.
+This document covers the maintainer side of the project's branch and release model: cutting release branches, tagging versions, finishing releases, and maintaining released lines. The branching model itself, and the workflow for contributing features and fixes, is described in the [branching strategy](branching-strategy.md). Read that first; this document assumes its terminology.
+
+All of the operations below are maintainer actions and are expected to be run from a **direct clone of the canonical repository**, where `origin` is the canonical repo. They should not be performed from a fork. The exceptions are the noted cases of testing the release process itself in a fork.
+
+The version numbers in the examples (`4.0.0`, `support/3.7.x`) are illustrative; substitute current versions.
 
 Updates to the Documentation
 ----------------------------
+
+Documentation changes follow the normal development workflow: they land on `develop` through `feature/*` or `bugfix/*` branches and pull requests, the same as code changes. The published documentation site provides a `latest` version built from the `develop` branch alongside the `stable` version built from the `main` branch, so documentation changes which have not yet shipped in a release are still publicly accessible from the `latest` version. There is no separate process for pushing documentation updates out between releases.
 
 Before any release is performed, documentation should first be updated for any changes being made in the release. Documentation updates should consist of:
 
@@ -14,20 +20,22 @@ Before any release is performed, documentation should first be updated for any c
 
 Where changes are non trivial or need further explanation, the release notes should include a cross reference to other parts of the documentation describing the feature.
 
+Once a `release/*` branch has been cut, release notes and documentation updates for that release count as stabilization work and are made on the `release/*` branch. They reach `develop` through the back-merge when the release is finished.
+
 Triggering a Development Build
 ------------------------------
 
-For any individual code changes the developer of the changes should have already built and tested the changes on their local system. If a complete build of Educates consisting of all code changes for a release is required, a build from the `develop` branch can be triggered using a GitHub actions workflow dispatch trigger event. This can be done from the GitHub actions page of the main Educates GitHub repository located at:
+For any individual code changes the developer of the changes should have already built and tested the changes on their local system. If a complete build of Educates consisting of all code changes for a release is required, a build can be triggered using a GitHub actions workflow dispatch trigger event. This can be done from the GitHub actions page of the main Educates GitHub repository located at:
 
 * [https://github.com/educates/educates-training-platform/actions](https://github.com/educates/educates-training-platform/actions)
 
 ![](github-actions-build.png)
 
-From the GitHub actions page select "Build and Publish Images" from the list of workflows, then click on the "Run workshop" dropdown. In the drop down select the branch `develop` and then the list of platforms to run the build.
+From the GitHub actions page select "Build and Publish Images" from the list of workflows, then click on the "Run workflow" dropdown. In the drop down select the branch to build and the list of platforms to run the build for. This will usually be the `develop` branch, but a build can equally be run from a `release/*` branch during stabilization, or a `support/*` branch when preparing a patch release.
 
 By default the build will only be run for the `linux/amd64` platform. The `linux/arm64` platform can instead be selected, or both, by selecting `linux/amd64,linux/arm64`. Note that any `linux/arm64` build will take significantly longer as the build is done under GitHub actions using the QEMU machine emulator and virtualizer.
 
-Being a development build, all the container images, client programs and package bundles will be created, but neither a package repository bundle or GitHub release will be created. To test the release, clients programs and package resource manifests for installing the development version can be downloaded from the build artifacts of the GitHub actions workflow run. Client programs can also be download by using the command:
+Being a development build, all the container images, client programs and package bundles will be created, but no GitHub release will be created. To test the build, client programs and package resource manifests for installing the development version can be downloaded from the build artifacts of the GitHub actions workflow run. For a build of the `develop` branch, client programs can also be downloaded by using the command:
 
 ```
 imgpkg pull -i ghcr.io/educates/educates-client-programs:develop -o /tmp/client-programs
@@ -35,63 +43,164 @@ imgpkg pull -i ghcr.io/educates/educates-client-programs:develop -o /tmp/client-
 
 A development build prior to a release would be done against the main Educates GitHub repository. If necessary a developer of some changes could also trigger such a build using GitHub actions from their fork of the Educates GitHub repository. In this case all container image references will resolve to images built and pushed to the developers GitHub container registry namespace and not that of the main Educates GitHub repository. For more complicated changes, it possibly should be a requirement that a developer do a full development build from their fork and test it before creating a pull request with their changes.
 
+Note that builds done in a fork will only include container images built for the `linux/amd64` platform by default, due to the significantly longer build times required for `linux/arm64`. If you need a build in a fork to include support for the `linux/arm64` platform, create a GitHub secret in the repository fork called `TARGET_PLATFORMS` with a value of `linux/arm64` or `linux/amd64,linux/arm64`.
+
 Tagged Pre-release Versions
 ---------------------------
 
-Development builds created by manually invoking the GitHub actions workflow are mutable and would be replaced by a subsequent development build. If you want to generate a more official pre-release version for testing (alpha, beta, or release candidate), you can create a tag in the Git repository against the corresponding commit in the `develop` branch and push the tag to GitHub. Pushing the tag will automatically trigger the GitHub action workflow to run. As with a development build all the container images, client programs and package bundles will be created. This time a GitHub release will be also be created but marked as pre-release. A package repository will still not be created however.
+Development builds created by manually invoking the GitHub actions workflow are mutable and would be replaced by a subsequent development build. To generate a more official pre-release version for testing, create a version tag against the appropriate commit and push the tag to GitHub. Pushing the tag will automatically trigger the GitHub actions workflow to run. As with a development build all the container images, client programs and package bundles will be created. This time a GitHub release will also be created, marked as pre-release.
 
-The format of the tags you can use for pre-release builds are:
+The format of the tags for pre-release builds are:
 
 * `X.Y.Z-alpha.N`
 * `X.Y.Z-beta.N`
 * `X.Y.Z-rc.N`
 
-These can be created against a branch of a fork created from the main GitHub repository, in which case the release will be added against the fork and not the main GitHub repository.
+The pre-release stages mark increasing maturity on the road to a final release, and which branch each is tagged on follows from the feature freeze line described below:
 
-Because the same tag might be used in the main GitHub repository, which would be propagated to the fork when the repositories are synchronized, use of these tags is discouraged in forks except for testing release procedures. If done for this purpose, it is suggest that a tag of the form `0.0.1-???.N` be used, and that after testing both the tag and GitHub release be deleted once no longer required, so that the same tag can be used again in such future testing.
+* **alpha** is early and unstable. Features for the release are still being added and may change or break; APIs are not settled. Alpha builds are for early testing of work in progress. Tagged on `develop`, before feature freeze.
+* **beta** is feature-complete (or nearly so) but not yet stabilized. The intended scope of the release is present and the focus shifts from adding features to finding and fixing bugs; breakage is still expected. Tagged on `develop`, still before feature freeze, but later in that window than alpha.
+* **rc** (release candidate) is believed ready to ship. The release is feature-frozen and on the `release/*` branch; only fixes for genuine release blockers go in. Each rc is a concrete candidate for the final release; if no blocker is found, that exact code becomes the release. Tagged on the `release/*` branch, after feature freeze.
 
-Note that pre-release versions created in a fork will only include container images built for the `linux/amd64` platform. If you need for a pre-release version created in a fork to include support for the `linux/arm64` platform, you will need to create a GitHub secret in the repository fork called `TARGET_PLATFORMS` with a value of `linux/arm64` or `linux/amd64,linux/arm64`. Only `linux/amd64` platform support is included by default when builds are done in a fork due to the significantly longer build times required for `linux/arm64`.
+Note that GitHub cannot enforce this placement (a tag names a commit, not a branch), so it is a convention upheld by process. Tags are not pushed automatically by anything; push them explicitly:
+
+```
+git switch release/4.0.0
+git tag 4.0.0-rc.1
+git push origin 4.0.0-rc.1
+```
+
+Once pushed to the canonical repo, a version tag is immutable. The tag ruleset blocks updates and deletions, so a tag cannot be moved or removed afterwards without bypass. If a pre-release build turns out to be broken, move on to the next pre-release number rather than attempting to re-tag.
+
+Version tags can also be created in a fork, in which case the GitHub release will be added against the fork and not the main GitHub repository. Because the same tag might be used in the main GitHub repository, which would be propagated to the fork when the repositories are synchronized, use of these tags is discouraged in forks except for testing release procedures. If done for this purpose, it is suggested that a tag of the form `0.0.1-???.N` be used, and that after testing both the tag and GitHub release be deleted from the fork once no longer required, so that the same tag can be used again in such future testing.
+
+Cutting a Release Branch
+------------------------
+
+A `release/*` branch isolates the stabilization of a version from ongoing development. It is named for the target version: `release/<major>.<minor>.<patch>` (e.g. `release/4.0.0`). It is not used during active development, only once a release is imminent.
+
+The dividing line is **feature freeze**: everything before it happens on `develop`, everything after it on the `release/*` branch. While features are still landing for the release, that work stays on `develop`, and alpha and beta tags are made there. At feature freeze, cut the `release/*` branch off `develop`:
+
+```
+git switch develop
+git pull
+git switch -c release/4.0.0
+git push -u origin release/4.0.0
+```
+
+From this point the release is frozen and no new features go onto it. On the `release/*` branch, do only stabilization work: bug fixes, version-number bumps, changelog and documentation updates. Tag rc builds here, since this branch holds the exact code being proposed for release.
+
+Cutting the branch at feature freeze lets the team start adding features to `develop` for the *next* version while this release is being finalized.
+
+Fixes During Stabilization
+--------------------------
+
+A small fix found during stabilization can be committed directly to the release branch:
+
+```
+git switch release/4.0.0
+# ...fix, commit...
+git push
+```
+
+A larger fix that warrants its own review or CI run goes on a `bugfix/*` branch off the release branch, merged back via a PR targeting the release branch:
+
+```
+git switch release/4.0.0
+git switch -c bugfix/some-fix
+# ...fix, commit...
+git push -u origin bugfix/some-fix
+gh pr create --base release/4.0.0 --head bugfix/some-fix --title "Fix ..."
+```
+
+To pull in a fix that already exists on `develop`, cherry-pick it. Do **not** merge `develop` into the release branch, as that drags all of develop's in-progress work into the release and defeats the freeze:
+
+```
+git switch release/4.0.0
+git cherry-pick <commit-sha>
+git push
+```
 
 Creating the Final Release
 --------------------------
 
-The use of a `develop` branch distinct from `main` was due to an original intention to follow a `gitflow` type model for branch management. With repository forks and pull requests in GitHub now being used as the means to manage contributions from distinct developers, the `gitflow` model is not now being strictly adhered to even though the `develop` branch has been retained.
+Because the shared branches are protected by GitHub rulesets that require pull requests, the merges that finish a release go through PRs, not a direct push. A local "merge and push" helper command (such as `git flow release finish`) does not work against these branches, because its push is a direct push the ruleset rejects.
 
-Although it is recommended a Git client supporting the `gitflow` model be used to manage the release, it is not strictly necessary. Either way, the outcome should be:
+```
+# 1. PR the release branch into main
+gh pr create --base main --head release/4.0.0 --title "Release 4.0.0"
+#    (or open in the UI) - review and merge the PR.
 
-* The `develop` branch should be merged into the `main` branch.
-* The merge commit should be tagged with the version for the final release.
-* The `main` branch at the point of the tagged version should be pulled back into the `develop` branch to align the two branches.
+# 2. Tag the final release on the merge commit on main
+git switch main
+git pull
+git tag 4.0.0
+git push origin 4.0.0
 
-The format of the tag you use for a final release should be:
+# 3. Back-merge main into develop so develop reflects what shipped
+git switch develop
+git pull
+git switch -c merge/4.0.0-to-develop
+git merge main          # resolve any conflicts, commit
+git push -u origin merge/4.0.0-to-develop
+gh pr create --base develop --head merge/4.0.0-to-develop --title "Back-merge 4.0.0 into develop"
+#    (or open in the UI) - review and merge the PR.
 
-* `X.Y.Z`
+# 4. Delete the finished release branch
+git push origin --delete release/4.0.0
+```
 
-Pushing the changes and tag back to GitHub should trigger the GitHub actions workflow for building the project and creating the release.
+The format of the tag for a final release is `X.Y.Z`, with no suffix. `main` only ever carries final release tags. Pushing the tag triggers the GitHub actions workflow, which will create all the container images, client programs and package bundles, and a GitHub release not marked as pre-release.
 
-The GitHub action in this case will result in the creation of all the container images, client programs and package bundles. A GitHub release will be also be created as well as a package repository bundle.
+The back-merge in step 3 ensures the release's stabilization fixes, and the release/version-bump commits, are not lost, and that `develop` reflects exactly what shipped. The release branch is ephemeral: once merged and tagged it has done its job, and the permanent record is the tag plus the merge commits, not the branch. Deleting it (step 4) is a deliberate, explicit step; keep it on the release checklist so stale `release/*` branches don't accumulate.
 
-Creation of a final release in a fork should only be done if testing the release process. In this case the version tag `0.0.1` should be used and the tag and GitHub release should be deleted once the test has been completed.
+As with pre-release tags, a pushed final release tag is immutable on the canonical repo and cannot be moved or removed. Creation of a final release in a fork should only be done if testing the release process. In this case the version tag `0.0.1` should be used and the tag and GitHub release should be deleted from the fork once the test has been completed.
 
-Merging Package Definitions
----------------------------
+Support Branches and Patch Releases
+-----------------------------------
 
-Upon a successful final release being created by the GitHub actions workflow, a pull request against the `develop` branch will be automatically created back against the GitHub repository. This pull request will contain the package resource definitions for the released version. This pull request should be merged prior to any subsequent release as the the package resource definitions need to exist in the repository so they can be included in the subsequent release. If this is not done then that version will be missing from subsequent versions of the package repository.
+A support branch is **not created by default**. One is cut only when there is an actual need to patch a released line, typically when development of the next `<major>.<minor>` will take a while and the current line needs fixes in the meantime. Until that need arises, no support branch exists for the line.
 
-In the case of creating a final release in a fork, this pull request will not be created. This is because the only source of package resource definitions should be from the GitHub actions workflow run from the main GitHub repository. Package resource definitions should never be added in a fork, nor merged from a fork to the main GitHub repository.
+When one is needed, cut it from `main` at that line's latest release tag, following the `support/<major>.<minor>.x` convention. More than one can be active at the same time when older versions still need patching, e.g. `support/3.6.x` for a user stuck on 3.6 alongside `support/3.7.x`.
 
-Adhoc Documentation Updates
----------------------------
+```
+git switch -c support/3.7.x 3.7.0     # branch from the last 3.7 release tag
+git push -u origin support/3.7.x
+```
 
-The public Educates documentation web site is updated from the `main` branch of the GitHub repository. Where documentation updates neatly fall within the time window for creating a final release, no special steps are required. Updating the public documentation outside of that time window gets more complicated because there may be in progress changes for both Educates code and documentation sitting within the `develop` branch which should not be merged into the `main` branch prior to a release.
+All fixes for a given line happen on its support branch, via a hotfix branch named for the next patch version. Merges to `support/*` branches must go through PRs, the same as `main` and `develop`:
 
-Until a better system is created for handling adhoc updates to the public documentation web site, the following is recommended.
+```
+git switch support/3.7.x
+git pull
+git switch -c hotfix/3.7.1
+# ...fix, commit...
+git push -u origin hotfix/3.7.1
+gh pr create --base support/3.7.x --head hotfix/3.7.1 --title "Fix ... (3.7.1)"
+#    (or open in the UI) - review and merge the PR.
+```
 
-1. Ensure that in your repository fork that the `main` branch is up to date with the main repository.
-2. When needing to make the documentation changes create the branch from the `main` branch instead of `develop`.
-3. Make the required changes in your documentation branch and push your branch to your repository fork.
-4. Create the pull request, ensure that it is being made relative to the `main` branch of the main repository and not `develop`.
-5. The pull request should then be merged to the `main` branch of the main repository.
-6. The `main` branch of the main repository should then be merged back into the `develop` branch.
+Then tag the patch release on the support branch and push the tag, which triggers the same release build as a final release:
 
-This process should only be used to make changes which affect the `project-docs` and `developer-docs` directories and which need to be made public in the `main` repository outside of the normal release schedule.
+```
+git switch support/3.7.x
+git pull
+git tag 3.7.1
+git push origin 3.7.1
+```
+
+When a maintained line reaches the end of its security-support window, retire its `support/*` branch. For each maintained line, the length of that window should be decided and documented when the line ships.
+
+Propagating Fixes Across Maintained Lines
+-----------------------------------------
+
+A vulnerability usually affects more than one line: several `support/*` branches and `develop`. Every fix must include a decision about which lines it applies to, and it must land on **all** affected lines that are still maintained.
+
+The default workflow is to apply the fix on the **oldest affected maintained line first**, then port it forward:
+
+* Fix on the oldest affected line, e.g. `support/3.6.x`.
+* Port forward into each newer maintained line in order (`support/3.7.x`), then into `develop`, by merge or cherry-pick. Cherry-pick is usually cleaner where the surrounding code has diverged.
+
+Working oldest-to-newest keeps the porting in one direction and avoids re-doing the fix. When a fix already exists on a newer line and an older maintained line turns out to be affected, back-port it by cherry-picking down to that older support branch.
+
+Treat "applied to every affected maintained line, including `develop`" as a required checklist item on every security fix, so a patched line never ships alongside another still-vulnerable one.

@@ -12,6 +12,8 @@ The Educates GitHub Actions repository holds GitHub actions to assist in publish
 
 If wanting to contribute to Educates, you can build and deploy a local copy of Educates by following the [build instructions](build-instructions.md).
 
+For how Git branches and version tags are managed, and the workflow for contributing features and fixes, see the [branching strategy](branching-strategy.md).
+
 For details on the design of Educates and how it works check out notes on it's [platform architecture](platform-architecture.md).
 
 If you want to learn about future directions the Educates project may take, check out the [project roadmap](project-roadmap.md).
