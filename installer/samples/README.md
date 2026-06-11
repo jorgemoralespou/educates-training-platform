@@ -1,7 +1,8 @@
 # EducatesClusterConfig samples
 
 Reference `EducatesClusterConfig` resources for the three Managed-mode
-scenarios verified during Phase 3.
+scenarios verified during Phase 3, plus full-field references covering
+the entire supported v1alpha1 spec surface.
 
 | File | Scenario | Certificates | DNS | Policy |
 |---|---|---|---|---|
@@ -9,6 +10,13 @@ scenarios verified during Phase 3.
 | `02-gke-clouddns-acme.yaml` | GKE production with Workload Identity (Managed) | BundledCertManager + ACME-DNS01 (CloudDNS) | BundledExternalDNS (CloudDNS) | Bundled Kyverno |
 | `03-eks-route53-acme.yaml` | EKS production with IRSA (Managed) | BundledCertManager + ACME-DNS01 (Route53) | BundledExternalDNS (Route53) | Bundled Kyverno |
 | `04-openshift-inline.yaml` | OpenShift / BYO cluster services (Inline) | pre-existing wildcard TLS Secret | — (cluster-managed) | OpenShiftSCC |
+| `05-managed-full.yaml` | Field reference: every supported Managed-mode field in one CR (GKE-flavoured) | BundledCertManager + ACME-DNS01 (CloudDNS) | BundledExternalDNS (CloudDNS) | Bundled Kyverno |
+| `06-inline-full.yaml` | Field reference: every Inline-mode field in one CR (generic BYO NGINX + cert-manager) | pre-existing wildcard TLS Secret + CA + ClusterIssuer | — (cluster-managed) | Kyverno (pre-existing) |
+
+The `-full` samples are field references, not starting points: each
+populates every field the v1alpha1 operator supports and lists the
+reserved-but-rejected surface in its comment header. For real installs
+start from the scenario samples and add only what you need.
 
 Platform-component CRs (apply *after* `EducatesClusterConfig` is Ready):
 
@@ -17,6 +25,9 @@ Platform-component CRs (apply *after* `EducatesClusterConfig` is Ready):
 | `secretsmanager.yaml` | SecretsManager — installs the secrets-manager runtime |
 | `lookupservice.yaml` | LookupService — installs the lookup-service runtime (prefix + cluster domain → full hostname) |
 | `sessionmanager.yaml` | SessionManager — installs the session-manager runtime (requires SecretsManager to be Ready first) |
+| `secretsmanager-full.yaml` | SecretsManager field reference — every spec field populated |
+| `lookupservice-full.yaml` | LookupService field reference — every spec field populated |
+| `sessionmanager-full.yaml` | SessionManager field reference — every supported spec field populated; rejected blocks (`defaultAccessCredentials`, `registryMirrors`) kept as comments |
 
 Apply order:
 

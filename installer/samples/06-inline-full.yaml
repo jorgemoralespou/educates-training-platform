@@ -1,0 +1,65 @@
+# Inline-mode "kitchen sink": every spec.inline field populated in one
+# CR. Generic-Kubernetes flavoured (an existing NGINX ingress controller
+# + cert-manager operated by the cluster team); see
+# 04-openshift-inline.yaml for the OpenShift variant with the optional
+# fields commented out.
+#
+# In Inline mode the operator installs nothing — it validates that each
+# referenced resource exists (and, for clusterIssuerRef, is Ready) and
+# republishes the assertions in status for the platform components to
+# consume.
+#
+# Prerequisites (must exist before applying this CR):
+#
+#   1. The wildcard TLS Secret, valid for `*.<domain>`:
+#
+#        kubectl -n educates-installer create secret tls \
+#          educates-wildcard-tls --cert=tls.crt --key=tls.key
+#
+#   2. The CA Secret (key ca.crt) for the chain that issued the
+#      wildcard. Lives in its own namespace here to show the optional
+#      cross-namespace reference; omit `namespace` to default to the
+#      operator namespace:
+#
+#        kubectl create namespace educates-secrets
+#        kubectl -n educates-secrets create secret generic \
+#          educates-wildcard-ca --from-file=ca.crt=ca.pem
+#
+#   3. The named ClusterIssuer must exist and be Ready (informational —
+#      surfaced in status so components can display the issuing chain).
+#
+#   4. The named IngressClass must exist and route to a healthy
+#      controller.
+#
+#   5. The cluster must already enforce the named policy engines, and
+#      each pull secret under imageRegistry must exist in the operator
+#      namespace.
+---
+apiVersion: config.educates.dev/v1alpha1
+kind: EducatesClusterConfig
+metadata:
+  name: cluster
+spec:
+  mode: Inline
+  inline:
+    ingress:
+      domain: workshops.example.com
+      ingressClassName: nginx
+      wildcardCertificateSecretRef:
+        name: educates-wildcard-tls
+      caCertificateSecretRef:
+        name: educates-wildcard-ca
+        # Optional; empty means the operator namespace.
+        namespace: educates-secrets
+      clusterIssuerRef:
+        name: corp-ca-issuer
+    policyEnforcement:
+      # clusterPolicyEngine: Kyverno | PodSecurityStandards |
+      #                      OpenShiftSCC | None
+      clusterPolicyEngine: Kyverno
+      # workshopPolicyEngine: Kyverno | None
+      workshopPolicyEngine: Kyverno
+    imageRegistry:
+      prefix: registry.internal.example.com/educates
+      pullSecrets:
+        - name: internal-registry-pull

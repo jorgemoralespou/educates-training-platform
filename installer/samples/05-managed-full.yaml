@@ -1,0 +1,119 @@
+# Managed-mode "kitchen sink": every spec field the v1alpha1 operator
+# actually supports, populated in one CR. GKE-flavoured (CloudDNS +
+# Workload Identity) so the cloud-specific blocks have realistic values;
+# swap the solver/dns blocks for Route53 + IRSA on EKS (see
+# 03-eks-route53-acme.yaml for that shape).
+#
+# Use this as a field reference, not as a starting point — for real
+# installs start from the scenario samples (01–04) and add only what
+# you need.
+#
+# Reserved-but-rejected surface (present in the CRD schema, refused by
+# the operator validator with "not yet supported in v1alpha1"):
+#
+#   - ingress.controller.provider: ExternalIngressController
+#   - ingress.certificates.provider: ExternalCertManager | StaticCertificate
+#   - acme.solvers.http01 (DNS01 only)
+#   - acme.solvers.dns01.provider: Cloudflare | AzureDNS
+#   - *.credentialsSecretRef static credentials (use Workload Identity
+#     on GKE, IRSA on EKS)
+#   - dns.bundledExternalDNS.provider: Cloudflare | AzureDNS
+#   - policyEnforcement.kyverno.provider: External
+#   - policyEnforcement engines other than Kyverno/None in Managed mode
+#
+# Prerequisites: the two GCP service accounts bound via Workload
+# Identity (see 02-gke-clouddns-acme.yaml) and the pull secret named
+# under imageRegistry:
+#
+#   kubectl -n educates-installer create secret docker-registry \
+#     internal-registry-pull --docker-server=registry.internal.example.com \
+#     --docker-username=... --docker-password=...
+---
+apiVersion: config.educates.dev/v1alpha1
+kind: EducatesClusterConfig
+metadata:
+  name: cluster
+spec:
+  mode: Managed
+
+  # infrastructure is accepted and recorded but not yet consumed by the
+  # v1alpha1 reconcilers (provider-specific defaulting is a follow-up).
+  infrastructure:
+    provider: GKE
+    cloud:
+      project: my-gcp-project
+      region: europe-west1
+      serviceAccounts:
+        certManager: cert-manager@my-gcp-project.iam.gserviceaccount.com
+        externalDNS: external-dns@my-gcp-project.iam.gserviceaccount.com
+
+  ingress:
+    domain: academy-01.google.educates.dev
+    ingressClassName: contour
+    controller:
+      provider: BundledContour
+      bundledContour:
+        # LoadBalancer (default) for cloud installs; NodePort on
+        # kind/minikube/vCluster; ClusterIP behind a service mesh.
+        envoyServiceType: LoadBalancer
+        # BundledContour is the only cluster service with an
+        # operational block in v1alpha1 (cert-manager spans three
+        # Deployments, Kyverno scales per-controller, external-dns is
+        # single-instance by design — none fit a shared shape). Of its
+        # knobs, the reconciler applies `replicas` (the Contour
+        # controller Deployment; Envoy is a DaemonSet and unaffected);
+        # the rest (resources, tolerations, nodeSelector,
+        # priorityClassName, podAnnotations, podLabels) are accepted
+        # but not yet wired into the chart values.
+        operational:
+          replicas: 2
+    certificates:
+      provider: BundledCertManager
+      bundledCertManager:
+        # CustomCA is the other supported issuerType — see
+        # 01-local-kind-customca.yaml. The two are mutually exclusive.
+        issuerType: ACME
+        acme:
+          email: ops@example.com
+          # Defaults to Let's Encrypt production when omitted. Staging
+          # avoids production rate limits while testing.
+          server: https://acme-staging-v02.api.letsencrypt.org/directory
+          solvers:
+            dns01:
+              provider: CloudDNS
+              cloudDNS:
+                # zone is optional — narrows external API calls to one
+                # managed zone instead of project-wide lookup.
+                zone: google-educates-dev
+                project: my-gcp-project
+                workloadIdentityServiceAccount: cert-manager@my-gcp-project.iam.gserviceaccount.com
+
+  dns:
+    provider: BundledExternalDNS
+    bundledExternalDNS:
+      provider: CloudDNS
+      cloudDNS:
+        project: my-gcp-project
+        workloadIdentityServiceAccount: external-dns@my-gcp-project.iam.gserviceaccount.com
+      # Default is [service] (Educates publishes the wildcard via an
+      # annotation on the Envoy Service). Adding "ingress" also
+      # publishes per-workshop Ingress records.
+      sources:
+        - service
+        - ingress
+
+  policyEnforcement:
+    clusterPolicy:
+      engine: Kyverno
+    workshopPolicy:
+      engine: Kyverno
+    kyverno:
+      provider: Bundled
+
+  # imageRegistry rewrites every bundled-chart image ref to live under
+  # the prefix and attaches the pull secrets (which must exist in the
+  # operator namespace).
+  imageRegistry:
+    prefix: registry.internal.example.com/educates
+    pullSecrets:
+      - name: internal-registry-pull
