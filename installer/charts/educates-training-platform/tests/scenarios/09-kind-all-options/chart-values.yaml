@@ -1,0 +1,195 @@
+# Values for `helm install -f <this-file>` against the v4 chart.
+#
+# Kitchen-sink scenario — every subchart enabled and every
+# session-manager value block populated. See description.md for what
+# each block's assertion is. Secrets referenced from `educates-secrets`
+# are created by pre-install.sh; the chart auto-derives SecretCopiers
+# for the cross-namespace refs.
+#
+# NOT the full chart surface: this file covers the *functional* value
+# blocks. Each subchart also exposes per-pod operational knobs that are
+# deliberately left at their defaults here (an e2e scenario gains
+# nothing from overriding them, and image overrides would point the
+# test away from the released refs). They are set the same way as the
+# blocks below — nested under the subchart's key:
+#
+#   - `<subchart>.image.{repository,tag,pullPolicy}` — per-component
+#     image override (secrets-manager, lookup-service, session-manager,
+#     node-ca-injector).
+#   - `<subchart>.imagePullSecrets` — pull secrets for the component's
+#     own pod (distinct from session-manager.secretPropagation, which
+#     feeds workshop namespaces).
+#   - `<subchart>.resources` — pod resource requests/limits
+#     (node-ca-injector splits this into `controller.resources` and
+#     `sync.resources`).
+#   - `global.development.imageRegistry.{host,namespace}` — local-dev
+#     redirect of every Educates image ref (e.g. localhost:5001 builds);
+#     also exists per-subchart as `<subchart>.development.imageRegistry`.
+#   - `secrets-manager.logLevel`, `lookup-service.ingress.className`,
+#     `lookup-service.remoteAccessTokenMount.enabled`.
+#   - session-manager extras left default or documented as out of scope
+#     in description.md: `clusterRuntime.class`, `clusterStorage.class`
+#     / `clusterStorage.user`, `dockerDaemon.proxyCache.{username,
+#     password}`, `imagePrePuller.{pauseImage,images}`, and the
+#     remaining `websiteStyling.inline.*` blocks (workshopDashboard,
+#     workshopInstructions, workshopStarted, workshopFinished).
+#
+# The authoritative list is each subchart's values.yaml
+# (installer/charts/educates-training-platform/charts/<subchart>/), or
+# `helm show values ./installer/charts/educates-training-platform`.
+
+lookup-service:
+  enabled: true
+  ingress:
+    host: lookup.${DOMAIN}
+
+remote-access:
+  enabled: true
+
+node-ca-injector:
+  enabled: true
+
+global:
+  clusterIngress:
+    domain: ${DOMAIN}
+    # protocol auto-derives to "https" because tlsCertificateRef.name is set.
+    tlsCertificateRef:
+      name: wildcard-tls
+      namespace: educates-secrets
+    caCertificateRef:
+      name: wildcard-ca
+      namespace: educates-secrets
+  clusterSecurity:
+    policyEngine: Kyverno
+
+session-manager:
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
+
+  # Grant the session-manager SA cluster-admin (chart default is false;
+  # this is the v3-default behaviour, exercised here).
+  clusterAdmin: true
+
+  clusterSecurity:
+    additionalKyvernoPolicies:
+      - apiVersion: kyverno.io/v1
+        kind: ClusterPolicy
+        metadata:
+          name: scenario-09-cluster-marker
+        spec:
+          validationFailureAction: Audit
+          background: true
+          rules:
+            - name: scenario-09-cluster-marker
+              match:
+                any:
+                  - resources:
+                      kinds: [Pod]
+              validate:
+                message: "scenario-09 cluster placeholder — never matches"
+                cel:
+                  expressions:
+                    - expression: "true"
+
+  workshopSecurity:
+    additionalKyvernoPolicies:
+      - apiVersion: kyverno.io/v1
+        kind: ClusterPolicy
+        metadata:
+          name: scenario-09-workshop-marker
+        spec:
+          validationFailureAction: Audit
+          background: true
+          rules:
+            - name: scenario-09-workshop-marker
+              match:
+                any:
+                  - resources:
+                      kinds: [Pod]
+              validate:
+                message: "scenario-09 workshop placeholder — never matches"
+                cel:
+                  expressions:
+                    - expression: "true"
+
+  # Appended to the chart's default image inventory (name not in the
+  # default list) — asserted in the rendered config blob, never pulled.
+  imageVersions:
+    - name: scenario-09-extra-image
+      image: ghcr.io/educates/scenario-09-extra:0.0.1
+
+  sessionCookies:
+    domain: ${DOMAIN}
+
+  clusterStorage:
+    # class empty → cluster default StorageClass (kind's standard).
+    # user stays null — chowning is for NFS-backed classes and
+    # conflicts with pod security enforcement.
+    group: 1
+
+  # clusterRuntime.class left unset — kind has no alternative runtime
+  # class installed.
+
+  clusterNetwork:
+    blockCIDRs:
+      - "169.254.169.254/32"
+      - "fd00:ec2::254/128"
+
+  dockerDaemon:
+    networkMTU: 1450
+    proxyCache:
+      remoteURL: "https://registry-1.docker.io"
+
+  workshopAnalytics:
+    google:
+      trackingId: G-SCENARIO09
+    clarity:
+      trackingId: clarity-scenario-09
+    amplitude:
+      trackingId: amp-scenario-09
+    webhook:
+      url: https://analytics.example.com/scenario-09
+
+  websiteStyling:
+    inline:
+      trainingPortal:
+        html: '<div id="scenario-09-inline-marker"></div>'
+    # The external theme wins as portal default; the inline assets are
+    # asserted at the default-website-theme Secret level.
+    defaultTheme: scenario-theme
+    themeDataRefs:
+      - name: scenario-theme
+        namespace: educates-secrets
+    frameAncestors:
+      - https://embed.example.com
+
+  imagePrePuller:
+    enabled: true
+    # images empty → chart derives the v3-equivalent default
+    # (training-portal + base-environment), which the test workshop
+    # needs anyway.
+
+  secretPropagation:
+    imagePullSecretNames:
+      - scenario-pull-secret
+    upstream:
+      imagePullSecrets:
+        - name: scenario-pull-secret
+          namespace: educates-secrets
+      websiteThemes:
+        - name: extra-theme
+          namespace: educates-secrets
+
+  config:
+    experimental:
+      markerKey: scenario-09-marker
