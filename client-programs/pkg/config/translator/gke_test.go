@@ -106,3 +106,41 @@ func TestTranslateGKE_RenderRoundTripsAsValidYAML(t *testing.T) {
 		}
 	}
 }
+
+// externalTLSTermination asserts the public edge is https when TLS is
+// terminated at an external load balancer — it must surface as the
+// SessionManager ingressOverrides protocol, and stay absent otherwise.
+func TestTranslateGKE_ExternalTLSTermination_SetsSessionManagerProtocol(t *testing.T) {
+	out, err := translateBytes(t, []byte(`
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesGKEConfig
+gcp:
+  project: my-gcp-project
+domain: academy-01.google.educates.dev
+acme:
+  email: ops@example.com
+externalTLSTermination: true
+`))
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	spec := out.SessionManager["spec"].(map[string]interface{})
+	overrides, ok := spec["ingressOverrides"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("sessionManager spec.ingressOverrides missing: %v", spec)
+	}
+	if got, want := overrides["protocol"], "https"; got != want {
+		t.Errorf("ingressOverrides.protocol = %v, want %v", got, want)
+	}
+
+	// Default (field unset) must not emit the override.
+	cfg := loadCfg(t, "gke-minimal.yaml").(*v1alpha1.EducatesGKEConfig)
+	out, err = Translate(cfg, Options{})
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec = out.SessionManager["spec"].(map[string]interface{})
+	if _, present := spec["ingressOverrides"]; present {
+		t.Errorf("ingressOverrides unexpectedly present without externalTLSTermination: %v", spec)
+	}
+}

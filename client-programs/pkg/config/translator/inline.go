@@ -104,6 +104,9 @@ func inlineSessionManagerSpec(cfg *v1alpha1.EducatesInlineConfig) map[string]int
 	if cfg.Operator.LogLevel != "" {
 		spec["logLevel"] = cfg.Operator.LogLevel
 	}
+	if cfg.ExternalTLSTermination {
+		spec["ingressOverrides"] = map[string]interface{}{"protocol": "https"}
+	}
 	if cfg.WebsiteStyling.DefaultTheme != "" {
 		spec["defaultTheme"] = cfg.WebsiteStyling.DefaultTheme
 	}

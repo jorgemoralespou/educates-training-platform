@@ -49,6 +49,13 @@ type EducatesInlineConfig struct {
 	// Defaults: clusterEngine=Kyverno, workshopEngine=Kyverno.
 	PolicyEnforcement InlinePolicyEnforcement `yaml:"policyEnforcement,omitempty"`
 
+	// ExternalTLSTermination asserts that TLS for the ingress domain is
+	// terminated outside the cluster (corporate load balancer or proxy
+	// forwarding plain HTTP inward). Generated portal and workshop URLs
+	// use https regardless of in-cluster certificate presence. Maps to
+	// SessionManager.spec.ingressOverrides.protocol: https.
+	ExternalTLSTermination bool `yaml:"externalTLSTermination,omitempty"`
+
 	// Top-level toggles shared with EducatesLocalConfig.
 	ClusterAdmin      *bool                        `yaml:"clusterAdmin,omitempty"`
 	LookupService     *bool                        `yaml:"lookupService,omitempty"`

@@ -1496,6 +1496,14 @@
               ],
               "type": "object"
             },
+            "protocol": {
+              "description": "protocol asserts the scheme of the public-facing URLs the\nsession manager and workshops generate. Set to https when TLS\nis terminated outside the cluster (external load balancer or\nproxy forwarding plain HTTP inward) so links are generated\ncorrectly despite no in-cluster certificate being presented.\nEmpty derives from the TLS configuration: https when a\nwildcard certificate is configured, http otherwise.",
+              "enum": [
+                "http",
+                "https"
+              ],
+              "type": "string"
+            },
             "tlsSecretRef": {
               "description": "LocalObjectReference is a name-only reference to an object in the\noperator namespace (or, for cluster-scoped kinds, to the cluster-\nscoped object). Mirrors the shape used in the config API group;\nduplicated here to avoid cross-group Go coupling.",
               "properties": {

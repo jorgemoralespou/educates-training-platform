@@ -36,6 +36,13 @@ type EducatesGKEConfig struct {
 	// server defaults to Let's Encrypt production at CRD level.
 	ACME ACMEConfig `yaml:"acme"`
 
+	// ExternalTLSTermination asserts that TLS for the ingress domain is
+	// terminated outside the cluster (cloud load balancer or proxy
+	// forwarding plain HTTP inward). Generated portal and workshop URLs
+	// use https regardless of in-cluster certificate presence. Maps to
+	// SessionManager.spec.ingressOverrides.protocol: https.
+	ExternalTLSTermination bool `yaml:"externalTLSTermination,omitempty"`
+
 	// Top-level toggles shared with EducatesLocalConfig. Defaults per
 	// the locked design: clusterAdmin=false, lookupService=true,
 	// imagePrePuller=false.

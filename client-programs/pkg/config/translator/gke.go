@@ -16,7 +16,7 @@ func TranslateGKE(cfg *v1alpha1.EducatesGKEConfig, _ Options) (*Output, error) {
 		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
 		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", gkeECCSpec(cfg)),
 		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", logLevelOnlySpec(cfg.Operator.LogLevel)),
-		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions)),
+		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions, cfg.ExternalTLSTermination)),
 	}
 	if cfg.LookupService != nil && *cfg.LookupService {
 		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", scenarioLookupServiceSpec(cfg.Operator.LogLevel))
@@ -107,10 +107,13 @@ func scenarioLookupServiceSpec(logLevel string) map[string]interface{} {
 // scenarioSessionManagerSpec is the cloud-scenario-shaped SessionManager
 // builder. Mirrors localSessionManagerSpec minus the laptop-specific
 // storage.storageGroup / network.blockedCidrs invariants.
-func scenarioSessionManagerSpec(logLevel string, ws v1alpha1.LocalWebsiteStylingConfig, ipp *bool, imageVersions []v1alpha1.ImageVersion) map[string]interface{} {
+func scenarioSessionManagerSpec(logLevel string, ws v1alpha1.LocalWebsiteStylingConfig, ipp *bool, imageVersions []v1alpha1.ImageVersion, externalTLS bool) map[string]interface{} {
 	spec := map[string]interface{}{}
 	if logLevel != "" {
 		spec["logLevel"] = logLevel
+	}
+	if externalTLS {
+		spec["ingressOverrides"] = map[string]interface{}{"protocol": "https"}
 	}
 	if ws.DefaultTheme != "" {
 		spec["defaultTheme"] = ws.DefaultTheme

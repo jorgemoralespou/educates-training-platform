@@ -107,3 +107,27 @@ func TestTranslateInline_RenderRoundTripsAsValidYAML(t *testing.T) {
 		}
 	}
 }
+
+// Inline-mode BYO clusters behind a corporate load balancer use the
+// same externalTLSTermination assertion as the cloud kinds.
+func TestTranslateInline_ExternalTLSTermination_SetsSessionManagerProtocol(t *testing.T) {
+	out, err := translateBytes(t, []byte(`
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesInlineConfig
+domain: workshops.example.com
+ingressClassName: contour
+wildcardCertificateSecret: wildcard-tls
+externalTLSTermination: true
+`))
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	spec := out.SessionManager["spec"].(map[string]interface{})
+	overrides, ok := spec["ingressOverrides"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("sessionManager spec.ingressOverrides missing: %v", spec)
+	}
+	if got, want := overrides["protocol"], "https"; got != want {
+		t.Errorf("ingressOverrides.protocol = %v, want %v", got, want)
+	}
+}

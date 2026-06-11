@@ -35,6 +35,12 @@
       }
     },
 
+    "externalTLSTermination": {
+      "type": "boolean",
+      "default": false,
+      "description": "Asserts TLS for the ingress domain is terminated outside the cluster (external load balancer or proxy forwarding plain HTTP inward); generated portal and workshop URLs use https regardless of in-cluster certificate presence. Maps to SessionManager.spec.ingressOverrides.protocol: https."
+    },
+
     "clusterAdmin":   { "type": "boolean", "default": false },
     "lookupService":  { "type": "boolean", "default": true },
     "imagePrePuller": { "type": "boolean", "default": false },
