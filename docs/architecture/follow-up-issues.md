@@ -1145,11 +1145,13 @@ indexes must be copied whole.
 
 ---
 
-### Expose an ingress protocol override for proxy-terminated TLS
+### External load balancer support (restore `clusterIngress.protocol`, possibly as a full externalLoadBalancer capability)
 
-**Date added:** 2026-06-11.
+**Date added:** 2026-06-11 (expanded same day after design discussion;
+deliberately deferred — see "Why deferred" below).
 **Trigger to file:** first user report needing Cloudflare Tunnel /
 ALB+ACM / plain-HTTP-behind-proxy with an operator-driven install.
+This is a frequently used v3 capability, so likely soon after v4 ships.
 
 **Context:**
 
@@ -1166,18 +1168,54 @@ only the operator surface is missing. Surfaced while rewriting
 `project-docs/installation-guides/secure-http-connections.md`, which
 currently documents the standalone chart as the workaround.
 
-**Scope:**
+**Design discussion outcome (2026-06-11):**
 
-Decide the CRD shape (e.g. a `None`/`ExternalTermination`
-certificates provider carrying a `protocol` assertion, or an explicit
-`ingress.protocol` override field valid in both modes), thread it
-through `EducatesClusterConfig.status` → SessionManager chart values,
-and update the secure-http-connections doc to drop the workaround.
+- The protocol is NOT a certificates-provider concern — no new
+  `certificates.provider` value. It is a URL-generation concern owned
+  by the session-manager (and workshops): an assertion to the
+  operator that the public edge is https even though the cluster
+  terminates none. The natural home is a field on the
+  `SessionManager` CR (e.g. alongside `spec.ingressOverrides`),
+  threaded to the session-manager chart's existing `ingress.protocol`
+  value.
+- Independently, "configured without certificates" must become
+  expressible in `EducatesClusterConfig` (relax `ingress.certificates`
+  required in Managed and/or `wildcardCertificateSecretRef` in
+  Inline) for the scenario to exist operator-side.
+- Open coherence question: LookupService also publishes URLs from its
+  own ingress; without the same treatment a proxy-fronted install
+  gets https workshop links but an http lookup-service URL.
+
+**Why deferred / the bigger shape:**
+
+A point fix (protocol field + requiredness relaxation) may not give a
+full end-to-end solution — properly supporting external load
+balancers likely has wider implications, potentially requiring
+rewrites in session-manager and other Educates runtime internals
+(URL composition, ingress creation for workshop services, header
+handling). Runtime components are explicitly out of scope for v4
+(installer-only change), so rather than landing a partial knob now,
+tackle this as a designed **`externalLoadBalancer` capability**:
+model the external edge (protocol, possibly ports/hostname mapping
+and forwarded-header expectations) as a first-class concept consumed
+end-to-end by the operator, the platform components and workshop
+ingress creation.
+
+**Scope (when picked up):**
+
+Design first — decide between the minimal restoration (SessionManager
+protocol field + certificates-optional relaxation, accepting the
+LookupService gap or covering it) and the full externalLoadBalancer
+capability; assess the runtime-internals impact before committing to
+either. Then update the CRD draft, implement, and update
+secure-http-connections.md to drop the standalone-chart workaround.
 
 **Acceptance criteria:**
 
 - An operator-driven install can serve proxy-terminated HTTPS with no
-  in-cluster certificate, generating https:// URLs.
-- CEL/validation keeps the field coherent with the certificates
-  providers (no silent conflicts).
+  in-cluster certificate, generating https:// URLs consistently
+  across session-manager-created resources (and lookup-service, if in
+  scope).
+- CEL/validation keeps the configuration coherent (no silent
+  insecure installs).
 - secure-http-connections.md documents the supported shape.
