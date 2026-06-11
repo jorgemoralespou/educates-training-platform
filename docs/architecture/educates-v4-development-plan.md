@@ -703,7 +703,7 @@ round-trip, sample-CR parity); schema publishing at
 - Operator image publish story: publish-time `educates.dev/image-*`
   annotations + release workflow (deferred from Phase 0; today the
   chart defaults to a local-dev placeholder image).
-- Image relocation pipeline: evaluate `helm dt`, decide Apache fork or alternative, integrate into release pipeline.
+- ~~Image relocation pipeline: evaluate `helm dt`, decide Apache fork or alternative, integrate into release pipeline.~~ *(done 2026-06-11: `helm dt` rejected — relicensed proprietary-Broadcom in 2026, and its values-rewriting is a no-op on our annotation-ladder charts. Decision: per-release digest-pinned image list (`hack/generate-image-list.sh`, attached to the GitHub release) + name-preserving skopeo/crane mirroring + existing registry overrides; `educates admin platform images copy` CLI wrapper tracked in follow-up-issues.md. See decisions.md.)*
 - Release process documentation.
 - ~~Remove the dangling carvel release machinery~~ *(done 2026-06-10:
   the leftover `carvel-packages/` build artifacts (gitignored, never

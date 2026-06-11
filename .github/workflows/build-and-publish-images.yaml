@@ -859,6 +859,48 @@ jobs:
           name: helm-charts
           path: dist/*.tgz
 
+  publish-image-list:
+    name: Publish (image list)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: read
+      packages: read
+
+    # Digest resolution needs every listed image already pushed.
+    needs:
+      - publish-generic-images
+      - publish-workshop-base-image
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Calculate variables
+        shell: bash
+        run: |
+          REPOSITORY_OWNER=${{github.repository_owner}}
+          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
+          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
+
+      # Digest-pinned list of every image an air-gapped install needs
+      # (platform images + base-environment + upstream cluster-service
+      # images from the vendored charts). Attached to the GitHub
+      # release for name-preserving mirroring with skopeo/crane.
+      - name: Generate image list
+        shell: bash
+        run: |
+          skopeo login ghcr.io --username ${{github.actor}} --password ${{secrets.GITHUB_TOKEN}}
+          ./hack/generate-image-list.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" \
+            > educates-images-${{env.REPOSITORY_TAG}}.txt
+          cat educates-images-${{env.REPOSITORY_TAG}}.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-list
+          path: educates-images-*.txt
+
   release-artifacts:
     name: Release
     runs-on: ubuntu-latest
@@ -870,6 +912,7 @@ jobs:
       - build-client-programs-darwin-arm64
       - publish-docker-extension
       - publish-charts
+      - publish-image-list
 
     steps:
       - name: Calculate variables
@@ -909,6 +952,11 @@ jobs:
         with:
           name: helm-charts
 
+      - name: Restore image list
+        uses: actions/download-artifact@v4
+        with:
+          name: image-list
+
       - name: Generate file checksums for CLI binaries
         shell: bash
         run: |
@@ -918,6 +966,7 @@ jobs:
           sha256sum educates-linux-arm64 >> checksums.txt
           sha256sum educates-installer-${{env.REPOSITORY_TAG}}.tgz >> checksums.txt
           sha256sum educates-training-platform-${{env.REPOSITORY_TAG}}.tgz >> checksums.txt
+          sha256sum educates-images-${{env.REPOSITORY_TAG}}.txt >> checksums.txt
           echo 'File Checksums' >> release-notes.md
           echo '--------------' >> release-notes.md
           echo '```' >> release-notes.md
@@ -953,3 +1002,4 @@ jobs:
             educates-darwin-arm64
             educates-installer-*.tgz
             educates-training-platform-*.tgz
+            educates-images-*.txt

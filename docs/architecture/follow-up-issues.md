@@ -1098,3 +1098,47 @@ Neither relationship is pinned by a test today.
 
 **Acceptance criteria:** tests live with the translator package and
 run in CI; the error message names accepted kinds.
+
+---
+
+### CLI: `educates admin platform images copy` for air-gapped relocation
+
+**Date added:** 2026-06-11.
+**Trigger to file:** when the first air-gapped consumer asks for a
+single-command transport, or when writing the air-gap installation
+docs makes the skopeo loop feel too raw.
+
+**Context:**
+
+The Phase 6 relocation decision (see decisions.md "Image relocation is
+a published digest-pinned list") ships a per-release
+`educates-images-<version>.txt` and documents name-preserving
+mirroring with skopeo/crane. That flow works everywhere but is a
+loop of third-party commands. `helm dt`-style single-command UX
+(one tarball out, one command in) was the only thing the rejected
+tools offered that we kept wanting.
+
+**Scope:**
+
+Add `educates admin platform images copy` (final naming TBD) with two
+modes:
+
+- `--to-tar <file>`: read an image list (default: fetch the list for
+  the CLI's own version from the GitHub release; `--images-file`
+  override), pull every image and write a single tarball.
+- `--from-tar <file> --to-registry <prefix>`: push the tarball's
+  images into the target registry **preserving repository paths**
+  under the prefix (NOT imgpkg's single-repo flattening), so the
+  charts' annotation ladder and the operator's
+  `imageRegistry.prefix` rewriting resolve them directly.
+
+Implement with the Carvel registry libraries already vendored in the
+CLI (or go-containerregistry, whichever is less code); multi-arch
+indexes must be copied whole.
+
+**Acceptance criteria:**
+
+- Round-trip (to-tar → from-tar) lands every image from the list in
+  the target registry under preserved paths, digests intact.
+- Air-gap docs show the CLI flow as primary and skopeo as the
+  tool-agnostic alternative.
