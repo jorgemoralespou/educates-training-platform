@@ -41,6 +41,10 @@ jobs:
           - image: assets-server
           - image: lookup-service
           - image: node-ca-injector
+          # The v4 operator lives outside the <image-name>/ convention,
+          # so it carries an explicit build context.
+          - image: operator
+            context: installer/operator
 
     steps:
       - name: Check out the repository
@@ -118,10 +122,18 @@ jobs:
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
+      # On release tags the operator image must embed the runtime
+      # subchart tarballs at the released version (versions are stamped
+      # in CI, not committed — see decisions.md).
+      - name: Stamp release version into operator chart embeds
+        if: matrix.image == 'operator' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${GITHUB_REF##*/}" ghcr.io "${{env.REPOSITORY_OWNER}}"
+
       - name: Build and push ${{matrix.image}} image
         uses: docker/build-push-action@v6
         with:
-          context: ${{matrix.image}}
+          context: ${{matrix.context || matrix.image}}
           platforms: ${{env.TARGET_PLATFORMS}}
           tags: ${{steps.meta.outputs.tags}}
           cache-from: type=local,src=/tmp/.buildx-cache-old
@@ -408,6 +420,13 @@ jobs:
           cache-dependency-path: |
             client-programs/go.sum
 
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
+
       - name: Build educates client program
         shell: bash
         run: |
@@ -445,6 +464,13 @@ jobs:
           go-version-file: go.work
           cache-dependency-path: |
             client-programs/go.sum
+
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
 
       - name: Build educates client program
         shell: bash
@@ -484,6 +510,13 @@ jobs:
           cache-dependency-path: |
             client-programs/go.sum
 
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
+
       - name: Build educates client program
         shell: bash
         run: |
@@ -522,6 +555,13 @@ jobs:
           go-version-file: go.work
           cache-dependency-path: |
             client-programs/go.sum
+
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
 
       - name: Build educates client program
         shell: bash
@@ -622,6 +662,14 @@ jobs:
           REPOSITORY_OWNER=${{github.repository_owner}}
           echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
           echo "REPOSITORY_SHA_TAG=sha-${GITHUB_SHA::7}" >>${GITHUB_ENV}
+          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
+
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
 
       - name: Calculate platforms
         shell: bash
@@ -674,6 +722,8 @@ jobs:
           build-args: |
             REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
             TAG=${{env.REPOSITORY_SHA_TAG}}
+            PROJECT_VERSION=${{env.REPOSITORY_TAG}}
+            IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
           tags: ${{steps.meta.outputs.tags}}
           push: true
 
@@ -754,6 +804,61 @@ jobs:
           tags: ${{steps.meta.outputs.tags}}
           push: true
 
+  publish-charts:
+    name: Publish (helm charts)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: read
+      packages: write
+
+    # Charts reference the images this run publishes; don't push charts
+    # for a release whose images failed.
+    needs:
+      - publish-generic-images
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Calculate variables
+        shell: bash
+        run: |
+          REPOSITORY_OWNER=${{github.repository_owner}}
+          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
+          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
+
+      - name: Stamp release version
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}"
+
+      - name: Package charts
+        shell: bash
+        run: |
+          mkdir -p dist
+          helm package installer/charts/educates-installer --destination dist
+          helm package installer/charts/educates-training-platform --destination dist
+
+      - name: Login to GitHub container registry
+        shell: bash
+        run: |
+          echo "${{secrets.GITHUB_TOKEN}}" | helm registry login ghcr.io \
+            --username ${{github.actor}} --password-stdin
+
+      - name: Push charts to OCI registry
+        shell: bash
+        run: |
+          helm push dist/educates-installer-${{env.REPOSITORY_TAG}}.tgz \
+            oci://ghcr.io/${{env.REPOSITORY_OWNER}}/charts
+          helm push dist/educates-training-platform-${{env.REPOSITORY_TAG}}.tgz \
+            oci://ghcr.io/${{env.REPOSITORY_OWNER}}/charts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helm-charts
+          path: dist/*.tgz
+
   release-artifacts:
     name: Release
     runs-on: ubuntu-latest
@@ -764,6 +869,7 @@ jobs:
       - build-client-programs-darwin-amd64
       - build-client-programs-darwin-arm64
       - publish-docker-extension
+      - publish-charts
 
     steps:
       - name: Calculate variables
@@ -798,6 +904,11 @@ jobs:
         with:
           name: educates-darwin-arm64
 
+      - name: Restore helm charts
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-charts
+
       - name: Generate file checksums for CLI binaries
         shell: bash
         run: |
@@ -805,6 +916,8 @@ jobs:
           sha256sum educates-darwin-arm64 >> checksums.txt
           sha256sum educates-linux-amd64 >> checksums.txt
           sha256sum educates-linux-arm64 >> checksums.txt
+          sha256sum educates-installer-${{env.REPOSITORY_TAG}}.tgz >> checksums.txt
+          sha256sum educates-training-platform-${{env.REPOSITORY_TAG}}.tgz >> checksums.txt
           echo 'File Checksums' >> release-notes.md
           echo '--------------' >> release-notes.md
           echo '```' >> release-notes.md
@@ -838,3 +951,5 @@ jobs:
             educates-linux-arm64
             educates-darwin-amd64
             educates-darwin-arm64
+            educates-installer-*.tgz
+            educates-training-platform-*.tgz

@@ -1201,3 +1201,43 @@ defaulting to `["base-environment"]`. Per-image control remains a
 chart-level concern (standalone users set `imagePrePuller.images`;
 operator users needing custom lists escalate via the chart, not the
 CRD).
+
+### Release versions are stamped in CI at publish time; charts are pushed to OCI under `charts/`
+
+**Date:** 2026-06-11.
+**Decision:** Releases stay "tag and go": the committed tree carries a
+development version (`4.0.0-alpha.1` charts, `appVersion: 3.7.1`
+runtime placeholder) and is never bumped by a release commit. On a tag
+push, `hack/stamp-release-version.sh` stamps the git tag as both
+`version` AND `appVersion` across `educates-installer`, the
+`educates-training-platform` umbrella (including its
+`dependencies[].version` pins) and the five runtime subcharts, rewrites
+the `educates.dev/image-registry-{host,namespace}` annotations to
+`ghcr.io/<repository-owner>` (the fork-rewrite that was always planned
+for these annotations), repackages the five runtime subchart tarballs
+into `installer/operator/vendored-charts/` at the stamped version,
+rewrites the `//go:embed` filenames + `<X>ChartVersion` constants in
+`embed.go`, refreshes `SHA256SUMS`, and regenerates the CLI's embedded
+chart copy. The script's `--charts-only` mode (pure perl, no
+helm/yq) lets the macOS CLI build runners stamp the embedded chart.
+Upstream cluster-service charts (cert-manager, Contour, external-dns,
+Kyverno) are NOT touched — they stay pinned until a human re-vendors
+them. The release workflow runs the script in three places: before the
+operator image build (so the image embeds released-version subcharts),
+in the four CLI binary builds, and in the new `publish-charts` job,
+which `helm package`s + `helm push`es both charts to
+`oci://ghcr.io/<owner>/charts/` and attaches the tarballs (with
+checksums) to the GitHub release.
+
+**Why:** Every other release artifact already gets its version from
+the tag at build time (CLI via ldflags, images via
+docker/metadata-action), so commit-then-tag would add a mandatory bump
+commit per release while protecting nothing — the stamped inputs are
+fully derived from the tag plus the committed tree. Stamping
+`appVersion` too (superseding the umbrella Chart.yaml comment that it
+lags at 3.7.1) makes each release self-consistent: the runtime images
+the charts reference are exactly the ones the same workflow run
+published, which is also what makes fork releases work without
+upstream-published images. The `charts/` OCI prefix keeps chart
+packages visually separate from the ~15 container images in the same
+ghcr.io namespace.

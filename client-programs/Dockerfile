@@ -31,7 +31,13 @@ COPY --from=themes-source /opt/eduk8s/etc/themes pkg/renderer/files/
 ARG TARGETOS
 ARG TARGETARCH
 
+# Compiled-in defaults, matching the ldflags the binary release builds
+# use (see build-and-publish-images.yaml).
+ARG PROJECT_VERSION=develop
+ARG IMAGE_REPOSITORY=ghcr.io/educates
+
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags "-X 'main.projectVersion=${PROJECT_VERSION}' -X 'main.imageRepository=${IMAGE_REPOSITORY}'" \
     -o bin/educates-${TARGETOS}-${TARGETARCH} \
     cmd/educates/main.go
 
