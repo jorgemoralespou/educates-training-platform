@@ -131,6 +131,13 @@ v4 chart actually emits.
 ### CI lint: Chart.yaml annotations stay in sync across subcharts
 
 **Date added:** 2026-05-05.
+**Status:** landed 2026-06-11 — `hack/lint-chart-versions.sh`, run as
+the `chart-sync-lint` job in `installer-operator-ci.yaml`. Covers the
+optional extension too (version/appVersion parity umbrella ↔ subcharts
+↔ educates-installer, dependency pins, and embed.go/tarball alignment),
+since the CI-stamping release model
+(`hack/stamp-release-version.sh`, see decisions.md) depends on the
+committed tree staying uniform.
 **Trigger to file:** any time after the `development.imageRegistry` +
 annotations refactor lands.
 

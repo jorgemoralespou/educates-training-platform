@@ -5,19 +5,35 @@ on:
     branches: [develop, main]
     paths:
       - 'installer/operator/**'
-      - 'installer/charts/educates-installer/**'
+      - 'installer/charts/**'
+      - 'hack/**'
       - 'go.work'
       - 'go.work.sum'
       - '.github/workflows/installer-operator-ci.yaml'
   pull_request:
     paths:
       - 'installer/operator/**'
-      - 'installer/charts/educates-installer/**'
+      - 'installer/charts/**'
+      - 'hack/**'
       - 'go.work'
       - 'go.work.sum'
       - '.github/workflows/installer-operator-ci.yaml'
 
 jobs:
+  chart-sync-lint:
+    name: Chart version/annotation sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Versions and registry annotations must stay uniform across the
+      # install charts — the release pipeline's stamping
+      # (hack/stamp-release-version.sh) assumes it. See
+      # hack/lint-chart-versions.sh for the exact invariants.
+      - name: Lint chart versions and annotations
+        run: ./hack/lint-chart-versions.sh
+
   ci:
     name: Build, vet, generate-drift, envtest, lint
     runs-on: ubuntu-latest
