@@ -29,6 +29,7 @@ Educates
 
   installation-guides/cluster-requirements
   installation-guides/installation-instructions
+  installation-guides/installation-architecture
   installation-guides/cli-based-installation
   installation-guides/helm-based-installation
   installation-guides/infrastructure-providers
