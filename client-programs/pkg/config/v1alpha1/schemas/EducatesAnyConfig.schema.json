@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.educates.dev/cli/v1alpha1/EducatesAnyConfig.json",
+  "title": "EducatesAnyConfig",
+  "description": "Any cli.educates.dev/v1alpha1 Educates CLI config kind. Umbrella schema for editor integrations that match by filename (SchemaStore): each kind carries a `kind` const, so exactly one branch validates. Not embedded in the CLI — the CLI validates against the per-kind schemas directly. Add a $ref here whenever a new config kind ships.",
+  "oneOf": [
+    { "$ref": "https://schemas.educates.dev/cli/v1alpha1/EducatesLocalConfig.json" },
+    { "$ref": "https://schemas.educates.dev/cli/v1alpha1/EducatesGKEConfig.json" },
+    { "$ref": "https://schemas.educates.dev/cli/v1alpha1/EducatesEKSConfig.json" },
+    { "$ref": "https://schemas.educates.dev/cli/v1alpha1/EducatesInlineConfig.json" },
+    { "$ref": "https://schemas.educates.dev/cli/v1alpha1/EducatesConfig.json" }
+  ]
+}

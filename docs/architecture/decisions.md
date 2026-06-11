@@ -1282,3 +1282,36 @@ Both tools reduce, for our chart shape, to "generated image inventory
 name-preserving transport that matches how the charts already resolve
 images. Maintaining a frozen Apache-era dt fork was rejected as
 all-cost-no-benefit.
+
+### CLI JSON schemas publish to GitHub Pages from this repo; discovery via modeline + SchemaStore
+
+**Date:** 2026-06-11.
+**Decision:** The `publish-schemas` release job deploys the
+`cli.educates.dev/v1alpha1` schemas to this repository's GitHub Pages
+site on every release tag, at the `$id` paths Phase 5 baked into them
+(`/cli/v1alpha1/<Kind>.json`; published names drop the `.schema`
+infix). Upstream maps `schemas.educates.dev` to the Pages site
+(one-time repo setting + DNS CNAME, documented in
+`developer-docs/json-schemas.md`); forks serve from
+`<owner>.github.io/...` and the job is `continue-on-error` so a fork
+without Pages enabled doesn't break its release. `$id` stays the
+canonical upstream URL even in fork-published copies (editors fetch
+the configured URL, not `$id`; no cross-schema `$ref`s exist).
+Editor discovery is two-pronged: `local config init` writes a
+`# yaml-language-server: $schema=...` modeline, and a new
+kind-discriminated umbrella schema (`EducatesAnyConfig`, oneOf over
+the five kinds, not embedded in the CLI) backs a SchemaStore catalog
+entry with `**/educates/config.yaml` + `*.educates.yaml` fileMatch
+patterns — the catalog PR is filed manually after the first release
+makes the URLs live.
+
+**Why:** Publishing serves editors and external validation (GitOps
+CI), not the CLI itself — the schemas are embedded for command-time
+validation regardless, but Phase 5's `$id` URLs are dead links until
+hosted, and the scenario kinds are designed to be hand-edited in user
+repos where language-server support matters. Pages-from-this-repo
+keeps schema deployment versioned with the release that embeds the
+same schemas, with no extra repo or external hosting dependency.
+Schema hosting is deliberately upstream-centric (unlike images and
+charts, where fork self-containment is load-bearing): a fork that
+changes schema shape carries a patch.

@@ -859,6 +859,60 @@ jobs:
           name: helm-charts
           path: dist/*.tgz
 
+  publish-schemas:
+    name: Publish (json schemas)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    # Deploys to this repository's GitHub Pages site (upstream maps it
+    # to schemas.educates.dev — see developer-docs/json-schemas.md).
+    # Forks without Pages enabled fail the deploy step; that must not
+    # gate the release.
+    continue-on-error: true
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{steps.deployment.outputs.page_url}}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Published filenames drop the .schema infix to match the $id
+      # baked into each schema (…/cli/v1alpha1/<Kind>.json).
+      - name: Stage schemas
+        shell: bash
+        run: |
+          mkdir -p site/cli/v1alpha1
+          for f in client-programs/pkg/config/v1alpha1/schemas/*.schema.json; do
+            name=$(basename "$f" .schema.json)
+            cp "$f" "site/cli/v1alpha1/$name.json"
+          done
+          {
+            echo '<!DOCTYPE html><html><head><title>Educates CLI JSON schemas</title></head><body>'
+            echo '<h1>Educates CLI JSON schemas (cli.educates.dev/v1alpha1)</h1><ul>'
+            for f in site/cli/v1alpha1/*.json; do
+              echo "<li><a href=\"cli/v1alpha1/$(basename "$f")\">$(basename "$f")</a></li>"
+            done
+            echo '</ul></body></html>'
+          } > site/index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
   publish-image-list:
     name: Publish (image list)
     runs-on: ubuntu-latest

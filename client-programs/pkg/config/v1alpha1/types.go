@@ -12,7 +12,18 @@ const (
 	APIVersion = GroupName + "/" + Version
 
 	KindEducatesLocalConfig = "EducatesLocalConfig"
+
+	// SchemaBaseURL is where the release workflow publishes the JSON
+	// schemas (GitHub Pages, mapped to schemas.educates.dev upstream).
+	// Matches the $id baked into each schema file.
+	SchemaBaseURL = "https://schemas.educates.dev/cli/" + Version + "/"
 )
+
+// SchemaURL returns the published JSON schema URL for a config kind,
+// suitable for yaml-language-server modelines.
+func SchemaURL(kind string) string {
+	return SchemaBaseURL + kind + ".json"
+}
 
 // TypeMeta carries the apiVersion/kind discriminator. Every CLI config kind
 // embeds this for kind-aware loading.

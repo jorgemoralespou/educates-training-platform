@@ -11,7 +11,11 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
-const defaultLocalConfigYAML = `apiVersion: ` + v1alpha1.APIVersion + `
+// The yaml-language-server modeline gives completion and validation in
+// any editor with a YAML language server, against the schema published
+// by the release workflow.
+const defaultLocalConfigYAML = `# yaml-language-server: $schema=` + v1alpha1.SchemaBaseURL + v1alpha1.KindEducatesLocalConfig + `.json
+apiVersion: ` + v1alpha1.APIVersion + `
 kind: ` + v1alpha1.KindEducatesLocalConfig + `
 `
 
