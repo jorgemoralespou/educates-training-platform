@@ -1,17 +1,34 @@
-# Operator container image. Phase 0 ships a local-development placeholder
-# tag; the publish-time defaults pattern (mirroring the runtime chart's
-# Chart.yaml annotations) lands in Phase 6 alongside release wiring.
+# Operator container image. All fields are overrides; in normal use
+# leave them empty and the chart resolves the image as
+# `{host}/{namespace}/educates-operator:{appVersion}` from the
+# Chart.yaml `educates.dev/image-registry-*` annotations (publish-time
+# defaults, rewritten per fork by the release workflow).
+#
+# - repository: full image repository (registry + path, no tag).
+#   Wins over both the annotations and development.imageRegistry.
+# - tag: defaults to Chart.appVersion.
+# - pullPolicy: empty auto-derives — Always for floating tags
+#   (latest/main/master/develop), IfNotPresent otherwise.
 #
 # Local development workflow:
 #   cd installer/operator
 #   make docker-build IMG=ghcr.io/educates/educates-operator:dev
 #   kind load docker-image ghcr.io/educates/educates-operator:dev
 #   helm install educates-installer installer/charts/educates-installer \
-#     --namespace educates-installer --create-namespace
+#     --namespace educates-installer --create-namespace \
+#     --set image.repository=ghcr.io/educates/educates-operator \
+#     --set image.tag=dev
 image:
-  repository: ghcr.io/educates/educates-operator
-  tag: dev
-  pullPolicy: IfNotPresent
+  repository: ""
+  tag: ""
+  pullPolicy: ""
+
+# Development override for the registry prefix only (image name and tag
+# still resolve normally): {host: ghcr.io, namespace: myfork}. Same
+# knob as the runtime subcharts' development.imageRegistry. Leave empty
+# in normal use.
+development:
+  imageRegistry: {}
 
 # Pull secrets for the operator pod itself. Distinct from
 # EducatesClusterConfig.spec.imageRegistry.pullSecrets, which apply to

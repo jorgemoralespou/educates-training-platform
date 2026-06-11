@@ -27,8 +27,8 @@ spec:
         runAsNonRoot: true
       containers:
         - name: manager
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: "{{ include "educates-installer.image.repository" . }}:{{ include "educates-installer.image.tag" . }}"
+          imagePullPolicy: {{ include "educates-installer.image.pullPolicy" . }}
           args:
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=0
