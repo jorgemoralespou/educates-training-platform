@@ -171,6 +171,13 @@ versions too.
 ### Document the chart release workflow's annotation update step
 
 **Date added:** 2026-05-05.
+**Status:** landed 2026-06-11 — the annotation update is now automated
+(`hack/stamp-release-version.sh` rewrites the annotations per fork at
+publish time; no manual `yq -i` step exists). The runbook
+(`developer-docs/release-procedures.md`, "Release Versioning and
+Stamping") documents the stamping model with the upstream and fork
+worked examples this issue asked for, and points at the
+`chart-sync-lint` CI job that enforces annotation consistency.
 **Trigger to file:** before the first chart release that consumers
 will install from a fork.
 
