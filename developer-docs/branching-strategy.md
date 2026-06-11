@@ -47,6 +47,20 @@ This strategy is a branching *model* and does not depend on any particular tool.
 
 A helper tool remains **optional**. If one is used, prefer **git-flow-next** (`git-flow.sh`). The classic `git-flow` (nvie) and `git-flow-avh` editions are both discontinued and the Homebrew `git-flow` formula is deprecated and scheduled to be disabled, whereas git-flow-next is the actively maintained successor and stays backward-compatible with the same `feature` / `release` / `hotfix` / `support` branch types. Note its value is limited in this setup: its "finish" automation merges and pushes locally, which the PR-requiring rulesets reject, so it helps mainly with the un-gated mechanics (creating correctly-named branches, local merges of `bugfix/` into a `release/` branch). It cannot open or merge a PR for you. Tooling status changes over time, so check current documentation before relying on any helper.
 
+### Claude Code skill
+
+The repository also carries a Claude Code skill, **`educates-git-workflow`**, under [.claude/skills/educates-git-workflow](../.claude/skills/educates-git-workflow/). Anyone using Claude Code in a clone of this repository gets it automatically: asking for any of the operations described here or in the [release procedures](release-procedures.md) (starting a feature or bugfix branch, cutting or finishing a release, tagging, patching a support line, porting a fix across lines) will be driven through this workflow rather than improvised with raw git.
+
+What it does, and the guarantees it follows:
+
+* Runs pre-flight checks before proposing anything: clean working tree, no operation in progress, base branch up to date, and that the clone really is the canonical repo (or a fork, which restricts it to topic-branch operations).
+* Follows the naming conventions, enforces the tag-placement rule (rc only on `release/*`, alpha/beta only on `develop`), and checks release notes exist before a release or patch release can be finished.
+* States the exact commands with concrete version numbers and branch names, and waits for explicit confirmation before anything consequential: any push to a shared branch, any tag push, any branch deletion, any PR creation. Multi-step flows confirm each stage separately.
+* Only ever creates pull requests, never merges them, and does not bypass the rulesets.
+* Leaves the judgement calls to you: it asks about feature freeze, version numbers, whether to open a support line, and backport targets rather than deciding.
+
+This document and the release procedures remain **canonical**; the skill implements the flow described in them. A change to the strategy or procedures should be accompanied by a matching update to the skill, so the two do not drift.
+
 Features and Fixes for the Line Under Development
 -------------------------------------------------
 

@@ -5,6 +5,8 @@ This document covers the maintainer side of the project's branch and release mod
 
 All of the operations below are maintainer actions and are expected to be run from a **direct clone of the canonical repository**, where `origin` is the canonical repo. They should not be performed from a fork. The exceptions are the noted cases of testing the release process itself in a fork.
 
+If you use Claude Code, the `educates-git-workflow` skill shipped in this repository drives all of these operations with the project's checks and confirmation gates built in; see *Claude Code skill* under *Tooling* in the [branching strategy](branching-strategy.md).
+
 The version numbers in the examples (`4.0.0`, `support/3.7.x`) are illustrative; substitute current versions.
 
 Updates to the Documentation
