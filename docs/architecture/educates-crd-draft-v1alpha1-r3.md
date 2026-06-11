@@ -467,6 +467,13 @@ spec:
       name: <string>
     caCertificateSecretRef:
       name: <string>
+    protocol: http | https               # optional (added post-r3, 2026-06-11).
+    # Asserts the scheme of generated portal/workshop URLs when TLS is
+    # terminated outside the cluster (external load balancer / proxy
+    # forwarding plain HTTP inward). Empty derives from TLS presence.
+    # Restores v3's clusterIngress.protocol for URL generation; full
+    # certificate-less installs remain a follow-up (see
+    # follow-up-issues.md "External load balancer support").
 
   # -- WORKSHOP POLICY OVERRIDE ---------------------------------------------
   workshopPolicyOverride:                # optional

@@ -51,6 +51,17 @@ type IngressOverrides struct {
 
 	// +optional
 	CACertificateSecretRef *LocalObjectReference `json:"caCertificateSecretRef,omitempty"`
+
+	// protocol asserts the scheme of the public-facing URLs the
+	// session manager and workshops generate. Set to https when TLS
+	// is terminated outside the cluster (external load balancer or
+	// proxy forwarding plain HTTP inward) so links are generated
+	// correctly despite no in-cluster certificate being presented.
+	// Empty derives from the TLS configuration: https when a
+	// wildcard certificate is configured, http otherwise.
+	// +kubebuilder:validation:Enum=http;https
+	// +optional
+	Protocol string `json:"protocol,omitempty"`
 }
 
 // WorkshopPolicyOverride locally overrides

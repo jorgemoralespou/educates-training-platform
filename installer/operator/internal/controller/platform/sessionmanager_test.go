@@ -267,6 +267,33 @@ var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
 		Expect(prePuller["enabled"]).To(BeTrue())
 	})
 
+	It("threads the ingressOverrides protocol assertion into chart values", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+
+		smgr := &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec: platformv1alpha1.SessionManagerSpec{
+				IngressOverrides: &platformv1alpha1.IngressOverrides{Protocol: "https"},
+			},
+		}
+		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
+
+		var rel *release.Release
+		Eventually(func() error {
+			hc, err := helmFac.For(platformNamespace)
+			if err != nil {
+				return err
+			}
+			rel, err = hc.Status(sessionManagerReleaseName)
+			return err
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		ci, ok := rel.Config["clusterIngress"].(map[string]any)
+		Expect(ok).To(BeTrue(), "clusterIngress missing from rendered values")
+		Expect(ci["protocol"]).To(Equal("https"))
+	})
+
 	It("rejects reserved-but-unsupported spec surface with field-specific validation errors", func() {
 		makeReadyClusterConfig()
 		makeReadySecretsManager()

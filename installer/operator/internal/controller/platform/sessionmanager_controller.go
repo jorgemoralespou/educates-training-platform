@@ -485,6 +485,11 @@ func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionMa
 		}
 	}
 	clusterIngress["caCertificateRef"] = caRef
+	// Asserted public-URL scheme for externally-terminated TLS; when
+	// unset the chart derives it from tlsCertificateRef presence.
+	if obj.Spec.IngressOverrides != nil && obj.Spec.IngressOverrides.Protocol != "" {
+		clusterIngress["protocol"] = obj.Spec.IngressOverrides.Protocol
+	}
 	values["clusterIngress"] = clusterIngress
 }
 
