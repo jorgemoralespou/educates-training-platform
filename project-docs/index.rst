@@ -30,10 +30,11 @@ Educates
   installation-guides/cluster-requirements
   installation-guides/installation-instructions
   installation-guides/cli-based-installation
-  installation-guides/carvel-based-installation
+  installation-guides/helm-based-installation
   installation-guides/infrastructure-providers
   installation-guides/secure-http-connections
   installation-guides/configuration-settings
+  installation-guides/airgapped-installation
 
 .. toctree::
   :maxdepth: 2

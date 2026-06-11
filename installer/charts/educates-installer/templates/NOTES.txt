@@ -6,10 +6,16 @@ The four CRDs are installed cluster-wide:
   - lookupservices.platform.educates.dev       (singleton, named "cluster")
   - sessionmanagers.platform.educates.dev      (singleton, named "cluster")
 
-Phase 0 status: the operator's reconcilers are stubs — they observe CRs
-and log the event, but do not yet install cluster services or the
-Educates runtime. See docs/architecture/educates-v4-development-plan.md
-for what's coming next.
+Next, apply the platform custom resources for your scenario — the
+operator installs everything else once EducatesClusterConfig is
+applied. Worked examples live in installer/samples/ in the project
+repository; documentation at https://docs.educates.dev.
+
+  kubectl apply -f educates-cluster-config.yaml
+  kubectl wait --for=condition=Ready educatesclusterconfig/cluster --timeout=600s
+  kubectl apply -f educates-secrets-manager.yaml
+  kubectl apply -f educates-lookup-service.yaml    # optional
+  kubectl apply -f educates-session-manager.yaml
 
 Useful commands:
 

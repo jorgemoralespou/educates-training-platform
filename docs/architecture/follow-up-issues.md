@@ -1142,3 +1142,42 @@ indexes must be copied whole.
   the target registry under preserved paths, digests intact.
 - Air-gap docs show the CLI flow as primary and skopeo as the
   tool-agnostic alternative.
+
+---
+
+### Expose an ingress protocol override for proxy-terminated TLS
+
+**Date added:** 2026-06-11.
+**Trigger to file:** first user report needing Cloudflare Tunnel /
+ALB+ACM / plain-HTTP-behind-proxy with an operator-driven install.
+
+**Context:**
+
+v3 supported `clusterIngress.protocol: https` with no in-cluster
+certificate, for deployments where an external proxy/CDN terminates
+public TLS and forwards plain HTTP to the cluster (Cloudflare
+Flexible/Tunnel, AWS ALB with ACM). The v4 `EducatesClusterConfig`
+requires `ingress.certificates` in Managed mode and Inline mode
+requires `wildcardCertificateSecret` — neither can express "no
+in-cluster TLS, but generate https:// URLs". The session-manager
+subchart still has the knob (`ingress.protocol`, auto-derived when
+empty), so the standalone-chart install path supports the scenario;
+only the operator surface is missing. Surfaced while rewriting
+`project-docs/installation-guides/secure-http-connections.md`, which
+currently documents the standalone chart as the workaround.
+
+**Scope:**
+
+Decide the CRD shape (e.g. a `None`/`ExternalTermination`
+certificates provider carrying a `protocol` assertion, or an explicit
+`ingress.protocol` override field valid in both modes), thread it
+through `EducatesClusterConfig.status` → SessionManager chart values,
+and update the secure-http-connections doc to drop the workaround.
+
+**Acceptance criteria:**
+
+- An operator-driven install can serve proxy-terminated HTTPS with no
+  in-cluster certificate, generating https:// URLs.
+- CEL/validation keeps the field coherent with the certificates
+  providers (no silent conflicts).
+- secure-http-connections.md documents the supported shape.

@@ -133,25 +133,30 @@ For the initial deployment we will rely on a `nip.io` address. How to use an alt
 Local Kubernetes cluster
 ------------------------
 
-To create a local Kubernetes cluster using Kind and deploy Educates, run the command:
+To create a local Kubernetes cluster using Kind and deploy Educates, run the commands:
 
 ```
-educates create-cluster
+educates local config init
+educates local cluster create
 ```
+
+Workshop sessions are always served over HTTPS, signed by a local certificate authority (CA). If no CA exists yet for your ingress domain, `educates local cluster create` stops and prints the exact command to create one — run it as printed, for example:
+
+```
+educates local secrets add ca educates-ca --domain 192-168-1-1.nip.io
+```
+
+(With no `--cert`/`--key` arguments a self-signed CA is generated for you and cached locally; it is reused for every future cluster with the same domain.) Then run `educates local cluster create` again.
 
 This command will perform the following steps:
 
 * Create the Kubernetes cluster using Kind.
 
-* Enable a security policy engine in the Kubernetes cluster.
+* Deploy an image registry accessible via port 5001 on the local machine, and configure the cluster to trust it.
 
-* Install Contour into the Kubernetes cluster and expose it via ports 80/443 on the local machine.
+* Install the Educates operator, which in turn installs the required cluster services — Contour as the ingress controller exposed via ports 80/443 on the local machine, cert-manager issuing TLS certificates from your local CA, and a security policy engine.
 
-* Deploy an image registry running accessible via port 5001 on the local machine.
-
-* Configure the Kubernetes cluster to trust the container image registry.
-
-* Deploy Educates to the Kubernetes cluster.
+* Deploy the Educates training platform components.
 
 Creation of the Kubernetes cluster, including the deployment of any required services and Educates, can take up to 5 minutes depending on your network speed.
 

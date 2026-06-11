@@ -10,7 +10,7 @@ Creating the cluster
 To create a local Kubernetes cluster using Kind and deploy Educates, run the command:
 
 ```
-educates create-cluster
+educates local cluster create
 ```
 
 Deleting the cluster
@@ -19,15 +19,15 @@ Deleting the cluster
 If you are done with the local environment and want to delete the Kubernetes cluster, run:
 
 ```
-educates delete-cluster
+educates local cluster delete
 ```
 
-You can then run `educates create-cluster` to recreate the Kubernetes cluster.
+You can then run `educates local cluster create` to recreate the Kubernetes cluster.
 
 If you know you do not intend to recreate the Kubernetes cluster, and so want everything deleted, you can run:
 
 ```
-educates delete-cluster --all
+educates local cluster delete --all
 ```
 
 This will also delete the local image registry and DNS resolver if deployed.
@@ -35,26 +35,26 @@ This will also delete the local image registry and DNS resolver if deployed.
 Custom configuration
 --------------------
 
-If you want to provide overrides to the automatically generated configuration for Educates you can provide a global set of defaults for the YAML data values by running:
+If you want to provide overrides to the automatically generated configuration for Educates you can edit the local configuration file (an `EducatesLocalConfig`, validated against its schema on save) by running:
 
 ```
 educates local config edit
 ```
 
-and entering the YAML data values. This configuration will be automatically used when running `educates create-cluster`.
+and entering the configuration. See [configuration settings](configuration-settings) for the available fields. This configuration will be automatically used when running `educates local cluster create`.
 
-You can view what actual YAML data values will be used for this configuration when doing a deployment of Educates by running:
+You can view the configuration file (validating it against the schema) by running:
 
 ```
 educates local config view
 ```
 
-You can also supply a YAML data values file via the `--config` option when running the `educates create-cluster` command, however by doing so any secrets in the local secrets cache will not be automatically copied to the cluster.
+You can also supply a configuration file via the `--config` option when running the `educates local cluster create` command, however by doing so any secrets in the local secrets cache will not be automatically copied to the cluster.
 
 Local image registry
 --------------------
 
-When you run the `educates create-cluster` command to create the local Kubernetes cluster, it will also deploy an image registry to your local docker environment. This is used for storing workshop content files and custom workshop base images. The Educates command line tool can be used to publish the workshop content files to this image registry.
+When you run the `educates local cluster create` command to create the local Kubernetes cluster, it will also deploy an image registry to your local docker environment. This is used for storing workshop content files and custom workshop base images. The Educates command line tool can be used to publish the workshop content files to this image registry.
 
 If you want to use the registry to store other images, you should tag your images with the registry host/port of `localhost:5001`, then push the image to the registry.
 
@@ -95,43 +95,37 @@ In using your own custom domain name, you could do it with a wildcard TLS certif
 
 If you are using a self signed CA, you could technically still use the `nip.io` domain, which would avoid needing to be able to configure DNS, but the domain name will be bound to the IP address of your machine, which can be an issue for laptops that are moved between networks as the IP address will change.
 
-To use a custom ingress domain, when running `educates create-cluster` you can supply the `--domain` option to pass the domain name.
+To use a custom ingress domain, set it in the local configuration before creating the cluster:
 
 ```
-educates create-cluster --domain educates-local-dev.test
+educates local config set ingress.domain educates-local-dev.test
 ```
 
 Alternatively, you can run `educates local config edit` and add the configuration for the ingress domain as part of the global defaults.
 
 ```yaml
-clusterIngress:
+ingress:
   domain: educates-local-dev.test
 ```
 
-This will still only allow HTTP as is and will not use a secure ingress. If you want to use secure ingress you need to provide the corresponding wildcard TLS certificate.
-
-If you had used certbot and Lets Encrypt to create a wildcard TLS certificate using a DNS challenge, you could then configure Educates to know about it and use it by running:
+Local installs always serve workshop sessions over HTTPS: the install configures cert-manager with a certificate authority (CA) you supply, and the wildcard TLS certificate for the ingress domain is issued from that CA inside the cluster. Provide the CA for your domain with:
 
 ```
-educates local secrets add tls ${INGRESS_DOMAIN}-tls \
- --cert $HOME/.letsencrypt/config/live/${INGRESS_DOMAIN}/fullchain.pem \
- --key $HOME/.letsencrypt/config/live/${INGRESS_DOMAIN}/privkey.pem \
- --domain ${INGRESS_DOMAIN}
+educates local secrets add ca ${INGRESS_DOMAIN}-ca --domain ${INGRESS_DOMAIN}
 ```
 
-The `--domain` option must be used to indicate the domain the wildcard TLS certificate is for, as the name of the secret is not significant. You can if necessary add multiple wildcard TLS certificates for different domains under different names. The TLS certificate annotated with the domain name which matches the `clusterIngress.domain` setting will be used.
-
-If the wildcard TLS certificate is self signed using your own certificate authority (CA) certificate, you would still use the above command to add the TLS certificate for Educates to use, but supply the location of where you had saved the corresponding files. You can then provide the CA certificate for Educates to use by running:
+With no `--cert`/`--key` arguments a self-signed CA is generated for you. If you already have a CA — for example one created with ``mkcert`` — supply its certificate and key instead:
 
 ```
 educates local secrets add ca ${INGRESS_DOMAIN}-ca \
  --cert "`mkcert -CAROOT`/rootCA.pem" \
+ --key "`mkcert -CAROOT`/rootCA-key.pem" \
  --domain ${INGRESS_DOMAIN}
 ```
 
-In this example, it was assumed that ``mkcert`` had been used to create the CA certificate and wildcard TLS certificate and thus we run ``mkcert`` to determine where the CA certificate was stored.
+The `--domain` option indicates which ingress domain the CA is for, as the name of the secret is not significant; the CA annotated with the domain matching `ingress.domain` is used. To have your browser and operating system trust workshop URLs without warnings, configure them to trust this CA certificate.
 
-These secrets will be automatically copied to the local Kubernetes cluster when running `educates create-cluster` provided that the `--config` is not being used.
+Cached secrets (the CA, and any docker-registry secrets referenced from `secretPropagation.imagePullSecretNames`) are automatically copied to the local Kubernetes cluster when running `educates local cluster create`, provided the `--config` option is not being used.
 
 Note that DNS still needs to be configured to map using a CNAME the wildcard domain to the IP address of your local host machine where the Kubernetes cluster is running. This could be done by modifying your actual DNS registry, or you can run a local DNS resolver. If doing this in your global DNS registry, it doesn't matter that the IP address is a local network address which is not accessible to the internet, although depending on what internet router you use for a home network, you may need to disable DNS rebinding protection in your router for the domain.
 
@@ -256,7 +250,7 @@ In this example, we're mirroring GitHub Container Registry as well as Docker Hub
 url for the remote registry mirror. We could have provided credentials for Docker Hub to prevent image pull throttling.
 
 ```
-educates create-cluster
+educates local cluster create
 ```
 
 This will deploy the cluster and all defined mirrors automatically.
