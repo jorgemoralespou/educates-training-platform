@@ -1343,3 +1343,32 @@ support" follow-up: certificate-less installs, LookupService URL
 coherence and envoy exposure modes remain open there — a full
 end-to-end externalLoadBalancer capability likely touches runtime
 internals, which are out of scope for v4.
+
+### Operational blocks trimmed to BundledContour only
+
+**Date:** 2026-06-11.
+**Decision:** The `operational` block (replicas, resources,
+tolerations, nodeSelector, priorityClassName, podAnnotations,
+podLabels) is removed from `bundledCertManager`, `bundledExternalDNS`,
+and the Kyverno config in `EducatesClusterConfig` — the empty
+`kyverno.bundled` wrapper went with it. Only `bundledContour` keeps
+the block, where the reconciler applies `replicas` to the Contour
+controller Deployment (`contour.replicaCount`); the remaining knobs
+stay accepted-but-unwired. This diverges from the r3 draft's "every
+Bundled block exposes the same operational knobs" pattern; the draft
+carries a dated amendment.
+
+**Why:** Verifying the plumbing against the vendored upstream charts
+showed the shared shape didn't hold. external-dns 1.21.1 hardcodes
+`replicas: 1` in its Deployment template and exposes no replica value
+(its values.schema.json has top-level `additionalProperties: true`,
+so the operator's `replicaCount` was silently swallowed) — the
+controller is deliberately single-instance. Kyverno's chart scales
+per-controller and upstream HA guidance wants 3+ replicas for the
+admission controller only, so fanning one count across all four
+controllers had wrong semantics. cert-manager spans controller +
+webhook + cainjector Deployments and its block was never consumed.
+Shipping no-op or misleading v1alpha1 surface is worse than re-adding
+per-service shapes (cert-manager per-deployment sub-blocks, Kyverno
+per-controller counts) validated against each chart's real values
+when a concrete need emerges — tracked in the r3 open items.

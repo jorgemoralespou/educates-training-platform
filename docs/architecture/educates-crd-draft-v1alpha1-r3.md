@@ -103,7 +103,20 @@ All structural validation (mode/inline exclusivity, singleton name, immutability
 
 ### Operational block pattern
 
-Every Bundled cluster-service block exposes the same `operational` knobs:
+> **Amended 2026-06-11:** in v1alpha1 only `bundledContour` carries an
+> `operational` block. The cert-manager, external-dns, and kyverno
+> blocks were removed after verifying their semantics against the
+> vendored upstream charts: the kubernetes-sigs external-dns chart
+> hardcodes `replicas: 1` and exposes no replica value (the controller
+> is deliberately single-instance); Kyverno scales per-controller with
+> its own HA rules (3+ replicas for the admission controller only), so
+> one shared count fanned across its four controllers had wrong
+> semantics; cert-manager spans controller + webhook + cainjector
+> Deployments and never consumed the block. Each returns as a
+> per-service shape validated against the chart's real values surface
+> when a concrete need emerges. See the decisions log.
+
+The `bundledContour` block exposes the `operational` knobs:
 
 ```yaml
 operational:
@@ -118,7 +131,7 @@ operational:
   podLabels: { ... }
 ```
 
-This is intentionally duplicated in each bundled block rather than factored out, because multi-deployment charts (e.g., cert-manager with controller + webhook + cainjector) may add deployment-specific variants later. Duplication is cheaper than a clever schema reference.
+The shape is intentionally use-site-local rather than factored out, because multi-deployment charts (e.g., cert-manager with controller + webhook + cainjector) need deployment-specific variants when they regain the block. Duplication is cheaper than a clever schema reference.
 
 ---
 
@@ -215,8 +228,7 @@ spec:
         customCA:                        # when issuerType: CustomCA
           caCertificateRef:
             name: <string>               # Secret in operator namespace, keys: tls.crt, tls.key (the CA's own cert+key)
-
-        operational: { ... }             # applies to cert-manager controller
+        # no operational block (removed 2026-06-11 — see "Operational block pattern")
 
       externalCertManager:               # cert-manager assumed installed; operator creates only the Certificate
         clusterIssuerRef:
@@ -233,7 +245,7 @@ spec:
     # Static default: None (works for Kind/Minikube; cloud users must set explicitly)
 
     bundledExternalDNS:                  # when provider: BundledExternalDNS
-      operational: { ... }
+      # no operational block (removed 2026-06-11 — the upstream chart is single-instance by design)
       # Note: zone auto-discovery from Ingress hostnames is default behavior.
       # Explicit zone configuration deferred to later revision.
 
@@ -254,10 +266,10 @@ spec:
       provider: Bundled | External
       # Static default: Bundled
 
-      bundled:                           # when provider: Bundled
-        operational: { ... }
-
-      # external: no fields — user ensures Kyverno CRDs are installed
+      # No per-provider sub-blocks. Bundled installs the vendored chart
+      # with default per-controller scaling (the former bundled.operational
+      # block was removed 2026-06-11 — see "Operational block pattern");
+      # External: no fields — user ensures Kyverno CRDs are installed.
 
   imageRegistry:                         # optional
     prefix: <string>                     # e.g., internal-registry.corp.local/educates
@@ -906,7 +918,7 @@ spec:
 1. **SessionManager.spec.themes structure** — owner review needed.
 2. **LookupService component-specific settings** (auth, rate limiting, storage) — owner review needed.
 3. **external-dns explicit zones** — deferred, add if needed.
-4. **bundledCertManager operational sub-blocks** — cert-manager has controller + webhook + cainjector deployments. If per-deployment overrides become necessary, `operational` gains sub-blocks.
+4. **Per-service operational shapes** — the shared `operational` block was removed from bundledCertManager / bundledExternalDNS / kyverno on 2026-06-11 (only bundledContour keeps it). When concrete scaling/scheduling needs emerge, each service gains its own shape validated against its upstream chart: cert-manager needs per-deployment sub-blocks (controller + webhook + cainjector), Kyverno needs per-controller counts honouring its HA rules, external-dns stays single-instance.
 5. **Inline-mode re-validation on external changes** — implementation detail. With watches set up on referenced resources, validation runs on every change. Confirm behavior matches expectation.
 6. **Validation error surfacing** — condition messages should be specific enough to guide fixes. Review wording during implementation.
 

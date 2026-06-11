@@ -369,11 +369,13 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 }
 
 // renderCertManagerValues builds the values map passed to the
-// cert-manager chart. Image-registry-prefix rewriting and operational
-// overrides land alongside the rest of the Managed-mode CR fields in
-// later commits; today the function only sets values that are needed
-// to make the Helm install behave well under operator-driven
-// reconciliation.
+// cert-manager chart. Image-registry-prefix rewriting lands alongside
+// the rest of the Managed-mode CR fields in later commits; today the
+// function only sets values that are needed to make the Helm install
+// behave well under operator-driven reconciliation. (cert-manager has
+// no operational block: it spans controller + webhook + cainjector
+// Deployments, which a single shared shape can't tune — see
+// OperationalBlock in the API package.)
 //
 // crds.enabled=true: cert-manager v1.18+ defaults its CRDs to OFF
 // (`crds.enabled: false` in chart values.yaml — verified against

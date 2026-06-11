@@ -219,9 +219,11 @@ func renderExternalDNSValues(obj *configv1alpha1.EducatesClusterConfig) map[stri
 		applyCloudDNSValues(values, bedns.CloudDNS)
 	}
 
-	if op := bedns.Operational; op != nil && op.Replicas != nil {
-		values["replicaCount"] = *op.Replicas
-	}
+	// No replica plumbing: the kubernetes-sigs external-dns chart
+	// hardcodes replicas to 1 in its Deployment template and exposes
+	// no replica value — the controller is deliberately
+	// single-instance (concurrent instances would race on record
+	// writes).
 
 	if obj.Spec.ImageRegistry != nil && obj.Spec.ImageRegistry.Prefix != "" {
 		values["global"] = map[string]any{

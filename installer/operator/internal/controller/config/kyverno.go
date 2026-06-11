@@ -191,25 +191,15 @@ func (r *EducatesClusterConfigReconciler) reconcileKyverno(ctx context.Context, 
 }
 
 // renderKyvernoValues builds the values map. v1alpha1 is minimal —
-// just plumbing the operational replica count and image-registry
-// prefix; everything else uses chart defaults (4 controllers
-// enabled, reports-server disabled, default resource limits). The
-// chart surface is large and we deliberately don't expose more
-// until concrete needs emerge.
+// just plumbing the image-registry prefix; everything else uses
+// chart defaults (4 controllers enabled, reports-server disabled,
+// default resource limits and replica counts). The chart surface is
+// large and we deliberately don't expose more until concrete needs
+// emerge — in particular no replica override: Kyverno scales
+// per-controller with its own HA rules (3+ admission-controller
+// replicas), which a single operational count can't express.
 func renderKyvernoValues(obj *configv1alpha1.EducatesClusterConfig) map[string]any {
 	values := map[string]any{}
-
-	if op := operationalForKyverno(obj); op != nil && op.Replicas != nil {
-		// Kyverno's chart applies replicaCount per-controller. We
-		// apply the same operational replica count to all four for
-		// simplicity; users wanting per-component tuning can wait
-		// for the freeform values pass-through follow-up.
-		replicas := *op.Replicas
-		values["admissionController"] = map[string]any{"replicas": replicas}
-		values["backgroundController"] = map[string]any{"replicas": replicas}
-		values["cleanupController"] = map[string]any{"replicas": replicas}
-		values["reportsController"] = map[string]any{"replicas": replicas}
-	}
 
 	if obj.Spec.ImageRegistry != nil && obj.Spec.ImageRegistry.Prefix != "" {
 		values["global"] = map[string]any{
@@ -220,17 +210,6 @@ func renderKyvernoValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 	}
 
 	return values
-}
-
-// operationalForKyverno extracts the OperationalBlock without
-// panicking if any of the parent fields is nil. Same shape as the
-// guards we use in the Contour/external-dns paths.
-func operationalForKyverno(obj *configv1alpha1.EducatesClusterConfig) *configv1alpha1.OperationalBlock {
-	pe := obj.Spec.PolicyEnforcement
-	if pe == nil || pe.Kyverno == nil || pe.Kyverno.Bundled == nil {
-		return nil
-	}
-	return pe.Kyverno.Bundled.Operational
 }
 
 // validateBundledKyverno surfaces friendlier "not yet supported"

@@ -202,10 +202,18 @@ type SecretKeyRef struct {
 	Key string `json:"key,omitempty"`
 }
 
-// OperationalBlock collects the per-Deployment operational knobs that
-// every Bundled cluster-service block exposes. Per the r3 design the
-// shape is duplicated at each use site rather than abstracted, leaving
-// room for deployment-specific variants in future revisions.
+// OperationalBlock collects the per-Deployment operational knobs of a
+// Bundled cluster service. In v1alpha1 only BundledContour carries it:
+// the cert-manager / external-dns / kyverno blocks were dropped
+// (2026-06-11) because their semantics didn't hold against the
+// upstream charts — external-dns 1.21.1 hardcodes replicas to 1 and
+// exposes no replica value, Kyverno fanning one count across its four
+// controllers conflicts with upstream HA guidance (3+ for the
+// admission controller only), and cert-manager never consumed it.
+// They return when per-service shapes are validated against each
+// chart's real values surface. Of the knobs below, the reconciler
+// currently applies replicas; the rest are accepted but not yet
+// wired into chart values.
 type OperationalBlock struct {
 	// replicas overrides the operator-computed default. The default
 	// varies by infrastructure provider (typically 1 for Kind/Minikube,
@@ -422,10 +430,6 @@ type BundledCertManagerConfig struct {
 
 	// +optional
 	CustomCA *CustomCAConfig `json:"customCA,omitempty"`
-
-	// operational tunes the cert-manager controller Deployment.
-	// +optional
-	Operational *OperationalBlock `json:"operational,omitempty"`
 }
 
 // ExternalCertManagerConfig assumes cert-manager is already installed
@@ -616,9 +620,6 @@ type BundledExternalDNSConfig struct {
 	// +kubebuilder:default={service}
 	// +optional
 	Sources []string `json:"sources,omitempty"`
-
-	// +optional
-	Operational *OperationalBlock `json:"operational,omitempty"`
 }
 
 // DNS groups DNS-management configuration.
@@ -652,22 +653,15 @@ type WorkshopPolicyConfig struct {
 	Engine WorkshopPolicyEngine `json:"engine,omitempty"`
 }
 
-// BundledKyvernoConfig configures the operator-installed Kyverno chart.
-type BundledKyvernoConfig struct {
-	// +optional
-	Operational *OperationalBlock `json:"operational,omitempty"`
-}
-
 // KyvernoConfig groups Kyverno-engine sourcing. Required when any
-// policyEnforcement engine resolves to Kyverno.
+// policyEnforcement engine resolves to Kyverno. The former `bundled`
+// sub-block (which only carried an operational override) was removed
+// alongside the operational-block trim — see OperationalBlock.
 type KyvernoConfig struct {
 	// provider defaults to Bundled.
 	// +kubebuilder:default=Bundled
 	// +optional
 	Provider KyvernoProvider `json:"provider,omitempty"`
-
-	// +optional
-	Bundled *BundledKyvernoConfig `json:"bundled,omitempty"`
 }
 
 // PolicyEnforcement groups cluster-wide and per-workshop policy
