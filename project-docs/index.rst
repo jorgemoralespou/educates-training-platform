@@ -35,6 +35,7 @@ Educates
   installation-guides/secure-http-connections
   installation-guides/configuration-settings
   installation-guides/airgapped-installation
+  installation-guides/migrating-from-v3
 
 .. toctree::
   :maxdepth: 2
