@@ -7,7 +7,9 @@ Two independent paths, mirroring v3's split between
 
 Vendored from
 [kyverno/policies](https://github.com/kyverno/policies)
-(`origin/release-1.15`, matching v3's `vendir.yml`). Both Pod Security
+(`origin/release-1.18`, matching the Kyverno version the operator
+bundles — see `KyvernoAppVersion` in
+`installer/operator/vendored-charts/embed.go`). Both Pod Security
 Standards profiles are installed unconditionally when
 `clusterSecurity.policyEngine: Kyverno` — workshops don't pick a
 profile, so both must be present in the cluster. Default action is
@@ -38,31 +40,47 @@ created.
 
 ## Known CEL validation warnings
 
-A small number of the vendored cluster-policies emit Kyverno admission
-warnings at install time on Kubernetes / Kyverno versions kind ships
-with today (v3 default = Kyverno 1.15.1). The CEL expressions inside
-those policies use features the API server's CEL evaluator rejects —
+A small number of the vendored cluster-policies historically emitted
+Kyverno admission warnings at install time. The CEL expressions inside
+those policies use features some API-server CEL evaluators reject —
 for example `object.spec.containers + object.spec.initContainers`
 (list concat), `size(volume)` on a list element, equality between an
 object and a string. The policies still install (they're
-`validationFailureAction: Audit`), but the affected rules are
-effectively dead — they won't match anything at runtime.
+`validationFailureAction: Audit`), but an affected rule is effectively
+dead — it won't match anything at runtime.
 
-Known offenders by symptom (not exhaustive):
+Known offenders by symptom under Kyverno 1.15 (not exhaustive):
 
 - `disallow-capabilities` — list-concat expression.
 - `disallow-host-path` — `size(volume)` on a list element.
 - `restrict-sysctls` — equality of object to string.
 
-Same warnings appear with v3's installer because it vendors the same
-release. They will be revisited when we bump the Kyverno version
-and/or the Kubernetes version floor — likely both at once. No action
-needed for the pre-phase.
+The `release-1.18` refresh (2026-06-12) modernised the CEL in four
+policies (`disallow-host-ports`, `disallow-capabilities-strict`,
+`require-run-as-nonroot`, `restrict-seccomp-strict`) but left the
+three offenders above byte-identical to `release-1.15`, so their
+warnings likely persist; re-check on the next bump.
 
 ## Refreshing the bundle
 
-1. Re-clone or fetch the matching release tag from kyverno/policies.
-2. Replace the YAML files in the directories above. Keep filenames
-   flat — drop the per-policy subdirs the upstream uses.
-3. `helm template` the chart to confirm policies still parse and the
-   `kyverno-policies.yaml` Secret-key shape is intact.
+Re-vendor whenever the bundled Kyverno chart is bumped in
+`installer/operator/vendored-charts/` — the branch must match the new
+`KyvernoAppVersion` (e.g. Kyverno `v1.18.x` → branch `release-1.18`).
+
+1. Clone the matching release branch:
+   `git clone --depth 1 --branch release-1.NN https://github.com/kyverno/policies`
+2. Replace the YAML files in the directories above, keeping filenames
+   flat — drop the per-policy subdirs the upstream uses
+   (`pod-security-cel/baseline/<name>/<name>.yaml` →
+   `cluster-policies/baseline/<name>.yaml`). For `workshop-policies/`,
+   copy only the files listed in the table above;
+   `require-ingress-session-name.yaml` is Educates-internal and must
+   not be overwritten.
+3. `helm template` the session-manager chart with
+   `--set global.clusterSecurity.policyEngine=Kyverno` and confirm the
+   ClusterPolicy resources and the `kyverno-policies.yaml` Secret key
+   still render, and that the policy *names* inside the Secret stream
+   are unchanged (session-manager's `kyverno_rules.py` clones them by
+   name per workshop environment).
+4. Update the branch reference at the top of this file and the CEL
+   warnings section.
