@@ -85,57 +85,52 @@ If the configuration requires additional secrets these will need added to the lo
 educates local secrets sync
 ```
 
-Building Educates platform images
----------------------------------
+Building Educates from source
+-----------------------------
 
-To build the container images for the Educates training platform you can run:
-
-```
-make build-core-images
-```
-
-NOTE: By default, images will be pushed to a local registry. There's instructions above on how to provide a local registry
-via the Educates cli.
-
-This will trigger the building of the container images and push the resulting images to the local docker image registry.
-
-Targets for make are also available for building and pushing to the local docker image registry individual container images.
+To build everything needed for local testing — the `educates` CLI, the core platform images and the installer operator image — run, from the repository root:
 
 ```
-make build-session-manager
-make build-secrets-manager
-make build-training-portal
-...
+make
 ```
 
-See the [Makefile](../Makefile) for more details of the make targets that are available. There are parameters that can be
-set to alter behavior of the Makefile. There's comprehensive documentation at the top of the file.
+This is the default target (`local-build`). It:
 
-Once the container images have been built and pushed to the local docker image registry, you can then deploy everything by running:
+* builds the `educates` CLI for your host platform into `client-programs/bin/educates-<os>-<arch>`, with compiled-in defaults pointing at the local image registry (`localhost:5001`, tag `latest`);
+* deploys the local image registry container using that CLI if it isn't already running;
+* builds the core platform images and the operator image **for your host architecture only** and pushes them to the local registry;
+* regenerates the committed embedded artifacts (operator CRDs, the runtime subchart tarballs the operator embeds, the CLI-embedded operator chart and JSON schemas) when their sources changed — if `git status` is dirty after `make`, commit the regenerated files.
 
-```
-educates admin platform deploy --local-config
-```
-
-This installs the operator from the Helm chart embedded in the CLI, applies the four platform custom resources, and waits for each to report Ready. By default the platform runs the published `ghcr.io/educates` images; to have it run your locally built images instead, add `imageVersions` overrides to the local configuration (`educates local config edit`) pinning components at the local image registry, for example:
-
-```yaml
-imageVersions:
-- name: session-manager
-  image: localhost:5001/educates-session-manager:latest
-- name: training-portal
-  image: localhost:5001/educates-training-portal:latest
-```
-
-If you are working on the installer operator itself, build and load its image and point the operator deployment at it:
+Then deploy the locally built system:
 
 ```
-cd installer/operator
-make docker-build IMG=ghcr.io/educates/educates-operator:dev
-kind load docker-image ghcr.io/educates/educates-operator:dev --name educates
+client-programs/bin/educates-<os>-<arch> local cluster create
 ```
 
-then set `operator.image.repository` and `operator.image.tag` in the local configuration (or pass `--set image.repository=... --set image.tag=dev` if installing the chart directly with `helm install` from `installer/charts/educates-installer`). See the [operator README](../installer/operator/README.md) and the make targets there (`make smoke-test`, `make test`) for the operator development loop.
+Because the CLI was built with a non-release version (`latest`), it identifies itself as a development build and automatically points every platform image — the operator, secrets-manager, lookup-service, session-manager, training-portal, the workshop base environment and the rest of the core set — at `localhost:5001/educates-<name>:latest`. No configuration editing is needed. Explicit `imageVersions` or `operator.image` entries in your local configuration always win over these defaults, so remove any manual overrides left over from earlier workflows unless you want them.
+
+Make knobs (environment variables or `make VAR=value`):
+
+* `TARGET_PLATFORMS` — image platforms. Defaults to the current host architecture only (e.g. `linux/arm64` on Apple silicon); multi-architecture builds are explicit opt-in (`TARGET_PLATFORMS=linux/amd64,linux/arm64`) and slow under emulation.
+* `IMAGE_REPOSITORY` / `PACKAGE_VERSION` — registry and tag for images (default `localhost:5001` / `latest`).
+* `PUSH_IMAGES=false` — load images into the Docker daemon instead of pushing.
+* `CLI_VERSION` / `CLI_IMAGE_REPOSITORY` — the CLI binary's compiled-in defaults; a semver `CLI_VERSION` makes the binary behave like a release build (no local-image defaulting).
+
+Any single image can be rebuilt with `make image-<name>`, for example `make image-training-portal` or `make image-operator` (the operator target refreshes the embedded subchart tarballs first). Run `make help` for the full target list. Building requires `docker`, Go and `helm` (used to repackage the runtime subcharts the operator embeds).
+
+After rebuilding runtime component images, restart the deployed components to pick them up (dev tags are pulled with `Always`):
+
+```
+make restart-training-platform
+```
+
+For the operator itself, `make image-operator` then `kubectl rollout restart deployment -n educates-installer`. See the [operator README](../installer/operator/README.md) and the make targets there (`make smoke-test`, `make test`) for the operator development loop.
+
+If the cluster is already up and you only want to (re)deploy the platform, run:
+
+```
+client-programs/bin/educates-<os>-<arch> admin platform deploy --local-config
+```
 
 To delete everything deployed to the cluster, use:
 
@@ -146,41 +141,36 @@ educates admin platform delete
 Building additional workshop images
 -----------------------------------
 
-When using `make build-core-images`, it will only build the main workshop base image. That is, it will not build workshop base images for Java and Python.
-
-If you want to build all workshop base images you can instead run:
+The default `make` only builds the main workshop base image. The workshop language images (Java and Python variants) are optional — when a workshop uses one and it isn't built locally, the published `ghcr.io/educates` image is used. To build them locally:
 
 ```
-make build-all-images
+make build-workshop-images
 ```
 
-Note that this will consume a lot more storage space in the local docker environment. In general you will probably want to configure the local docker environment with 100Gi or more of storage space to be used across local image caching, the local docker image registry and the Kubernetes cluster itself.
+or everything at once with `make build-all-images`. Note that this will consume a lot more storage space in the local docker environment. In general you will probably want to configure the local docker environment with 100Gi or more of storage space to be used across local image caching, the local docker image registry and the Kubernetes cluster itself.
 
-As well as the `build-all-images`, make targets are also supplied for building and pushing to the local docker image registry individual workshop base images.
+Individual workshop images can be built with the generic image target:
 
 ```
-make build-base-environment
-make build-jdk8-environment
-make build-jdk11-environment
-make build-jdk17-environment
-make build-jdk21-environment
-make build-conda-environment
+make image-base-environment
+make image-jdk17-environment
+make image-conda-environment
 ```
 
-See the [Makefile](../Makefile) for more details of the make targets that are available.
+If you want a locally built language image to be used by deployed workshops, add a matching `imageVersions` entry to the local configuration (only the core set is defaulted automatically), for example `name: jdk17-environment`, `image: localhost:5001/educates-jdk17-environment:latest`.
 
 Building the Educates CLI program
 ---------------------------------
 
-If needing to work on the `educates` CLI it can be built using the command:
+If needing to work on just the `educates` CLI it can be built using the command:
 
 ```
-make build-client-programs
+make build-cli
 ```
 
-You can then run the `educates` CLI program from the `client-programs/bin` subdirectory. The name of the compiled CLI will incorporate the target system and machine architecture, e.g.: `educates-linux-amd64`.
+You can then run the `educates` CLI program from the `client-programs/bin` subdirectory. The name of the compiled CLI will incorporate the target system and machine architecture, e.g.: `educates-darwin-arm64`. (`make build-client-programs` remains as an alias.)
 
-Note that when building the `educates` CLI from local source code, the embedded project version will be `develop` and the operator Helm chart embedded in the CLI is the one from your source tree. Platform images default to the published `ghcr.io/educates` images; use `imageVersions` overrides in the local configuration, as described above, when the platform should run locally built images instead.
+Note that when building the `educates` CLI from local source code, the embedded project version defaults to `latest` and the embedded image registry to `localhost:5001` — the CLI behaves as a development build, defaulting all platform images to your local registry as described above. The operator Helm chart and config schemas embedded in the CLI are refreshed from your source tree as part of the build. To build a CLI that behaves like a release binary, pass a semver version: `make build-cli CLI_VERSION=4.0.0 CLI_IMAGE_REPOSITORY=ghcr.io/educates`.
 
 Cleaning up available storage space
 -----------------------------------

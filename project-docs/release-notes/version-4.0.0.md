@@ -80,6 +80,18 @@ New Features
   all images used by a release is attached to the GitHub release to support
   mirroring images into air-gapped registries.
 
+* ``imageVersions`` entries in the CLI configuration now reach every
+  platform image: entries named ``secrets-manager`` and ``lookup-service``
+  are routed to those components' own custom resources, and the
+  ``session-manager``, ``pause-container`` and ``node-ca-injector`` names —
+  previously ignored — now override the images they refer to. For
+  contributors, a developer-built CLI (one whose embedded version is not a
+  release version) automatically targets its compiled-in image registry for
+  all platform images, so building Educates from source and deploying the
+  locally built system requires no configuration of image references;
+  explicit configuration entries always take precedence. See the developer
+  documentation for the local build workflow.
+
 Features Changed
 ----------------
 
