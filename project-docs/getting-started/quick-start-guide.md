@@ -93,29 +93,15 @@ curl -o educates -sL https://github.com/educates/educates-training-platform/rele
 
 If you are running macOS with Apple silicon (arm64), the Intel 64 (amd64) binary will still work and be run under Rosetta emulation, however, by using it you will be able to use both `amd64` and `arm64` images in the Kubernetes cluster. If you use the Apple silicon (arm64) binary you will only be able to use `amd64` images in the Kubernetes cluster. Neither of the macOS binaries are signed so you will need to tell macOS to trust it before you can run it.
 
-The `educates` CLI can also be downloaded from the `educates/educates-training-platform` GitHub repository packaged as an OCI image using the command:
+The `educates` CLI is also published as the `educates-cli` container image, a multi-architecture (amd64/arm64) Linux image with the binary at `/educates`. It can be run directly, or used in a `Dockerfile` if needing to embed the `educates` CLI in a container image:
 
 ```
-imgpkg pull -i ghcr.io/educates/educates-client-programs:X.Y.Z -o educates-client-programs
-```
-
-Replace `X.Y.Z` with the version of Educates you want to use. Use the appropriate binary found in the `educates-client-programs` sub directory which is created.
-
-The `imgpkg` command if you do not have it can be downloaded as part of the [Carvel](https://carvel.dev/) toolset.
-
-Note that the `imgpkg` command pulls down an OCI image artefact from GitHub container registry. That image is public, if however you get an authentication failure make sure you haven't previously logged into GitHub container registry with a GitHub personal access token which has since expired as that will cause a failure even though the image is public.
-
-The OCI image containing the `educates` CLI can also be used in a `Dockerfile` if needing to embed the `educates` CLI in a container image:
-
-```
-FROM ghcr.io/educates/educates-client-programs:X.Y.Z AS client-programs
-
 FROM fedora:42
 
-ARG TARGETARCH
-
-COPY --from=client-programs educates-linux-${TARGETARCH} /educates
+COPY --from=ghcr.io/educates/educates-cli:X.Y.Z /educates /usr/local/bin/educates
 ```
+
+Replace `X.Y.Z` with the version of Educates you want to use. The image is public; if you get an authentication failure make sure you haven't previously logged into GitHub container registry with a GitHub personal access token which has since expired, as that will cause a failure even though the image is public.
 
 Default ingress domain
 ----------------------

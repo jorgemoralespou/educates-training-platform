@@ -119,10 +119,9 @@
 #   - Normalizes x86_64 to amd64 for consistency
 #
 # The target for build-client-programs is always set to the current platform, so that
-# on macos a binary will be built for the current platform. But the push-client-programs
-# target will create a multiarch image for the target platforms and the corresponding binaries,
-# in the form of "educates-cli" image, and will also generate an "educates-client-programs" oci artifact
-# with all the binaries for the target platforms. (Pushed via imgpkg)
+# on macos a binary will be built for the current platform. The build-cli-image target
+# creates a multiarch "educates-cli" image with the binary for each of the target
+# platforms.
 #
 # =============================================================================
 #
@@ -331,13 +330,6 @@ client-programs-educates:
 	(cd client-programs; go build -gcflags=all="-N -l" -o bin/educates-$(TARGET_PLATFORM) cmd/educates/main.go)
 
 build-client-programs: client-programs-educates
-
-push-client-programs: build-client-programs
-	(cd client-programs; GOOS=linux GOARCH=amd64 go build -o bin/educates-linux-amd64 cmd/educates/main.go)
-	(cd client-programs; GOOS=linux GOARCH=arm64 go build -o bin/educates-linux-arm64 cmd/educates/main.go)
-	(cd client-programs; GOOS=linux GOARCH=amd64 go build -o bin/educates-linux-amd64 cmd/educates/main.go)
-	(cd client-programs; GOOS=linux GOARCH=arm64 go build -o bin/educates-linux-arm64 cmd/educates/main.go)
-	imgpkg push -i $(IMAGE_REPOSITORY)/educates-client-programs:$(PACKAGE_VERSION) -f client-programs/bin
 
 build-cli-image:
 	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \

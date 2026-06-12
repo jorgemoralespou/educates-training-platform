@@ -579,67 +579,6 @@ jobs:
           name: educates-darwin-arm64
           path: client-programs/educates-darwin-arm64
 
-  publish-client-programs:
-    name: Client Programs Imgpkg Bundle
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    needs:
-      - build-client-programs-linux-amd64
-      - build-client-programs-linux-arm64
-      - build-client-programs-darwin-amd64
-      - build-client-programs-darwin-arm64
-
-    steps:
-      - name: Restore educates-linux-amd64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-linux-amd64
-          path: client-programs
-
-      - name: Restore educates-linux-arm64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-linux-arm64
-          path: client-programs
-
-      - name: Restore educates-darwin-amd64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-darwin-amd64
-          path: client-programs
-
-      - name: Restore educates-darwin-arm64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-darwin-arm64
-          path: client-programs
-
-      - name: Install Carvel tools
-        shell: bash
-        run: curl -L https://carvel.dev/install.sh | bash
-
-      - name: Calculate variables
-        shell: bash
-        run: |
-          REPOSITORY_OWNER=${{github.repository_owner}}
-          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
-          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
-
-      - name: Publish client programs
-        shell: bash
-        run: |
-          chmod +x client-programs/*
-          imgpkg push \
-            -i ghcr.io/${{env.REPOSITORY_OWNER}}/educates-client-programs:${{env.REPOSITORY_TAG}} \
-            -f client-programs \
-            --registry-username=${{github.actor}} \
-            --registry-password=${{secrets.GITHUB_TOKEN}}
-
   publish-cli-image:
     name: Publish (cli) image
     runs-on: ubuntu-latest
