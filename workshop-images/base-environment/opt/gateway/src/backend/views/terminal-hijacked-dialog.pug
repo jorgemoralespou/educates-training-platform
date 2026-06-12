@@ -1,0 +1,12 @@
+div.modal.fade#terminal-hijacked-dialog(tabindex="-1", role="dialog", aria-labelledby="terminal-hijacked-dialog-title", aria-hidden="true")
+    div.modal-dialog.modal-dialog-centered(role="document")
+        div.modal-content
+            div.modal-header
+                h5.modal-title#terminal-hijacked-dialog-title Terminal Opened in Another Window
+                button.btn.btn-close(type="button", data-bs-dismiss="modal", aria-label="Close")
+            div.modal-body
+                p This terminal is now also open in another browser window or tab. Both windows share the same session, but the terminal can only be matched to one window size at a time. If the other window is a different size, the display here may become garbled, especially while a full-screen program such as a text editor is running.
+                p If you opened it yourself, you can keep working in either window. When the other window is a different size, the recycle button (top right) is highlighted; close the other window, then click it to redraw the terminals at this window's size.
+                p If you didn't open another window and aren't sure where the other connection has come from, you can restart the workshop session to start over with a fresh terminal.
+            div.modal-footer
+                button.btn.btn-primary(type="button", data-bs-dismiss="modal") Dismiss

@@ -130,6 +130,13 @@ class SessionManager {
     }
 
     private retrieve_session(id: string): MessagesChannel {
+        // Normalise the id to a string so that lookups are consistent
+        // regardless of whether the client sent it as a string or a number in
+        // the JSON packet, and a single channel isn't accidentally split
+        // across both a numeric and a string key.
+
+        id = String(id)
+
         let session: MessagesChannel = this.sessions.get(id)
 
         if (!session) {

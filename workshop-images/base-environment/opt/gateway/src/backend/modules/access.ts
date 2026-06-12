@@ -251,6 +251,59 @@ async function install_portal_auth(app: express.Application) {
     return oauth2_client
 }
 
+// Determine whether a request is from an authenticated user. This mirrors
+// the gating applied to normal HTTP routes by the OAuth handshake middleware
+// and the HTTP basic auth middleware. It is exposed separately so that the
+// same checks can be applied to WebSocket upgrade requests, which bypass the
+// Express middleware stack and so are not otherwise authenticated.
+
+export function is_user_authenticated(req: any): boolean {
+    // When portal OAuth is in use, a user is authenticated once the OAuth
+    // handshake has completed and an identity has been stored in their
+    // session. This requires the session middleware to have already
+    // populated req.session for the request.
+
+    if (PORTAL_CLIENT_ID)
+        return !!(req.session && req.session.identity)
+
+    // When HTTP basic authentication is in use, and it hasn't been disabled
+    // by setting the username to "*", validate the credentials supplied in
+    // the request Authorization header. Browsers replay these credentials on
+    // WebSocket upgrade requests to the same origin once they have been
+    // provided in response to the initial challenge.
+
+    if (AUTH_USERNAME && AUTH_USERNAME != "*")
+        return verify_basic_auth_credentials(req)
+
+    // Otherwise all authentication has been disabled and the request is
+    // allowed through.
+
+    return true
+}
+
+function verify_basic_auth_credentials(req: any): boolean {
+    const header: string = req.headers && req.headers["authorization"]
+
+    if (!header)
+        return false
+
+    const [scheme, encoded] = header.split(" ")
+
+    if (scheme != "Basic" || !encoded)
+        return false
+
+    const decoded = Buffer.from(encoded, "base64").toString()
+    const separator = decoded.indexOf(":")
+
+    if (separator == -1)
+        return false
+
+    const username = decoded.slice(0, separator)
+    const password = decoded.slice(separator + 1)
+
+    return username == AUTH_USERNAME && password == AUTH_PASSWORD
+}
+
 // Authentication via OAuth always has priority if configuration for HTTP
 // basic authentication is also provided. Setting HTTP basic authentication
 // password to "*" has side affect of disabling authentication. This is to

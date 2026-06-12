@@ -5,10 +5,11 @@
   <meta charset="utf-8">
   <title>{{ .Site.Title }} - Print View</title>
 
-  <link rel="stylesheet" href='/workshop/static/bootstrap/css/bootstrap.css'>
-  <link rel="stylesheet" href='/workshop/static/styles/educates.css'>
-  <link rel="stylesheet" href='/workshop/static/styles/educates-markdown.css'>
-  <link rel="stylesheet" href='/workshop/static/theme/workshop-instructions.css'>
+  {{ $assets_path := default "/workshop/content/static" (.Param "assets_path") }}
+
+  <link rel="stylesheet" href='{{ $assets_path }}/libraries/bootstrap/css/bootstrap.min.css'>
+  <link rel="stylesheet" href='{{ $assets_path }}/styles/educates.css'>
+  <link rel="stylesheet" href='{{ $assets_path }}/theme/workshop-instructions.css'>
 
   <style>
     /* Override educates.css overflow restrictions for scrolling */

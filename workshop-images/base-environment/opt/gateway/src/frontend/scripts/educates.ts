@@ -1,5 +1,3 @@
-import * as url from "url"
-
 import * as $ from "jquery"
 
 import * as bootstrap from "bootstrap"
@@ -39,6 +37,55 @@ function string_to_slug(str: string) {
         .replace(/-+/g, "-") // collapse dashes
         .replace(/^-+/, "") // trim - from start of text
         .replace(/-+$/, "") // trim - from end of text
+}
+
+function update_refresh_button_tooltip() {
+    // Keep the recycle button tooltip in sync with what it will currently do.
+    // When a terminal has dropped, the button reconnects rather than reloads.
+
+    let element = document.getElementById("refresh-button")
+
+    if (!element)
+        return
+
+    let tooltip = bootstrap.Tooltip.getInstance(element)
+
+    if (!tooltip)
+        return
+
+    let text = "Reload the current tab"
+
+    if (element.className.includes("-redraw-required"))
+        text = "Redraw terminals at this window's size"
+
+    if (element.className.includes("-refresh-required"))
+        text = "Reconnect terminals"
+
+    tooltip.setContent({ ".tooltip-inner": text })
+}
+
+function update_countdown_button_tooltip(text: string) {
+    // Keep the countdown button tooltip in sync with what it will currently
+    // do. The text only changes when the session becomes extendable, but this
+    // is called on every countdown tick so we skip updates when unchanged to
+    // avoid the tooltip flickering while it is being hovered.
+
+    let element = document.getElementById("countdown-button")
+
+    if (!element)
+        return
+
+    if (element.getAttribute("data-tooltip-text") === text)
+        return
+
+    element.setAttribute("data-tooltip-text", text)
+
+    let tooltip = bootstrap.Tooltip.getInstance(element)
+
+    if (!tooltip)
+        return
+
+    tooltip.setContent({ ".tooltip-inner": text })
 }
 
 async function send_analytics_event(event: string, data = {}, timeout = 0) {
@@ -181,7 +228,7 @@ class MessagesChannel {
     }
 
     private configure_session() {
-        let parsed_url = url.parse(window.location.origin)
+        let parsed_url = new URL(window.location.origin)
 
         let protocol = parsed_url.protocol == "https:" ? "wss" : "ws"
         let host = parsed_url.host
@@ -306,7 +353,7 @@ class MessagesChannel {
                 if (self.shutdown)
                     return
 
-                let parsed_url = url.parse(window.location.origin)
+                let parsed_url = new URL(window.location.origin)
 
                 let protocol = parsed_url.protocol == "https:" ? "wss" : "ws"
                 let host = parsed_url.host
@@ -543,7 +590,7 @@ class TerminalSession {
 
         this.fitter.fit()
 
-        let parsed_url = url.parse(window.location.origin)
+        let parsed_url = new URL(window.location.origin)
 
         let protocol = parsed_url.protocol == "https:" ? "wss" : "ws"
         let host = parsed_url.host
@@ -586,6 +633,9 @@ class TerminalSession {
         $(this.element).removeClass("notify-hijacked notify-forbidden")
 
         $("#refresh-button").removeClass("terminal-" + this.id + "-refresh-required")
+        $("#refresh-button").removeClass("terminal-" + this.id + "-redraw-required")
+
+        update_refresh_button_tooltip()
 
         this.socket.onerror = (event) => {
             console.error("WebSocket error observed:", event)
@@ -756,13 +806,24 @@ class TerminalSession {
 
                         $("#refresh-button").addClass("terminal-" + this.id + "-refresh-required")
 
-                        this.scrollToBottom()
-                        await this.write("\r\nExited\r\n")
+                        update_refresh_button_tooltip()
 
-                        this.socket.close()
+                        // Mark the session as shut down and detach the socket
+                        // synchronously, before the await below. The backend
+                        // closes the connection immediately after sending the
+                        // EXIT message, so if we yielded to the event loop
+                        // first, the onclose handler would run with shutdown
+                        // still false and wrongly reconnect, spawning a new
+                        // shell. Closing the captured socket here also makes
+                        // onclose bail out as it no longer matches this.socket.
 
                         this.shutdown = true
                         this.socket = null
+
+                        socket.close()
+
+                        this.scrollToBottom()
+                        await this.write("\r\nExited\r\n")
 
                         // Generate analytics event to track terminal exit.
 
@@ -774,11 +835,39 @@ class TerminalSession {
                         let args: ErrorPacketArgs = packet.args
 
                         // Right now we only expect to receive reasons of
-                        // "Forbidden" and "Hijacked". This is used to set
-                        // an element class so can provide visual indicator
-                        // to a user. Otherwise nothing is done for an error.
+                        // "Forbidden" and "Hijacked". Previously this set a
+                        // CSS class which displayed a large banner across the
+                        // terminal viewport, but that was alarming to users.
+                        // Instead we now show a friendly popup explaining the
+                        // situation. The banner CSS is retained but no longer
+                        // applied here.
+                        //
+                        // $(this.element).addClass(`notify-${args.reason.toLowerCase()}`)
 
-                        $(this.element).addClass(`notify-${args.reason.toLowerCase()}`)
+                        if (args.reason == "Hijacked")
+                            dashboard.show_hijacked_dialog()
+                        else if (args.reason == "Forbidden")
+                            dashboard.show_terminal_problem_dialog()
+
+                        break
+                    }
+                    case (TerminalsPacketType.RESIZE): {
+                        let args: ResizePacketArgs = packet.args
+
+                        // The backend broadcasts the terminal size whenever it
+                        // changes. If it no longer matches this window's size,
+                        // another client (such as a second browser window) has
+                        // resized the shared terminal and the display here may
+                        // be wrong. Flag the recycle button orange so the user
+                        // can redraw at this window's size. We deliberately do
+                        // not resize our own terminal to match, as we want to
+                        // keep this window's dimensions.
+
+                        if (args.cols != this.terminal.cols || args.rows != this.terminal.rows) {
+                            $("#refresh-button").addClass("terminal-" + this.id + "-redraw-required")
+
+                            update_refresh_button_tooltip()
+                        }
 
                         break
                     }
@@ -824,7 +913,7 @@ class TerminalSession {
                 if (self.shutdown)
                     return
 
-                let parsed_url = url.parse(window.location.origin)
+                let parsed_url = new URL(window.location.origin)
 
                 let protocol = parsed_url.protocol == "https:" ? "wss" : "ws"
                 let host = parsed_url.host
@@ -885,6 +974,8 @@ class TerminalSession {
                 $(self.element).addClass("notify-closed")
 
                 $("#refresh-button").addClass("terminal-" + self.id + "-refresh-required")
+
+                update_refresh_button_tooltip()
 
                 self.scrollToBottom()
                 await self.write("\r\nClosed\r\n")
@@ -948,6 +1039,16 @@ class TerminalSession {
             }
 
             this.send_message(TerminalsPacketType.RESIZE, args)
+
+            // Having reasserted this window's size, the shared terminal now
+            // matches our dimensions again, so clear any drift indicator that
+            // another client had triggered on the recycle button.
+
+            if ($("#refresh-button").hasClass("terminal-" + this.id + "-redraw-required")) {
+                $("#refresh-button").removeClass("terminal-" + this.id + "-redraw-required")
+
+                update_refresh_button_tooltip()
+            }
         }
     }
 
@@ -1019,6 +1120,35 @@ class TerminalSession {
             this.socket.close()
     }
 
+    redraw() {
+        // Re-assert this window's terminal size to the backend. The backend
+        // resizes the shared terminal back to our dimensions and forces the
+        // running application to repaint. This is used to reclaim the display
+        // after another client (such as a second browser window) changed the
+        // shared terminal size.
+
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN)
+            return
+
+        // resize_terminal reasserts this window's size and clears the drift
+        // indicator on the recycle button once the size has been sent.
+
+        this.scrollToBottom()
+        this.resize_terminal()
+    }
+
+    refresh() {
+        // Reconnect the terminal if it has closed, otherwise redraw it at this
+        // window's size. This backs the recycle button so a single action does
+        // the right thing whether the terminal dropped or was resized by
+        // another client.
+
+        if (this.shutdown)
+            this.reconnect()
+        else
+            this.redraw()
+    }
+
     reconnect() {
         if (!this.shutdown)
             return
@@ -1040,7 +1170,7 @@ class TerminalSession {
             if (self.shutdown)
                 return
 
-            let parsed_url = url.parse(window.location.origin)
+            let parsed_url = new URL(window.location.origin)
 
             let protocol = parsed_url.protocol == "https:" ? "wss" : "ws"
             let host = parsed_url.host
@@ -1259,6 +1389,18 @@ class Terminals {
             this.sessions[id].reconnect()
     }
 
+    refresh_terminal(id: string = "1") {
+        let terminal = this.sessions[id]
+
+        if (terminal)
+            terminal.refresh()
+    }
+
+    refresh_all_terminals() {
+        for (let id in this.sessions)
+            this.sessions[id].refresh()
+    }
+
     set_theme_all_terminals(value: any) {
         for (let id in this.sessions) {
             this.sessions[id].set_theme(value)
@@ -1272,6 +1414,7 @@ class Dashboard {
     private extendable: boolean
     private expiring: boolean
     private messages: MessagesChannel
+    private terminal_dialog_open: boolean = false
 
     constructor() {
         let $body = $("body")
@@ -1528,6 +1671,12 @@ class Dashboard {
                         cursor: '#ffffff'
                     })
                 }
+
+                let fullscreen_button = document.getElementById("fullscreen-button")
+                let fullscreen_tooltip = fullscreen_button ? bootstrap.Tooltip.getInstance(fullscreen_button) : null
+
+                if (fullscreen_tooltip)
+                    fullscreen_tooltip.setContent({ ".tooltip-inner": document.fullscreenElement ? "Exit full screen" : "Enter full screen" })
             })
         }
         else {
@@ -1555,18 +1704,23 @@ class Dashboard {
                 }
             }
             else {
-                // If terminal layout is "lower" and terminals are candidates
-                // for reconnecting, then reconnect the terminals rather than
-                // refresh the dashboard.
+                // Refreshing a terminal reconnects it if it has closed, or
+                // redraws it at this window's size if it is still live (for
+                // example after another browser window changed the shared
+                // terminal size). The button is flagged red when a terminal
+                // needs reconnecting and orange when it needs redrawing, but
+                // refreshing is harmless and so is also the default action.
 
                 let $body = $("body")
-                let reconnect = false
+                let button = $("#refresh-button")
 
-                if ($(event.target).is("[class$='-refresh-required']"))
-                    reconnect = true
+                let needs_terminal_refresh = button.is("[class*='-refresh-required'], [class*='-redraw-required']")
 
-                if ($body.data("terminal-layout") == "lower" && reconnect) {
-                    terminals.reconnect_all_terminals()
+                if ($body.data("terminal-layout") == "lower" && needs_terminal_refresh) {
+                    // In the lower layout the terminals share the main workarea
+                    // rather than having their own tab, so refresh them all.
+
+                    terminals.refresh_all_terminals()
                 }
                 else {
                     let active = $("#workarea-navbar-div li a.active")
@@ -1576,8 +1730,8 @@ class Dashboard {
                             let href = active.attr("href")
                             if (href) {
                                 let terminal = $(href + " div.terminal")
-                                if (terminal) {
-                                    terminals.reconnect_terminal(terminal.data("session-id"))
+                                if (terminal.length) {
+                                    terminals.refresh_terminal(terminal.data("session-id"))
                                 }
                                 else {
                                     let iframe = $(href + " iframe")
@@ -1587,7 +1741,7 @@ class Dashboard {
                             }
                         }
                         else {
-                            terminals.reconnect_all_terminals()
+                            terminals.refresh_all_terminals()
                         }
                     }
                 }
@@ -1599,6 +1753,24 @@ class Dashboard {
 
         $(".open-window").on("click", (event) => {
             window.open($(event.target).data("url"))
+        })
+
+        // Enable hover tooltips on the navbar buttons so it is clear what each
+        // one will do. A short show delay stops tooltips flashing as the
+        // pointer sweeps across the row of buttons.
+
+        let tooltip_buttons = [
+            "#restart-button",
+            "#countdown-button",
+            "#refresh-button",
+            "#fullscreen-button",
+            "#actions-dropdown",
+        ]
+
+        tooltip_buttons.forEach((selector) => {
+            let element = $(selector).get(0)
+            if (element)
+                new bootstrap.Tooltip(element, { trigger: "hover", delay: { show: 500, hide: 0 } })
         })
 
         // Initiate countdown timer if enabled for workshop session. Also
@@ -1668,12 +1840,16 @@ class Dashboard {
                         button.removeClass("btn-default")
                         button.removeClass("btn-transparent")
                         button.removeClass("btn-danger")
+
+                        update_countdown_button_tooltip("Click to extend the session")
                     }
                     else {
                         button.addClass("btn-danger")
                         button.removeClass("btn-default")
                         button.removeClass("btn-transparent")
                         button.removeClass("btn-warning")
+
+                        update_countdown_button_tooltip("Session ending soon")
                     }
                 }
                 else {
@@ -1681,6 +1857,8 @@ class Dashboard {
                     button.addClass("btn-transparent")
                     button.removeClass("btn-warning")
                     button.removeClass("btn-danger")
+
+                    update_countdown_button_tooltip("Session time remaining")
                 }
 
                 if (countdown && !((countdown + 2) % 15))
@@ -1812,6 +1990,40 @@ class Dashboard {
 
     terminate_session() {
         let modal = new bootstrap.Modal(document.getElementById("terminate-session-dialog"))
+        modal.show()
+    }
+
+    show_hijacked_dialog() {
+        this.show_terminal_dialog("terminal-hijacked-dialog")
+    }
+
+    show_terminal_problem_dialog() {
+        this.show_terminal_dialog("terminal-problem-dialog")
+    }
+
+    private show_terminal_dialog(id: string) {
+        // Only one terminal notification dialog is shown at a time. If one is
+        // already displayed, additional notifications are suppressed rather
+        // than queued. This matters when several terminals are hijacked at
+        // about the same time, as we would otherwise stack a popup per
+        // terminal. The notification will display again on a later occurrence
+        // once the current dialog has been dismissed.
+
+        if (this.terminal_dialog_open)
+            return
+
+        let element = document.getElementById(id)
+
+        if (!element)
+            return
+
+        this.terminal_dialog_open = true
+
+        element.addEventListener("hidden.bs.modal", () => {
+            this.terminal_dialog_open = false
+        }, { once: true })
+
+        let modal = bootstrap.Modal.getOrCreateInstance(element)
         modal.show()
     }
 
