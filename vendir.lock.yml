@@ -63,6 +63,14 @@ directories:
 - contents:
   - http: {}
     path: .
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/bootstrap
+- contents:
+  - http: {}
+    path: .
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/font-awesome
+- contents:
+  - http: {}
+    path: .
   path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/jquery
 - contents:
   - http: {}
@@ -76,12 +84,4 @@ directories:
   - http: {}
     path: .
   path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/js-yaml
-- contents:
-  - http: {}
-    path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/bootstrap
-- contents:
-  - http: {}
-    path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/font-awesome
 kind: LockConfig
