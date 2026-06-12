@@ -1,5 +1,7 @@
 package v1alpha1
 
+import "regexp"
+
 // EducatesLocalConfig is the laptop-kind-cluster scenario kind. Empty file
 // (apiVersion + kind only) is valid; defaults fill in everything else.
 //
@@ -140,18 +142,81 @@ func (c *EducatesLocalConfig) WithDefaults() *EducatesLocalConfig {
 	return c
 }
 
-// ApplyCLIDefaults fills in operator.image.{repository,tag} from the CLI
-// binary's compiled-in defaults. Deterministic per CLI binary; the output
-// is reproducible as long as the same CLI version is used.
+// LocalDevImageNames is the set of platform images a dev-built CLI
+// defaults to its compiled-in registry — exactly the images the root
+// Makefile's `build-core-images` produces. Workshop language images
+// (jdk*, conda) are deliberately excluded: their chart defaults point
+// at published images that exist, so optional-workshop flows keep
+// working in a dev cluster; a developer who builds them locally adds
+// explicit imageVersions entries, which always win.
+var LocalDevImageNames = []string{
+	"session-manager",
+	"training-portal",
+	"base-environment",
+	"docker-registry",
+	"pause-container",
+	"secrets-manager",
+	"tunnel-manager",
+	"image-cache",
+	"assets-server",
+	"lookup-service",
+	"node-ca-injector",
+}
+
+// semverRe matches release versions as stamped by the release
+// workflow: X.Y.Z with optional pre-release/build suffix, optional
+// leading v. Anything else ("latest", "develop", "dev", ad-hoc
+// PACKAGE_VERSION values) identifies a developer-built CLI.
+var semverRe = regexp.MustCompile(`^v?\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
+
+// isDevVersion reports whether the CLI binary's compiled-in version
+// identifies a developer build. Release binaries are always stamped
+// with a semver tag (including pre-releases like 4.0.0-alpha.1), so
+// "not semver" is exactly "not built by the release pipeline".
+func isDevVersion(v string) bool {
+	return !semverRe.MatchString(v)
+}
+
+// ApplyCLIDefaults fills in image defaults from the CLI binary's
+// compiled-in version/registry. Deterministic per CLI binary; the
+// output is reproducible as long as the same CLI version is used.
 //
-// repository pattern matches `installer/charts/educates-installer/values.yaml`:
-// `<imageRepository>/educates-operator`. tag = the CLI binary's version.
+// All binaries: operator.image.{repository,tag} default to
+// `<imageRepository>/educates-operator` : projectVersion (matching
+// `installer/charts/educates-installer/values.yaml`).
+//
+// Developer binaries only (non-semver version, e.g. `latest` from
+// `make`): every LocalDevImageNames entry the user didn't override is
+// defaulted to `<imageRepository>/educates-<name>:<projectVersion>`,
+// so a locally built image set deploys with zero manual config.
+// Release binaries (semver-stamped) skip this entirely and behave as
+// before. User-supplied imageVersions entries always win.
 func (c *EducatesLocalConfig) ApplyCLIDefaults(projectVersion, imageRepository string) *EducatesLocalConfig {
 	if c.Operator.Image.Repository == "" && imageRepository != "" {
 		c.Operator.Image.Repository = imageRepository + "/educates-operator"
 	}
 	if c.Operator.Image.Tag == "" && projectVersion != "" {
 		c.Operator.Image.Tag = projectVersion
+	}
+	if projectVersion != "" && imageRepository != "" && isDevVersion(projectVersion) {
+		if c.Operator.Image.PullPolicy == "" {
+			// Dev tags are rebuilt under the same name on every push;
+			// the chart only auto-derives Always for well-known
+			// floating tags (latest/develop/...), so pin it here.
+			c.Operator.Image.PullPolicy = "Always"
+		}
+		present := make(map[string]bool, len(c.ImageVersions))
+		for _, iv := range c.ImageVersions {
+			present[iv.Name] = true
+		}
+		for _, name := range LocalDevImageNames {
+			if !present[name] {
+				c.ImageVersions = append(c.ImageVersions, ImageVersion{
+					Name:  name,
+					Image: imageRepository + "/educates-" + name + ":" + projectVersion,
+				})
+			}
+		}
 	}
 	return c
 }
