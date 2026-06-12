@@ -1,133 +1,42 @@
 # =============================================================================
-# Educates Training Platform - Build System
+# Educates Training Platform — build system
 # =============================================================================
 #
-# This Makefile provides a comprehensive build system for the Educates training
-# platform, supporting both single-platform and multi-architecture builds.
+# Plain `make` produces a complete locally-built system: the educates CLI
+# (with compiled-in defaults pointing at the local registry), all core
+# platform images and the operator image, pushed to localhost:5001. Then:
 #
+#   client-programs/bin/educates-<platform> local cluster create
+#
+# deploys the locally built system with no further configuration.
+#
+# Knobs (env vars or `make VAR=value`):
+#   IMAGE_REPOSITORY  registry for images (default localhost:5001)
+#   PACKAGE_VERSION   image tag (default latest)
+#   TARGET_PLATFORMS  image platforms; DEFAULTS TO THE CURRENT HOST
+#                     ARCHITECTURE ONLY. Multi-arch is explicit opt-in:
+#                     TARGET_PLATFORMS=linux/amd64,linux/arm64
+#   PUSH_IMAGES       false = load into the Docker daemon instead of
+#                     pushing (single platform only; default true)
+#   CLI_VERSION / CLI_IMAGE_REPOSITORY
+#                     compiled-in CLI defaults (default: PACKAGE_VERSION /
+#                     IMAGE_REPOSITORY). A non-semver CLI_VERSION marks the
+#                     binary as a dev build, which auto-targets its
+#                     registry for all platform images at deploy time.
+#
+# `make` regenerates committed embedded artifacts (operator CRDs/subchart
+# tarballs, CLI-embedded chart and schemas) when their sources changed —
+# a dirty tree after `make` means those need committing.
+#
+# Prerequisites beyond docker + go: helm (subchart packaging).
+# Run `make help` for the target list.
 # =============================================================================
-# CONFIGURATION PARAMETERS
-# =============================================================================
-#
-# The following parameters can be set via environment variables or make arguments:
-#
-# PUSH_IMAGES
-#   Description: Controls whether images are pushed to registry or loaded locally
-#   Note: If PUSH_IMAGES is false, the images are loaded locally with --load
-#         and only one image is built for the current platform.
-#   Default: true (images are pushed to a registry)
-#   Values: true/false
-#   Examples:
-#     - Load locally: PUSH_IMAGES=false
-#     - Push to registry: PUSH_IMAGES=true (or omit)
-#   Usage:
-#     make build-all-images PUSH_IMAGES=false
-#     export PUSH_IMAGES=false && make build-all-images
-#
-# TARGET_PLATFORMS
-#   Description: Controls target platform(s) for Docker builds
-#   Default: Current platform (e.g., linux/amd64 on x86_64 systems)
-#   Note: If PUSH_IMAGES is false, TARGET_PLATFORMS is ignored.
-#   Examples:
-#     - Single platform: TARGET_PLATFORMS=linux/arm64
-#     - Multi-platform: TARGET_PLATFORMS=linux/amd64,linux/arm64
-#   Usage:
-#     make build-all-images TARGET_PLATFORMS=linux/arm64,linux/amd64
-#     export TARGET_PLATFORMS=linux/arm64 && make build-all-images
-#
-# IMAGE_REPOSITORY
-#   Description: Docker registry/repository for built images
-#   Default: localhost:5001
-#   Examples:
-#     - Local registry: localhost:5001
-#     - Docker Hub: yourusername/educates
-#     - Private registry: registry.company.com/educates
-#
-# PACKAGE_VERSION
-#   Description: Version tag for built images
-#   Default: latest
-#   Examples: v1.0.0, dev, latest
-#
-# =============================================================================
-# BUILD TARGETS
-# =============================================================================
-#
-# Main Targets:
-#   all                    - Build all images and client programs
-#   build-all-images       - Build all Docker images
-#   build-core-images      - Build core platform images only
-#   build-client-programs  - Build Go client programs
-#
-# Individual Image Targets:
-#   build-session-manager     - Session management service
-#   build-training-portal    - Web portal interface
-#   build-base-environment   - Base workshop environment
-#   build-jdk8-environment   - Java 8 workshop environment
-#   build-jdk11-environment  - Java 11 workshop environment
-#   build-jdk17-environment  - Java 17 workshop environment
-#   build-jdk21-environment  - Java 21 workshop environment
-#   build-conda-environment  - Python/Conda workshop environment
-#   build-desktop-environment- Desktop GUI workshop environment
-#   build-docker-registry    - Local Docker registry
-#   build-pause-container    - Kubernetes pause container
-#   build-secrets-manager    - Secrets management service
-#   build-tunnel-manager     - Network tunneling service
-#   build-image-cache        - Image caching service
-#   build-assets-server      - Static assets server
-#   build-lookup-service     - Service discovery
-#
-# Utility Targets:
-#   setup-buildx           - Setup Docker buildx for multiarch builds
-#   clean-buildx           - Clean up builder
-#   list-platforms         - Show supported platforms
-#   help                   - Show available targets
-#
-# =============================================================================
-# USAGE EXAMPLES
-# =============================================================================
-#
-# Basic usage (builds for current platform, loads locally):
-#   make build-all-images
-#
-# Build for specific platform:
-#   make build-all-images TARGET_PLATFORMS=linux/arm64
-#
-# Multi-architecture build:
-#   make build-all-images TARGET_PLATFORMS=linux/amd64,linux/arm64
-#
-# Don't push to registry:
-#   make build-all-images PUSH_IMAGES=false
-#
-# Combined parameters:
-#   make build-all-images TARGET_PLATFORMS=linux/amd64,linux/arm64 PUSH_IMAGES=true
-#
-# Using environment variables:
-#   export TARGET_PLATFORMS=linux/arm64,linux/amd64
-#   export PUSH_IMAGES=true
-#   make build-all-images
-#
-# Build specific service:
-#   make build-training-portal TARGET_PLATFORMS=linux/arm64
-#
-# =============================================================================
-# PLATFORM DETECTION
-# =============================================================================
-#
-# The Makefile automatically detects the current system:
-#   - Operating System: Darwin, Linux, Windows
-#   - Architecture: amd64, arm64, etc.
-#   - Normalizes x86_64 to amd64 for consistency
-#
-# The target for build-client-programs is always set to the current platform, so that
-# on macos a binary will be built for the current platform. The build-cli-image target
-# creates a multiarch "educates-cli" image with the binary for each of the target
-# platforms.
-#
-# =============================================================================
-#
-IMAGE_REPOSITORY = localhost:5001
-PACKAGE_VERSION = latest
-RELEASE_VERSION = 0.0.1
+
+IMAGE_REPOSITORY ?= localhost:5001
+PACKAGE_VERSION ?= latest
+
+CLI_VERSION ?= $(PACKAGE_VERSION)
+CLI_IMAGE_REPOSITORY ?= $(IMAGE_REPOSITORY)
 
 UNAME_SYSTEM := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 UNAME_MACHINE := $(shell uname -m)
@@ -142,154 +51,113 @@ endif
 TARGET_PLATFORM = $(TARGET_SYSTEM)-$(TARGET_MACHINE)
 BUILDX_BUILDER = educates-multiarch-builder
 
-# Platform configuration - can be overridden by TARGET_PLATFORMS env var or make parameter
+# Image platforms: current host architecture only, unless TARGET_PLATFORMS
+# is set explicitly. Never silently multi-arch — cross-arch builds run
+# under QEMU emulation and belong in CI or an explicit opt-in.
 ifeq ($(TARGET_PLATFORMS),)
-# Default to current platform when TARGET_PLATFORMS is not set
-DOCKER_PLATFORM = linux/$(TARGET_MACHINE)
-MULTIARCH_PLATFORMS = linux/amd64,linux/arm64
+IMAGE_PLATFORMS = linux/$(TARGET_MACHINE)
 else
-# Use TARGET_PLATFORMS when set (allows for custom multiarch builds)
-DOCKER_PLATFORM = $(TARGET_PLATFORMS)
-MULTIARCH_PLATFORMS = $(TARGET_PLATFORMS)
+IMAGE_PLATFORMS = $(TARGET_PLATFORMS)
 endif
 
-# Push/Load configuration - can be overridden by PUSH_IMAGES env var or make parameter
+# PUSH_IMAGES=false loads the image into the Docker daemon (`--load`
+# semantics, single platform only) instead of pushing to the registry.
 ifeq ($(PUSH_IMAGES),false)
-# Load images locally when PUSH_IMAGES is not true (default)
 DOCKER_BUILDER =
-MULTIARCH_PLATFORMS = $(DOCKER_PLATFORM)
+IMAGE_PLATFORMS = linux/$(TARGET_MACHINE)
 else
-# Push images to registry when PUSH_IMAGES is true
 DOCKER_BUILDER = --builder ${BUILDX_BUILDER} --push
 endif
 
-all: build-all-images # deploy-installer deploy-workshop
+# =============================================================================
+# Image inventory
+# =============================================================================
 
-# Multiarch build targets
-build-all-images: setup-buildx build-session-manager build-training-portal \
-  build-base-environment build-jdk8-environment build-jdk11-environment \
-  build-jdk17-environment build-jdk21-environment \
-  build-conda-environment build-docker-registry \
-  build-pause-container build-secrets-manager build-tunnel-manager \
-  build-image-cache build-assets-server build-lookup-service \
-  build-node-ca-injector build-cli-image
+CORE_IMAGES = session-manager training-portal base-environment \
+  docker-registry pause-container secrets-manager tunnel-manager \
+  image-cache assets-server lookup-service node-ca-injector
 
-build-core-images: setup-buildx build-session-manager build-training-portal \
-  build-base-environment build-docker-registry build-pause-container \
-  build-secrets-manager build-tunnel-manager build-image-cache \
-  build-assets-server build-lookup-service build-node-ca-injector
+WORKSHOP_IMAGES = jdk8-environment jdk11-environment jdk17-environment \
+  jdk21-environment conda-environment
 
-build-session-manager:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-session-manager:$(PACKAGE_VERSION) \
-		session-manager
+# Build context directories for images whose context isn't ./<name>.
+IMAGE_DIR.base-environment = workshop-images/base-environment
+$(foreach i,$(WORKSHOP_IMAGES),$(eval IMAGE_DIR.$(i) = workshop-images/$(i)))
+IMAGE_DIR.desktop-environment = workshop-images/desktop-environment
+IMAGE_DIR.operator = installer/operator
+IMAGE_DIR.cli = client-programs
 
-build-training-portal:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-training-portal:$(PACKAGE_VERSION) \
-		training-portal
+# Per-image build args. Workshop images chain FROM base-environment at
+# IMAGE_REPOSITORY:PACKAGE_VERSION; the CLI image stamps the same
+# compiled-in defaults as the binary build below.
+WORKSHOP_BUILD_ARGS = --build-arg IMAGE_REPOSITORY=$(IMAGE_REPOSITORY) --build-arg PACKAGE_VERSION=$(PACKAGE_VERSION)
+$(foreach i,$(WORKSHOP_IMAGES) desktop-environment,$(eval IMAGE_BUILD_ARGS.$(i) = $(WORKSHOP_BUILD_ARGS)))
+IMAGE_BUILD_ARGS.cli = --build-arg REPOSITORY=$(IMAGE_REPOSITORY) --build-arg TAG=$(PACKAGE_VERSION) \
+  --build-arg PROJECT_VERSION=$(CLI_VERSION) --build-arg IMAGE_REPOSITORY=$(CLI_IMAGE_REPOSITORY)
 
-build-base-environment:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-base-environment:$(PACKAGE_VERSION) \
-		workshop-images/base-environment
+# =============================================================================
+# Verbs
+# =============================================================================
 
-build-jdk8-environment: build-base-environment
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-		--build-arg PACKAGE_VERSION=$(PACKAGE_VERSION) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-jdk8-environment:$(PACKAGE_VERSION) \
-		workshop-images/jdk8-environment
+.DEFAULT_GOAL := local-build
 
-build-jdk11-environment: build-base-environment
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		--build-arg PACKAGE_VERSION=$(PACKAGE_VERSION) \
-		-t $(IMAGE_REPOSITORY)/educates-jdk11-environment:$(PACKAGE_VERSION) \
-		workshop-images/jdk11-environment
+local-build: build-cli ensure-local-registry build-core-images image-operator ## Build CLI + core images + operator for local testing (default)
+	@echo ""
+	@echo "Local build complete:"
+	@echo "  images: $(IMAGE_REPOSITORY)/educates-*:$(PACKAGE_VERSION) ($(IMAGE_PLATFORMS))"
+	@echo "  CLI:    client-programs/bin/educates-$(TARGET_PLATFORM)"
+	@echo ""
+	@echo "Next: client-programs/bin/educates-$(TARGET_PLATFORM) local cluster create"
 
-build-jdk17-environment: build-base-environment
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		--build-arg PACKAGE_VERSION=$(PACKAGE_VERSION) \
-		-t $(IMAGE_REPOSITORY)/educates-jdk17-environment:$(PACKAGE_VERSION) \
-		workshop-images/jdk17-environment
+all: local-build
 
-build-jdk21-environment: build-base-environment
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		--build-arg PACKAGE_VERSION=$(PACKAGE_VERSION) \
-		-t $(IMAGE_REPOSITORY)/educates-jdk21-environment:$(PACKAGE_VERSION) \
-		workshop-images/jdk21-environment
+build-core-images: setup-buildx $(addprefix image-,$(CORE_IMAGES)) ## Build + push the core platform images
 
-build-conda-environment: build-base-environment
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		--build-arg PACKAGE_VERSION=$(PACKAGE_VERSION) \
-		-t $(IMAGE_REPOSITORY)/educates-conda-environment:$(PACKAGE_VERSION) \
-		workshop-images/conda-environment
+build-workshop-images: setup-buildx $(addprefix image-,$(WORKSHOP_IMAGES)) ## Build + push the optional workshop language images (jdk*, conda)
 
-build-desktop-environment: build-base-environment
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		--build-arg PACKAGE_VERSION=$(PACKAGE_VERSION) \
-		-t $(IMAGE_REPOSITORY)/educates-desktop-environment:$(PACKAGE_VERSION) \
-		workshop-images/desktop-environment
+build-all-images: build-core-images build-workshop-images image-cli ## Build everything: core + workshop images + CLI image
 
-build-docker-registry:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-docker-registry:$(PACKAGE_VERSION) \
-		docker-registry
+# Generic image rule: `make image-<name>` builds + pushes one image.
+# Context is ./<name> unless overridden via IMAGE_DIR.<name> above.
+image-%: setup-buildx
+	docker build --progress plain --platform $(IMAGE_PLATFORMS) \
+	    $(DOCKER_BUILDER) $(IMAGE_BUILD_ARGS.$*) \
+		-t $(IMAGE_REPOSITORY)/educates-$*:$(PACKAGE_VERSION) \
+		$(or $(IMAGE_DIR.$*),$*)
 
-build-pause-container:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-pause-container:$(PACKAGE_VERSION) \
-		pause-container
+# Workshop language images chain FROM the base environment image.
+$(addprefix image-,$(WORKSHOP_IMAGES)) image-desktop-environment: image-base-environment
 
-build-secrets-manager:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-secrets-manager:$(PACKAGE_VERSION) \
-		secrets-manager
+# The operator image go:embeds the runtime subchart tarballs — refresh
+# them (and generated CRDs/deepcopy) before baking the image.
+image-operator: refresh-operator-embeds
 
-build-tunnel-manager:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-tunnel-manager:$(PACKAGE_VERSION) \
-		tunnel-manager
+# The CLI image embeds the operator chart + schemas via its build
+# context and copies themes from the base-environment image.
+image-cli: refresh-cli-embeds image-base-environment
 
-build-image-cache:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-image-cache:$(PACKAGE_VERSION) \
-		image-cache
+# =============================================================================
+# Embedded-artifact freshness
+# =============================================================================
+# These regenerate committed files. A dirty tree afterwards means chart
+# or CRD sources changed — commit the regenerated output (CI enforces
+# sync via verify-installer-chart / verify-cli-schemas / chart-sync-lint).
 
-build-assets-server:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-assets-server:$(PACKAGE_VERSION) \
-		assets-server
+refresh-operator-embeds: ## Regenerate CRDs + deepcopy + the subchart tarballs the operator embeds
+	$(MAKE) -C installer/operator manifests generate package-local-charts
+	@# helm package is not byte-reproducible (gzip timestamps); restore
+	@# any repackaged tarball whose listing + content are unchanged so
+	@# `make` keeps a clean tree when nothing really changed.
+	@for f in $$(git diff --name-only -- 'installer/operator/vendored-charts/*.tgz'); do \
+		new_sum=$$( (tar -tzf "$$f"; tar -xzOf "$$f") | shasum -a 256 ); \
+		old_sum=$$( (git show HEAD:"$$f" | tar -tz; git show HEAD:"$$f" | tar -xzO) 2>/dev/null | shasum -a 256 ); \
+		if [ "$$new_sum" = "$$old_sum" ]; then git checkout --quiet -- "$$f"; fi; \
+	done
 
-build-lookup-service:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-lookup-service:$(PACKAGE_VERSION) \
-		lookup-service
+refresh-cli-embeds: refresh-operator-embeds embed-installer-chart generate-cli-schemas ## Refresh everything the CLI embeds (chart + schemas)
 
-build-node-ca-injector:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-node-ca-injector:$(PACKAGE_VERSION) \
-		node-ca-injector
-
-restart-training-platform:
-	kubectl rollout restart deployment/secrets-manager -n educates
-	kubectl rollout restart deployment/session-manager -n educates
+package-local-charts: ## Repackage the runtime subcharts into the operator's vendored-charts/
+	$(MAKE) -C installer/operator package-local-charts
 
 generate-cli-schemas:
 	@# Regenerates EducatesConfig.schema.json from the platform CRDs.
@@ -322,46 +190,56 @@ verify-installer-chart: embed-installer-chart
 		exit 1; \
 	fi
 
-client-programs-educates:
+# =============================================================================
+# CLI binary
+# =============================================================================
+
+build-cli: refresh-cli-embeds ## Build the educates CLI for the current host platform
 	rm -rf client-programs/pkg/renderer/files
-	mkdir client-programs/pkg/renderer/files
-	mkdir -p client-programs/bin
+	mkdir -p client-programs/pkg/renderer/files client-programs/bin
 	cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
-	(cd client-programs; go build -gcflags=all="-N -l" -o bin/educates-$(TARGET_PLATFORM) cmd/educates/main.go)
+	(cd client-programs; go build -gcflags=all="-N -l" \
+		-ldflags "-X 'main.projectVersion=$(CLI_VERSION)' -X 'main.imageRepository=$(CLI_IMAGE_REPOSITORY)'" \
+		-o bin/educates-$(TARGET_PLATFORM) cmd/educates/main.go)
 
-build-client-programs: client-programs-educates
+build-client-programs: build-cli
+client-programs-educates: build-cli
 
-build-cli-image:
-	docker build --progress plain --platform $(MULTIARCH_PLATFORMS) \
-	    $(DOCKER_BUILDER) \
-		-t $(IMAGE_REPOSITORY)/educates-cli:$(PACKAGE_VERSION) \
-		client-programs
+# The always-on localhost:5001 registry must exist before images can be
+# pushed to it. The freshly built CLI deploys it (idempotent, no cluster
+# needed). Skipped when not pushing or when targeting another registry.
+ensure-local-registry: build-cli
+ifeq ($(PUSH_IMAGES),false)
+	@echo "PUSH_IMAGES=false: images load into the Docker daemon; skipping local registry"
+else ifneq ($(IMAGE_REPOSITORY),localhost:5001)
+	@echo "IMAGE_REPOSITORY=$(IMAGE_REPOSITORY): assuming the registry is reachable"
+else
+	@docker container inspect -f '{{.State.Running}}' educates-registry 2>/dev/null | grep -q true || \
+		client-programs/bin/educates-$(TARGET_PLATFORM) local registry deploy
+endif
 
-build-docker-extension : build-cli-image
+# =============================================================================
+# Docker Desktop extension
+# =============================================================================
+
+build-docker-extension: image-cli ## Build the Docker Desktop extension
 	$(MAKE) -C docker-extension build-extension REPOSITORY=$(IMAGE_REPOSITORY) TAG=$(PACKAGE_VERSION)
 
-install-docker-extension : build-docker-extension
+install-docker-extension: build-docker-extension
 	$(MAKE) -C docker-extension install-extension REPOSITORY=$(IMAGE_REPOSITORY) TAG=$(PACKAGE_VERSION)
 
-update-docker-extension : build-docker-extension
+update-docker-extension: build-docker-extension
 	$(MAKE) -C docker-extension update-extension REPOSITORY=$(IMAGE_REPOSITORY) TAG=$(PACKAGE_VERSION)
 
-project-docs/venv :
-	python3 -m venv project-docs/venv
-	project-docs/venv/bin/pip install -r project-docs/requirements.txt
- 
-build-project-docs : project-docs/venv
-	source project-docs/venv/bin/activate && make -C project-docs html
+# =============================================================================
+# Cluster conveniences
+# =============================================================================
 
-open-project-docs :
-	open project-docs/_build/html/index.html || \
-        xdg-open project-docs/_build/html/index.html
+restart-training-platform: ## Restart the deployed platform components
+	kubectl rollout restart deployment/secrets-manager -n educates
+	kubectl rollout restart deployment/session-manager -n educates
 
-clean-project-docs:
-	rm -rf project-docs/venv
-	rm -rf project-docs/_build
-
-deploy-workshop:
+deploy-workshop: ## Deploy the lab-k8s-fundamentals sample workshop
 	kubectl apply -f https://github.com/educates/lab-k8s-fundamentals/releases/download/8.4/workshop.yaml
 	kubectl apply -f https://github.com/educates/lab-k8s-fundamentals/releases/download/8.4/trainingportal.yaml
 	STATUS=1; ATTEMPTS=0; ROLLOUT_STATUS_CMD="kubectl rollout status deployment/training-portal -n lab-k8s-fundamentals-ui"; until [ $$STATUS -eq 0 ] || $$ROLLOUT_STATUS_CMD || [ $$ATTEMPTS -eq 5 ]; do sleep 5; $$ROLLOUT_STATUS_CMD; STATUS=$$?; ATTEMPTS=$$((ATTEMPTS + 1)); done
@@ -371,6 +249,29 @@ delete-workshop:
 
 open-workshop:
 	URL=`kubectl get trainingportal/lab-k8s-fundamentals -o go-template={{.status.educates.url}}`; (test -x /usr/bin/xdg-open && xdg-open $$URL) || (test -x /usr/bin/open && open $$URL) || true
+
+# =============================================================================
+# Documentation
+# =============================================================================
+
+project-docs/venv:
+	python3 -m venv project-docs/venv
+	project-docs/venv/bin/pip install -r project-docs/requirements.txt
+
+build-project-docs: project-docs/venv ## Build the Sphinx documentation
+	source project-docs/venv/bin/activate && make -C project-docs html
+
+open-project-docs:
+	open project-docs/_build/html/index.html || \
+        xdg-open project-docs/_build/html/index.html
+
+clean-project-docs:
+	rm -rf project-docs/venv
+	rm -rf project-docs/_build
+
+# =============================================================================
+# Housekeeping
+# =============================================================================
 
 prune-images:
 	docker image prune --force
@@ -394,16 +295,31 @@ prune-builds:
 prune-registry:
 	docker exec educates-registry registry garbage-collect /etc/distribution/config.yml --delete-untagged=true
 
-prune-all: prune-docker prune-builds prune-registry
+prune-all: prune-docker prune-builds prune-registry ## Clean caches and build artifacts
 
-# builder management
-setup-buildx: ## Setup builder for multiarch builds
+setup-buildx: ## Set up the buildx builder used for image pushes
 	docker buildx create --name $(BUILDX_BUILDER) --driver docker-container --driver-opt default-load=true --driver-opt network=host --use || true
 	docker buildx inspect $(BUILDX_BUILDER) --bootstrap
 
-clean-buildx: ## Clean up builder
+clean-buildx: ## Remove the buildx builder
 	docker buildx rm $(BUILDX_BUILDER) || true
 
-# Multiarch utility targets
-list-platforms: ## List available platforms for multiarch builds
-	@echo "Supported platforms: $(MULTIARCH_PLATFORMS)"
+list-platforms:
+	@echo "Image platforms: $(IMAGE_PLATFORMS)"
+
+help: ## Show available targets
+	@echo "Common targets (see the header comment for the knobs):"
+	@grep -hE '^[a-zA-Z0-9_.%-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-26s\033[0m %s\n", $$1, $$2}'
+	@echo ""
+	@echo "Any single image: make image-<name> (e.g. image-training-portal)"
+	@echo "  names: $(CORE_IMAGES) $(WORKSHOP_IMAGES) desktop-environment operator cli"
+
+.PHONY: local-build all build-core-images build-workshop-images build-all-images \
+  refresh-operator-embeds refresh-cli-embeds package-local-charts \
+  generate-cli-schemas verify-cli-schemas embed-installer-chart verify-installer-chart \
+  build-cli build-client-programs client-programs-educates ensure-local-registry \
+  build-docker-extension install-docker-extension update-docker-extension \
+  restart-training-platform deploy-workshop delete-workshop open-workshop \
+  build-project-docs open-project-docs clean-project-docs \
+  prune-images prune-docker prune-builds prune-registry prune-all \
+  setup-buildx clean-buildx list-platforms help
