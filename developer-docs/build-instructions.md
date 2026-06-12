@@ -60,33 +60,24 @@ Note that this later command will create/update service resources in the Kuberne
 Defining installer configuration
 --------------------------------
 
-Before building and deploying Educates from source code, you will need to supply a configuration file providing details of the target cluster and what is to be installed. This configuration should be placed in the file:
+Before building and deploying Educates from source code, you will need a configuration describing the target cluster and what is to be installed. The local configuration is managed by the `educates` CLI itself and lives in the CLI data home (by default `$XDG_DATA_HOME/educates/config.yaml`). Create a minimal configuration by running:
 
 ```
-developer-testing/educates-installer-values.yaml
+educates local config init
 ```
 
-within the Educates source code directory.
+You can inspect it with `educates local config view` and change it with `educates local config edit`. The local configuration uses the `EducatesLocalConfig` format and should contain at least:
 
-Where deploying to the local Kind cluster created using the Educates CLI, you can create this by running:
-
-```
-educates local config view > developer-testing/educates-installer-values.yaml
-```
-
-this should contain at least:
-
-```
-clusterInfrastructure:
-  provider: kind
-
-clusterIngress:
-  domain: 192.168.1.1.nip.io
+```yaml
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesLocalConfig
+ingress:
+  domain: 192-168-1-1.nip.io
 ```
 
-By setting the `provider` as `kind`, an opinionated configuration suitable for a Kubernetes cluster created using Kind will be used. This includes the automatic deployment and configuration of an ingress router for the cluster using Contour, and the installation of Kyverno for implementing cluster and workshop security policies.
+The `EducatesLocalConfig` kind implies an opinionated configuration suitable for a Kubernetes cluster created using Kind: the operator deploys an ingress router for the cluster using Contour, cert-manager for TLS, and Kyverno for implementing cluster and workshop security policies.
 
-The `domain` should be set to be a `nip.io` address mapping to the IP address of your local host where you are doing development, or some other FQDN which maps to your local host.
+The `domain` should be set to be a `nip.io` address mapping to the IP address of your local host where you are doing development, or some other FQDN which maps to your local host. If left unset, the deploy command falls back to a `nip.io` address derived from your host IP.
 
 If the configuration requires additional secrets these will need added to the local Kubernetes cluster in the namespace required by the configuration. If these secrets had previously been added to the local secrets cache, you can copy them to the local Kubernetes cluster by running:
 
@@ -123,32 +114,34 @@ set to alter behavior of the Makefile. There's comprehensive documentation at th
 Once the container images have been built and pushed to the local docker image registry, you can then deploy everything by running:
 
 ```
-make deploy-platform
+educates admin platform deploy --local-config
 ```
 
-This will perform an install directly from configuration files in the current directory. If needing to test that the `educates-installer` package bundle used by the Educates CLI installer can be installed using `kapp-controller`, ensure that `kapp-controller` is installed in the cluster and then use the commands:
+This installs the operator from the Helm chart embedded in the CLI, applies the four platform custom resources, and waits for each to report Ready. By default the platform runs the published `ghcr.io/educates` images; to have it run your locally built images instead, add `imageVersions` overrides to the local configuration (`educates local config edit`) pinning components at the local image registry, for example:
 
-```
-make build-all-images
-make push-installer-bundle
-make deploy-platform-app
-```
-
-The `make build-all-images` command will make sure that optional workshop base images as well as the core Educates platform are built. It is necessary to build all images when testing the package bundle as the package generated will include image hashes for all images.
-
-To delete everything deployed using the `educates-installer` package when using the `make` command, use:
-
-```
-make delete-platform
+```yaml
+imageVersions:
+- name: session-manager
+  image: localhost:5001/educates-session-manager:latest
+- name: training-portal
+  image: localhost:5001/educates-training-portal:latest
 ```
 
-or:
+If you are working on the installer operator itself, build and load its image and point the operator deployment at it:
 
 ```
-make delete-platform-app
+cd installer/operator
+make docker-build IMG=ghcr.io/educates/educates-operator:dev
+kind load docker-image ghcr.io/educates/educates-operator:dev --name educates
 ```
 
-as appropriate.
+then set `operator.image.repository` and `operator.image.tag` in the local configuration (or pass `--set image.repository=... --set image.tag=dev` if installing the chart directly with `helm install` from `installer/charts/educates-installer`). See the [operator README](../installer/operator/README.md) and the make targets there (`make smoke-test`, `make test`) for the operator development loop.
+
+To delete everything deployed to the cluster, use:
+
+```
+educates admin platform delete
+```
 
 Building additional workshop images
 -----------------------------------
@@ -187,17 +180,7 @@ make build-client-programs
 
 You can then run the `educates` CLI program from the `client-programs/bin` subdirectory. The name of the compiled CLI will incorporate the target system and machine architecture, e.g.: `educates-linux-amd64`.
 
-Note that when building the `educates` CLI from local source code, the embedded project version will be `develop`. If you are running it to test creation of the local Kubernetes cluster with Educates using an existing version, you will need to tell it what previously released version of the package should be used. This can be done using the `--version` of sub commands where this is necessary.
-
-```
-./client-programs/bin/educates-linux-amd64 create-cluster --version=3.0.0
-```
-
-If you have built and pushed to the local image registry the package bundles for `educates-installer`, you will need to tell the CLI to use the package bundles and images from the local image registry rather than those hosted on GitHub container registry. This can be done by specifying the version to be `latest`.
-
-```
-./client-programs/bin/educates-linux-amd64 create-cluster --version=latest
-```
+Note that when building the `educates` CLI from local source code, the embedded project version will be `develop` and the operator Helm chart embedded in the CLI is the one from your source tree. Platform images default to the published `ghcr.io/educates` images; use `imageVersions` overrides in the local configuration, as described above, when the platform should run locally built images instead.
 
 Cleaning up available storage space
 -----------------------------------

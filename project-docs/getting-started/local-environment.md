@@ -196,14 +196,14 @@ $ curl -v www.educates-local-dev.test
 The IP address used as the target for addresses resolved by the local DNS resolver will be the IP address of the primary active network interface for the local host. If you want to override the IP address and change it to use an alternate IP, such as that used by an alias applied to a network interface using the ``ifconfig INTERFACE alias`` command, you can edit the local Educates config using the command ``educates local config edit`` and add configuration in the following form before deploying the local DNS resolver.
 
 ```yaml
-localDNSResolver:
+resolver:
   targetAddress: 192.168.168.1
 ```
 
 By default the local DNS resolver will only resolve the domain for the Educates ingress domain. If you want it to resolve other domains and also have them directed to the IP address used for accessing the local Educates cluster, you can also add them in the local Educates config.
 
 ```yaml
-localDNSResolver:
+resolver:
   extraDomains:
   - example.com
 ```
@@ -238,7 +238,7 @@ Using mirrors when creating a cluster
 You can specify registry mirrors in your cluster configuration YAML. When you create a cluster with mirrors configured, Educates will automatically deploy and link the mirrors to your local cluster. This ensures that all image pulls for the mirrored registries are routed through your local mirror, improving speed and reliability.
 
 ```yaml
-localKindCluster:
+cluster:
   listenAddress: 0.0.0.0
   registryMirrors:
     - mirror: ghcr.io
@@ -292,9 +292,9 @@ Customize local pod and service CIDRs
 If you need to modify the pod and service CIDRs for the local Kind cluster, you can do so by editing the local cluster configuration using the command `educates local config edit` and adding the following configuration:
 
 ```yaml
-localKindCluster:
+cluster:
   networking:
-    podCIDR: 10.244.0.0/16
-    serviceCIDR: 10.96.0.0/12
+    podSubnet: 10.244.0.0/16
+    serviceSubnet: 10.96.0.0/12
 ```
 

@@ -41,7 +41,7 @@ In case you are using [Colima](https://github.com/abiosoft/colima), you need to 
 
 ```
 $ educates local config edit
-localKindCluster:
+cluster:
   listenAddress: 0.0.0.0
 ```
 
