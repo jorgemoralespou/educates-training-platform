@@ -105,6 +105,12 @@ How I expect to collaborate:
 - **Always draft a plan or check-list when working with complex tasks**. If you envision
   the task is going to be long, either plan properly if needed, or at least create
   a task-list to track progress.
+- **Every user-facing change needs a release-notes entry to be complete.** Before
+  considering a change done, add or update the matching entry in
+  `project-docs/release-notes/version-4.0.0.md` (New Features / Features Changed /
+  Bugs Fixed). Purely internal changes — refactors, CI, tests, developer docs —
+  are exempt. Match the file's prose style: full sentences, double-backtick
+  literals, wrapped lines.
 
 ---
 
