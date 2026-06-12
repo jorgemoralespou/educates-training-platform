@@ -2,7 +2,7 @@
 <html>
 
 <head>
-  {{ partial "page-head.html" . }}
+  {{ partial "head.html" . }}
 </head>
 
 {{ .Scratch.Set "__modules__" (.Site.Param "__modules__") }}
@@ -69,14 +69,12 @@
   data-next-page='{{ $current_module.next_page }}' data-page-format='markdown' data-code-fences='chroma'
   data-page-number='{{ $current_module.step }}' data-pages-total='{{ len $modules }}'>
 
-  {{ partial "page-header.html" . }}
-
-  {{ partial "image-popup.html" . }}
+  {{ partial "header.html" . }}
 
   {{ block "main" . }}
   {{ end }}
 
-  {{ partial "page-footer.html" . }}
+  {{ partial "footer.html" . }}
 
 </body>
 
