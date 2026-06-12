@@ -74,14 +74,23 @@ type WorkshopPolicyOverride struct {
 
 // ImageOverride entries replace one chart-default image by short name.
 // Mirrors the v3 imageVersions shape: any image the chart's default
-// inventory exposes by name can be overridden here.
+// inventory exposes by name can be overridden here (e.g.,
+// "training-portal", "base-environment", "jdk17-environment"). Three
+// names are special-cased by the reconciler because they live outside
+// that inventory: "session-manager" (the chart-pod image),
+// "pause-container" (the pre-puller pause image) and
+// "node-ca-injector" (its own subchart) — they route to the dedicated
+// chart values that control those images.
 type ImageOverride struct {
-	// name matches an entry in the chart's image-versions inventory
-	// (e.g., "session-manager", "training-portal", "jdk17-environment").
+	// name is the image's short name, e.g. "session-manager",
+	// "training-portal", "jdk17-environment".
 	// +required
 	Name string `json:"name"`
 
-	// image is the full reference including tag or digest.
+	// image is the full reference including tag. Digest-pinned
+	// references are not supported for the special-cased names
+	// ("session-manager", "pause-container", "node-ca-injector"),
+	// whose chart values are repository+tag shaped.
 	// +required
 	Image string `json:"image"`
 }

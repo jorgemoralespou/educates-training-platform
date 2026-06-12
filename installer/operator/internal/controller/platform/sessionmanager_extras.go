@@ -278,7 +278,20 @@ func renderNodeCAInjectorValues(obj *platformv1alpha1.SessionManager, cfg *confi
 			"namespace": caRef.Namespace,
 		},
 	}
-	_ = obj // CR has no per-extra overrides today; reserved for follow-up
+	// The node-ca-injector image lives in its own subchart, so the
+	// SessionManager images.overrides entry with that name is routed
+	// here rather than into the session-manager chart's inventory.
+	if obj.Spec.Images != nil {
+		for _, o := range obj.Spec.Images.Overrides {
+			if o.Name == "node-ca-injector" {
+				repo, tag := splitImageRef(o.Image)
+				values["image"] = map[string]any{
+					"repository": repo,
+					"tag":        tag,
+				}
+			}
+		}
+	}
 	return values
 }
 

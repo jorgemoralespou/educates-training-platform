@@ -1,0 +1,161 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package platform
+
+import (
+	"testing"
+
+	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
+)
+
+// Plain unit tests for the values-rendering helpers — no envtest
+// needed; the integration behavior is covered by the ginkgo suite.
+
+func TestSplitImageRef(t *testing.T) {
+	cases := []struct {
+		ref, repo, tag string
+	}{
+		{"localhost:5001/educates-session-manager:latest", "localhost:5001/educates-session-manager", "latest"},
+		{"ghcr.io/educates/educates-session-manager:4.0.0", "ghcr.io/educates/educates-session-manager", "4.0.0"},
+		{"ghcr.io/educates/educates-session-manager", "ghcr.io/educates/educates-session-manager", ""},
+		{"localhost:5001/no-tag", "localhost:5001/no-tag", ""},
+		{"ghcr.io/x/y@sha256:abcdef", "ghcr.io/x/y@sha256:abcdef", ""},
+	}
+	for _, c := range cases {
+		repo, tag := splitImageRef(c.ref)
+		if repo != c.repo || tag != c.tag {
+			t.Errorf("splitImageRef(%q) = (%q, %q), want (%q, %q)", c.ref, repo, tag, c.repo, c.tag)
+		}
+	}
+}
+
+func valuesTestClusterConfig() *configv1alpha1.EducatesClusterConfig {
+	return &configv1alpha1.EducatesClusterConfig{
+		Status: configv1alpha1.EducatesClusterConfigStatus{
+			Ingress: &configv1alpha1.StatusIngress{
+				Domain:           "test.example.com",
+				IngressClassName: "contour",
+				WildcardCertificateSecretRef: configv1alpha1.NamespacedSecretRef{
+					Name:      "wildcard-tls",
+					Namespace: "educates-secrets",
+				},
+				CACertificateSecretRef: &configv1alpha1.NamespacedSecretRef{
+					Name:      "educates-ca",
+					Namespace: "educates-secrets",
+				},
+			},
+		},
+	}
+}
+
+func TestApplySMImageValues_RoutesSpecialOverrides(t *testing.T) {
+	obj := &platformv1alpha1.SessionManager{
+		Spec: platformv1alpha1.SessionManagerSpec{
+			Images: &platformv1alpha1.Images{
+				Overrides: []platformv1alpha1.ImageOverride{
+					{Name: "session-manager", Image: "localhost:5001/educates-session-manager:latest"},
+					{Name: "pause-container", Image: "localhost:5001/educates-pause-container:latest"},
+					{Name: "node-ca-injector", Image: "localhost:5001/educates-node-ca-injector:latest"},
+					{Name: "training-portal", Image: "localhost:5001/educates-training-portal:latest"},
+				},
+			},
+		},
+	}
+	values := map[string]any{}
+	applySMImageValues(values, obj, valuesTestClusterConfig())
+
+	image, ok := values["image"].(map[string]any)
+	if !ok {
+		t.Fatal("session-manager override did not land on values.image")
+	}
+	if image["repository"] != "localhost:5001/educates-session-manager" || image["tag"] != "latest" {
+		t.Errorf("values.image = %v", image)
+	}
+
+	prePuller, ok := values["imagePrePuller"].(map[string]any)
+	if !ok {
+		t.Fatal("pause-container override did not land on values.imagePrePuller")
+	}
+	pause, ok := prePuller["pauseImage"].(map[string]any)
+	if !ok || pause["repository"] != "localhost:5001/educates-pause-container" || pause["tag"] != "latest" {
+		t.Errorf("imagePrePuller.pauseImage = %v", prePuller["pauseImage"])
+	}
+
+	entries, ok := values["imageVersions"].([]any)
+	if !ok || len(entries) != 1 {
+		t.Fatalf("imageVersions should contain exactly the training-portal entry, got %v", values["imageVersions"])
+	}
+	entry := entries[0].(map[string]any)
+	if entry["name"] != "training-portal" {
+		t.Errorf("imageVersions[0] = %v", entry)
+	}
+}
+
+func TestRenderSessionManagerValues_PrePullerComposition(t *testing.T) {
+	enabled := true
+	obj := &platformv1alpha1.SessionManager{
+		Spec: platformv1alpha1.SessionManagerSpec{
+			ImagePrePuller: &platformv1alpha1.ImagePrePuller{Enabled: enabled},
+			Images: &platformv1alpha1.Images{
+				Overrides: []platformv1alpha1.ImageOverride{
+					{Name: "pause-container", Image: "localhost:5001/educates-pause-container:latest"},
+				},
+			},
+		},
+	}
+	values := renderSessionManagerValues(obj, valuesTestClusterConfig())
+
+	prePuller, ok := values["imagePrePuller"].(map[string]any)
+	if !ok {
+		t.Fatal("imagePrePuller missing")
+	}
+	if prePuller["enabled"] != true {
+		t.Errorf("imagePrePuller.enabled = %v, want true (clobbered by pauseImage writer?)", prePuller["enabled"])
+	}
+	if _, ok := prePuller["pauseImage"].(map[string]any); !ok {
+		t.Errorf("imagePrePuller.pauseImage = %v, want map (clobbered by enabled writer?)", prePuller["pauseImage"])
+	}
+}
+
+func TestRenderNodeCAInjectorValues_ImageOverride(t *testing.T) {
+	cfg := valuesTestClusterConfig()
+
+	withOverride := &platformv1alpha1.SessionManager{
+		Spec: platformv1alpha1.SessionManagerSpec{
+			Images: &platformv1alpha1.Images{
+				Overrides: []platformv1alpha1.ImageOverride{
+					{Name: "node-ca-injector", Image: "localhost:5001/educates-node-ca-injector:latest"},
+				},
+			},
+		},
+	}
+	values := renderNodeCAInjectorValues(withOverride, cfg)
+	image, ok := values["image"].(map[string]any)
+	if !ok {
+		t.Fatal("node-ca-injector override did not land on the subchart's values.image")
+	}
+	if image["repository"] != "localhost:5001/educates-node-ca-injector" || image["tag"] != "latest" {
+		t.Errorf("values.image = %v", image)
+	}
+
+	without := &platformv1alpha1.SessionManager{}
+	values = renderNodeCAInjectorValues(without, cfg)
+	if _, present := values["image"]; present {
+		t.Errorf("values.image should be absent without an override, got %v", values["image"])
+	}
+}

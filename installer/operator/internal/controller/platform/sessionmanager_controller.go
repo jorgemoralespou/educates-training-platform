@@ -377,9 +377,7 @@ func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *confi
 	// Per-image control stays a chart-level concern; the CRD exposes
 	// just the switch.
 	if obj.Spec.ImagePrePuller != nil {
-		values["imagePrePuller"] = map[string]any{
-			"enabled": obj.Spec.ImagePrePuller.Enabled,
-		}
+		imagePrePullerValues(values)["enabled"] = obj.Spec.ImagePrePuller.Enabled
 	}
 
 	// DefaultAccessCredentials and RegistryMirrors are reserved in the
@@ -437,17 +435,56 @@ func applySMImageValues(values map[string]any, obj *platformv1alpha1.SessionMana
 		}
 	}
 
-	// imageVersions — per-image overrides from CR spec.
+	// imageVersions — per-image overrides from CR spec. Three names
+	// are not part of the chart's imageVersions inventory and are
+	// routed to the dedicated chart values that actually control
+	// them: the session-manager chart-pod image (`image`), the pause
+	// container (`imagePrePuller.pauseImage`), and node-ca-injector
+	// (its own subchart's `image`, handled in
+	// renderNodeCAInjectorValues). Everything else flows through the
+	// inventory and merges by name on the chart side.
 	if obj.Spec.Images != nil && len(obj.Spec.Images.Overrides) > 0 {
 		entries := make([]any, 0, len(obj.Spec.Images.Overrides))
 		for _, o := range obj.Spec.Images.Overrides {
-			entries = append(entries, map[string]any{
-				"name":  o.Name,
-				"image": o.Image,
-			})
+			switch o.Name {
+			case "session-manager":
+				repo, tag := splitImageRef(o.Image)
+				values["image"] = map[string]any{
+					"repository": repo,
+					"tag":        tag,
+				}
+			case "pause-container":
+				repo, tag := splitImageRef(o.Image)
+				imagePrePullerValues(values)["pauseImage"] = map[string]any{
+					"repository": repo,
+					"tag":        tag,
+				}
+			case "node-ca-injector":
+				// Consumed by renderNodeCAInjectorValues; meaningless
+				// to the session-manager chart's inventory.
+			default:
+				entries = append(entries, map[string]any{
+					"name":  o.Name,
+					"image": o.Image,
+				})
+			}
 		}
-		values["imageVersions"] = entries
+		if len(entries) > 0 {
+			values["imageVersions"] = entries
+		}
 	}
+}
+
+// imagePrePullerValues returns the imagePrePuller map inside values,
+// creating it when absent, so the pause-image override router and the
+// enabled-toggle writer compose instead of clobbering each other.
+func imagePrePullerValues(values map[string]any) map[string]any {
+	if m, ok := values["imagePrePuller"].(map[string]any); ok {
+		return m
+	}
+	m := map[string]any{}
+	values["imagePrePuller"] = m
+	return m
 }
 
 // applySMIngressValues maps the cluster ingress contract (TLS + CA

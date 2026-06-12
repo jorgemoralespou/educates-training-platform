@@ -382,6 +382,23 @@ func splitImageRegistryPrefix(prefix string) (host, namespace string) {
 	return prefix, ""
 }
 
+// splitImageRef splits a full image reference into repository and tag
+// on the last ':' after the last '/'. A reference without a tag comes
+// back with an empty tag, which the charts treat as fall-through to
+// Chart.AppVersion. Digest-pinned references (...@sha256:...) cannot
+// round-trip through {repository,tag}-shaped chart values and are
+// returned whole as the repository — unsupported, documented.
+func splitImageRef(ref string) (repository, tag string) {
+	if strings.Contains(ref, "@") {
+		return ref, ""
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon], ref[colon+1:]
+	}
+	return ref, ""
+}
+
 // defaultLogLevel returns "info" when the spec didn't set a level. The
 // CRD's +kubebuilder:default=info usually handles this server-side,
 // but envtest with stale CRDs / standalone unit tests can pass an
