@@ -95,18 +95,25 @@ func localECCSpec(cfg *v1alpha1.EducatesLocalConfig, opts Options) map[string]in
 	return spec
 }
 
-// localSecretsManagerSpec — empty spec; the operator derives image/resources
-// from chart defaults + ECC status.
+// localSecretsManagerSpec — near-empty spec; the operator derives
+// image/resources from chart defaults + ECC status. An imageVersions
+// entry named "secrets-manager" routes here as spec.image (the
+// component has its own CR; it is not part of SessionManager's image
+// inventory).
 func localSecretsManagerSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
 	spec := map[string]interface{}{}
 	if cfg.Operator.LogLevel != "" {
 		spec["logLevel"] = cfg.Operator.LogLevel
 	}
+	if ref := componentImageRef(cfg.ImageVersions, "secrets-manager"); ref != nil {
+		spec["image"] = ref
+	}
 	return spec
 }
 
 // localLookupServiceSpec — minimal; ingress.prefix=lookup is the conventional
-// hostname segment.
+// hostname segment. An imageVersions entry named "lookup-service" routes
+// here as spec.image.
 func localLookupServiceSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]interface{} {
 	spec := map[string]interface{}{
 		"ingress": map[string]interface{}{
@@ -115,6 +122,9 @@ func localLookupServiceSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]interf
 	}
 	if cfg.Operator.LogLevel != "" {
 		spec["logLevel"] = cfg.Operator.LogLevel
+	}
+	if ref := componentImageRef(cfg.ImageVersions, "lookup-service"); ref != nil {
+		spec["image"] = ref
 	}
 	return spec
 }
@@ -159,15 +169,6 @@ func localSessionManagerSpec(cfg *v1alpha1.EducatesLocalConfig) map[string]inter
 			"enabled": *cfg.ImagePrePuller,
 		}
 	}
-	if len(cfg.ImageVersions) > 0 {
-		overrides := make([]interface{}, len(cfg.ImageVersions))
-		for i, iv := range cfg.ImageVersions {
-			overrides[i] = map[string]interface{}{
-				"name":  iv.Name,
-				"image": iv.Image,
-			}
-		}
-		spec["images"] = map[string]interface{}{"overrides": overrides}
-	}
+	applySessionManagerImageOverrides(spec, cfg.ImageVersions)
 	return spec
 }

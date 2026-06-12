@@ -15,11 +15,11 @@ func TranslateGKE(cfg *v1alpha1.EducatesGKEConfig, _ Options) (*Output, error) {
 	out := &Output{
 		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
 		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", gkeECCSpec(cfg)),
-		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", logLevelOnlySpec(cfg.Operator.LogLevel)),
+		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", scenarioSecretsManagerSpec(cfg.Operator.LogLevel, cfg.ImageVersions)),
 		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions, cfg.ExternalTLSTermination)),
 	}
 	if cfg.LookupService != nil && *cfg.LookupService {
-		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", scenarioLookupServiceSpec(cfg.Operator.LogLevel))
+		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", scenarioLookupServiceSpec(cfg.Operator.LogLevel, cfg.ImageVersions))
 	}
 	return out, nil
 }
@@ -81,25 +81,32 @@ func gkeECCSpec(cfg *v1alpha1.EducatesGKEConfig) map[string]interface{} {
 	}
 }
 
-// logLevelOnlySpec is the shared body used by SecretsManager — only
-// logLevel surfaces, the operator derives image/resources from chart
-// defaults + ECC.status.
-func logLevelOnlySpec(logLevel string) map[string]interface{} {
+// scenarioSecretsManagerSpec is the shared body used by SecretsManager —
+// logLevel plus the routed "secrets-manager" image override; the
+// operator derives everything else from chart defaults + ECC.status.
+func scenarioSecretsManagerSpec(logLevel string, ivs []v1alpha1.ImageVersion) map[string]interface{} {
 	spec := map[string]interface{}{}
 	if logLevel != "" {
 		spec["logLevel"] = logLevel
+	}
+	if ref := componentImageRef(ivs, "secrets-manager"); ref != nil {
+		spec["image"] = ref
 	}
 	return spec
 }
 
 // scenarioLookupServiceSpec is shared by every scenario kind that
-// emits LookupService.
-func scenarioLookupServiceSpec(logLevel string) map[string]interface{} {
+// emits LookupService. An imageVersions entry named "lookup-service"
+// routes here as spec.image.
+func scenarioLookupServiceSpec(logLevel string, ivs []v1alpha1.ImageVersion) map[string]interface{} {
 	spec := map[string]interface{}{
 		"ingress": map[string]interface{}{"prefix": "lookup"},
 	}
 	if logLevel != "" {
 		spec["logLevel"] = logLevel
+	}
+	if ref := componentImageRef(ivs, "lookup-service"); ref != nil {
+		spec["image"] = ref
 	}
 	return spec
 }
@@ -124,12 +131,6 @@ func scenarioSessionManagerSpec(logLevel string, ws v1alpha1.LocalWebsiteStyling
 	if ipp != nil {
 		spec["imagePrePuller"] = map[string]interface{}{"enabled": *ipp}
 	}
-	if len(imageVersions) > 0 {
-		overrides := make([]interface{}, len(imageVersions))
-		for i, iv := range imageVersions {
-			overrides[i] = map[string]interface{}{"name": iv.Name, "image": iv.Image}
-		}
-		spec["images"] = map[string]interface{}{"overrides": overrides}
-	}
+	applySessionManagerImageOverrides(spec, imageVersions)
 	return spec
 }

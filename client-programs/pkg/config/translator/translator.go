@@ -14,6 +14,7 @@ package translator
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 )
@@ -103,6 +104,54 @@ func themesFromDataRefs(refs []v1alpha1.ThemeDataRef) []interface{} {
 		}
 	}
 	return themes
+}
+
+// splitImageRef splits a full image reference into repository and tag
+// on the last ':' after the last '/'. A reference without a tag comes
+// back with an empty tag (the charts fall through to Chart.AppVersion).
+// Digest-pinned references cannot round-trip through repository+tag
+// shaped CR fields and are returned whole as the repository.
+func splitImageRef(ref string) (repository, tag string) {
+	if strings.Contains(ref, "@") {
+		return ref, ""
+	}
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon], ref[colon+1:]
+	}
+	return ref, ""
+}
+
+// componentImageRef returns the ImageRef-shaped {repository, tag} map
+// for the named imageVersions entry, or nil when absent. Used to route
+// the "secrets-manager" and "lookup-service" entries onto their own
+// CRs' spec.image — those two components are not part of the
+// SessionManager chart's image inventory, so an overrides entry there
+// would be silently ignored.
+func componentImageRef(ivs []v1alpha1.ImageVersion, name string) map[string]interface{} {
+	for _, iv := range ivs {
+		if iv.Name == name {
+			repo, tag := splitImageRef(iv.Image)
+			return map[string]interface{}{"repository": repo, "tag": tag}
+		}
+	}
+	return nil
+}
+
+// applySessionManagerImageOverrides sets spec.images.overrides from
+// the imageVersions entries, excluding the names routed to other CRs
+// by componentImageRef.
+func applySessionManagerImageOverrides(spec map[string]interface{}, ivs []v1alpha1.ImageVersion) {
+	overrides := make([]interface{}, 0, len(ivs))
+	for _, iv := range ivs {
+		if iv.Name == "secrets-manager" || iv.Name == "lookup-service" {
+			continue
+		}
+		overrides = append(overrides, map[string]interface{}{"name": iv.Name, "image": iv.Image})
+	}
+	if len(overrides) > 0 {
+		spec["images"] = map[string]interface{}{"overrides": overrides}
+	}
 }
 
 const (

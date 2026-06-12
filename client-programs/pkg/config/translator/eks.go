@@ -12,11 +12,11 @@ func TranslateEKS(cfg *v1alpha1.EducatesEKSConfig, _ Options) (*Output, error) {
 	out := &Output{
 		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
 		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", eksECCSpec(cfg)),
-		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", logLevelOnlySpec(cfg.Operator.LogLevel)),
+		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", scenarioSecretsManagerSpec(cfg.Operator.LogLevel, cfg.ImageVersions)),
 		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions, cfg.ExternalTLSTermination)),
 	}
 	if cfg.LookupService != nil && *cfg.LookupService {
-		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", scenarioLookupServiceSpec(cfg.Operator.LogLevel))
+		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", scenarioLookupServiceSpec(cfg.Operator.LogLevel, cfg.ImageVersions))
 	}
 	return out, nil
 }

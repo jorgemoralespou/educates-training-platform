@@ -380,3 +380,84 @@ func TestRender_OperatorValues_Full(t *testing.T) {
 		}
 	}
 }
+
+func TestTranslateLocal_RoutesComponentImageOverrides(t *testing.T) {
+	cfg := &v1alpha1.EducatesLocalConfig{
+		ImageVersions: []v1alpha1.ImageVersion{
+			{Name: "secrets-manager", Image: "localhost:5001/educates-secrets-manager:latest"},
+			{Name: "lookup-service", Image: "localhost:5001/educates-lookup-service:latest"},
+			{Name: "training-portal", Image: "localhost:5001/educates-training-portal:latest"},
+		},
+	}
+	cfg.WithDefaults() // lookupService defaults to enabled
+
+	out, err := TranslateLocal(cfg, testOpts())
+	if err != nil {
+		t.Fatalf("TranslateLocal: %v", err)
+	}
+
+	smgr := out.SecretsManager["spec"].(map[string]interface{})
+	image, ok := smgr["image"].(map[string]interface{})
+	if !ok {
+		t.Fatal("secrets-manager entry did not land on SecretsManager.spec.image")
+	}
+	if image["repository"] != "localhost:5001/educates-secrets-manager" || image["tag"] != "latest" {
+		t.Errorf("SecretsManager.spec.image = %v", image)
+	}
+
+	lsvc := out.LookupService["spec"].(map[string]interface{})
+	image, ok = lsvc["image"].(map[string]interface{})
+	if !ok {
+		t.Fatal("lookup-service entry did not land on LookupService.spec.image")
+	}
+	if image["repository"] != "localhost:5001/educates-lookup-service" || image["tag"] != "latest" {
+		t.Errorf("LookupService.spec.image = %v", image)
+	}
+
+	sm := out.SessionManager["spec"].(map[string]interface{})
+	overrides := sm["images"].(map[string]interface{})["overrides"].([]interface{})
+	if len(overrides) != 1 {
+		t.Fatalf("SessionManager overrides should hold only training-portal, got %v", overrides)
+	}
+	if overrides[0].(map[string]interface{})["name"] != "training-portal" {
+		t.Errorf("overrides[0] = %v", overrides[0])
+	}
+}
+
+// TestTranslateLocal_DevCLIDefaults_EndToEnd is the dev-build contract:
+// ApplyCLIDefaults with a non-semver version followed by translation
+// must point every platform component at the compiled-in registry.
+func TestTranslateLocal_DevCLIDefaults_EndToEnd(t *testing.T) {
+	cfg := (&v1alpha1.EducatesLocalConfig{}).WithDefaults().ApplyCLIDefaults("latest", "localhost:5001")
+
+	out, err := TranslateLocal(cfg, testOpts())
+	if err != nil {
+		t.Fatalf("TranslateLocal: %v", err)
+	}
+
+	values := out.OperatorChartValues["image"].(map[string]interface{})
+	if values["repository"] != "localhost:5001/educates-operator" || values["tag"] != "latest" {
+		t.Errorf("operator chart image = %v", values)
+	}
+
+	smgr := out.SecretsManager["spec"].(map[string]interface{})
+	if image, ok := smgr["image"].(map[string]interface{}); !ok || image["tag"] != "latest" {
+		t.Errorf("SecretsManager.spec.image = %v", smgr["image"])
+	}
+
+	sm := out.SessionManager["spec"].(map[string]interface{})
+	overrides := sm["images"].(map[string]interface{})["overrides"].([]interface{})
+	found := map[string]string{}
+	for _, o := range overrides {
+		m := o.(map[string]interface{})
+		found[m["name"].(string)] = m["image"].(string)
+	}
+	for _, name := range []string{"session-manager", "training-portal", "base-environment", "pause-container", "node-ca-injector"} {
+		if found[name] != "localhost:5001/educates-"+name+":latest" {
+			t.Errorf("SessionManager override %s = %q", name, found[name])
+		}
+	}
+	if _, present := found["secrets-manager"]; present {
+		t.Error("secrets-manager leaked into SessionManager overrides instead of routing to its CR")
+	}
+}
