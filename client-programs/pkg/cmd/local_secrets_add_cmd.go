@@ -205,6 +205,7 @@ func (o *LocalSecretsAddCaOptions) Run(name string) error {
 	// Non-signing CA refs (cert only, for trust distribution) are no
 	// longer supported here. Use EducatesConfig if you need that.
 	var certPEM, keyPEM []byte
+	var generated bool
 	switch {
 	case o.CertFile != "" && o.KeyFile != "":
 		certPEM, err = os.ReadFile(o.CertFile)
@@ -224,6 +225,7 @@ func (o *LocalSecretsAddCaOptions) Run(name string) error {
 		if err != nil {
 			return errors.Wrap(err, "failed to generate self-signed CA")
 		}
+		generated = true
 	default:
 		return errors.New("--cert and --key must be provided together (or neither, to auto-generate a self-signed CA)")
 	}
@@ -278,6 +280,19 @@ func (o *LocalSecretsAddCaOptions) Run(name string) error {
 
 	if err := secretFile.Close(); err != nil {
 		return errors.Wrapf(err, "unable to close secret file %s", secretFilePath)
+	}
+
+	if generated {
+		fmt.Printf(`Generated a self-signed CA %q and cached it locally.
+
+Browsers will not trust workshop URLs until this CA is imported into
+your operating system trust store. Export the CA certificate with:
+
+    educates local secrets export %s --pem > %s.pem
+
+then import the PEM file into your trust store. See the quick start
+guide in the documentation for per-platform instructions.
+`, name, name, name)
 	}
 
 	return nil

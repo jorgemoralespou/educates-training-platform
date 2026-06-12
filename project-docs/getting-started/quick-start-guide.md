@@ -132,7 +132,7 @@ Workshop sessions are always served over HTTPS, signed by a local certificate au
 educates local secrets add ca educates-ca --domain 192-168-1-1.nip.io
 ```
 
-(With no `--cert`/`--key` arguments a self-signed CA is generated for you and cached locally; it is reused for every future cluster with the same domain.) Then run `educates local cluster create` again.
+(With no `--cert`/`--key` arguments a self-signed CA is generated for you and cached locally; it is reused for every future cluster with the same domain.) Then run `educates local cluster create` again. For your browser to trust the workshop URLs signed by this CA, you will also need to import its certificate into your operating system trust store — see [Trusting the workshop certificates](trusting-the-workshop-certificates) below.
 
 This command will perform the following steps:
 
@@ -147,6 +147,62 @@ This command will perform the following steps:
 Creation of the Kubernetes cluster, including the deployment of any required services and Educates, can take up to 5 minutes depending on your network speed.
 
 Once the Kubernetes cluster has been created, you should be able to access it immediately using `kubectl` as the configuration will be added to your local Kube configuration. The name of the Kube config context for the cluster is `kind-educates`.
+
+(trusting-the-workshop-certificates)=
+Trusting the workshop certificates
+----------------------------------
+
+Workshop URLs are served with TLS certificates signed by the local CA created earlier. Until that CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session.
+
+First export the CA certificate from the local secrets cache as a PEM file:
+
+```
+educates local secrets export educates-ca --pem > educates-ca.pem
+```
+
+Then import it into the trust store for your operating system:
+
+::::{tab-set}
+
+:::{tab-item} macOS
+```
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain educates-ca.pem
+```
+
+This covers Safari and Chrome.
+:::
+
+:::{tab-item} Linux (Debian/Ubuntu)
+```
+sudo cp educates-ca.pem /usr/local/share/ca-certificates/educates-ca.crt
+sudo update-ca-certificates
+```
+
+Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
+
+```
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-ca -i educates-ca.pem
+```
+:::
+
+:::{tab-item} Linux (Fedora/RHEL)
+```
+sudo cp educates-ca.pem /etc/pki/ca-trust/source/anchors/educates-ca.pem
+sudo update-ca-trust
+```
+
+Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
+
+```
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-ca -i educates-ca.pem
+```
+:::
+
+::::
+
+Firefox maintains its own certificate store on every platform. Import the PEM file via Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import, and check "Trust this CA to identify websites".
+
+Restart your browser after importing for the change to take effect. The import only needs to be done once: the CA is reused for every future cluster created with the same ingress domain.
 
 Deploying a workshop
 --------------------

@@ -64,7 +64,11 @@ New Features
 * Workshop sessions on local clusters are now served using TLS certificates
   issued in-cluster by cert-manager from a local certificate authority managed
   using ``educates local secrets add ca``. The generated CA is cached locally
-  and reused for every future cluster using the same ingress domain.
+  and reused for every future cluster using the same ingress domain. The CA
+  certificate can be exported as a PEM file using
+  ``educates local secrets export NAME --pem`` for importing into the
+  operating system trust store, so browsers trust the workshop URLs; the
+  quick start guide includes per-platform import instructions.
 
 * TLS termination by an external load balancer or proxy in front of the
   cluster is now supported by setting ``externalTLSTermination`` in the CLI
