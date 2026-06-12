@@ -63,25 +63,25 @@ directories:
 - contents:
   - http: {}
     path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates-standalone/static/static/libraries/jquery
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/jquery
 - contents:
   - http: {}
     path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates-standalone/static/static/libraries/underscore
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/underscore
 - contents:
   - http: {}
     path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates-standalone/static/static/libraries/jsonform
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/jsonform
 - contents:
   - http: {}
     path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates-standalone/static/static/libraries/js-yaml
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/js-yaml
 - contents:
   - http: {}
     path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates-standalone/static/static/libraries/bootstrap
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/bootstrap
 - contents:
   - http: {}
     path: .
-  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates-standalone/static/static/libraries/font-awesome
+  path: workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/font-awesome
 kind: LockConfig

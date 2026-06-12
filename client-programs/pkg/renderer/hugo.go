@@ -350,8 +350,10 @@ func startHugoServer(workshopDir string, tempDir string, port int, sessionURL st
 		wsPort = 443
 	}
 
-	// Temporarily allow theme to be overriden by WORKSHOP_RENDERER_THEME
-	// environment variable for testing of new Hugo renderer.
+	// Temporarily allow theme to be overridden by WORKSHOP_RENDERER_THEME
+	// environment variable so the legacy theme can still be selected. This
+	// will be removed when the classic renderer and educates-classic theme
+	// are removed.
 
 	theme := "educates"
 
@@ -644,7 +646,7 @@ func RenderHugoStaticHTML(workshopDir string, tempDir string) error {
 		"--source", workshopDir,
 		"--config", filepath.Join(tempDir, "hugo.yaml"),
 		"--themesDir", filepath.Join(tempDir, "themes"),
-		"--theme", "educates-standalone",
+		"--theme", "educates",
 		"--destination", filepath.Join(tempDir, "public"),
 		"--logLevel", "debug",
 		"--baseURL", "",
