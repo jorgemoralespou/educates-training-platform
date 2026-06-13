@@ -1,17 +1,19 @@
 {{- /*
-Cluster-wide Kyverno ClusterPolicy resources, gated on
+Cluster-wide Kyverno policies, gated on
 `clusterSecurity.policyEngine == "Kyverno"`. Two sources:
 
-  1. The bundled v3-vendored Pod Security Standards profiles (baseline +
-     restricted) under files/kyverno-policies/cluster-policies/. Mirrors v3's
-     `01-clusterpolicies.yaml`.
+  1. The bundled Pod Security Standards profiles (baseline + restricted)
+     under files/kyverno-policies/cluster-policies/. These are now
+     `ValidatingPolicy` resources (policies.kyverno.io) vendored from
+     kyverno/policies' pod-security-vpol set.
   2. User-supplied `clusterSecurity.additionalKyvernoPolicies` — site-specific
-     ClusterPolicy objects platform admins want installed cluster-wide
-     alongside the bundle.
+     policy objects platform admins want installed cluster-wide alongside the
+     bundle (either the new Policy types or the legacy ClusterPolicy).
 
-The bundled YAMLs use `validationFailureAction: Audit` so violations are
+This template is policy-type-agnostic: it emits each document verbatim. The
+bundled ValidatingPolicies use `validationActions: [Audit]` so violations are
 logged but workloads aren't blocked. User-supplied policies use whatever
-`validationFailureAction` the admin sets in each entry.
+action they set.
 */ -}}
 {{- $cs := include "session-manager.resolvedClusterSecurity" . | fromYaml -}}
 {{- if eq $cs.policyEngine "Kyverno" -}}

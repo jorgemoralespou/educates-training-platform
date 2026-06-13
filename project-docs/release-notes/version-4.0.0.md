@@ -95,6 +95,26 @@ New Features
 Features Changed
 ----------------
 
+* The bundled Kyverno security policies are now ``ValidatingPolicy`` resources
+  (``policies.kyverno.io``), the policy type recommended from Kyverno 1.18,
+  replacing the previous CEL ``ClusterPolicy`` form. This covers the cluster-wide
+  Pod Security Standards profiles and the per-workshop rules. The per-workshop
+  rules are now applied as ``ValidatingPolicy`` objects scoped to each workshop
+  environment's session namespaces. There is no action required for workshops
+  that rely on the built-in rules.
+
+Deprecations
+------------
+
+* Following Kyverno's own deprecation of the ``ClusterPolicy`` resource
+  (``kyverno.io``) — deprecated in Kyverno 1.18 and scheduled for removal in
+  1.20 — workshops that supply their own Kyverno policies as ``ClusterPolicy``
+  objects via ``workshopSecurity.additionalKyvernoPolicies`` are correspondingly
+  deprecated. Such policies are still honoured for now (Educates continues to
+  scope them per workshop session, and logs a warning when it does), but support
+  will be removed on the same timeline as Kyverno's removal of ``ClusterPolicy``.
+  Migrate workshop-provided policies to ``ValidatingPolicy``.
+
 * The Carvel-based installer from version 3 has been removed. Educates is no
   longer packaged or installed as a ``kapp-controller`` package: the
   ``educates-installer`` package bundle and package repository are no longer

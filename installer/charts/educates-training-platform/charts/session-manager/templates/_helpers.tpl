@@ -224,12 +224,17 @@ http
 {{/*
 Build the YAML stream for the `kyverno-policies.yaml` key of the
 `educates-config` Secret. session-manager reads the result via
-`yaml.load_all` and clones each rule per workshop environment.
+`yaml.load_all` and creates a per-workshop-environment copy of each policy,
+scoped to the environment's session namespaces (see handlers/kyverno_rules.py).
 Concatenates:
   1. Bundled workshop policies under files/kyverno-policies/workshop-policies/
-     (when workshopSecurity.rulesEngine == "Kyverno").
-  2. User-supplied ClusterPolicy objects from
-     workshopSecurity.additionalKyvernoPolicies (also gated on Kyverno).
+     (when workshopSecurity.rulesEngine == "Kyverno"). These are now
+     `ValidatingPolicy` resources (policies.kyverno.io).
+  2. User-supplied policies from workshopSecurity.additionalKyvernoPolicies
+     (also gated on Kyverno). A new Policy type (ValidatingPolicy, ...) is
+     scoped natively; a legacy ClusterPolicy is still scoped but deprecated
+     (the runtime logs a warning), tracking Kyverno's own ClusterPolicy
+     removal in 1.20.
 Each document is separated by `---\n`.
 */}}
 {{- define "session-manager.kyvernoPoliciesContent" -}}

@@ -457,3 +457,20 @@ rules:
   - apiGroups: [training.educates.dev]
     resources: [workshopsessions]
     verbs: [get, list, watch]
+---
+# Lets session-manager create the per-workshop-environment Kyverno
+# ValidatingPolicy objects (policies.kyverno.io) that scope the bundled
+# workshop rules to a workshop's session namespaces. The Kyverno-shipped
+# `kyverno:rbac:admin:policies` role (bound separately) only covers the
+# legacy kyverno.io ClusterPolicy group, so the new Policy group needs an
+# explicit grant. Inert when Kyverno (and the CRD) isn't installed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager:kyverno-validatingpolicies
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [policies.kyverno.io]
+    resources: [validatingpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]

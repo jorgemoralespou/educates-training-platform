@@ -1,14 +1,14 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
 metadata:
   name: disallow-container-sock-mounts
   annotations:
-    policies.kyverno.io/title: Disallow CRI socket mounts in CEL expressions
-    policies.kyverno.io/category: Best Practices, EKS Best Practices in CEL 
+    policies.kyverno.io/title: Disallow CRI socket mounts in VPOL
+    policies.kyverno.io/category: Best Practices, EKS Best Practices in VPOl
     policies.kyverno.io/severity: medium
     policies.kyverno.io/subject: Pod
-    policies.kyverno.io/minversion: 1.11.0
-    kyverno.io/kubernetes-version: "1.26-1.27"
+    policies.kyverno.io/minversion: 1.14.0
+    kyverno.io/kubernetes-version: "1.30"
     policies.kyverno.io/description: >-
       Container daemon socket bind mounts allows access to the container engine on the
       node. This access can be used for privilege escalation and to manage containers
@@ -17,28 +17,24 @@ metadata:
       to or replacement of this policy, preventing users from mounting the parent directories
       (/var/run and /var) may be necessary to completely prevent socket bind mounts.
 spec:
-  validationFailureAction: Audit
-  background: true
-  rules:
-  - name: validate-socket-mounts
-    match:
-      any:
-      - resources:
-          kinds:
-          - Pod
-          operations:
-          - CREATE
-          - UPDATE
-    validate:
-      cel:
-        variables:
+  validationActions: [Audit]
+  evaluation:
+   background:
+        enabled: true   
+  matchConstraints:
+        resourceRules:
+          - apiGroups: ['']
+            apiVersions: [v1]
+            operations: [CREATE, UPDATE]
+            resources: [pods]
+  variables:
           - name: hasVolumes
             expression: "!has(object.spec.volumes)"
           - name: volumes
             expression: "object.spec.volumes"
           - name: volumesWithHostPath
             expression: "variables.volumes.filter(volume, has(volume.hostPath))"
-        expressions:
+  validations:
           - expression: >-
               variables.hasVolumes || 
               variables.volumesWithHostPath.all(volume, !volume.hostPath.path.matches('/var/run/docker.sock'))
