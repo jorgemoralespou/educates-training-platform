@@ -371,6 +371,7 @@ class ClusterOperator(GenericOperator):
                             generation=0,
                             labels=[],
                             url="",
+                            namespace="",
                             phase="Unknown",
                             credentials=PortalCredentials(
                                 client_id="",
@@ -547,6 +548,7 @@ class ClusterOperator(GenericOperator):
                             generation=0,
                             labels=[],
                             url="",
+                            namespace="",
                             phase="Unknown",
                             credentials=PortalCredentials(
                                 client_id="",
