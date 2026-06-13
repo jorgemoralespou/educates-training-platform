@@ -49,3 +49,9 @@ Bugs Fixed
   of available workshops and requests for sessions against those workshops would
   fail. Whether the problem occurred depended on timing of events when the
   lookup service started and so could vary across restarts.
+
+* The lookup service `/auth/verify` endpoint, used to check whether an access
+  token is still valid, always returned an HTTP 500 error due to the request
+  handler not being implemented as an asynchronous function. It now correctly
+  returns an HTTP 200 response for a valid token and an HTTP 401 response for an
+  expired or invalid token.
