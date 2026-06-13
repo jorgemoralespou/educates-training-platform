@@ -63,6 +63,13 @@ func localECCSpec(cfg *v1alpha1.EducatesLocalConfig, opts Options) map[string]in
 		"ingressClassName": "contour",
 		"controller": map[string]interface{}{
 			"provider": "BundledContour",
+			// kind has no in-cluster LoadBalancer. Envoy is exposed as a
+			// ClusterIP Service, and the operator pairs ClusterIP with
+			// host ports (80/443) so the kind node's mapped 80/443 reach
+			// Envoy directly — the v3 kind topology.
+			"bundledContour": map[string]interface{}{
+				"envoyServiceType": "ClusterIP",
+			},
 		},
 		"certificates": map[string]interface{}{
 			"provider": "BundledCertManager",

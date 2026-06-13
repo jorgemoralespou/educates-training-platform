@@ -116,6 +116,7 @@ func TestTranslateLocal_AllLockedInvariants(t *testing.T) {
 		{"EducatesClusterConfig", "mode", "Managed"},
 		{"EducatesClusterConfig", "ingress.ingressClassName", "contour"},
 		{"EducatesClusterConfig", "ingress.controller.provider", "BundledContour"},
+		{"EducatesClusterConfig", "ingress.controller.bundledContour.envoyServiceType", "ClusterIP"},
 		{"EducatesClusterConfig", "ingress.certificates.provider", "BundledCertManager"},
 		{"EducatesClusterConfig", "ingress.certificates.bundledCertManager.issuerType", "CustomCA"},
 		{"EducatesClusterConfig", "policyEnforcement.clusterPolicy.engine", "Kyverno"},

@@ -233,6 +233,28 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 		"external-dns.alpha.kubernetes.io/hostname": fmt.Sprintf("*.%s.", obj.Spec.Ingress.Domain),
 	}
 
+	envoyValues := map[string]any{
+		"service": map[string]any{
+			"type":        string(envoyServiceType),
+			"annotations": envoyServiceAnnotations,
+		},
+	}
+
+	// With a ClusterIP Envoy Service there is no LoadBalancer or
+	// NodePort fronting Envoy, so the only way external traffic reaches
+	// it is by binding the node's 80/443 directly via hostPort. This is
+	// the kind / single-node-local topology (the kind cluster maps host
+	// 80/443 → node 80/443), and mirrors v3's Carvel installer, which
+	// paired `type: ClusterIP` with `useHostPorts: true` for kind. The
+	// chart's envoy.hostPorts already default to 80/443. Cloud installs
+	// keep LoadBalancer (or NodePort) and get no hostPort.
+	if envoyServiceType == configv1alpha1.EnvoyServiceTypeClusterIP {
+		envoyValues["useHostPort"] = map[string]any{
+			"http":  true,
+			"https": true,
+		}
+	}
+
 	values := map[string]any{
 		"contour": map[string]any{
 			"replicaCount": replicas,
@@ -243,12 +265,7 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 			},
 			"manageCRDs": true,
 		},
-		"envoy": map[string]any{
-			"service": map[string]any{
-				"type":        string(envoyServiceType),
-				"annotations": envoyServiceAnnotations,
-			},
-		},
+		"envoy": envoyValues,
 	}
 
 	if obj.Spec.ImageRegistry != nil && obj.Spec.ImageRegistry.Prefix != "" {
