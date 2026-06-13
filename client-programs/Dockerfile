@@ -2,10 +2,12 @@ ARG REPOSITORY=localhost:5001
 ARG TAG=latest
 
 # Add this stage before the builder stage
-FROM ${REPOSITORY}/educates-base-environment:${TAG} AS themes-source
+FROM --platform=$BUILDPLATFORM ${REPOSITORY}/educates-base-environment:${TAG} AS themes-source
 
-# Multi-stage build for client-programs
-FROM golang:1.26 AS builder
+# Multi-stage build for client-programs. Pinned to BUILDPLATFORM so Go
+# cross-compiles for non-native target architectures instead of running
+# the toolchain under QEMU emulation.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS builder
 
 # Set working directory
 WORKDIR /src
