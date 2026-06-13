@@ -222,6 +222,14 @@ async def api_auth_logout(request: web.Request) -> web.Response:
 
     return web.json_response({})
 
+
+async def api_auth_verify(request: web.Request) -> web.Response:
+    """Verify that the access token supplied is still valid. Reaching this
+    handler means the login_required wrapper already validated the token."""
+
+    return web.json_response({})
+
+
 # Set up the middleware and routes for the authentication and authorization.
 
 middlewares = [jwt_token_middleware]
@@ -230,5 +238,5 @@ routes = [
     web.post("/login", api_auth_login),
     web.post("/auth/login", api_auth_login),
     web.post("/auth/logout", api_auth_logout),
-    web.get("/auth/verify", login_required(lambda r: web.json_response({}))),
+    web.get("/auth/verify", login_required(api_auth_verify)),
 ]
