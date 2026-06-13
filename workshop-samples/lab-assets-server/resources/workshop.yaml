@@ -1,0 +1,41 @@
+apiVersion: training.educates.dev/v1beta1
+kind: Workshop
+metadata:
+  name: lab-assets-server
+spec:
+  title: Assets Server Test
+  description: Test workshop for exercising the Educates workshop environment assets server, including static file serving and on-the-fly generation of tar, tar.gz, and zip archives from directories.
+  duration: 15m
+  difficulty: beginner
+  publish:
+    image: "$(image_repository)/lab-assets-server-files:$(workshop_version)"
+  workshop:
+    files:
+    - image:
+        url: "$(image_repository)/lab-assets-server-files:$(workshop_version)"
+      includePaths:
+      - /exercises/**
+      - /workshop/**
+      - /README.md
+  session:
+    namespaces:
+      security:
+        token:
+          enabled: false
+    applications:
+      terminal:
+        enabled: true
+        layout: split
+      editor:
+        enabled: true
+    dashboards:
+    - name: Assets
+      url: $(ingress_protocol)://$(assets_repository)/
+  environment:
+    assets:
+      ingress:
+        enabled: true
+      files:
+      - http:
+          url: https://github.com/educates/educates-training-platform/archive/refs/heads/develop.tar.gz
+        path: educates-source
