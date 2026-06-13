@@ -41,3 +41,11 @@ Bugs Fixed
 * Due to a race condition, if `exit` was run in the terminal to exit the shell,
   it would immediately reconnect when it was supposed to rely on a user to
   manually click on the reload button above.
+
+* Due to a race condition in the lookup service, introduced in version 3.7.1, if
+  a workshop environment was seen before the training portal hosting it had been
+  registered, an internal error would prevent that workshop environment from
+  being registered. The affected workshops would then be missing from the list
+  of available workshops and requests for sessions against those workshops would
+  fail. Whether the problem occurred depended on timing of events when the
+  lookup service started and so could vary across restarts.
