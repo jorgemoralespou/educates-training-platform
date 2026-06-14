@@ -21,13 +21,11 @@ The client depends on the `websockets` Python library. Install it into the
 session:
 
 ```terminal:execute
-command: pip install --user 'websockets<11'
+command: pip install --user 'websockets>=14'
 ```
 
 {{< note >}}
-This client uses the older `websockets` API, so a matching version of the
-library is installed here. Confirming this client works is part of validating
-the tunnel end to end.
+Confirming this client works is part of validating the tunnel end to end.
 {{< /note >}}
 
 ## Connect through the tunnel
