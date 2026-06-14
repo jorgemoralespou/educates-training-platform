@@ -109,8 +109,37 @@ in `embed_test.go`.
 
 Chart-specific follow-ups:
 
-- **kyverno** — the session-manager chart bundles policies vendored
-  from [kyverno/policies](https://github.com/kyverno/policies) at the
+- **kyverno — finding the chart version.** Kyverno's Helm chart version
+  and its binary (`appVersion`) are on **different numbering tracks**
+  and the two are *not* aligned: the
+  [kyverno/kyverno releases](https://github.com/kyverno/kyverno/releases)
+  page shows only the binary version (e.g. `v1.18.1`), while the chart
+  version (e.g. `3.8.1` — the `<VER>` in the
+  `https://kyverno.github.io/kyverno/kyverno-<VER>.tgz` download URL)
+  lives only in the Helm repo's `index.yaml`. Resolve the chart version
+  that ships a given Kyverno binary from the repo index before
+  downloading:
+
+  ```
+  # Which chart version ships Kyverno binary v1.18.1? (stable rows only)
+  curl -sSfL https://kyverno.github.io/kyverno/index.yaml \
+    | yq -r '.entries.kyverno[]
+        | select(.appVersion | test("rc")|not)
+        | .version + "  =>  " + .appVersion' \
+    | grep ' v1.18.1$'        # → 3.8.1  =>  v1.18.1
+  ```
+
+  Drop the `grep` (and `| head`) to list the newest stable charts and the
+  binary each bundles. The Helm CLI equivalent is `helm search repo
+  kyverno/kyverno --versions` after `helm repo add kyverno
+  https://kyverno.github.io/kyverno/`. The resolved chart version is the
+  `<VER>` used everywhere in the upgrade steps above; the matching
+  `appVersion` becomes `KyvernoAppVersion` (confirm it from the
+  downloaded tarball's `Chart.yaml`).
+
+- **kyverno — bundled policies.** The session-manager chart bundles
+  policies vendored from
+  [kyverno/policies](https://github.com/kyverno/policies) at the
   release branch matching `KyvernoAppVersion`. Re-vendor them as part
   of the bump (see
   `installer/charts/educates-training-platform/charts/session-manager/files/kyverno-policies/README.md`),
