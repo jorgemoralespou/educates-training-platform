@@ -281,14 +281,15 @@ wheels = [
 
 [[package]]
 name = "django-csp"
-version = "3.7"
+version = "4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
+    { name = "packaging" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/04/76/bdb879b0e73798a8f5d568d19e77995c0319b82ddfa6c2fee4d15e956e1a/django_csp-3.7.tar.gz", hash = "sha256:01eda02ad3f10261c74131cdc0b5a6a62b7c7ad4fd017fbefb7a14776e0a9727", size = 12821, upload-time = "2020-08-12T18:50:35.687Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/db/23567744dff2169aadb095f726088074476b24dfff5a759ffcf6389cf401/django_csp-4.0.tar.gz", hash = "sha256:b27010bb702eb20a3dad329178df2b61a2b82d338b70fbdc13c3a3bd28712833", size = 20028, upload-time = "2025-04-02T16:41:46.721Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/04/1e3b703e584fef3522065415d9b2f7550d8996d7e590d9b70b8c480ecc69/django_csp-3.7-py2.py3-none-any.whl", hash = "sha256:01443a07723f9a479d498bd7bb63571aaa771e690f64bde515db6cdb76e8041a", size = 17390, upload-time = "2020-08-12T18:50:34.713Z" },
+    { url = "https://files.pythonhosted.org/packages/e1/a4/736ab90ee527a23e194d1ce7358c6bcced66381ced83c28268b4aea236f7/django_csp-4.0-py3-none-any.whl", hash = "sha256:d5a0a05463a6b75a4f1fc1828c58c89af8db9364d09fc6e12f122b4d7f3d00dc", size = 25689, upload-time = "2025-04-02T16:41:45.689Z" },
 ]
 
 [[package]]
@@ -766,7 +767,7 @@ requires-dist = [
     { name = "django", specifier = "==4.2.30" },
     { name = "django-cors-headers", specifier = "==4.9.0" },
     { name = "django-crispy-forms", specifier = "==2.5" },
-    { name = "django-csp", specifier = "==3.7" },
+    { name = "django-csp", specifier = "==4.0" },
     { name = "django-oauth-toolkit", specifier = "==2.3.0" },
     { name = "django-registration", specifier = "==3.4" },
     { name = "kopf", extras = ["full-auth"], specifier = ">=1.44.6" },
