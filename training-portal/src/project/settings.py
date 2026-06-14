@@ -34,7 +34,7 @@ INSTALLED_APPS = [
     "crispy_bootstrap5",
     "oauth2_provider",
     "corsheaders",
-    "mod_wsgi.server",
+    "mod_wsgi.express",
     "project.apps.workshops",
 ]
 
