@@ -8,10 +8,11 @@ import asyncio
 import sys
 
 import websockets
+from websockets.asyncio.client import connect
 
 
 async def connect_stdin_stdout():
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
@@ -51,7 +52,7 @@ async def copy_socket_to_websocket(socket, websocket):
     except websockets.exceptions.ConnectionClosedError:
         pass
 
-    except websockets.exceptions.ConnectionResetError:
+    except ConnectionResetError:
         pass
 
     else:
@@ -62,7 +63,7 @@ async def proxy(uri):
     reader, writer = await connect_stdin_stdout()
 
     try:
-        async with websockets.connect(uri) as websocket:
+        async with connect(uri) as websocket:
             try:
                 pipe1 = copy_websocket_to_socket(websocket, writer)
                 pipe2 = copy_socket_to_websocket(reader, websocket)
@@ -74,7 +75,7 @@ async def proxy(uri):
             finally:
                 await websocket.close()
 
-    except websockets.exceptions.InvalidStatusCode:
+    except websockets.exceptions.InvalidStatus:
         pass
 
 
