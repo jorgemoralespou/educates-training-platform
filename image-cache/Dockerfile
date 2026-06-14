@@ -1,6 +1,6 @@
 #syntax=docker/dockerfile:1.3-labs
 
-FROM fedora:42
+FROM fedora:44
 
 ARG TARGETARCH
 
