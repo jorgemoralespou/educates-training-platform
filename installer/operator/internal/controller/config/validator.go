@@ -164,7 +164,15 @@ func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, ref
 
 func (r *EducatesClusterConfigReconciler) checkClusterIssuer(ctx context.Context, name string) error {
 	ci := &cmv1.ClusterIssuer{}
-	if err := r.Get(ctx, types.NamespacedName{Name: name}, ci); err != nil {
+	// Bypass the cache via APIReader. The ClusterIssuer watch is a
+	// deferred (unstructured) informer registered by CRDWatcher, whereas
+	// a cached typed Get here would hit a *separate* informer keyed on
+	// *cmv1.ClusterIssuer. The two caches sync independently, so on a
+	// ClusterIssuer deletion the watch can fire the reconcile while the
+	// typed cache still returns the stale object — leaving status wedged
+	// at Ready and nothing re-triggering afterward. A direct read sees
+	// the deletion immediately.
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Name: name}, ci); err != nil {
 		// IsNoMatchError covers the "cert-manager CRD not installed"
 		// case — surface it as a validation error rather than a
 		// reconcile retry, since the user can fix it.

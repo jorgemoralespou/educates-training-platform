@@ -26,11 +26,13 @@ import (
 // Plain unit tests for the values-rendering helpers — no envtest
 // needed; the integration behavior is covered by the ginkgo suite.
 
+const tagLatest = "latest"
+
 func TestSplitImageRef(t *testing.T) {
 	cases := []struct {
 		ref, repo, tag string
 	}{
-		{"localhost:5001/educates-session-manager:latest", "localhost:5001/educates-session-manager", "latest"},
+		{"localhost:5001/educates-session-manager:latest", "localhost:5001/educates-session-manager", tagLatest},
 		{"ghcr.io/educates/educates-session-manager:4.0.0", "ghcr.io/educates/educates-session-manager", "4.0.0"},
 		{"ghcr.io/educates/educates-session-manager", "ghcr.io/educates/educates-session-manager", ""},
 		{"localhost:5001/no-tag", "localhost:5001/no-tag", ""},
@@ -83,7 +85,7 @@ func TestApplySMImageValues_RoutesSpecialOverrides(t *testing.T) {
 	if !ok {
 		t.Fatal("session-manager override did not land on values.image")
 	}
-	if image["repository"] != "localhost:5001/educates-session-manager" || image["tag"] != "latest" {
+	if image["repository"] != "localhost:5001/educates-session-manager" || image["tag"] != tagLatest {
 		t.Errorf("values.image = %v", image)
 	}
 
@@ -92,7 +94,7 @@ func TestApplySMImageValues_RoutesSpecialOverrides(t *testing.T) {
 		t.Fatal("pause-container override did not land on values.imagePrePuller")
 	}
 	pause, ok := prePuller["pauseImage"].(map[string]any)
-	if !ok || pause["repository"] != "localhost:5001/educates-pause-container" || pause["tag"] != "latest" {
+	if !ok || pause["repository"] != "localhost:5001/educates-pause-container" || pause["tag"] != tagLatest {
 		t.Errorf("imagePrePuller.pauseImage = %v", prePuller["pauseImage"])
 	}
 
@@ -149,7 +151,7 @@ func TestRenderNodeCAInjectorValues_ImageOverride(t *testing.T) {
 	if !ok {
 		t.Fatal("node-ca-injector override did not land on the subchart's values.image")
 	}
-	if image["repository"] != "localhost:5001/educates-node-ca-injector" || image["tag"] != "latest" {
+	if image["repository"] != "localhost:5001/educates-node-ca-injector" || image["tag"] != tagLatest {
 		t.Errorf("values.image = %v", image)
 	}
 

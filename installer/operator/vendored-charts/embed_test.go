@@ -123,7 +123,7 @@ func parseVendoredChartsMakefile(t *testing.T) map[string]string {
 
 	entries := map[string]string{}
 	inBlock := false
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.HasPrefix(line, "VENDORED_CHARTS :=") {
 			inBlock = true
 			continue
@@ -161,7 +161,7 @@ func parseSHA256SUMS(t *testing.T) map[string]bool {
 	}
 
 	files := map[string]bool{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 {
 			files[fields[1]] = true
@@ -184,11 +184,14 @@ func TestVendoredCharts_DirectoryConsistent(t *testing.T) {
 	for name, version := range makefile {
 		embedded, known := upstreamChartVersions[name]
 		if !known {
-			t.Errorf("chart %q is in the Makefile but has no entry in upstreamChartVersions (add it to embed.go and this test)", name)
+			t.Errorf("chart %q is in the Makefile but has no entry in "+
+				"upstreamChartVersions (add it to embed.go and this test)", name)
 			continue
 		}
 		if embedded != version {
-			t.Errorf("chart %q: Makefile pins %s but embed.go pins %s — finish the upgrade (update embed.go's constant and //go:embed directive)", name, version, embedded)
+			t.Errorf("chart %q: Makefile pins %s but embed.go pins %s — finish "+
+				"the upgrade (update embed.go's constant and //go:embed directive)",
+				name, version, embedded)
 		}
 		file := name + "-" + version + ".tgz"
 		if !sums[file] {
@@ -227,6 +230,7 @@ func TestVendoredCharts_DirectoryConsistent(t *testing.T) {
 		if sums[file] || runtimeSubchartFiles[file] {
 			continue
 		}
-		t.Errorf("stale vendored tarball %s — neither SHA256SUMS nor the embedded runtime subcharts reference it; `git rm` it", file)
+		t.Errorf("stale vendored tarball %s — neither SHA256SUMS nor the "+
+			"embedded runtime subcharts reference it; `git rm` it", file)
 	}
 }

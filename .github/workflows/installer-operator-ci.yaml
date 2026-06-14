@@ -20,61 +20,25 @@ on:
       - '.github/workflows/installer-operator-ci.yaml'
 
 jobs:
-  chart-sync-lint:
-    name: Chart version/annotation sync
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v5
-
-      # Versions and registry annotations must stay uniform across the
-      # install charts — the release pipeline's stamping
-      # (hack/stamp-release-version.sh) assumes it. See
-      # hack/lint-chart-versions.sh for the exact invariants.
-      - name: Lint chart versions and annotations
-        run: ./hack/lint-chart-versions.sh
-
   ci:
-    name: Build, vet, generate-drift, envtest, lint
+    name: Chart-sync, build, vet, drift, envtest, lint
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: installer/operator
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: installer/operator/go.mod
           cache-dependency-path: |
             go.work.sum
             installer/operator/go.sum
 
-      - name: go vet
-        run: go vet ./...
-
-      - name: go build
-        run: go build ./...
-
-      - name: make manifests (drift check)
-        run: |
-          make manifests
-          if ! git diff --exit-code -- ../charts/educates-installer/crds ../charts/educates-installer/templates/rbac; then
-            echo "::error::generated CRDs / RBAC drifted from committed copy. Run 'make manifests' locally and commit the result."
-            exit 1
-          fi
-
-      - name: make generate (drift check)
-        run: |
-          make generate
-          if ! git diff --exit-code -- api/; then
-            echo "::error::generated DeepCopy methods drifted. Run 'make generate' locally and commit the result."
-            exit 1
-          fi
-
-      - name: make test (envtest)
-        run: make test
-
-      - name: make lint
-        run: make lint
+      # Single source of truth: `make ci-operator` runs exactly the
+      # checks this job gates — chart-version/annotation lint, go
+      # vet/build, CRD/RBAC + DeepCopy drift checks, envtest, and
+      # golangci-lint. Edit the Makefile, not this list, so local
+      # `make ci` and CI never drift apart. See
+      # developer-docs/build-instructions.md.
+      - name: make ci-operator
+        run: make ci-operator

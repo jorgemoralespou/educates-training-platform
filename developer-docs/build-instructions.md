@@ -172,6 +172,58 @@ You can then run the `educates` CLI program from the `client-programs/bin` subdi
 
 Note that when building the `educates` CLI from local source code, the embedded project version defaults to `latest` and the embedded image registry to `localhost:5001` — the CLI behaves as a development build, defaulting all platform images to your local registry as described above. The operator Helm chart and config schemas embedded in the CLI are refreshed from your source tree as part of the build. To build a CLI that behaves like a release binary, pass a semver version: `make build-cli CLI_VERSION=4.0.0 CLI_IMAGE_REPOSITORY=ghcr.io/educates`.
 
+Running CI checks locally
+-------------------------
+
+The GitHub Actions workflows that gate pull requests
+(`.github/workflows/client-programs-ci.yaml` and
+`.github/workflows/installer-operator-ci.yaml`) invoke these same make
+targets, so running them locally exercises exactly what CI runs — there is
+no second copy of the step list to drift out of sync. From the repository
+root:
+
+```
+make ci             # run all CI checks (CLI + operator)
+make ci-cli         # only the client-programs checks
+make ci-operator    # only the installer-operator checks
+```
+
+`make ci-cli` is what the client-programs workflow runs: it stages the
+embedded theme files (see below), then runs `go vet`, `go build` and
+`go test` against `client-programs`, and finally the embedded-chart and
+CLI-schema drift checks (`verify-installer-chart`, `verify-cli-schemas`).
+
+`make ci-operator` is what the installer-operator workflow runs: it runs
+`hack/lint-chart-versions.sh`, `go vet` and `go build` against
+`installer/operator`, the generated-CRD/RBAC and DeepCopy drift checks
+(`make manifests` / `make generate` followed by a `git diff`), the envtest
+suite (`make test`), and `golangci-lint` (`make lint`). Because the drift
+checks regenerate files in place and fail on any difference, a failure may
+leave generated files modified in your working tree — review the diff,
+which is exactly what CI is flagging, and commit it if it is a legitimate
+regeneration.
+
+The CLI's Hugo renderer embeds theme files via `//go:embed` from
+`client-programs/pkg/renderer/files/`, but that directory is `.gitignore`d
+and populated at build time from the workshop base environment
+(`workshop-images/base-environment/opt/eduk8s/etc/themes`). Without it
+`go vet`/`build`/`test` fail with `pattern all:files/*: no matching files
+found`. Both `make build-cli` and `make ci-cli` stage it automatically; if
+you ever need it on its own, run:
+
+```
+make stage-renderer-files
+```
+
+The operator module is pinned to a specific Go version (see
+`installer/operator/go.mod`). If you have more than one Go toolchain
+installed, set `GOTOOLCHAIN` to that version (e.g.
+`GOTOOLCHAIN=go1.26.0 make ci-operator`) or ensure the pinned toolchain is
+the one on your `PATH`, otherwise some build steps may mix toolchains and
+fail with a `compile: version "…" does not match go tool version "…"`
+error. CI is unaffected because it provisions a single Go version via
+`actions/setup-go`.
+
 Cleaning up available storage space
 -----------------------------------
 

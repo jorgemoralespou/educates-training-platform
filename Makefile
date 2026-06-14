@@ -194,16 +194,51 @@ verify-installer-chart: embed-installer-chart
 # CLI binary
 # =============================================================================
 
-build-cli: refresh-cli-embeds ## Build the educates CLI for the current host platform
-	rm -rf client-programs/pkg/renderer/files
-	mkdir -p client-programs/pkg/renderer/files client-programs/bin
-	cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
+build-cli: refresh-cli-embeds stage-renderer-files ## Build the educates CLI for the current host platform
+	mkdir -p client-programs/bin
 	(cd client-programs; go build -gcflags=all="-N -l" \
 		-ldflags "-X 'main.projectVersion=$(CLI_VERSION)' -X 'main.imageRepository=$(CLI_IMAGE_REPOSITORY)'" \
 		-o bin/educates-$(TARGET_PLATFORM) cmd/educates/main.go)
 
 build-client-programs: build-cli
 client-programs-educates: build-cli
+
+# pkg/renderer/hugo.go embeds pkg/renderer/files/* via //go:embed, but that
+# directory is gitignored and populated at build time from the base-environment
+# themes. go vet/build/test fail without it ("no matching files found"), so any
+# CLI compile or CI-parity run must stage it first.
+stage-renderer-files: ## Stage the gitignored CLI theme files the renderer embeds
+	rm -rf client-programs/pkg/renderer/files
+	mkdir -p client-programs/pkg/renderer/files
+	cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
+
+# =============================================================================
+# CI parity — run the same checks as the GitHub Actions workflows locally.
+# Drift checks regenerate in place and fail on any diff, so a failure may
+# leave generated files modified in the working tree (same as CI flags).
+# =============================================================================
+
+ci: ci-cli ci-operator ## Run all CI checks locally (CLI + operator)
+
+ci-cli: stage-renderer-files ## CI parity for the CLI (client-programs-ci.yaml)
+	cd client-programs && go vet ./...
+	cd client-programs && go build ./...
+	cd client-programs && go test ./...
+	$(MAKE) verify-installer-chart
+	$(MAKE) verify-cli-schemas
+
+ci-operator: ## CI parity for the operator (installer-operator-ci.yaml)
+	./hack/lint-chart-versions.sh
+	cd installer/operator && go vet ./...
+	cd installer/operator && go build ./...
+	$(MAKE) -C installer/operator manifests
+	@git diff --exit-code -- installer/charts/educates-installer/crds installer/charts/educates-installer/templates/rbac \
+		|| { echo "ERROR: generated CRDs/RBAC drifted. Run 'make -C installer/operator manifests' and commit."; exit 1; }
+	$(MAKE) -C installer/operator generate
+	@git diff --exit-code -- installer/operator/api \
+		|| { echo "ERROR: generated DeepCopy drifted. Run 'make -C installer/operator generate' and commit."; exit 1; }
+	$(MAKE) -C installer/operator test
+	$(MAKE) -C installer/operator lint
 
 # The always-on localhost:5001 registry must exist before images can be
 # pushed to it. The freshly built CLI deploys it (idempotent, no cluster
@@ -318,6 +353,7 @@ help: ## Show available targets
   refresh-operator-embeds refresh-cli-embeds package-local-charts \
   generate-cli-schemas verify-cli-schemas embed-installer-chart verify-installer-chart \
   build-cli build-client-programs client-programs-educates ensure-local-registry \
+  stage-renderer-files ci ci-cli ci-operator \
   build-docker-extension install-docker-extension update-docker-extension \
   restart-training-platform deploy-workshop delete-workshop open-workshop \
   build-project-docs open-project-docs clean-project-docs \

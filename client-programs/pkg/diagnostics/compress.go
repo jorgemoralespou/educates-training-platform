@@ -14,7 +14,7 @@ func CompressDirToFile(tempDir string, targetFile string) error {
 	// Compress the directory into the file provided
 	out, err := os.Create(targetFile)
 	if err != nil {
-		errors.Errorf("Error writing archive:", err)
+		return errors.Wrap(err, "Error writing archive")
 	}
 	defer out.Close()
 

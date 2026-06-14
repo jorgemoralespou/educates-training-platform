@@ -316,6 +316,19 @@ make build-project-docs                       # Build Sphinx docs
 make prune-all                                # Clean caches and build artifacts
 ```
 
+### CI parity (run the gating workflows locally)
+
+```bash
+make ci                                       # All CI checks (CLI + operator)
+make ci-cli                                   # client-programs-ci.yaml: vet/build/test + chart/schema drift
+make ci-operator                              # installer-operator-ci.yaml: vet/build + manifest/deepcopy drift + envtest + lint
+make stage-renderer-files                     # Stage the gitignored CLI theme embed dir (also done by build-cli/ci-cli)
+```
+
+`ci-operator` needs the Go version pinned in `installer/operator/go.mod`
+on `PATH` (or `GOTOOLCHAIN=go1.x.y`) to avoid mixed-toolchain compile
+errors. See `developer-docs/build-instructions.md`.
+
 ---
 
 ## Architecture

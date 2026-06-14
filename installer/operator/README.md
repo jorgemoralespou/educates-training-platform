@@ -37,3 +37,8 @@ The kubebuilder-default `config/` kustomize tree is intentionally absent;
 | `make lint` | golangci-lint |
 | `make build` | Build the manager binary |
 | `make run` | Run the manager against `~/.kube/config` |
+
+To reproduce the full installer-operator CI job locally (chart-version
+lint, `go vet`/`build`, CRD/RBAC + DeepCopy drift checks, envtest and
+`golangci-lint`) in one command, run `make ci-operator` from the
+repository root. See [Running CI checks locally](../../developer-docs/build-instructions.md#running-ci-checks-locally).

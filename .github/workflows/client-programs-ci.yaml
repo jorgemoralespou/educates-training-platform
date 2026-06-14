@@ -23,34 +23,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: client-programs/go.mod
           cache-dependency-path: |
             go.work.sum
             client-programs/go.sum
 
-      - name: go vet
-        working-directory: client-programs
-        run: go vet ./...
-
-      - name: go build
-        working-directory: client-programs
-        run: go build ./...
-
-      - name: go test
-        working-directory: client-programs
-        run: go test ./...
-
-      # The embedded operator chart and the generated EducatesConfig
-      # schema are committed copies of canonical sources
-      # (installer/charts/educates-installer and the platform CRDs).
-      # Both checks regenerate and fail on any diff so a chart or CRD
-      # change can't ship a stale CLI.
-      - name: embedded chart drift check
-        run: make verify-installer-chart
-
-      - name: CLI schema drift check
-        run: make verify-cli-schemas
+      # Single source of truth: `make ci-cli` runs exactly the checks
+      # this job gates — theme-file staging, go vet/build/test, and the
+      # embedded-chart + CLI-schema drift checks. Edit the Makefile, not
+      # this list, so local `make ci` and CI never drift apart. See
+      # developer-docs/build-instructions.md.
+      - name: make ci-cli
+        run: make ci-cli
