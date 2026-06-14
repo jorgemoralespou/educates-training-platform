@@ -13,7 +13,7 @@ dependencies = [
     "django-oauth-toolkit==2.3.0",
     "django-cors-headers==4.9.0",
     "requests>=2.33.0",
-    "django-csp==3.7",
+    "django-csp==4.0",
     "kopf[full-auth]>=1.44.6",
     "pykube-ng>=23.6.0",
     "rstr>=3.2.2",

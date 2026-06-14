@@ -117,8 +117,10 @@ def session(request, name):
     # of the users session.
 
     return csp_update(
-        CONNECT_SRC=f"{instance.name}.{settings.INGRESS_DOMAIN}",
-        FRAME_SRC=f"{instance.name}.{settings.INGRESS_DOMAIN}",
+        {
+            "connect-src": [f"{instance.name}.{settings.INGRESS_DOMAIN}"],
+            "frame-src": [f"{instance.name}.{settings.INGRESS_DOMAIN}"],
+        }
     )(lambda: response)()
 
 
