@@ -6,7 +6,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "mod_wsgi==6.0.4",
     "Django==4.2.30",
-    "django-registration==3.4",
+    "django-registration==5.2.1",
     "django-crispy-forms==2.5",
     "crispy-bootstrap5==2025.6",
     "wrapt>=2.2.1",
