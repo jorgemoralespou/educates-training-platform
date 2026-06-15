@@ -29,6 +29,7 @@ USER 1001
 
 ENV PATH=/opt/app-root/bin:/opt/app-root/venv/bin:$PATH \
     UV_PYTHON_DOWNLOADS=automatic \
+    UV_PYTHON_PREFERENCE=only-managed \
     UV_PYTHON_INSTALL_DIR=/opt/app-root/python \
     UV_PROJECT_ENVIRONMENT=/opt/app-root/venv \
     UV_COMPILE_BYTECODE=1
