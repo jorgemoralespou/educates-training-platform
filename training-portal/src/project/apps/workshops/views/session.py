@@ -44,7 +44,7 @@ from ..models import TrainingPortal, SessionState
 from .helpers import update_query_params
 
 
-@login_required(login_url="/")
+@login_required(login_url="/workshops/finished/?notification=session-expired")
 @require_http_methods(["GET"])
 @resources_lock
 @transaction.atomic
@@ -226,7 +226,7 @@ def session_terminate(request, name):
     return JsonResponse(details)
 
 
-@login_required(login_url="/")
+@login_required(login_url="/workshops/finished/?notification=session-expired")
 @require_http_methods(["GET"])
 @resources_lock
 @transaction.atomic

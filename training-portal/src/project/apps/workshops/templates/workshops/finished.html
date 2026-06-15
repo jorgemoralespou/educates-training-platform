@@ -10,6 +10,9 @@
         {% elif notification == "workshop-invalid" %}
         <h1>Workshop not available</h1>
         <p>The requested workshop is not available. You have been signed out.</p>
+        {% elif notification == "session-expired" %}
+        <h1>Workshop session expired</h1>
+        <p>Your workshop session is no longer available and you have been signed out.</p>
         {% else %}
         <h1>Workshop session finished</h1>
         <p>Your workshop session has ended. You have been signed out.</p>
