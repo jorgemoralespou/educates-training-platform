@@ -2,7 +2,7 @@
 
 FROM kubernetesui/dashboard:v2.7.0 AS k8s-console
 
-FROM fedora:42 AS system-base
+FROM fedora:44 AS system-base
 
 RUN HOME=/root && \
     INSTALL_PKGS=" \
