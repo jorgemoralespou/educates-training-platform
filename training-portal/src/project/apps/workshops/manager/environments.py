@@ -23,7 +23,7 @@ from .locking import resources_lock
 from .sessions import (
     update_session_status,
     setup_workshop_session,
-    create_workshop_session,
+    create_reserved_session,
 )
 from .analytics import report_analytics_event
 
@@ -273,7 +273,7 @@ def activate_workshop_environment(resource):
             )
 
             for session, secret in sessions:
-                create_workshop_session(session, secret)
+                create_reserved_session(session, secret).schedule()
 
     transaction.on_commit(_schedule_session_creation)
 
