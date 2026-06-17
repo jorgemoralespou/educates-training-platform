@@ -179,49 +179,94 @@ def create_request_resources(session):
     )
 
 
+# Number of attempts made to write a workshop session status before giving up.
+# The status update is a read-modify-write against the Kubernetes resource using
+# optimistic concurrency, so a concurrent writer can cause the write to be
+# rejected with a 409 conflict. On a conflict we re-read and re-apply; conflicts
+# are transient and almost always clear on the first retry, but the count is
+# bounded so a persistently contended resource cannot spin forever.
+
+SESSION_STATUS_UPDATE_ATTEMPTS = 3
+
+
 def update_session_status(name, phase, user=None):
     """Update the status of the Kubernetes resource object for the workshop
     session.
 
     """
 
-    try:
-        K8SWorkshopSession = pykube.object_factory(
-            api, "training.educates.dev/v1beta1", "WorkshopSession"
-        )
+    K8SWorkshopSession = pykube.object_factory(
+        api, "training.educates.dev/v1beta1", "WorkshopSession"
+    )
 
-        resource = K8SWorkshopSession.objects(api).get(name=name)
+    for _ in range(SESSION_STATUS_UPDATE_ATTEMPTS):
+        try:
+            resource = K8SWorkshopSession.objects(api).get(name=name)
 
-        # The status may not exist as yet if not processed by the operator.
-        # In this case fill it in and operator will preserve the value when
-        # sees associated with a training portal.
+            # The status may not exist as yet if not processed by the operator.
+            # In this case fill it in and operator will preserve the value when
+            # sees associated with a training portal.
 
-        status = resource.obj.setdefault("status", {}).setdefault(
-            "educates", {}
-        )
-
-        status["phase"] = phase
-
-        if user:
-            status["user"] = str(user.username)
-
-        resource.update()
-
-        if user:
-            logger.info(
-                "Updated status of workshop session %s to %s for user %s.",
-                name,
-                phase,
-                user.username,
+            status = resource.obj.setdefault("status", {}).setdefault(
+                "educates", {}
             )
-        else:
-            logger.info("Updated status of workshop session %s to %s.", name, phase)
 
-    except pykube.exceptions.ObjectDoesNotExist:
-        pass
+            status["phase"] = phase
 
-    except pykube.exceptions.PyKubeError:
-        logger.exception("Failed to update status of workshop session %s.", name)
+            if user:
+                status["user"] = str(user.username)
+
+            resource.update()
+
+            if user:
+                logger.info(
+                    "Updated status of workshop session %s to %s for user %s.",
+                    name,
+                    phase,
+                    user.username,
+                )
+            else:
+                logger.info("Updated status of workshop session %s to %s.", name, phase)
+
+            return
+
+        except pykube.exceptions.ObjectDoesNotExist:
+            return
+
+        except pykube.exceptions.HTTPError as exception:
+            # A 409 conflict means the resource was modified between the read and
+            # the write, so the read-modify-write is retried with a fresh read.
+            # Any other HTTP error is not a conflict and is not retried.
+
+            if exception.code != 409:
+                logger.exception(
+                    "Failed to update status of workshop session %s.", name
+                )
+                return
+
+        except pykube.exceptions.PyKubeError:
+            logger.exception("Failed to update status of workshop session %s.", name)
+            return
+
+    logger.warning(
+        "Gave up updating status of workshop session %s to %s after %d conflicts.",
+        name,
+        phase,
+        SESSION_STATUS_UPDATE_ATTEMPTS,
+    )
+
+
+@background_task
+def update_sessions_status(names, phase):
+    """Update the Kubernetes status of a batch of workshop sessions. Run as a
+    separate background task so the status writes happen after the global
+    resources lock held by the caller has been released, keeping the Kubernetes
+    calls out from under the lock.
+
+    """
+
+    for name in names:
+        update_session_status(name, phase)
 
 
 def create_workshop_session(session, secret):
@@ -467,6 +512,20 @@ def setup_workshop_session(environment, **session_kwargs):
     return session, secret
 
 
+@background_task
+@resources_lock
+@transaction.atomic
+def create_reserved_session(session, secret):
+    """Deploy a single reserved workshop session in its own task. Scheduling the
+    deployments individually, rather than running them all under the caller's
+    lock, releases the global resources lock between sessions so that session
+    allocation requests are not blocked for the duration of the whole batch.
+
+    """
+
+    create_workshop_session(session, secret)
+
+
 def create_new_session(environment):
     """Setup a record for the workshop session in the database and schedule
     a task to deploy the workshop session in the cluster.
@@ -586,16 +645,14 @@ def terminate_reserved_sessions(portal):
             report_analytics_event(session, "Session/Terminate")
             stopping_names.append(session.name)
 
-    # Defer the Kubernetes status updates until after the transaction commits so
-    # the write lock is released first.
+    # Update the Kubernetes status of the terminated sessions once the
+    # transaction has committed, in a separate task so the status writes run
+    # after the global resources lock has been released rather than under it.
 
     if stopping_names:
-
-        def _update_stopping_status():
-            for name in stopping_names:
-                update_session_status(name, "Stopping")
-
-        transaction.on_commit(_update_stopping_status)
+        transaction.on_commit(
+            lambda: update_sessions_status(stopping_names, "Stopping").schedule()
+        )
 
 
 @background_task
@@ -719,7 +776,10 @@ def initiate_reserved_sessions(portal):
             if spare_capacity <= 0:
                 break
 
-    # Schedule the actual creation of the reserved sessions.
+    # Schedule the actual creation of the reserved sessions once the transaction
+    # has committed. Each session is deployed in its own task so the global
+    # resources lock is released between sessions rather than being held across
+    # the whole batch of Kubernetes calls.
 
     def _schedule_session_creation():
         if sessions:
@@ -730,7 +790,7 @@ def initiate_reserved_sessions(portal):
             )
 
             for session, secret in sessions:
-                create_workshop_session(session, secret)
+                create_reserved_session(session, secret).schedule()
 
     transaction.on_commit(_schedule_session_creation)
 
