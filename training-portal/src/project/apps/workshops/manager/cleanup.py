@@ -16,6 +16,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
+from oauth2_provider.models import clear_expired
+
 from ..models import SessionState, Session
 
 from .sessions import replace_reserved_session
@@ -230,38 +232,33 @@ def delete_workshop_session(session):
 
 
 @background_task
-@resources_lock
+@transaction.atomic
 def cleanup_old_sessions_and_users():
-    """Delete records for any sessions older than a certain time, and then
-    remove any anonymous user accounts that have no active sessions and which
-    are older than a certain time.
+    """Delete records for any sessions older than a certain time, remove any
+    anonymous user accounts that have no active sessions and which are older
+    than a certain time, and clear expired OAuth tokens.
 
     """
 
-    with transaction.atomic():
-        # Delete record of workshop sessions more than 36 hours old.
+    cutoff = timezone.now() - timedelta(hours=36)
 
-        cutoff = timezone.now() - timedelta(hours=36)
+    # Delete records of workshop sessions more than 36 hours old.
 
-        sessions = Session.objects.filter(
-            state=SessionState.STOPPED, expires__lte=cutoff
-        )
+    Session.objects.filter(state=SessionState.STOPPED, expires__lte=cutoff).delete()
 
-        for session in sessions:
-            logger.info("Cleanup old workshop session %s.", session.name)
-            session.delete()
+    # Delete anonymous users more than 36 hours old that no longer have any
+    # workshop sessions associated with them. Filtering on session__isnull=True
+    # restricts the delete to users with no sessions, so it is a single atomic
+    # operation that never trips the PROTECT constraint on Session.owner.
 
-        # Delete any anonymous users older than 36 hours old, which
-        # now don't have any workshop sessions associated with them.
+    User = get_user_model()  # pylint: disable=invalid-name
 
-        User = get_user_model()  # pylint: disable=invalid-name
+    User.objects.filter(
+        groups__name="anonymous",
+        date_joined__lte=cutoff,
+        session__isnull=True,
+    ).delete()
 
-        users = User.objects.filter(groups__name="anonymous", date_joined__lte=cutoff)
+    # Clear expired OAuth tokens.
 
-        for user in users:
-            sessions = Session.objects.filter(owner=user)
-
-            if not sessions:
-                logger.info("Deleting anonymous user %s.", user.get_username())
-                report_analytics_event(user, "User/Delete", {"group": "anonymous"})
-                user.delete()
+    clear_expired()
