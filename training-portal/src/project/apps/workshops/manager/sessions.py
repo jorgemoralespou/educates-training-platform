@@ -539,7 +539,12 @@ def terminate_reserved_sessions(portal):
     """
 
     # First kill of reserved sessions for each workshop environment where
-    # they are over what is allowed for that workshop environment.
+    # they are over what is allowed for that workshop environment. Collect the
+    # names of sessions being stopped so the Kubernetes status updates can be
+    # deferred until after the transaction commits, keeping the K8s calls out
+    # from under the SQLite write lock.
+
+    stopping_names = []
 
     for environment in portal.running_environments():
         # If initial number of sessions is greater than reserved sessions then
@@ -561,9 +566,9 @@ def terminate_reserved_sessions(portal):
         for session in islice(environment.available_sessions(), 0, excess):
             logger.info("Terminating reserved workshop session %s.", session.name)
 
-            update_session_status(session.name, "Stopping")
             session.mark_as_stopping()
             report_analytics_event(session, "Session/Terminate")
+            stopping_names.append(session.name)
 
     # Also check that not exceed capacity for the whole training portal. If
     # we are, try and kill of oldest reserved sessions associated with any
@@ -577,9 +582,20 @@ def terminate_reserved_sessions(portal):
         ):
             logger.info("Terminating reserved workshop session %s.", session.name)
 
-            update_session_status(session.name, "Stopping")
             session.mark_as_stopping()
             report_analytics_event(session, "Session/Terminate")
+            stopping_names.append(session.name)
+
+    # Defer the Kubernetes status updates until after the transaction commits so
+    # the write lock is released first.
+
+    if stopping_names:
+
+        def _update_stopping_status():
+            for name in stopping_names:
+                update_session_status(name, "Stopping")
+
+        transaction.on_commit(_update_stopping_status)
 
 
 @background_task
@@ -751,15 +767,30 @@ def allocate_session_for_user(
     session.analytics_url = analytics_url
 
     if token:
-        update_session_status(session.name, "Allocating", user)
         report_analytics_event(session, "Session/Pending")
         session.mark_as_pending(user, token, timeout)
+
+        # Defer the Kubernetes status update until after the transaction has
+        # committed so the SQLite write lock is not held across the K8s call.
+        # Unlike create_session_for_user, this is a real update: the reserved
+        # session's WorkshopSession resource already exists.
+
+        def _schedule_status_update():
+            update_session_status(session.name, "Allocating", user)
+
+        transaction.on_commit(_schedule_status_update)
     else:
-        update_session_status(session.name, "Allocated", user)
         report_analytics_event(session, "Session/Started")
         session.mark_as_running(user)
 
+        # Defer the Kubernetes status update and request resource creation until
+        # after the transaction has committed so the SQLite write lock is not
+        # held across the K8s calls. The status update is folded into the same
+        # post-commit closure to preserve ordering (status set before resources
+        # are created).
+
         def _schedule_resource_creation():
+            update_session_status(session.name, "Allocated", user)
             create_request_resources(session)
 
         transaction.on_commit(_schedule_resource_creation)
@@ -808,11 +839,6 @@ def create_session_for_user(
         session.index_url = index_url
         session.analytics_url = analytics_url
 
-        if token:
-            update_session_status(session.name, "Allocating", user)
-        else:
-            update_session_status(session.name, "Allocated", user)
-
         session.mark_as_pending(user, token, timeout)
 
         if not token:
@@ -840,11 +866,6 @@ def create_session_for_user(
         session.index_url = index_url
         session.analytics_url = analytics_url
 
-        if token:
-            update_session_status(session.name, "Allocating", user)
-        else:
-            update_session_status(session.name, "Allocated", user)
-
         session.mark_as_pending(user, token, timeout)
 
         if not token:
@@ -865,9 +886,20 @@ def create_session_for_user(
 
     if sessions:
         session = sessions[0]
-        update_session_status(session.name, "Stopping")
         session.mark_as_stopping()
         report_analytics_event(session, "Session/Terminate")
+
+        # Defer the Kubernetes status update until after the transaction commits
+        # so the SQLite write lock is released first. Capture the name by value:
+        # the "session" variable is reassigned below to the newly created
+        # session, so the closure must not reference it lazily.
+
+        stopping_name = session.name
+
+        def _update_stopping_status():
+            update_session_status(stopping_name, "Stopping")
+
+        transaction.on_commit(_update_stopping_status)
 
     # Now create the new workshop session for the required workshop
     # environment.
@@ -878,11 +910,6 @@ def create_session_for_user(
 
     session.index_url = index_url
     session.analytics_url = analytics_url
-
-    if token:
-        update_session_status(session.name, "Allocating", user)
-    else:
-        update_session_status(session.name, "Allocated", user)
 
     session.mark_as_pending(user, token, timeout)
 

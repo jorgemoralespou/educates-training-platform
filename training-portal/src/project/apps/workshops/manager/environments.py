@@ -299,6 +299,13 @@ def shutdown_workshop_environments(training_portal, workshops):
 
     environments = training_portal.active_environments()
 
+    # Collect the names of environments and sessions being stopped so the
+    # Kubernetes status updates can be deferred until after the transaction
+    # commits, keeping the K8s calls out from under the SQLite write lock.
+
+    stopping_environments = []
+    stopping_sessions = []
+
     for environment in environments:
         workshop_key = f"{environment.workshop_name}:{environment.resource_name}"
 
@@ -323,14 +330,27 @@ def shutdown_workshop_environments(training_portal, workshops):
             else:
                 logger.info("Stopping workshop environment %s.", environment.name)
 
-            update_environment_status(environment.name, "Stopping")
             environment.mark_as_stopping()
             report_analytics_event(environment, "Environment/Terminate")
+            stopping_environments.append(environment.name)
 
             for session in environment.available_sessions():
-                update_session_status(session.name, "Stopping")
                 session.mark_as_stopping()
                 report_analytics_event(session, "Session/Terminate")
+                stopping_sessions.append(session.name)
+
+    # Defer the Kubernetes status updates until after the transaction commits so
+    # the write lock is released first.
+
+    if stopping_environments or stopping_sessions:
+
+        def _update_stopping_status():
+            for name in stopping_environments:
+                update_environment_status(name, "Stopping")
+            for name in stopping_sessions:
+                update_session_status(name, "Stopping")
+
+        transaction.on_commit(_update_stopping_status)
 
 
 @background_task
@@ -405,6 +425,12 @@ def delete_workshop_environments(training_portal):
 def update_workshop_environments(training_portal, workshops):
     """Updates configuration of any workshops which already exist."""
 
+    # Collect the status detail updates so the Kubernetes writes can be deferred
+    # until after the transaction commits, keeping the K8s calls out from under
+    # the SQLite write lock.
+
+    status_details = []
+
     for position, workshop in enumerate(workshops, 1):
         workshop_name = workshop.get("alias", "") or workshop["name"]
 
@@ -440,9 +466,20 @@ def update_workshop_environments(training_portal, workshops):
 
             environment.save()
 
-            update_environment_status_details(
-                environment.name, environment.capacity, environment.reserved
+            status_details.append(
+                (environment.name, environment.capacity, environment.reserved)
             )
+
+    # Defer the Kubernetes status detail updates until after the transaction
+    # commits so the write lock is released first.
+
+    if status_details:
+
+        def _update_status_details():
+            for name, capacity, reserved in status_details:
+                update_environment_status_details(name, capacity, reserved)
+
+        transaction.on_commit(_update_status_details)
 
 
 @background_task
@@ -670,14 +707,27 @@ def replace_workshop_environment(environment):
             environment.workshop_name,
         )
 
-    update_environment_status(environment.name, "Stopping")
     environment.mark_as_stopping()
     report_analytics_event(environment, "Environment/Terminate")
 
+    # Collect the names of the environment and its sessions being stopped so the
+    # Kubernetes status updates can be deferred until after the transaction
+    # commits, keeping the K8s calls out from under the SQLite write lock.
+
+    stopping_environment = environment.name
+    stopping_sessions = []
+
     for session in environment.available_sessions():
-        update_session_status(session.name, "Stopping")
         session.mark_as_stopping()
         report_analytics_event(session, "Session/Terminate")
+        stopping_sessions.append(session.name)
+
+    def _update_stopping_status():
+        update_environment_status(stopping_environment, "Stopping")
+        for name in stopping_sessions:
+            update_session_status(name, "Stopping")
+
+    transaction.on_commit(_update_stopping_status)
 
     # Now schedule creation of the replacement workshop session.
 
