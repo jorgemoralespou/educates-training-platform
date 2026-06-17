@@ -524,16 +524,15 @@ def update_workshop_environments(training_portal, workshops):
                 (environment.name, environment.capacity, environment.reserved)
             )
 
-    # Defer the Kubernetes status detail updates until after the transaction
-    # commits so the write lock is released first.
+    # Once the transaction commits, update the capacity and reserved counts in
+    # the Kubernetes status of each environment in a separate task so the status
+    # writes run after the global resources lock has been released rather than
+    # under it.
 
     if status_details:
-
-        def _update_status_details():
-            for name, capacity, reserved in status_details:
-                update_environment_status_details(name, capacity, reserved)
-
-        transaction.on_commit(_update_status_details)
+        transaction.on_commit(
+            lambda: update_environments_status_details(status_details).schedule()
+        )
 
 
 @background_task
@@ -791,37 +790,71 @@ def replace_workshop_environment(environment):
 def update_environment_status_details(name, capacity, reserved):
     """Update the capacity for the workshop environment recorded in the status."""
 
-    try:
-        K8SWorkshopEnvironment = pykube.object_factory(
-            api,
-            "training.educates.dev/v1beta1",
-            "WorkshopEnvironment",
-        )
+    K8SWorkshopEnvironment = pykube.object_factory(
+        api,
+        "training.educates.dev/v1beta1",
+        "WorkshopEnvironment",
+    )
 
-        resource = K8SWorkshopEnvironment.objects(api).get(name=name)
+    for _ in range(ENVIRONMENT_STATUS_UPDATE_ATTEMPTS):
+        try:
+            resource = K8SWorkshopEnvironment.objects(api).get(name=name)
 
-        # The status may not exist as yet if not processed by the operator.
+            # The status may not exist as yet if not processed by the operator.
 
-        status = resource.obj.setdefault("status", {}).setdefault(
-            "educates", {}
-        )
+            status = resource.obj.setdefault("status", {}).setdefault(
+                "educates", {}
+            )
 
-        status["capacity"] = capacity
-        status["reserved"] = reserved
+            status["capacity"] = capacity
+            status["reserved"] = reserved
 
-        resource.update()
+            resource.update()
 
-        logger.info(
-            "Updated status of workshop environment %s with capacity=%s and reserved=%s.",
-            name,
-            capacity,
-            reserved,
-        )
+            logger.info(
+                "Updated status of workshop environment %s with capacity=%s and reserved=%s.",
+                name,
+                capacity,
+                reserved,
+            )
 
-    except pykube.exceptions.ObjectDoesNotExist:
-        pass
+            return
 
-    except pykube.exceptions.PyKubeError:
-        logger.exception(
-            "Failed to update status details of workshop environment %s.", name
-        )
+        except pykube.exceptions.ObjectDoesNotExist:
+            return
+
+        except pykube.exceptions.HTTPError as exception:
+            # A 409 conflict means the resource was modified between the read and
+            # the write, so the read-modify-write is retried with a fresh read.
+            # Any other HTTP error is not a conflict and is not retried.
+
+            if exception.code != 409:
+                logger.exception(
+                    "Failed to update status details of workshop environment %s.", name
+                )
+                return
+
+        except pykube.exceptions.PyKubeError:
+            logger.exception(
+                "Failed to update status details of workshop environment %s.", name
+            )
+            return
+
+    logger.warning(
+        "Gave up updating status details of workshop environment %s after %d conflicts.",
+        name,
+        ENVIRONMENT_STATUS_UPDATE_ATTEMPTS,
+    )
+
+
+@background_task
+def update_environments_status_details(status_details):
+    """Update the capacity and reserved counts recorded in the Kubernetes status
+    of a batch of workshop environments. Run as a separate background task so the
+    status writes happen after the global resources lock held by the caller has
+    been released, keeping the Kubernetes calls out from under the lock.
+
+    """
+
+    for name, capacity, reserved in status_details:
+        update_environment_status_details(name, capacity, reserved)
