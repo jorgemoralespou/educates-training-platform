@@ -64,39 +64,91 @@ def duration_as_timedelta(duration):
     return timedelta(seconds=max(0, convert_duration_to_seconds(duration)))
 
 
+# Number of attempts made to write a workshop environment status before giving
+# up. The status update is a read-modify-write against the Kubernetes resource
+# using optimistic concurrency, so a concurrent writer can cause the write to be
+# rejected with a 409 conflict. On a conflict we re-read and re-apply; conflicts
+# are transient and almost always clear on the first retry, but the count is
+# bounded so a persistently contended resource cannot spin forever.
+
+ENVIRONMENT_STATUS_UPDATE_ATTEMPTS = 3
+
+
 def update_environment_status(name, phase):
     """Update the status of the Kubernetes resource object for the workshop
     environment.
 
     """
 
-    try:
-        K8SWorkshopEnvironment = pykube.object_factory(
-            api,
-            "training.educates.dev/v1beta1",
-            "WorkshopEnvironment",
-        )
+    K8SWorkshopEnvironment = pykube.object_factory(
+        api,
+        "training.educates.dev/v1beta1",
+        "WorkshopEnvironment",
+    )
 
-        resource = K8SWorkshopEnvironment.objects(api).get(name=name)
+    for _ in range(ENVIRONMENT_STATUS_UPDATE_ATTEMPTS):
+        try:
+            resource = K8SWorkshopEnvironment.objects(api).get(name=name)
 
-        # Can't update status if deployment had stalled due to the workshop
-        # definition not existing.
+            # Can't update status if deployment had stalled due to the workshop
+            # definition not existing.
 
-        if (
-            resource.obj.get("status", {})
-            .get("educates", {})
-            .get("phase")
-        ):
-            resource.obj["status"]["educates"]["phase"] = phase
-            resource.update()
+            if (
+                resource.obj.get("status", {})
+                .get("educates", {})
+                .get("phase")
+            ):
+                resource.obj["status"]["educates"]["phase"] = phase
+                resource.update()
 
-        logger.info("Updated status of workshop environment %s to %s.", name, phase)
+            logger.info(
+                "Updated status of workshop environment %s to %s.", name, phase
+            )
 
-    except pykube.exceptions.ObjectDoesNotExist:
-        pass
+            return
 
-    except pykube.exceptions.PyKubeError:
-        logger.exception("Failed to update status of workshop environment %s.", name)
+        except pykube.exceptions.ObjectDoesNotExist:
+            return
+
+        except pykube.exceptions.HTTPError as exception:
+            # A 409 conflict means the resource was modified between the read and
+            # the write, so the read-modify-write is retried with a fresh read.
+            # Any other HTTP error is not a conflict and is not retried.
+
+            if exception.code != 409:
+                logger.exception(
+                    "Failed to update status of workshop environment %s.", name
+                )
+                return
+
+        except pykube.exceptions.PyKubeError:
+            logger.exception(
+                "Failed to update status of workshop environment %s.", name
+            )
+            return
+
+    logger.warning(
+        "Gave up updating status of workshop environment %s to %s after %d conflicts.",
+        name,
+        phase,
+        ENVIRONMENT_STATUS_UPDATE_ATTEMPTS,
+    )
+
+
+@background_task
+def update_stopping_status(environment_names, session_names):
+    """Mark a batch of workshop environments and sessions as stopping in their
+    Kubernetes status. Run as a separate background task so the status writes
+    happen after the global resources lock held by the caller has been released,
+    keeping the Kubernetes calls out from under the lock.
+
+    """
+
+    for name in environment_names:
+        update_environment_status(name, "Stopping")
+
+    for name in session_names:
+        update_session_status(name, "Stopping")
 
 
 @background_task
@@ -339,25 +391,27 @@ def shutdown_workshop_environments(training_portal, workshops):
                 report_analytics_event(session, "Session/Terminate")
                 stopping_sessions.append(session.name)
 
-    # Defer the Kubernetes status updates until after the transaction commits so
-    # the write lock is released first.
+    # Once the transaction commits, update the Kubernetes status of the stopped
+    # environments and sessions in a separate task so the status writes run after
+    # the global resources lock has been released rather than under it.
 
     if stopping_environments or stopping_sessions:
-
-        def _update_stopping_status():
-            for name in stopping_environments:
-                update_environment_status(name, "Stopping")
-            for name in stopping_sessions:
-                update_session_status(name, "Stopping")
-
-        transaction.on_commit(_update_stopping_status)
+        transaction.on_commit(
+            lambda: update_stopping_status(
+                stopping_environments, stopping_sessions
+            ).schedule()
+        )
 
 
 @background_task
-@resources_lock
 def delete_workshop_environment(environment):
     """Deletes a workshop environment. If this is called when there are still
     workshop sessions, they will be forcibly deleted.
+
+    This runs without the global resources lock. It makes no database changes
+    (the record is marked stopped by the caller before this is scheduled) and
+    only issues a single idempotent Kubernetes delete by name, so it has no
+    shared state to serialise against other work.
 
     """
 
@@ -710,9 +764,10 @@ def replace_workshop_environment(environment):
     environment.mark_as_stopping()
     report_analytics_event(environment, "Environment/Terminate")
 
-    # Collect the names of the environment and its sessions being stopped so the
-    # Kubernetes status updates can be deferred until after the transaction
-    # commits, keeping the K8s calls out from under the SQLite write lock.
+    # Collect the names of the environment and its sessions being stopped. Once
+    # the transaction commits, their Kubernetes status is updated in a separate
+    # task so the status writes run after the global resources lock has been
+    # released rather than under it.
 
     stopping_environment = environment.name
     stopping_sessions = []
@@ -722,12 +777,11 @@ def replace_workshop_environment(environment):
         report_analytics_event(session, "Session/Terminate")
         stopping_sessions.append(session.name)
 
-    def _update_stopping_status():
-        update_environment_status(stopping_environment, "Stopping")
-        for name in stopping_sessions:
-            update_session_status(name, "Stopping")
-
-    transaction.on_commit(_update_stopping_status)
+    transaction.on_commit(
+        lambda: update_stopping_status(
+            [stopping_environment], stopping_sessions
+        ).schedule()
+    )
 
     # Now schedule creation of the replacement workshop session.
 
