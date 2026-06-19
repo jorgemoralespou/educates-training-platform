@@ -174,8 +174,7 @@ func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfi
 		// Synthesise a LocalConfig that mirrors the cluster/resolver
 		// envelope from the escape kind. The remaining ECC/SessionManager
 		// CR fields stay in the escape config and reach the deploy via
-		// re-loading there. (Walking-skeleton compromise — step 11 might
-		// fold this differently when EducatesInlineConfig lands.)
+		// re-loading there.
 		return &v1alpha1.EducatesLocalConfig{
 			TypeMeta: v1alpha1.TypeMeta{
 				APIVersion: v1alpha1.APIVersion,

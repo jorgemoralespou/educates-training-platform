@@ -182,7 +182,7 @@ func smReadyStatus(name string) metav1.ConditionStatus {
 	return c.Status
 }
 
-var _ = Describe("SecretsManager reconciler (Phase 4 Session 1)", func() {
+var _ = Describe("SecretsManager reconciler", func() {
 	var (
 		mgrCancel context.CancelFunc
 		mgrDone   chan error

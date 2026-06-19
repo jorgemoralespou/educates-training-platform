@@ -26,9 +26,8 @@ import (
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 )
 
-// Phase 0 verification: structural CRD validation only — singleton-name
-// CEL on each platform CRD. Reconciler logic is a stub and not under
-// test.
+// Structural CRD validation only — singleton-name CEL on each
+// platform CRD. Reconciler logic is a stub and not under test.
 
 func deleteIfExists(obj client.Object, name string) {
 	GinkgoHelper()

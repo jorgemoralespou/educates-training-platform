@@ -3,7 +3,7 @@
 A TLS-on scenario that exercises the chart's HTTPS values shape and
 secret-propagation path without relying on cert-manager to issue the
 wildcard cert. Cert-manager-as-issuer is intentionally out of scope here
-— that's the v4 operator's job in Phase 2 of the development plan.
+— that's the v4 operator's job in Managed mode.
 
 ## Layout of the test
 

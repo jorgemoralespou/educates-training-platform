@@ -45,10 +45,10 @@ type SecretsManagerSpec struct {
 }
 
 // SecretsManagerStatus defines the observed state of SecretsManager.
-// Mirrors the CRD draft r3 §2 status contract: phase + conditions
-// (aggregate Ready plus ClusterConfigAvailable + Deployed), plus the
-// installedVersion / deploymentRef pair that downstream tooling can
-// observe to discover the runtime install.
+// The status contract: phase + conditions (aggregate Ready plus
+// ClusterConfigAvailable + Deployed), plus the installedVersion /
+// deploymentRef pair that downstream tooling can observe to discover
+// the runtime install.
 type SecretsManagerStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -56,7 +56,7 @@ type SecretsManagerStatus struct {
 	// +optional
 	Phase ComponentPhase `json:"phase,omitempty"`
 
-	// conditions report the resource's state. Phase 4 publishes:
+	// conditions report the resource's state:
 	//   - Ready                  (aggregate)
 	//   - ClusterConfigAvailable (EducatesClusterConfig.Ready gate)
 	//   - Deployed               (helm release present + Deployment Available)

@@ -9,11 +9,6 @@ Helm SDK. The bytes are checked into the repository so that:
   registry access;
 - image-relocation rewrites have a single point of control.
 
-See `docs/architecture/decisions.md` →
-*"Vendored upstream charts live as tarballs at `installer/vendored-charts/`"*
-(with 2026-05-11 amendment relocating the directory inside the operator
-module) for the full rationale.
-
 ## Layout
 
 ```

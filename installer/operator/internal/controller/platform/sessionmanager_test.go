@@ -89,7 +89,7 @@ func smgrConditionReason(condType string) string {
 	return c.Reason
 }
 
-var _ = Describe("SessionManager reconciler (Phase 4 Session 3)", func() {
+var _ = Describe("SessionManager reconciler", func() {
 	var (
 		mgrCancel context.CancelFunc
 		mgrDone   chan error

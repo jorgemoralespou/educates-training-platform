@@ -2,10 +2,6 @@
 // to operator chart values + four platform CRs, install the operator
 // chart via Helm SDK, server-side-apply the CRs in dependency order, and
 // wait for each to be Ready=True.
-//
-// Walking skeleton scope: the happy path works end-to-end on a kind
-// cluster. Polish (richer progress reporting, dry-run, rollback) is for
-// follow-up commits in step 5.
 package deployer
 
 import (
@@ -253,9 +249,8 @@ func waitOnlyStep(ctx context.Context, opts Options, waiter *wait.Client, obj ma
 }
 
 // syncLocalSecrets copies <data-home>/secrets/*.yaml into the cluster's
-// 'educates-secrets' namespace. Reuses the v3 secrets package so the
-// laptop flow stays the same; deletion of the v3 package in step 9 will
-// fold this through whatever the new home is.
+// 'educates-secrets' namespace. Reuses the secrets package so the
+// laptop flow stays the same.
 func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
 	cfg, err := getter.ToRESTConfig()
 	if err != nil {

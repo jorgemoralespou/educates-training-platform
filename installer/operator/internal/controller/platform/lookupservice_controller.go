@@ -58,8 +58,8 @@ const (
 	// helm release before the CR is removed.
 	finalizerLookupService = "lookupservice.platform.educates.dev/finalizer"
 
-	// An IngressReady condition is reserved per CRD draft r3 §3
-	// status contract but not yet published. v1alpha1 doesn't gate on
+	// An IngressReady condition is reserved in the status contract
+	// but not yet published. v1alpha1 doesn't gate on
 	// it separately — Deployment.Available is sufficient signal
 	// because the chart renders the Ingress alongside the Deployment
 	// in the same helm install. A future probe (LoadBalancer
@@ -247,8 +247,7 @@ func (r *LookupServiceReconciler) secretsManagerReadyLS(ctx context.Context) (bo
 }
 
 // lookupServiceHost composes the fully-qualified Ingress hostname
-// from CR prefix + cluster config domain — `<prefix>.<domain>` per
-// CRD draft r3 §3.
+// from CR prefix + cluster config domain — `<prefix>.<domain>`.
 func lookupServiceHost(obj *platformv1alpha1.LookupService, cfg *configv1alpha1.EducatesClusterConfig) string {
 	return fmt.Sprintf("%s.%s", obj.Spec.Ingress.Prefix, cfg.Status.Ingress.Domain)
 }

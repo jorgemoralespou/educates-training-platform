@@ -27,7 +27,7 @@ A minimal, certificate-free install for local-laptop iteration.
 
 - Image references are pinned to the v3 runtime tag (`3.7.1`) via
   per-subchart `image.tag` overrides, because no `4.0.0-alpha.1` runtime
-  images exist yet. This is expected for the pre-phase.
+  images exist yet. This is expected when testing the chart standalone.
 - The session-manager `config` blob is set inline in `chart-values.yaml`.
   In a v4 install the operator will derive these fields from the
   SessionManager CR + EducatesClusterConfig.status.

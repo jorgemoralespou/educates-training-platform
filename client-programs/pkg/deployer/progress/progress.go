@@ -1,8 +1,8 @@
 // Package progress renders deploy/delete step status as compact
 // per-step lines instead of free-form prints.
 //
-// The default reporter writes 'plain text with [N/M] counters' per
-// the design choice in step 5 polish — no spinner library dep. When
+// The default reporter writes 'plain text with [N/M] counters' —
+// no spinner library dep. When
 // stdout is a TTY, in-progress lines are over-written via \r so the
 // final state replaces the polling chatter. When stdout is not a TTY
 // (CI, pipe, file), every state change appends a new line so the log

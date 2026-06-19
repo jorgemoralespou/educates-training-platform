@@ -51,9 +51,9 @@ import (
 // state.
 const (
 	// platformNamespace is where the operator installs the runtime
-	// platform components (secrets-manager today; lookup-service and
-	// session-manager in subsequent Phase 4 sessions). Mirrors v3
-	// behavior: the umbrella `educates-training-platform` Helm chart
+	// platform components (secrets-manager, lookup-service, and
+	// session-manager). Mirrors v3 behavior: the umbrella
+	// `educates-training-platform` Helm chart
 	// has historically been `helm install -n educates`, and three
 	// co-located components share a single namespace.
 	platformNamespace = "educates"
@@ -88,8 +88,8 @@ const (
 	// before the CR is removed.
 	finalizerSecretsManager = "secretsmanager.platform.educates.dev/finalizer"
 
-	// Condition types published on SecretsManager.status. Mirrors the
-	// CRD draft r3 contract: aggregate Ready plus two phase-specific
+	// Condition types published on SecretsManager.status. Status
+	// contract: aggregate Ready plus two phase-specific
 	// types — ClusterConfigAvailable (does EducatesClusterConfig
 	// exist and report Ready?) and Deployed (did the helm install
 	// land + Deployment become Available?).
@@ -135,7 +135,7 @@ type SecretsManagerReconciler struct {
 // The reconciler also reads the Deployment status as its readiness
 // gate. The cluster-admin shortcut binding from the
 // `educates-installer` Helm chart covers any other resource the
-// SDK touches; Phase 6 scopes these down.
+// SDK touches; these will be scoped down.
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
 
@@ -202,8 +202,7 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Gate everything on the EducatesClusterConfig being Ready. This
-	// is the cross-CR input contract for every platform component;
-	// see CRD draft r3 §2.
+	// is the cross-CR input contract for every platform component.
 	cfg, ready, err := r.clusterConfigReady(ctx)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("read EducatesClusterConfig: %w", err)
@@ -252,7 +251,7 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 	}
 
-	// Publish status surface defined in the CRD draft r3 §2.
+	// Publish the status surface.
 	obj.Status.InstalledVersion = vendoredcharts.SecretsManagerChartVersion
 	obj.Status.DeploymentRef = &platformv1alpha1.NamespacedRef{
 		Namespace: platformNamespace,
@@ -435,7 +434,7 @@ func (r *SecretsManagerReconciler) deploymentAvailable(ctx context.Context) (boo
 // place — it's shared with future LookupService / SessionManager
 // installs, and removing it would tear them down too. This is
 // asymmetric with the cluster-services reconcilers (which own their
-// per-service namespace end-to-end); a Phase 4 follow-up may add a
+// per-service namespace end-to-end); a follow-up may add a
 // once-everything-is-gone namespace sweeper.
 func (r *SecretsManagerReconciler) cleanup(ctx context.Context) error {
 	_ = ctx // helm SDK uses its own context internally

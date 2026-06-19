@@ -34,8 +34,7 @@ func EnsureLocalConfigFile(dataHome string) error {
 // and returns a user-actionable error. Three cases:
 //
 //  1. v3 `values.yaml` exists alongside the missing config.yaml — the user
-//     is on a pre-v4 data home and needs the migration shim (planned step 10
-//     of the phase 5 implementation; not yet landed).
+//     is on a pre-v4 data home and needs the migration shim.
 //  2. The data home directory itself doesn't exist — first-time user.
 //  3. The directory exists but config.yaml is missing — initialised data
 //     home (e.g. secrets/ present from past CLI runs) but no v4 config yet.
@@ -67,7 +66,7 @@ need a fresh v4 config declared explicitly:
 
 The available v4 kinds live under cli.educates.dev/v1alpha1
 (EducatesLocalConfig, EducatesConfig escape hatch, and the
-scenario kinds GKE/EKS/Inline landing in phase 5 step 11).`,
+scenario kinds GKE/EKS/Inline).`,
 			configPath, v3Values)
 	}
 

@@ -829,10 +829,10 @@ type StatusPolicyEnforcement struct {
 }
 
 // EducatesClusterConfigStatus is the public interface that component CRs
-// (SecretsManager, LookupService, SessionManager) consume. Phase 1 adds
+// (SecretsManager, LookupService, SessionManager) consume. It carries
 // the inter-CR contract fields (mode, ingress, policyEnforcement,
-// imageRegistry); the bundledChartVersions field lands in Phase 2/3
-// alongside Managed-mode chart installs.
+// imageRegistry); the bundledChartVersions field is populated as
+// Managed-mode cluster services install.
 type EducatesClusterConfigStatus struct {
 	// observedGeneration tracks the spec generation last reconciled.
 	// +optional
@@ -871,12 +871,12 @@ type EducatesClusterConfigStatus struct {
 	// +optional
 	BundledChartVersions map[string]string `json:"bundledChartVersions,omitempty"`
 
-	// conditions report the resource's state. Phase 1 publishes:
+	// conditions report the resource's state:
 	//   - Ready                (aggregate)
 	//   - ValidationSucceeded  (Inline mode: refs validated)
 	// Managed-mode conditions (IngressReady, CertificatesReady,
-	// DNSReady, PolicyEnforcementReady, InfrastructureConfigured) land
-	// in later phases alongside their producing reconcilers.
+	// DNSReady, PolicyEnforcementReady, InfrastructureConfigured) are
+	// published by their producing reconcilers.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

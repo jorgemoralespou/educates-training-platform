@@ -85,9 +85,9 @@ const (
 //  1. cert-manager + wildcard Certificate + ClusterIssuer
 //     (CertificatesReady). Wildcard Cert placement may shift to
 //     post-Contour when ACME-HTTP01 issuer types are added later.
-//  2. Contour + IngressClass (IngressReady) — Phase 3.
-//  3. external-dns (DNSReady) — Phase 3.
-//  4. Kyverno (PolicyEnforcementReady) — Phase 3.
+//  2. Contour + IngressClass (IngressReady).
+//  3. external-dns (DNSReady).
+//  4. Kyverno (PolicyEnforcementReady).
 //
 // Cleanup is the strict reverse.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
@@ -100,22 +100,22 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 		return ctrl.Result{}, err
 	}
 
-	// Phase 1: cert-manager + wildcard certificate.
+	// cert-manager + wildcard certificate.
 	if done, res, err := r.reconcileCertManagerPhase(ctx, obj); !done {
 		return res, err
 	}
 
-	// Phase 2: ingress controller (Contour).
+	// Ingress controller (Contour).
 	if done, res, err := r.reconcileContourPhase(ctx, obj); !done {
 		return res, err
 	}
 
-	// Phase 3: DNS (external-dns).
+	// DNS (external-dns).
 	if done, res, err := r.reconcileExternalDNSPhase(ctx, obj); !done {
 		return res, err
 	}
 
-	// Phase 4: policy enforcement (Kyverno).
+	// Policy enforcement (Kyverno).
 	if done, res, err := r.reconcileKyvernoPhase(ctx, obj); !done {
 		return res, err
 	}
@@ -159,7 +159,7 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 // CRDWatcher when the CRDs were still present) keeps logging a
 // retry-loop error at 10s intervals because controller-runtime has
 // no public API to remove a registered Source. Captured as a
-// follow-up — see docs/architecture/follow-up-issues.md.
+// follow-up.
 func (r *EducatesClusterConfigReconciler) handleCertManagerCRDsMissing(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, cause error) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	if r.certManagerCRDsActuallyPresent() {
@@ -220,7 +220,7 @@ func (r *EducatesClusterConfigReconciler) certManagerCRDsActuallyPresent() bool 
 // ("ClusterIssuer" or "Certificate") and shows up in the log line so
 // the cause is obvious. See certmanager.go::isWebhookNotReadyErr for
 // the substring rationale; the proper fix is the synthetic admission
-// probe captured in follow-up-issues.md.
+// probe, captured as a follow-up.
 func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, kind string, cause error) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	log.Info("cert-manager webhook not yet routable; will retry shortly",
@@ -238,7 +238,7 @@ func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Cont
 // cleanupManaged tears down installed cluster services in **reverse
 // install order**: each per-service cleanup is self-contained and
 // no-ops when its corresponding install was skipped (External
-// provider variants). Adding a new cluster service in Phase 3 means
+// provider variants). Adding a new cluster service means
 // appending its cleanup* call at the top of this function (since
 // it'll have been the *last* to install).
 //
@@ -283,7 +283,7 @@ func (r *EducatesClusterConfigReconciler) deleteIfPresent(ctx context.Context, o
 
 // markManagedReady publishes the inter-CR ingress contract and flips
 // the aggregate Ready condition to True. Called once *every* phase
-// (cert-manager today; Contour/external-dns/Kyverno in Phase 3) has
+// (cert-manager, Contour, external-dns, Kyverno) has
 // signed off. Each phase is responsible for flipping its own
 // per-service condition True before this runs — markManagedReady
 // does not touch CertificatesReady/IngressReady/etc., it only sets
@@ -322,7 +322,7 @@ func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.E
 // chart-version drift are handled here too (a vendored bump produces
 // a different chart.Metadata.Version, the Status path notices, and
 // Upgrade runs). Resource-level readiness checks (Deployment +
-// webhook discovery) land in commit 2 of this session.
+// webhook discovery) are done separately by the phase wrapper.
 func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) error {
 	chrt, err := vendoredcharts.CertManager()
 	if err != nil {
@@ -468,17 +468,15 @@ func renderCertManagerValues(obj *configv1alpha1.EducatesClusterConfig) map[stri
 	return values
 }
 
-// validateManaged runs the Phase 2 Managed-mode checks. The CRD's CEL
+// validateManaged runs the Managed-mode checks. The CRD's CEL
 // rules already enforce field-presence and mutual-exclusion at admission
 // time; this validator covers cross-resource concerns (referenced
 // Secrets exist with the right keys) and the not-yet-supported feature
 // matrix.
 //
-// Session 2 commit 1 supports the minimal path that the phase's "done
-// when" criteria require: BundledCertManager + CustomCA, with
-// BundledContour ingress. Other providers/issuer types return explicit
-// validation errors with a "not yet supported in v1alpha1" message
-// rather than silently no-oping.
+// It supports BundledCertManager + CustomCA with BundledContour ingress.
+// Other providers/issuer types return explicit validation errors with a
+// "not yet supported in v1alpha1" message rather than silently no-oping.
 func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
 	if obj.Spec.Ingress == nil {
 		return &validationError{
@@ -489,7 +487,7 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 
 	switch obj.Spec.Ingress.Controller.Provider {
 	case configv1alpha1.IngressControllerProviderBundledContour:
-		// supported; install lands in Phase 3.
+		// Supported.
 	default:
 		return &validationError{
 			Field:  "spec.ingress.controller.provider",

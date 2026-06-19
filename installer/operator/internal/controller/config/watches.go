@@ -53,8 +53,8 @@ import (
 //   - IngressClass: spec.{inline.ingress|ingress}.ingressClassName.
 //   - ClusterIssuer: operator-owned + spec.inline.ingress.clusterIssuerRef.
 //   - Certificate: operator-owned (wildcard) only.
-//   - Deployment: operator-managed namespaces (cert-manager today;
-//     Phase 3 adds Contour/Kyverno/external-dns namespaces here).
+//   - Deployment: operator-managed namespaces (cert-manager, Contour,
+//     external-dns, Kyverno).
 //
 // Each mapper takes the controller-runtime client context and the
 // changed object, and returns either the singleton-enqueue list or
@@ -223,8 +223,8 @@ func (r *EducatesClusterConfigReconciler) mapPlatformCRToSingleton(_ context.Con
 }
 
 // mapDeploymentToSingleton fires only for Deployments in namespaces
-// the operator manages cluster-services in. Each new Phase 3 cluster
-// service adds its namespace here so its readiness signals reach the
+// the operator manages cluster-services in. Each new cluster service
+// adds its namespace here so its readiness signals reach the
 // reconciler.
 func (r *EducatesClusterConfigReconciler) mapDeploymentToSingleton(_ context.Context, obj client.Object) []reconcile.Request {
 	switch obj.GetNamespace() {

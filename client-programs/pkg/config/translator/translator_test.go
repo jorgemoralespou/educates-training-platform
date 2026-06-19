@@ -91,12 +91,11 @@ func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 }
 
 // TestTranslateLocal_AllLockedInvariants is the regression backstop for
-// the locked Phase 5 invariants. Every row here corresponds to a single
-// bullet in the "Translator invariants" section of the locked design
-// (see ~/.claude/plans/reflective-dazzling-finch.md and the project
-// memory). A row failing means either the translator silently dropped
-// the invariant (bug; restore it) or the design changed (update the
-// row + the design doc together).
+// the translator invariants. Every row here corresponds to a single
+// bullet in the "Translator invariants" applied by TranslateLocal. A row
+// failing means either the translator silently dropped the invariant
+// (bug; restore it) or the intended behavior changed (update the row to
+// match).
 //
 // Adding a new locked invariant should land both a translator change
 // AND a row here in the same commit.

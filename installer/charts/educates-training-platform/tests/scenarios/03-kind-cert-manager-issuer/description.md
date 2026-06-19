@@ -2,7 +2,7 @@
 
 Production-shaped install where cert-manager is the actual issuer of
 the wildcard certificate, signed by a CA the user provides. This is
-the closest pre-phase scenario to the v4 operator's `Managed` mode for
+the closest standalone-chart scenario to the v4 operator's `Managed` mode for
 `EducatesClusterConfig.spec.certificates.provider:
 BundledCertManager + issuerType: CustomCA`.
 

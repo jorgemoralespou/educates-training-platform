@@ -58,8 +58,8 @@ type LookupServiceSpec struct {
 }
 
 // LookupServiceStatus defines the observed state of LookupService.
-// Phase 4 publishes the full CRD draft r3 §3 contract: phase +
-// conditions + url + installedVersion + deploymentRef.
+// Publishes the full status contract: phase + conditions + url +
+// installedVersion + deploymentRef.
 type LookupServiceStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -67,7 +67,7 @@ type LookupServiceStatus struct {
 	// +optional
 	Phase ComponentPhase `json:"phase,omitempty"`
 
-	// conditions report the resource's state. Phase 4 publishes:
+	// conditions report the resource's state:
 	//   - Ready                  (aggregate)
 	//   - ClusterConfigAvailable (EducatesClusterConfig.Ready gate)
 	//   - Deployed               (helm release + Deployment Available)

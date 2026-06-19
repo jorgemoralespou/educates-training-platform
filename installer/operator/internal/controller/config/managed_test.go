@@ -48,7 +48,7 @@ import (
 )
 
 // validManagedSpec returns a minimal Managed-mode spec that satisfies
-// Phase 2 Session 2 validation: BundledContour + BundledCertManager
+// Managed-mode validation: BundledContour + BundledCertManager
 // with a CustomCA issuer. Used by every spec in this file as the
 // shared happy-path starting point.
 func validManagedSpec() configv1alpha1.EducatesClusterConfigSpec {
@@ -228,7 +228,7 @@ func (f *memoryHelmFactory) For(ns string) (*helm.Client, error) {
 	return c, nil
 }
 
-var _ = Describe("EducatesClusterConfig Managed-mode reconciler (Phase 2 Session 2)", func() {
+var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 	var (
 		mgrCancel context.CancelFunc
 		mgrDone   chan error

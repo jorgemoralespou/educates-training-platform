@@ -1,8 +1,8 @@
 # EducatesClusterConfig samples
 
-Reference `EducatesClusterConfig` resources for the three Managed-mode
-scenarios verified during Phase 3, plus full-field references covering
-the entire supported v1alpha1 spec surface.
+Reference `EducatesClusterConfig` resources for the three verified
+Managed-mode scenarios, plus full-field references covering the entire
+supported v1alpha1 spec surface.
 
 | File | Scenario | Certificates | DNS | Policy |
 |---|---|---|---|---|

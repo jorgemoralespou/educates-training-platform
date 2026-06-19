@@ -25,8 +25,8 @@ import (
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 )
 
-// Phase 0 verification: structural CRD validation only. Reconciler logic
-// is a stub (logs and returns) and not under test here.
+// Structural CRD validation only. Reconciler logic is not under test
+// here.
 
 var _ = Describe("EducatesClusterConfig CRD validation", func() {
 	AfterEach(func() {

@@ -50,8 +50,7 @@ type Options struct {
 }
 
 // Translate dispatches on kind. Returns ErrUnknownKind if the loaded
-// config is one this translator does not yet handle (e.g. the GKE/EKS/
-// Inline scenario kinds, which land later in Phase 5).
+// config is one this translator does not handle.
 func Translate(cfg v1alpha1.Config, opts Options) (*Output, error) {
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
@@ -87,8 +86,7 @@ func wrapCR(apiVersion, kind string, spec map[string]interface{}) map[string]int
 // themesFromDataRefs translates CLI-level themeDataRefs (Secret
 // name+namespace pairs) into the SessionManager CRD's themes list —
 // one Secret-sourced Theme per ref, named after its backing Secret.
-// (An earlier {"dataRefs": [...]} shape predated the CRD's
-// ThemeSource secretRef field and never matched the schema.)
+// The shape mirrors the CRD's ThemeSource secretRef field.
 func themesFromDataRefs(refs []v1alpha1.ThemeDataRef) []interface{} {
 	themes := make([]interface{}, len(refs))
 	for i, r := range refs {

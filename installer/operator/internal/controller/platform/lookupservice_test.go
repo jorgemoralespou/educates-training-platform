@@ -51,7 +51,7 @@ func lsReadyStatus(name string) metav1.ConditionStatus {
 	return c.Status
 }
 
-var _ = Describe("LookupService reconciler (Phase 4 Session 2)", func() {
+var _ = Describe("LookupService reconciler", func() {
 	var (
 		mgrCancel context.CancelFunc
 		mgrDone   chan error

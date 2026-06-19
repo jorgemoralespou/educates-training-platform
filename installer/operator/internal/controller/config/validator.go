@@ -44,7 +44,7 @@ func (e *validationError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Field, e.Reason)
 }
 
-// validateInline runs Phase 1 Inline-mode checks against the cluster.
+// validateInline runs Inline-mode checks against the cluster.
 // On success it returns a populated StatusIngress ready to publish; on
 // validation failure (referenced object missing, missing key, not
 // Ready) it returns a *validationError. Any other error means the API

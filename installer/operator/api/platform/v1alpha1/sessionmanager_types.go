@@ -362,8 +362,8 @@ type SessionManagerSpec struct {
 }
 
 // SessionManagerStatus defines the observed state of SessionManager.
-// Phase 4 publishes the full CRD draft r3 §4 contract: phase +
-// conditions + installedVersion + deploymentRef.
+// Publishes the full status contract: phase + conditions +
+// installedVersion + deploymentRef.
 type SessionManagerStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -371,7 +371,7 @@ type SessionManagerStatus struct {
 	// +optional
 	Phase ComponentPhase `json:"phase,omitempty"`
 
-	// conditions report the resource's state. Phase 4 publishes:
+	// conditions report the resource's state:
 	//   - Ready                    (aggregate)
 	//   - ClusterConfigAvailable   (EducatesClusterConfig.Ready gate)
 	//   - SecretsManagerAvailable  (SecretsManager.Ready gate)

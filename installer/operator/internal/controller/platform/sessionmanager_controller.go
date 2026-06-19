@@ -352,8 +352,7 @@ func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *
 // Scoped to fields the v1alpha1 CRD exposes today. The richer surface
 // the subchart accepts (themes content, image-cache wiring, registry
 // mirrors, default access credentials, image puller daemonset) is
-// captured in `docs/architecture/follow-up-issues.md` so the gaps
-// don't get lost.
+// captured as follow-ups so the gaps don't get lost.
 //
 // Stable across `helm upgrade`: the session-manager chart's own
 // `resolvedTrainingPortal` helper (see installer/charts/.../charts/
@@ -593,7 +592,7 @@ func applySMSessionValues(values map[string]any, obj *platformv1alpha1.SessionMa
 	}
 
 	// dockerDaemon.networkMTU — from spec.network.packetSize (the same
-	// concept, named differently per CRD draft).
+	// concept, named differently).
 	if obj.Spec.Network != nil && obj.Spec.Network.PacketSize != nil {
 		values["dockerDaemon"] = map[string]any{
 			"networkMTU": *obj.Spec.Network.PacketSize,

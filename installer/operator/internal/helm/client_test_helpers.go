@@ -41,8 +41,7 @@ const memoryClientKubeVersion = "v1.31.0"
 // Status against without standing up an apiserver.
 //
 // This factory is exported (rather than living in _test.go) because
-// reconciler-package tests in other packages will want it too once
-// Phase 2 wires Helm into the EducatesClusterConfig controller. It is
+// reconciler-package tests in other packages use it too. It is
 // nonetheless test-only — production call sites must use NewClient.
 func NewMemoryClient(namespace string) (*Client, error) {
 	registryClient, err := registry.NewClient()

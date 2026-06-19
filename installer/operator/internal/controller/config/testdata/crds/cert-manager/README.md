@@ -19,7 +19,7 @@ cp $(go env GOMODCACHE)/github.com/cert-manager/cert-manager@<version>/deploy/cr
 chmod +w installer/operator/internal/controller/config/testdata/crds/cert-manager/*.yaml
 ```
 
-**What's here:** ClusterIssuer (Phase 1 Inline-mode validator)
-and Certificate (Phase 2 Managed-mode wildcard certificate
+**What's here:** ClusterIssuer (used by the Inline-mode validator)
+and Certificate (used by the Managed-mode wildcard certificate
 pipeline). Issuer (namespaced) is not used by the operator and is
 deliberately omitted.

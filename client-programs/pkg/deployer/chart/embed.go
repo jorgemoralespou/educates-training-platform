@@ -6,7 +6,7 @@
 // The duplication is intentional: go:embed paths cannot escape the
 // containing package, and committing the copy makes builds reproducible
 // without a pre-build hook. The Makefile target and `make verify-installer-chart`
-// (TODO step 5 follow-up) catch drift.
+// catch drift.
 package chart
 
 import (

@@ -1,4 +1,4 @@
-# Pre-phase chart validation scenarios
+# Chart validation scenarios
 
 End-to-end tests for the `educates-training-platform` Helm chart against
 real kind clusters. Each scenario provisions the cluster (using the v3
@@ -6,9 +6,8 @@ real kind clusters. Each scenario provisions the cluster (using the v3
 Educates package), then installs the v4 chart, deploys a sample
 workshop, and verifies the runtime is functional.
 
-These tests prove the chart can replace the v3 carvel-based installer
-for the runtime, which is the "Done when" criterion for the pre-phase
-in `docs/architecture/educates-v4-development-plan.md`.
+These tests prove the chart can install the runtime standalone, without
+the operator.
 
 ## Layout
 

@@ -7,22 +7,20 @@ Go operator that reconciles the four v4 Educates CRDs
 
 ## Architecture
 
-- [`docs/architecture/educates-v4-development-plan.md`](../../docs/architecture/educates-v4-development-plan.md)
-- [`docs/architecture/educates-crd-draft-v1alpha1-r3.md`](../../docs/architecture/educates-crd-draft-v1alpha1-r3.md)
-- [`docs/architecture/decisions.md`](../../docs/architecture/decisions.md)
+See the repository-root [`AGENTS.md`](../../AGENTS.md) for the installer
+architecture and CRD overview.
 
 ## Layout
 
 - `api/config/v1alpha1/` — `EducatesClusterConfig` types.
 - `api/platform/v1alpha1/` — `SecretsManager`, `LookupService`,
   `SessionManager` types + shared common types.
-- `internal/controller/{config,platform}/` — reconciler skeletons (Phase 0
-  stubs that log and return).
+- `internal/controller/{config,platform}/` — reconcilers for the config
+  and platform CRDs.
 - `cmd/main.go` — manager wiring all four controllers.
 
 The kubebuilder-default `config/` kustomize tree is intentionally absent;
-`controller-gen` writes CRDs and RBAC directly into the chart. See
-[decisions.md](../../docs/architecture/decisions.md).
+`controller-gen` writes CRDs and RBAC directly into the chart.
 
 ## Make targets
 

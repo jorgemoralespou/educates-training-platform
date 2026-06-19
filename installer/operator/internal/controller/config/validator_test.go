@@ -34,9 +34,8 @@ import (
 const testOperatorNamespace = "test-operator"
 
 // reconcileTwice runs Reconcile once to add the finalizer (first call
-// returns Requeue) and once more to write status. Phase 1 reconciler
-// behaviour: real users hit the same two-pass sequence via the
-// controller-runtime queue.
+// returns Requeue) and once more to write status. Real users hit the
+// same two-pass sequence via the controller-runtime queue.
 func reconcileTwice(r *EducatesClusterConfigReconciler) {
 	GinkgoHelper()
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Name: "cluster"}}
@@ -48,7 +47,7 @@ func reconcileTwice(r *EducatesClusterConfigReconciler) {
 
 // drainCR removes the finalizer (so Delete actually deletes), deletes
 // the CR, and waits until it's gone. Used in AfterEach because the
-// Phase 1 reconciler uses finalizers but we don't run a manager during
+// reconciler uses finalizers but we don't run a manager during
 // envtest.
 func drainCR() {
 	GinkgoHelper()

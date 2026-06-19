@@ -50,13 +50,13 @@ import (
 
 // finalizerName is set on EducatesClusterConfig so the operator gets a
 // chance to clean up before the resource is removed. Inline mode has
-// nothing to clean up; Phase 2 Managed mode reuses the same name.
+// nothing to clean up; Managed mode reuses the same name.
 const finalizerName = "educatesclusterconfig.config.educates.dev/finalizer"
 
-// Condition types published by Phase 1. Managed-mode condition types
+// Condition types published in all modes. Managed-mode condition types
 // (IngressReady, CertificatesReady, DNSReady, PolicyEnforcementReady,
-// InfrastructureConfigured) are added in later phases alongside their
-// producing reconcilers.
+// InfrastructureConfigured) are published alongside their producing
+// reconcilers.
 const (
 	conditionReady               = "Ready"
 	conditionValidationSucceeded = "ValidationSucceeded"
@@ -146,7 +146,7 @@ type EducatesClusterConfigReconciler struct {
 // Helm-managed resources (cert-manager's own ConfigMaps, Services,
 // MutatingWebhookConfigurations, etc.) ride on the helm SDK's
 // internal kube client and don't need explicit verbs here — but they
-// will when Phase 6 removes the cluster-admin shortcut.
+// will once the cluster-admin shortcut is removed.
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch
@@ -154,9 +154,9 @@ type EducatesClusterConfigReconciler struct {
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile drives the EducatesClusterConfig singleton through its
-// lifecycle. Phase 1 implements Inline mode (validate referenced
-// resources and publish them in status); Managed mode is a no-op stub
-// until Phase 2 wires Helm-SDK chart installs.
+// lifecycle. Inline mode validates referenced resources and publishes
+// them in status; Managed mode installs cluster services via the Helm
+// SDK.
 func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -230,8 +230,8 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// Managed mode delegates to the Phase 2 install pipeline; Inline
-	// mode stays in the Phase 1 validator.
+	// Managed mode delegates to the install pipeline; Inline mode stays
+	// in the validator.
 	if obj.Spec.Mode == configv1alpha1.ClusterConfigModeManaged {
 		return r.reconcileManaged(ctx, obj)
 	}
@@ -571,8 +571,9 @@ func (r *EducatesClusterConfigReconciler) markUninstallBlocked(obj *configv1alph
 // discovery call fails and the Source's retry loop hangs forever,
 // blocking cache sync and preventing the controller's workers from
 // starting. Deferring the watches until the CRDs exist sidesteps
-// that. See decisions.md (2026-05-06 entry; 2026-05-13 reversal
-// amendment carries the full design rationale).
+// that. cert-manager CRDs are not a startup prerequisite;
+// ClusterIssuer/Certificate watches are registered at runtime once
+// discovery confirms the CRDs exist.
 //
 // Build() (rather than Complete()) returns the Controller so
 // CRDWatcher can call Controller.Watch() to add the deferred

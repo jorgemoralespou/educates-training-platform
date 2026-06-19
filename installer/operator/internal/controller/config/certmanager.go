@@ -96,13 +96,12 @@ var errCertManagerNotReady = errors.New("cert-manager Deployments not yet Availa
 // the false-positive rate is zero in practice (the apiserver only
 // uses that phrase for webhook failures).
 //
-// Tracked under "Harden cert-manager readiness with a synthetic
-// admission probe" in docs/architecture/follow-up-issues.md — the
-// proper fix is to gate ClusterIssuer/Certificate SSA on a dry-run
-// admission probe so this state is detected proactively rather than
-// observed as a failure. Until that lands, the operator just
-// reclassifies the error so it stops looking like a real fault in
-// the logs.
+// Captured as a follow-up (harden cert-manager readiness with a
+// synthetic admission probe) — the proper fix is to gate
+// ClusterIssuer/Certificate SSA on a dry-run admission probe so this
+// state is detected proactively rather than observed as a failure.
+// Until that lands, the operator just reclassifies the error so it
+// stops looking like a real fault in the logs.
 func isWebhookNotReadyErr(err error) bool {
 	if err == nil {
 		return false
@@ -136,9 +135,9 @@ func isWebhookNotReadyErr(err error) bool {
 // Note: this only quiets the operator's *own* error paths — the
 // underlying controller-runtime Kind source's polling-retry loop
 // continues logging at the controller-runtime layer, because there
-// is no API to remove a source from a running controller. See
-// follow-up-issues.md "Quiet the controller-runtime Kind source
-// after cert-manager CRDs are removed".
+// is no API to remove a source from a running controller. Captured
+// as a follow-up (quiet the controller-runtime Kind source after
+// cert-manager CRDs are removed).
 func isCertManagerCRDMissingErr(err error) bool {
 	if err == nil {
 		return false
@@ -359,10 +358,8 @@ func shouldInstallCertManager(obj *configv1alpha1.EducatesClusterConfig) bool {
 
 // ensureCertManagerReady gates the rest of the cert-manager pipeline
 // on the three upstream Deployments reporting Available=True. This is
-// the Phase 2 readiness contract (decision: Deployment-availability
-// only; synthetic admission probe deferred to follow-up — see
-// docs/architecture/follow-up-issues.md "Harden cert-manager readiness
-// with a synthetic admission probe"). A Deployment that's missing
+// the readiness contract (Deployment-availability only; synthetic
+// admission probe deferred to a follow-up). A Deployment that's missing
 // (404) maps to "not ready" rather than a hard error — Helm has
 // not yet finished applying the manifests in that case.
 func (r *EducatesClusterConfigReconciler) ensureCertManagerReady(ctx context.Context) error {

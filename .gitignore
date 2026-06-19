@@ -32,5 +32,6 @@ vendor
 # AI Assistant specific files
 .cursor
 
-# Claude Code user-local config and skills
-/.claude
+# Local-only agent working context (paired with committed AGENTS.md)
+CLAUDE.local.md
+

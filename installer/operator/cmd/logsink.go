@@ -54,9 +54,9 @@ import (
 // it discoverable with `--zap-log-level=debug` (or equivalent
 // verbosity bump) without scaring users in default operation.
 //
-// Tracked in docs/architecture/follow-up-issues.md → "Quiet the
-// controller-runtime Kind source after cert-manager CRDs are
-// removed". This sink covers the visual symptom; the proper fix
+// Tracked as a follow-up (quiet the controller-runtime Kind source
+// after cert-manager CRDs are removed). This sink covers the visual
+// symptom; the proper fix
 // (Source teardown when no longer needed) remains an upstream
 // contribution opportunity.
 type filteringLogSink struct {
