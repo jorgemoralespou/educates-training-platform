@@ -15,7 +15,7 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
 
-from oauth2_provider.models import Application, clear_expired
+from oauth2_provider.models import Application
 
 from ..models import TrainingPortal
 
@@ -319,19 +319,13 @@ def process_training_portal(resource):
 
 
 @background_task(delay=60*60, repeat=True)
-@resources_lock
-@transaction.atomic
 def start_hourly_cleanup_task():
     """Hourly cleanup job."""
 
-    # Clear expired access tokens for OAuth.
-
-    clear_expired()
+    cleanup_old_sessions_and_users().schedule()
 
 
 @background_task(delay=15.0, repeat=True)
-@resources_lock
-@transaction.atomic
 def start_reconciliation_task(name):
     """Periodic reconcilliation task which ensures current deployments of
     workshop environments and workshop sessions matches desired configuration.
@@ -370,8 +364,6 @@ def start_reconciliation_task(name):
     initiate_reserved_sessions(portal).schedule()
 
     purge_expired_workshop_sessions().schedule()
-
-    cleanup_old_sessions_and_users().schedule()
 
 
 @kopf.on.event(

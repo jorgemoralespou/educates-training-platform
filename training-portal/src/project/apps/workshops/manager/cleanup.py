@@ -16,6 +16,8 @@ from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
+from oauth2_provider.models import clear_expired
+
 from ..models import SessionState, Session
 
 from .sessions import replace_reserved_session
@@ -28,30 +30,50 @@ logger = logging.getLogger("educates")
 api = pykube.HTTPClient(pykube.KubeConfig.from_env())
 
 
+# Minimum age a workshop session record must reach before the reaper will treat
+# a missing Kubernetes resource as a sign the session was deleted out of band.
+# This avoids racing with a session whose resource is still being created.
+
+VANISHED_SESSION_GRACE_PERIOD = timedelta(minutes=2)
+
+
 @background_task
-@resources_lock
-@transaction.atomic
 def purge_expired_workshop_sessions():
     """Look for workshop sessions which have expired and delete them."""
 
     now = timezone.now()
 
-    # Loop over all records of workshop sessions in the database and check
-    # whether any should be deleted and/or marked as stopped.
+    # Take a snapshot of the workshop session records up front, then perform the
+    # per-session Kubernetes and HTTP checks below without holding the global
+    # resources lock or an open database transaction. Each check makes
+    # synchronous network calls, and a slow Kubernetes API or an unresponsive
+    # session pod must not be able to stall other portal activity (session
+    # allocation, the reconcile loop, operator events) for the duration. The
+    # actual deletions are handed off to delete_workshop_session() which manages
+    # its own lock and transaction.
 
     K8SWorkshopSession = pykube.object_factory(
         api, "training.educates.dev/v1beta1", "WorkshopSession"
     )
 
-    for session in Session.objects.all():
-        if not session.is_starting() and not session.is_stopped():
-            # If the workshop session isn't still starting, and hasn't stopped
-            # yet, check to see whether there is a deployed workshop session.
-            # If there isn't, it means it was deleted manually. In this case
-            # trigger a task to clean up the workshop session. In this case
-            # there will be no deployment to delete, but still have to mark
-            # the workshop session as deleted in the database.
+    for session in list(Session.objects.select_related("environment").all()):
+        # If the workshop session isn't still starting, and hasn't stopped yet,
+        # check whether there is a deployed workshop session. If there isn't, it
+        # means it was deleted manually, so trigger a task to clean it up (there
+        # will be no deployment to delete, but the database record still needs
+        # to be marked as deleted). Require the session to have existed for at
+        # least a grace period first, so a session whose Kubernetes resource is
+        # still being created is never mistaken for one that has vanished; it
+        # will be reconsidered on a later pass.
 
+        if (
+            not session.is_starting()
+            and not session.is_stopped()
+            and (
+                session.created is None
+                or (now - session.created) >= VANISHED_SESSION_GRACE_PERIOD
+            )
+        ):
             try:
                 K8SWorkshopSession.objects(api).get(name=session.name)
 
@@ -105,7 +127,7 @@ def purge_expired_workshop_sessions():
 
                     url = f"http://{session.name}.{session.environment.name}/session/activity"
 
-                    response = requests.get(url)
+                    response = requests.get(url, timeout=2.5)
 
                     if response.status_code == 200:
                         # If got a response and we have exceeded the
@@ -147,12 +169,15 @@ def purge_expired_workshop_sessions():
 
                         pass
 
-                except requests.exceptions.ConnectionError:
-                    # XXX This can just be because it is slow to start up.
-                    # Need a better method to determine if was running but has
-                    # since failed in some way and become uncontactable. In
-                    # that case right now will only be deleted when workshop
-                    # timeout expires if there is one.
+                except (
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout,
+                ):
+                    # XXX This can just be because it is slow to start up, or
+                    # the probe timed out. Need a better method to determine if
+                    # was running but has since failed in some way and become
+                    # uncontactable. In that case right now will only be deleted
+                    # when workshop timeout expires if there is one.
 
                     logger.warning(
                         "Cannot connect to workshop session %s.", session.name
@@ -207,38 +232,33 @@ def delete_workshop_session(session):
 
 
 @background_task
-@resources_lock
+@transaction.atomic
 def cleanup_old_sessions_and_users():
-    """Delete records for any sessions older than a certain time, and then
-    remove any anonymous user accounts that have no active sessions and which
-    are older than a certain time.
+    """Delete records for any sessions older than a certain time, remove any
+    anonymous user accounts that have no active sessions and which are older
+    than a certain time, and clear expired OAuth tokens.
 
     """
 
-    with transaction.atomic():
-        # Delete record of workshop sessions more than 36 hours old.
+    cutoff = timezone.now() - timedelta(hours=36)
 
-        cutoff = timezone.now() - timedelta(hours=36)
+    # Delete records of workshop sessions more than 36 hours old.
 
-        sessions = Session.objects.filter(
-            state=SessionState.STOPPED, expires__lte=cutoff
-        )
+    Session.objects.filter(state=SessionState.STOPPED, expires__lte=cutoff).delete()
 
-        for session in sessions:
-            logger.info("Cleanup old workshop session %s.", session.name)
-            session.delete()
+    # Delete anonymous users more than 36 hours old that no longer have any
+    # workshop sessions associated with them. Filtering on session__isnull=True
+    # restricts the delete to users with no sessions, so it is a single atomic
+    # operation that never trips the PROTECT constraint on Session.owner.
 
-        # Delete any anonymous users older than 36 hours old, which
-        # now don't have any workshop sessions associated with them.
+    User = get_user_model()  # pylint: disable=invalid-name
 
-        User = get_user_model()  # pylint: disable=invalid-name
+    User.objects.filter(
+        groups__name="anonymous",
+        date_joined__lte=cutoff,
+        session__isnull=True,
+    ).delete()
 
-        users = User.objects.filter(groups__name="anonymous", date_joined__lte=cutoff)
+    # Clear expired OAuth tokens.
 
-        for user in users:
-            sessions = Session.objects.filter(owner=user)
-
-            if not sessions:
-                logger.info("Deleting anonymous user %s.", user.get_username())
-                report_analytics_event(user, "User/Delete", {"group": "anonymous"})
-                user.delete()
+    clear_expired()
