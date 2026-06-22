@@ -58,6 +58,12 @@ Features Changed
   was undesirable when workshop sessions are coordinated by a custom front end
   through the training portal REST API.
 
+* The ``helm`` CLI included in the workshop base environment image has been
+  updated from the 3.x series to 4.x. Helm 4 is a new major release which
+  introduces breaking changes relative to Helm 3, so any workshops which use
+  the ``helm`` CLI should be verified against the newer Helm version to ensure
+  they still behave as expected.
+
 Bugs Fixed
 ----------
 
