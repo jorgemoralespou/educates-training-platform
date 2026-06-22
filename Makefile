@@ -147,7 +147,12 @@ BUILDX_BUILDER = educates-multiarch-builder
 ifeq ($(TARGET_PLATFORMS),)
 # Default to current platform when TARGET_PLATFORMS is not set
 DOCKER_PLATFORM = linux/$(TARGET_MACHINE)
+ifeq ($(TARGET_MACHINE),amd64)
+# On amd64 hosts default to amd64 only, to avoid slow/unreliable arm64 emulation
+MULTIARCH_PLATFORMS = linux/amd64
+else
 MULTIARCH_PLATFORMS = linux/amd64,linux/arm64
+endif
 else
 # Use TARGET_PLATFORMS when set (allows for custom multiarch builds)
 DOCKER_PLATFORM = $(TARGET_PLATFORMS)
