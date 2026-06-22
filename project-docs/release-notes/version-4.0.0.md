@@ -75,6 +75,12 @@ Features Changed
   therefore see a larger client/server version skew and should be verified
   against a supported cluster version.
 
+* The version of ``kind`` embedded in the ``educates`` CLI has been updated
+  from 0.29 to 0.32. As a result the default Kubernetes version used when
+  creating a local cluster with ``educates local cluster create`` has changed
+  from 1.33 to 1.36. A specific node image can still be selected using the
+  ``--kind-cluster-image`` option if a different Kubernetes version is required.
+
 Bugs Fixed
 ----------
 
