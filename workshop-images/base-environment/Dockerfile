@@ -166,36 +166,6 @@ EOF
 RUN mkdir -p /opt/kubernetes/bin
 
 RUN <<EOF
-    KUBECTL_VERSION=1.31.14
-    KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="46336f34b10d686c4dd83f977e39df51df77b85c2211f9c0187c2e4c6257ea27d63f29893255d9edfa9b0459013a305736a27c1d00e6062e8c3c7f9056d5543e"
-    CHECKSUM_arm64="a8b96f6c0c0274ee2a8a48d2333c1eea03c3427b772858231d8e211c16d66a75933e5bcf6d0f15f7c88063ca7a629e53d4d8934f9de5293708f6a5d07f98d4e2"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
-    echo "${!CHECKSUM} /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz" | sha512sum --check --status
-    tar -C /opt/kubernetes/bin --strip-components 3 -zxf /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz kubernetes/client/bin/kubectl kubernetes/client/bin/kubectl-convert
-    mv /opt/kubernetes/bin/kubectl /opt/kubernetes/bin/kubectl@${KUBECTL_SHORT_VERSION}
-    mv /opt/kubernetes/bin/kubectl-convert /opt/kubernetes/bin/kubectl-convert@${KUBECTL_SHORT_VERSION}
-    rm -f /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz
-EOF
-
-RUN <<EOF
-    KUBECTL_VERSION=1.32.13
-    KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="8e8cd19c13eac67a26554623635707db9e0bd18808e5313f0cdf3efb6babfbe3ddb2abd927dfe07e22d6340beeebd2d12fe650ac0a91da3da119a91511ad5107"
-    CHECKSUM_arm64="5d85848b0af95c5147f20a889a85d1ecc4ab31f3ff87b4674638423855b68cad98082cc2bbc195b86ed982914da72bc95c0d4a8346c21fd09ac135c086f172e4"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
-    echo "${!CHECKSUM} /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz" | sha512sum --check --status
-    tar -C /opt/kubernetes/bin --strip-components 3 -zxf /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz kubernetes/client/bin/kubectl kubernetes/client/bin/kubectl-convert
-    mv /opt/kubernetes/bin/kubectl /opt/kubernetes/bin/kubectl@${KUBECTL_SHORT_VERSION}
-    mv /opt/kubernetes/bin/kubectl-convert /opt/kubernetes/bin/kubectl-convert@${KUBECTL_SHORT_VERSION}
-    rm -f /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz
-EOF
-
-RUN <<EOF
     KUBECTL_VERSION=1.33.13
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
     CHECKSUM_amd64="7365f43aa89d666d66840935756a32978320eb9a1c92e8c07d6f8bbd76fccfa7e5f18a2393065dd242057f93750823255bed5be8f4eab3729af57cda578096e7"
@@ -215,6 +185,36 @@ RUN <<EOF
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
     CHECKSUM_amd64="2900328c7a2f60c512a18bba05a14b2db208611bbf5b173a6e8f231079d1dcdf29febcab86dbef89396f3f3493af59eacd1f3eff4ccd32828b64d56e161599f2"
     CHECKSUM_arm64="0221cf4859f756849e10429280e3fdb9f803d67fedfe752c662522847f28004c010487a1e0323acc3fe29efc47de49c0cf5d87e2366a325dda559699c2ea249d"
+    CHECKSUM=CHECKSUM_${TARGETARCH}
+    set -eo pipefail
+    curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
+    echo "${!CHECKSUM} /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz" | sha512sum --check --status
+    tar -C /opt/kubernetes/bin --strip-components 3 -zxf /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz kubernetes/client/bin/kubectl kubernetes/client/bin/kubectl-convert
+    mv /opt/kubernetes/bin/kubectl /opt/kubernetes/bin/kubectl@${KUBECTL_SHORT_VERSION}
+    mv /opt/kubernetes/bin/kubectl-convert /opt/kubernetes/bin/kubectl-convert@${KUBECTL_SHORT_VERSION}
+    rm -f /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz
+EOF
+
+RUN <<EOF
+    KUBECTL_VERSION=1.35.6
+    KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
+    CHECKSUM_amd64="4fea6a8b5711b439585cca7972aa5032dd631d10ff5c5c68c8335d6bf592e1d1e2a3b3fb560f0db38656e9c7233965e7f80bbf9eeeb2b3ed91040f22260bacc7"
+    CHECKSUM_arm64="d045aa8a79997a42f6e97f6d7fa7bdf493dd7693e0ac64d79800ad1674a6b4e7e3606179e63d3e3a5661d5e8de4f0acb7fef69f5c47561c1be65c577f7b11a98"
+    CHECKSUM=CHECKSUM_${TARGETARCH}
+    set -eo pipefail
+    curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
+    echo "${!CHECKSUM} /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz" | sha512sum --check --status
+    tar -C /opt/kubernetes/bin --strip-components 3 -zxf /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz kubernetes/client/bin/kubectl kubernetes/client/bin/kubectl-convert
+    mv /opt/kubernetes/bin/kubectl /opt/kubernetes/bin/kubectl@${KUBECTL_SHORT_VERSION}
+    mv /opt/kubernetes/bin/kubectl-convert /opt/kubernetes/bin/kubectl-convert@${KUBECTL_SHORT_VERSION}
+    rm -f /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz
+EOF
+
+RUN <<EOF
+    KUBECTL_VERSION=1.36.2
+    KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
+    CHECKSUM_amd64="bf3fa2fe065af663b944acdef42ab61a0062e01d325d60d756aaab22bb412addc2ffa77fdcb39de47560c5613a9bcd68e67ea83417626aefbe52db9cc76fde7d"
+    CHECKSUM_arm64="ef798cdab3538164ecd6b3c1987c69e4094c14d3e88a31811964cd0b57536a4b488b0b9f37a4ad7139d25f1b73c019d2791f9e58017cce929bc0e8262484496d"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
