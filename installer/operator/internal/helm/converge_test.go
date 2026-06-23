@@ -59,6 +59,18 @@ func TestFingerprint_IntFloatEquivalence(t *testing.T) {
 	}
 }
 
+// A nil Config (how Helm stores an install/upgrade given empty values) and an
+// empty map (what a component with no overrides renders) must hash the same.
+// Otherwise the release looks perpetually drifted and is upgraded every
+// reconcile, climbing revisions without end.
+func TestFingerprint_NilAndEmptyMapEquivalence(t *testing.T) {
+	empty := fingerprint("1.0.0", map[string]any{})
+	var nilMap map[string]any
+	if got := fingerprint("1.0.0", nilMap); got != empty {
+		t.Fatalf("nil map and empty map hashed differently:\n %s\n %s", got, empty)
+	}
+}
+
 func rel(status releasecommon.Status, chartVer string, vals map[string]any) *release.Release {
 	return &release.Release{
 		Info:   &release.Info{Status: status},

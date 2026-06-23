@@ -220,7 +220,16 @@ func repairMethod(status releasecommon.Status, hasDeployed bool) Action {
 // both desired values and a release's stored Config the same way makes them
 // comparable despite YAML/JSON type coercion (e.g. int32 and float64 with
 // integer value both marshal to "1").
+//
+// Empty and nil values are normalized to the same form: a component whose
+// rendered values are empty installs with map[string]any{} (marshals "{}"),
+// but Helm stores that as a nil Config, which reads back and marshals as
+// "null". Without this, such a release would look perpetually drifted and be
+// upgraded on every reconcile, climbing revisions endlessly.
 func fingerprint(chartVersion string, vals map[string]any) string {
+	if len(vals) == 0 {
+		vals = map[string]any{}
+	}
 	b, _ := json.Marshal(vals)
 	sum := sha256.Sum256(b)
 	return chartVersion + ":" + hex.EncodeToString(sum[:])

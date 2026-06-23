@@ -69,6 +69,34 @@ func TestEnsureRelease_UnchangedThenUpgradeOnDrift(t *testing.T) {
 	}
 }
 
+// A component that renders empty values installs with map[string]any{}, which
+// Helm stores as a nil Config. The second pass must read that back as
+// Unchanged, not Upgraded — otherwise it upgrades on every reconcile, climbing
+// revisions endlessly (the kyverno-churn regression).
+func TestEnsureRelease_EmptyValuesStayUnchanged(t *testing.T) {
+	c, _ := NewMemoryClient("default")
+	ctx := context.Background()
+
+	res, err := c.EnsureRelease(ctx, "demo", minimalChart(), map[string]any{})
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if res.Action != ActionInstalled {
+		t.Fatalf("first pass Action = %q, want %q", res.Action, ActionInstalled)
+	}
+
+	res, err = c.EnsureRelease(ctx, "demo", minimalChart(), map[string]any{})
+	if err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	if res.Action != ActionUnchanged {
+		t.Fatalf("second pass Action = %q, want %q (empty values must not look drifted)", res.Action, ActionUnchanged)
+	}
+	if res.Release.Version != 1 {
+		t.Errorf("release upgraded to revision %d; empty values should stay at revision 1", res.Release.Version)
+	}
+}
+
 // A failed release whose desired inputs are unchanged must be held, not
 // retried — and left untouched. This is the regression that caused a failed
 // chart install to be reported as healthy.
