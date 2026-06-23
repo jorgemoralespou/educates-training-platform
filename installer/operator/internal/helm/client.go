@@ -34,6 +34,7 @@ import (
 	"helm.sh/helm/v4/pkg/action"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
 	"helm.sh/helm/v4/pkg/kube"
+	releasecommon "helm.sh/helm/v4/pkg/release/common"
 	release "helm.sh/helm/v4/pkg/release/v1"
 	"helm.sh/helm/v4/pkg/storage/driver"
 	"k8s.io/client-go/rest"
@@ -159,6 +160,57 @@ func (c *Client) Uninstall(releaseName string) error {
 		return fmt.Errorf("helm uninstall %q: %w", releaseName, err)
 	}
 	return nil
+}
+
+// Rollback reverts the named release to the given revision. The revision
+// must be one Helm recorded as deployed/superseded (see
+// LastDeployedRevision); passing 0 lets Helm pick the immediately previous
+// revision, which may be a failed one, so callers should pass an explicit
+// target. Used to recover a lock-stuck pending release without deleting its
+// resources. WaitStrategy mirrors Install/Upgrade (readiness is the
+// operator's concern); CleanupOnFail removes any resources a partial
+// rollback created.
+func (c *Client) Rollback(releaseName string, revision int) error {
+	act := action.NewRollback(c.cfg)
+	act.Version = revision
+	act.WaitStrategy = kube.HookOnlyStrategy
+	act.CleanupOnFail = true
+
+	if err := act.Run(releaseName); err != nil {
+		return fmt.Errorf("helm rollback %q to revision %d: %w", releaseName, revision, err)
+	}
+	return nil
+}
+
+// LastDeployedRevision returns the highest revision number of releaseName
+// that reached a deployed state (deployed or superseded), and whether one
+// exists. Helm's Upgrade diffs against the last deployed revision and errors
+// with "has no deployed releases" when none exists; the boolean lets callers
+// pick upgrade/rollback (a good revision exists) over uninstall+reinstall
+// (none does). Returns (0, false, nil) when the release is absent.
+func (c *Client) LastDeployedRevision(releaseName string) (int, bool, error) {
+	hist, err := action.NewHistory(c.cfg).Run(releaseName)
+	if err != nil {
+		if errors.Is(err, driver.ErrReleaseNotFound) {
+			return 0, false, nil
+		}
+		return 0, false, fmt.Errorf("helm history %q: %w", releaseName, err)
+	}
+
+	best, found := 0, false
+	for _, item := range hist {
+		rel, ok := item.(*release.Release)
+		if !ok || rel.Info == nil {
+			continue
+		}
+		if rel.Info.Status == releasecommon.StatusDeployed ||
+			rel.Info.Status == releasecommon.StatusSuperseded {
+			if rel.Version > best {
+				best, found = rel.Version, true
+			}
+		}
+	}
+	return best, found, nil
 }
 
 // Status returns the latest release record for releaseName, or

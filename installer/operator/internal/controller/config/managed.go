@@ -92,8 +92,7 @@ const (
 // Cleanup is the strict reverse.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
 	if err := r.validateManaged(ctx, obj); err != nil {
-		var verr *validationError
-		if errors.As(err, &verr) {
+		if verr, ok := errors.AsType[*validationError](err); ok {
 			r.markDegraded(obj, verr.Field, verr.Reason)
 			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
@@ -323,40 +322,24 @@ func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.E
 // a different chart.Metadata.Version, the Status path notices, and
 // Upgrade runs). Resource-level readiness checks (Deployment +
 // webhook discovery) are done separately by the phase wrapper.
-func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) error {
+func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	chrt, err := vendoredcharts.CertManager()
 	if err != nil {
-		return fmt.Errorf("load embedded cert-manager chart: %w", err)
+		return helm.Result{}, fmt.Errorf("load embedded cert-manager chart: %w", err)
 	}
 
 	if err := r.ensureNamespace(ctx, certManagerNamespace, owner); err != nil {
-		return err
+		return helm.Result{}, err
 	}
 
 	hc, err := r.HelmClientFor(certManagerNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client for %q: %w", certManagerNamespace, err)
+		return helm.Result{}, fmt.Errorf("build helm client for %q: %w", certManagerNamespace, err)
 	}
 
-	vals := renderCertManagerValues(owner)
-
-	rel, err := hc.Status(certManagerReleaseName)
-	switch {
-	case errors.Is(err, helm.ErrReleaseNotFound):
-		if _, err := hc.Install(ctx, certManagerReleaseName, chrt, vals); err != nil {
-			return err
-		}
-	case err != nil:
-		return err
-	default:
-		// Release exists. Upgrade only if the embedded chart version has
-		// drifted from what was last installed; otherwise leave the
-		// release alone to avoid spurious rollouts.
-		if rel.Chart != nil && rel.Chart.Metadata != nil && rel.Chart.Metadata.Version != chrt.Metadata.Version {
-			if _, err := hc.Upgrade(ctx, certManagerReleaseName, chrt, vals); err != nil {
-				return err
-			}
-		}
+	res, err := hc.EnsureRelease(ctx, certManagerReleaseName, chrt, renderCertManagerValues(owner))
+	if err != nil {
+		return helm.Result{}, err
 	}
 
 	if obj := owner; obj != nil {
@@ -365,7 +348,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 		}
 		obj.Status.BundledChartVersions["cert-manager"] = vendoredcharts.CertManagerVersion
 	}
-	return nil
+	return res, nil
 }
 
 // renderCertManagerValues builds the values map passed to the
@@ -810,4 +793,38 @@ func (r *EducatesClusterConfigReconciler) markPolicyEnforcementReadyTrue(obj *co
 // terminal-state writers.
 func (r *EducatesClusterConfigReconciler) markManagedPhase(obj *configv1alpha1.EducatesClusterConfig, phase configv1alpha1.ClusterConfigPhase) {
 	obj.Status.Phase = phase
+}
+
+// handleManagedReleaseResult maps a helm.EnsureRelease outcome for a
+// cluster-service install to a phase result, shared by every cluster-service
+// phase (cert-manager, contour, kyverno, external-dns). It returns
+// proceed=true when the release is converged enough to continue to the
+// service's readiness checks. For the two non-proceeding outcomes it sets the
+// service's progressing condition (via mark) plus the aggregate phase and
+// returns a stop result:
+//
+//   - ActionHeldFailed: the release is failed and its inputs are unchanged,
+//     so a retry would fail identically. Surface the Helm failure and go
+//     Degraded rather than reporting Ready off a partial install.
+//   - ActionRepairedRollback: a lock-stuck release was rolled back to its
+//     last good revision; requeue so the follow-up upgrade applies desired.
+func (r *EducatesClusterConfigReconciler) handleManagedReleaseResult(
+	ctx context.Context,
+	obj *configv1alpha1.EducatesClusterConfig,
+	service string,
+	res helm.Result,
+	mark func(obj *configv1alpha1.EducatesClusterConfig, reason, message string),
+) (proceed bool, result ctrl.Result, err error) {
+	switch res.Action {
+	case helm.ActionHeldFailed:
+		mark(obj, "ReleaseFailed", helm.FailureMessage(res.Release, fmt.Sprintf("%s Helm release is in a failed state", service)))
+		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseDegraded)
+		return false, ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
+	case helm.ActionRepairedRollback:
+		mark(obj, "RepairingRelease", fmt.Sprintf("rolled %s release back to its last deployed revision; re-applying desired configuration", service))
+		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
+	default:
+		return true, ctrl.Result{}, nil
+	}
 }

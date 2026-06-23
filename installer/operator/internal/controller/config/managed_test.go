@@ -26,6 +26,7 @@ import (
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	releasecommon "helm.sh/helm/v4/pkg/release/common"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -359,6 +360,60 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 		Expect(cond.Reason).To(Equal("WaitingForCertManager"))
 		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseInstalling))
+	})
+
+	It("surfaces a failed cert-manager Helm release as Degraded instead of reporting Ready", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
+
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       validManagedSpec(),
+		}
+
+		// Stage a failed cert-manager release whose inputs match what the
+		// reconciler will render, so EnsureRelease holds it (rather than
+		// reinstalling) — standing in for a chart that fails to apply.
+		// Seeding before the CR exists guarantees the reconciler observes
+		// the failed release on its first cert-manager pass.
+		hc, err := helmFac.For(certManagerNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		chrt, err := vendoredcharts.CertManager()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(hc.SeedRelease(
+			certManagerReleaseName, 1, releasecommon.StatusFailed,
+			chrt, renderCertManagerValues(obj),
+			"ClusterIssuer is invalid: spec.ca.secretName: Required value",
+		)).To(Succeed())
+
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		// CertificatesReady flips False with reason ReleaseFailed.
+		Eventually(func() string {
+			got := &configv1alpha1.EducatesClusterConfig{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+				return ""
+			}
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
+			if cond == nil {
+				return ""
+			}
+			return cond.Reason
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("ReleaseFailed"))
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+		cond := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
+		Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+		// The Helm failure detail is surfaced verbatim in the condition.
+		Expect(cond.Message).To(ContainSubstring("ClusterIssuer is invalid"))
+
+		// The release must remain the single failed revision — the
+		// matching fingerprint means no reinstall churn.
+		live, err := hc.Status(certManagerReleaseName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(live.Version).To(Equal(1))
+		Expect(live.Info.Status).To(Equal(releasecommon.StatusFailed))
 	})
 
 	It("flips to Degraded when the CustomCA Secret is missing", func() {

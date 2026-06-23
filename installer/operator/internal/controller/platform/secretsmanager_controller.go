@@ -225,11 +225,22 @@ func (r *SecretsManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// release returns AlreadyExists, which we translate into an
 	// Upgrade call so re-renders pick up spec changes.
 	r.markPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
-	if err := r.installOrUpgrade(ctx, obj, cfg); err != nil {
+	res, err := r.installOrUpgrade(ctx, obj, cfg)
+	if err != nil {
 		r.markDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		r.markReady(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, fmt.Errorf("helm install secrets-manager: %w", err)
+	}
+	if proceed, result, err := handlePlatformReleaseResult("secrets-manager", res,
+		func(reason, message string) {
+			r.markDeployed(obj, metav1.ConditionFalse, reason, message)
+			r.markReady(obj, metav1.ConditionFalse, reason, message)
+		},
+		func(phase platformv1alpha1.ComponentPhase) { r.markPhase(obj, phase) },
+		func() error { return r.updateStatusWithTransitionLog(ctx, obj) },
+	); !proceed {
+		return result, err
 	}
 	r.markDeployed(obj, metav1.ConditionTrue, "ChartInstalled",
 		fmt.Sprintf("secrets-manager chart %s installed in namespace %s",
@@ -284,33 +295,23 @@ func (r *SecretsManagerReconciler) clusterConfigReady(ctx context.Context) (*con
 }
 
 // installOrUpgrade renders chart values from CR + cluster config and
-// drives helm install (or upgrade if the release already exists).
-func (r *SecretsManagerReconciler) installOrUpgrade(ctx context.Context, obj *platformv1alpha1.SecretsManager, cfg *configv1alpha1.EducatesClusterConfig) error {
+// converges the helm release via helm.EnsureRelease (install/upgrade on
+// drift, self-heal a failed release once its inputs change, hold otherwise).
+// The returned Result tells the caller whether to proceed to the Deployment
+// readiness gate.
+func (r *SecretsManagerReconciler) installOrUpgrade(ctx context.Context, obj *platformv1alpha1.SecretsManager, cfg *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	if err := ensurePlatformNamespace(ctx, r.Client); err != nil {
-		return err
+		return helm.Result{}, err
 	}
 	chrt, err := vendoredcharts.SecretsManager()
 	if err != nil {
-		return fmt.Errorf("load embedded chart: %w", err)
+		return helm.Result{}, fmt.Errorf("load embedded chart: %w", err)
 	}
 	hc, err := r.HelmClientFor(platformNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client: %w", err)
+		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	vals := renderSecretsManagerValues(obj, cfg)
-	if _, err := hc.Status(secretsManagerReleaseName); err != nil {
-		if err == helm.ErrReleaseNotFound {
-			if _, err := hc.Install(ctx, secretsManagerReleaseName, chrt, vals); err != nil {
-				return fmt.Errorf("helm install: %w", err)
-			}
-			return nil
-		}
-		return fmt.Errorf("helm status: %w", err)
-	}
-	if _, err := hc.Upgrade(ctx, secretsManagerReleaseName, chrt, vals); err != nil {
-		return fmt.Errorf("helm upgrade: %w", err)
-	}
-	return nil
+	return hc.EnsureRelease(ctx, secretsManagerReleaseName, chrt, renderSecretsManagerValues(obj, cfg))
 }
 
 // renderSecretsManagerValues maps SecretsManager spec + the cluster

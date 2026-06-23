@@ -42,10 +42,9 @@ import (
 // fullname helper resolves release name → "external-dns" since the
 // release name contains the chart name).
 const (
-	externalDNSNamespace          = "external-dns"
-	externalDNSReleaseName        = "external-dns"
-	externalDNSControllerDeploy   = "external-dns"
-	externalDNSTxtRegistryDefault = "educates"
+	externalDNSNamespace        = "external-dns"
+	externalDNSReleaseName      = "external-dns"
+	externalDNSControllerDeploy = "external-dns"
 )
 
 // errExternalDNSNotReady is the sentinel ensureExternalDNSReady
@@ -76,19 +75,23 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNSPhase(ctx context.
 	}
 
 	if err := r.validateBundledExternalDNS(ctx, obj); err != nil {
-		var verr *validationError
-		if errors.As(err, &verr) {
+		if verr, ok := errors.AsType[*validationError](err); ok {
 			r.markDegraded(obj, verr.Field, verr.Reason)
 			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj))
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
 
-	if err := r.reconcileExternalDNS(ctx, obj); err != nil {
+	res, err := r.reconcileExternalDNS(ctx, obj)
+	if err != nil {
 		log.Error(err, "external-dns reconcile failed")
 		r.markDNSProgressing(obj, "InstallFailed", err.Error())
 		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
+	}
+
+	if proceed, result, err := r.handleManagedReleaseResult(ctx, obj, "external-dns", res, r.markDNSProgressing); !proceed {
+		return false, result, err
 	}
 
 	if err := r.ensureExternalDNSReady(ctx); err != nil {
@@ -122,44 +125,31 @@ func shouldInstallExternalDNS(obj *configv1alpha1.EducatesClusterConfig) bool {
 // reconcileExternalDNS ensures the helm release exists, installing
 // from the vendored tarball on first sight. Mirrors
 // reconcileCertManager + reconcileContour.
-func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) error {
+func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	chrt, err := vendoredcharts.ExternalDNS()
 	if err != nil {
-		return fmt.Errorf("load embedded external-dns chart: %w", err)
+		return helm.Result{}, fmt.Errorf("load embedded external-dns chart: %w", err)
 	}
 
 	if err := r.ensureNamespace(ctx, externalDNSNamespace, owner); err != nil {
-		return err
+		return helm.Result{}, err
 	}
 
 	hc, err := r.HelmClientFor(externalDNSNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client for %q: %w", externalDNSNamespace, err)
+		return helm.Result{}, fmt.Errorf("build helm client for %q: %w", externalDNSNamespace, err)
 	}
 
-	vals := renderExternalDNSValues(owner)
-
-	rel, err := hc.Status(externalDNSReleaseName)
-	switch {
-	case errors.Is(err, helm.ErrReleaseNotFound):
-		if _, err := hc.Install(ctx, externalDNSReleaseName, chrt, vals); err != nil {
-			return err
-		}
-	case err != nil:
-		return err
-	default:
-		if rel.Chart != nil && rel.Chart.Metadata != nil && rel.Chart.Metadata.Version != chrt.Metadata.Version {
-			if _, err := hc.Upgrade(ctx, externalDNSReleaseName, chrt, vals); err != nil {
-				return err
-			}
-		}
+	res, err := hc.EnsureRelease(ctx, externalDNSReleaseName, chrt, renderExternalDNSValues(owner))
+	if err != nil {
+		return helm.Result{}, err
 	}
 
 	if owner.Status.BundledChartVersions == nil {
 		owner.Status.BundledChartVersions = map[string]string{}
 	}
 	owner.Status.BundledChartVersions["external-dns"] = vendoredcharts.ExternalDNSChartVersion
-	return nil
+	return res, nil
 }
 
 // renderExternalDNSValues builds the values map. Choices follow the

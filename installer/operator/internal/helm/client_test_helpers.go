@@ -21,8 +21,11 @@ import (
 
 	"helm.sh/helm/v4/pkg/action"
 	"helm.sh/helm/v4/pkg/chart/common"
+	chart "helm.sh/helm/v4/pkg/chart/v2"
 	kubefake "helm.sh/helm/v4/pkg/kube/fake"
 	"helm.sh/helm/v4/pkg/registry"
+	releasecommon "helm.sh/helm/v4/pkg/release/common"
+	release "helm.sh/helm/v4/pkg/release/v1"
 	"helm.sh/helm/v4/pkg/storage"
 	"helm.sh/helm/v4/pkg/storage/driver"
 )
@@ -63,4 +66,21 @@ func NewMemoryClient(namespace string) (*Client, error) {
 		RegistryClient: registryClient,
 	}
 	return &Client{cfg: cfg, namespace: namespace, skipCRDs: true}, nil
+}
+
+// SeedRelease inserts a release record straight into the backing store,
+// bypassing Install/Upgrade. Test-only: it lets tests stage a release in a
+// specific status (notably "failed" or a "pending-*"/deployed history) before
+// exercising EnsureRelease or driving a reconcile, which is otherwise hard to
+// reach with the no-op fake KubeClient. Only meaningful on a memory-backed
+// Client. description maps to Info.Description (surfaced by FailureMessage).
+func (c *Client) SeedRelease(name string, version int, status releasecommon.Status, chrt *chart.Chart, config map[string]any, description string) error {
+	return c.cfg.Releases.Create(&release.Release{
+		Name:      name,
+		Version:   version,
+		Namespace: c.namespace,
+		Info:      &release.Info{Status: status, Description: description},
+		Chart:     chrt,
+		Config:    config,
+	})
 }

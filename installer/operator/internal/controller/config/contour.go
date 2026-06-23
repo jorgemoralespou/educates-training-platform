@@ -97,11 +97,16 @@ func (r *EducatesClusterConfigReconciler) reconcileContourPhase(ctx context.Cont
 		return true, ctrl.Result{}, nil
 	}
 
-	if err := r.reconcileContour(ctx, obj); err != nil {
+	res, err := r.reconcileContour(ctx, obj)
+	if err != nil {
 		log.Error(err, "contour reconcile failed")
 		r.markIngressProgressing(obj, "InstallFailed", err.Error())
 		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
+	}
+
+	if proceed, result, err := r.handleManagedReleaseResult(ctx, obj, "contour", res, r.markIngressProgressing); !proceed {
+		return false, result, err
 	}
 
 	if err := r.ensureContourReady(ctx); err != nil {
@@ -139,49 +144,37 @@ func shouldInstallContour(obj *configv1alpha1.EducatesClusterConfig) bool {
 	return obj.Spec.Ingress.Controller.Provider == configv1alpha1.IngressControllerProviderBundledContour
 }
 
-// reconcileContour ensures the Contour Helm release exists,
-// installing from the vendored tarball on first sight. Mirrors
-// reconcileCertManager's Status → Install/Upgrade routing.
-func (r *EducatesClusterConfigReconciler) reconcileContour(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) error {
+// reconcileContour ensures the Contour Helm release converges toward the
+// desired chart + values via helm.EnsureRelease, which installs on first
+// sight, upgrades on chart-or-values drift, self-heals a failed release once
+// its inputs change, and otherwise holds (reporting, not churning) a failed
+// release. The returned Result tells the phase function whether the release
+// is healthy enough to proceed to the workload readiness gate.
+func (r *EducatesClusterConfigReconciler) reconcileContour(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	chrt, err := vendoredcharts.Contour()
 	if err != nil {
-		return fmt.Errorf("load embedded contour chart: %w", err)
+		return helm.Result{}, fmt.Errorf("load embedded contour chart: %w", err)
 	}
 
 	if err := r.ensureNamespace(ctx, contourNamespace, owner); err != nil {
-		return err
+		return helm.Result{}, err
 	}
 
 	hc, err := r.HelmClientFor(contourNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client for %q: %w", contourNamespace, err)
+		return helm.Result{}, fmt.Errorf("build helm client for %q: %w", contourNamespace, err)
 	}
 
-	vals := renderContourValues(owner)
-
-	rel, err := hc.Status(contourReleaseName)
-	switch {
-	case errors.Is(err, helm.ErrReleaseNotFound):
-		if _, err := hc.Install(ctx, contourReleaseName, chrt, vals); err != nil {
-			return err
-		}
-	case err != nil:
-		return err
-	default:
-		// Release exists. Upgrade only if the embedded chart version
-		// has drifted from what was last installed.
-		if rel.Chart != nil && rel.Chart.Metadata != nil && rel.Chart.Metadata.Version != chrt.Metadata.Version {
-			if _, err := hc.Upgrade(ctx, contourReleaseName, chrt, vals); err != nil {
-				return err
-			}
-		}
+	res, err := hc.EnsureRelease(ctx, contourReleaseName, chrt, renderContourValues(owner))
+	if err != nil {
+		return helm.Result{}, err
 	}
 
 	if owner.Status.BundledChartVersions == nil {
 		owner.Status.BundledChartVersions = map[string]string{}
 	}
 	owner.Status.BundledChartVersions["contour"] = vendoredcharts.ContourChartVersion
-	return nil
+	return res, nil
 }
 
 // renderContourValues builds the values map passed to the Contour
@@ -253,6 +246,14 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 			"http":  true,
 			"https": true,
 		}
+		// The chart defaults envoy.service.externalTrafficPolicy to
+		// "Local" and renders the field for every service type. The
+		// Kubernetes API rejects externalTrafficPolicy on a ClusterIP
+		// Service ("may only be set for externally-accessible
+		// services"), which fails the entire Helm release. Clear it so
+		// the chart's truthiness guard omits the field; it is only
+		// meaningful for the NodePort / LoadBalancer service types.
+		envoyValues["service"].(map[string]any)["externalTrafficPolicy"] = ""
 	}
 
 	values := map[string]any{

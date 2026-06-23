@@ -177,11 +177,22 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	r.markLSPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
-	if err := r.installOrUpgradeLS(ctx, obj, cfg); err != nil {
+	res, err := r.installOrUpgradeLS(ctx, obj, cfg)
+	if err != nil {
 		r.markLSDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		r.markLSReady(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		_ = r.updateLSStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, fmt.Errorf("helm install lookup-service: %w", err)
+	}
+	if proceed, result, err := handlePlatformReleaseResult("lookup-service", res,
+		func(reason, message string) {
+			r.markLSDeployed(obj, metav1.ConditionFalse, reason, message)
+			r.markLSReady(obj, metav1.ConditionFalse, reason, message)
+		},
+		func(phase platformv1alpha1.ComponentPhase) { r.markLSPhase(obj, phase) },
+		func() error { return r.updateLSStatusWithTransitionLog(ctx, obj) },
+	); !proceed {
+		return result, err
 	}
 	r.markLSDeployed(obj, metav1.ConditionTrue, "ChartInstalled",
 		fmt.Sprintf("lookup-service chart %s installed in namespace %s",
@@ -252,32 +263,19 @@ func lookupServiceHost(obj *platformv1alpha1.LookupService, cfg *configv1alpha1.
 	return fmt.Sprintf("%s.%s", obj.Spec.Ingress.Prefix, cfg.Status.Ingress.Domain)
 }
 
-func (r *LookupServiceReconciler) installOrUpgradeLS(ctx context.Context, obj *platformv1alpha1.LookupService, cfg *configv1alpha1.EducatesClusterConfig) error {
+func (r *LookupServiceReconciler) installOrUpgradeLS(ctx context.Context, obj *platformv1alpha1.LookupService, cfg *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	if err := ensurePlatformNamespace(ctx, r.Client); err != nil {
-		return err
+		return helm.Result{}, err
 	}
 	chrt, err := vendoredcharts.LookupService()
 	if err != nil {
-		return fmt.Errorf("load embedded chart: %w", err)
+		return helm.Result{}, fmt.Errorf("load embedded chart: %w", err)
 	}
 	hc, err := r.HelmClientFor(platformNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client: %w", err)
+		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	vals := renderLookupServiceValues(obj, cfg)
-	if _, err := hc.Status(lookupServiceReleaseName); err != nil {
-		if err == helm.ErrReleaseNotFound {
-			if _, err := hc.Install(ctx, lookupServiceReleaseName, chrt, vals); err != nil {
-				return fmt.Errorf("helm install: %w", err)
-			}
-			return nil
-		}
-		return fmt.Errorf("helm status: %w", err)
-	}
-	if _, err := hc.Upgrade(ctx, lookupServiceReleaseName, chrt, vals); err != nil {
-		return fmt.Errorf("helm upgrade: %w", err)
-	}
-	return nil
+	return hc.EnsureRelease(ctx, lookupServiceReleaseName, chrt, renderLookupServiceValues(obj, cfg))
 }
 
 // renderLookupServiceValues maps the CR spec + cluster config status

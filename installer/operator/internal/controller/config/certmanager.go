@@ -146,10 +146,9 @@ func isCertManagerCRDMissingErr(err error) bool {
 		return true
 	}
 	// Pre-cached GVK + deleted CRD: apiserver returns 404 with a
-	// URL-not-found-style detail. errors.As walks the fmt.Errorf
+	// URL-not-found-style detail. errors.AsType walks the fmt.Errorf
 	// wrap chain that the helper functions construct.
-	var status *apierrors.StatusError
-	if errors.As(err, &status) {
+	if status, ok := errors.AsType[*apierrors.StatusError](err); ok {
 		s := status.Status()
 		if s.Code == 404 && s.Details != nil && s.Details.Group == "cert-manager.io" {
 			for _, c := range s.Details.Causes {
@@ -251,11 +250,16 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 		return true, ctrl.Result{}, nil
 	}
 
-	if err := r.reconcileCertManager(ctx, obj); err != nil {
+	res, err := r.reconcileCertManager(ctx, obj)
+	if err != nil {
 		log.Error(err, "cert-manager reconcile failed")
 		r.markCertificatesProgressing(obj, "InstallFailed", err.Error())
 		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
+	}
+
+	if proceed, result, err := r.handleManagedReleaseResult(ctx, obj, "cert-manager", res, r.markCertificatesProgressing); !proceed {
+		return false, result, err
 	}
 
 	// Gate the rest of the pipeline on cert-manager being live. A

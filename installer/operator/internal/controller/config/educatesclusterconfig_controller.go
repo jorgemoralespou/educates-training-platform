@@ -246,8 +246,7 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 
 	statusIngress, err := r.validateInline(ctx, obj.Spec.Inline)
 	if err != nil {
-		var verr *validationError
-		if errors.As(err, &verr) {
+		if verr, ok := errors.AsType[*validationError](err); ok {
 			r.markDegraded(obj, verr.Field, verr.Reason)
 			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 		}

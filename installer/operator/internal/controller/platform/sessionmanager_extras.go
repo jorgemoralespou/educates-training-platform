@@ -19,6 +19,7 @@ package platform
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
@@ -135,25 +136,40 @@ func (r *SessionManagerReconciler) lookupServiceExists(ctx context.Context) (boo
 	return true, nil
 }
 
-// reconcileExtra drives one optional subchart through its resolved
-// intent. Returns nil on success (any of Install/Skip/Refuse counts
-// as successfully reconciled — Refuse is a published condition, not
-// a reconciler error). The caller is expected to call this after
-// the main session-manager install lands; extras live in the same
-// namespace and helm releases are unique by release-name, not by
-// namespace.
+// extraOutcome reports, to the SessionManager reconcile loop, the result of
+// reconciling one optional extra beyond the hard-error return:
+//
+//   - notReady is true when the extra is wanted (Install intent) but its
+//     release is not actually running — a held failure or a mid-repair
+//     rollback. The caller folds this into the aggregate Ready demotion,
+//     mirroring an intentRefuse, so a broken extra does not report Ready.
+//   - requeueAfter is non-zero when the extra is mid-repair (a rollback) and
+//     the caller should requeue to drive the follow-up upgrade, since neither
+//     the CR nor the component Deployment will produce a watch event for it.
+type extraOutcome struct {
+	notReady     bool
+	requeueAfter time.Duration
+}
+
+// reconcileExtra drives one optional subchart through its resolved intent.
+// Returns a hard error only when a Helm operation actually errors this pass;
+// Install/Skip/Refuse otherwise count as successfully reconciled (Refuse is a
+// published condition, not a reconciler error). The extraOutcome carries the
+// softer "wanted but not running" / "requeue to finish repair" signals. The
+// caller invokes this after the main session-manager install lands; extras
+// live in the same namespace and helm releases are unique by release-name.
 //
 // The intent → action mapping:
-//   - Install: helm install (on absence) or upgrade (on presence).
-//     Publish condition: type, Status=True, reason=`Installed`.
-//   - Skip:    if a release exists from a previous reconcile, drain
-//     it. Publish condition: type, Status=False, reason from
-//     resolver. False because the extra isn't running; users grep
-//     for True to confirm it's up.
-//   - Refuse:  publish condition: type, Status=False, reason from
-//     resolver, with a message pointing at the missing prerequisite.
-//     No release work — the release wasn't running before, won't be
-//     now.
+//   - Install: converge the release via helm.EnsureRelease (install, upgrade
+//     on drift, self-heal a failed release once its inputs change, or hold a
+//     failed release whose inputs are unchanged). Publish condition: True with
+//     reason `Installed` on success; False with reason `ReleaseFailed`
+//     (held failure) or `RepairingRelease` (mid-repair rollback) otherwise.
+//   - Skip:    if a release exists from a previous reconcile, drain it.
+//     Publish condition: type, Status=False, reason from resolver. False
+//     because the extra isn't running; users grep for True to confirm it's up.
+//   - Refuse:  publish condition: type, Status=False, reason from resolver,
+//     with a message pointing at the missing prerequisite. No release work.
 func (r *SessionManagerReconciler) reconcileExtra(
 	ctx context.Context,
 	obj *platformv1alpha1.SessionManager,
@@ -163,40 +179,38 @@ func (r *SessionManagerReconciler) reconcileExtra(
 	renderValues func(*platformv1alpha1.SessionManager, *configv1alpha1.EducatesClusterConfig) map[string]any,
 	cfg *configv1alpha1.EducatesClusterConfig,
 	intent extrasIntent, reason, message string,
-) error {
+) (extraOutcome, error) {
 	log := logf.FromContext(ctx)
 	hc, err := r.HelmClientFor(platformNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client for %s: %w", releaseName, err)
+		return extraOutcome{}, fmt.Errorf("build helm client for %s: %w", releaseName, err)
 	}
 
 	switch intent {
 	case intentInstall:
 		chrt, err := loadChart()
 		if err != nil {
-			return fmt.Errorf("load chart %s: %w", releaseName, err)
+			return extraOutcome{}, fmt.Errorf("load chart %s: %w", releaseName, err)
 		}
-		vals := renderValues(obj, cfg)
-		if _, statusErr := hc.Status(releaseName); statusErr != nil {
-			if statusErr == helm.ErrReleaseNotFound {
-				log.Info("installing extra", "release", releaseName)
-				if _, err := hc.Install(ctx, releaseName, chrt, vals); err != nil {
-					setExtraCondition(obj, conditionType, metav1.ConditionFalse, "InstallFailed", err.Error())
-					return fmt.Errorf("helm install %s: %w", releaseName, err)
-				}
-				setExtraCondition(obj, conditionType, metav1.ConditionTrue, reason, message)
-				return nil
-			}
-			setExtraCondition(obj, conditionType, metav1.ConditionFalse, "InstallFailed", statusErr.Error())
-			return fmt.Errorf("helm status %s: %w", releaseName, statusErr)
+		log.V(1).Info("converging extra", "release", releaseName)
+		res, err := hc.EnsureRelease(ctx, releaseName, chrt, renderValues(obj, cfg))
+		if err != nil {
+			setExtraCondition(obj, conditionType, metav1.ConditionFalse, "InstallFailed", err.Error())
+			return extraOutcome{}, fmt.Errorf("ensure release %s: %w", releaseName, err)
 		}
-		log.V(1).Info("upgrading extra", "release", releaseName)
-		if _, err := hc.Upgrade(ctx, releaseName, chrt, vals); err != nil {
-			setExtraCondition(obj, conditionType, metav1.ConditionFalse, "UpgradeFailed", err.Error())
-			return fmt.Errorf("helm upgrade %s: %w", releaseName, err)
+		switch res.Action {
+		case helm.ActionHeldFailed:
+			setExtraCondition(obj, conditionType, metav1.ConditionFalse, "ReleaseFailed",
+				helm.FailureMessage(res.Release, fmt.Sprintf("%s Helm release is in a failed state", releaseName)))
+			return extraOutcome{notReady: true}, nil
+		case helm.ActionRepairedRollback:
+			setExtraCondition(obj, conditionType, metav1.ConditionFalse, "RepairingRelease",
+				fmt.Sprintf("rolled %s release back to its last deployed revision; re-applying desired configuration", releaseName))
+			return extraOutcome{notReady: true, requeueAfter: 15 * time.Second}, nil
+		default:
+			setExtraCondition(obj, conditionType, metav1.ConditionTrue, reason, message)
+			return extraOutcome{}, nil
 		}
-		setExtraCondition(obj, conditionType, metav1.ConditionTrue, reason, message)
-		return nil
 
 	case intentSkip:
 		// Idempotent uninstall: drains any release from a prior
@@ -205,16 +219,16 @@ func (r *SessionManagerReconciler) reconcileExtra(
 		// a no-op when nothing is there.
 		if err := hc.Uninstall(releaseName); err != nil {
 			setExtraCondition(obj, conditionType, metav1.ConditionFalse, "UninstallFailed", err.Error())
-			return fmt.Errorf("helm uninstall %s: %w", releaseName, err)
+			return extraOutcome{}, fmt.Errorf("helm uninstall %s: %w", releaseName, err)
 		}
 		setExtraCondition(obj, conditionType, metav1.ConditionFalse, reason, message)
-		return nil
+		return extraOutcome{}, nil
 
 	case intentRefuse:
 		setExtraCondition(obj, conditionType, metav1.ConditionFalse, reason, message)
-		return nil
+		return extraOutcome{}, nil
 	}
-	return nil
+	return extraOutcome{}, nil
 }
 
 // setExtraCondition writes a condition on the obj's status without

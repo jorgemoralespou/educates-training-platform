@@ -92,19 +92,23 @@ func (r *EducatesClusterConfigReconciler) reconcileKyvernoPhase(ctx context.Cont
 	}
 
 	if err := r.validateBundledKyverno(ctx, obj); err != nil {
-		var verr *validationError
-		if errors.As(err, &verr) {
+		if verr, ok := errors.AsType[*validationError](err); ok {
 			r.markDegraded(obj, verr.Field, verr.Reason)
 			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj))
 		}
 		return phaseStop(ctrl.Result{}, err)
 	}
 
-	if err := r.reconcileKyverno(ctx, obj); err != nil {
+	res, err := r.reconcileKyverno(ctx, obj)
+	if err != nil {
 		log.Error(err, "kyverno reconcile failed")
 		r.markPolicyEnforcementProgressing(obj, "InstallFailed", err.Error())
 		_ = r.updateStatusWithTransitionLog(ctx, obj)
 		return phaseStop(ctrl.Result{}, err)
+	}
+
+	if proceed, result, err := r.handleManagedReleaseResult(ctx, obj, "kyverno", res, r.markPolicyEnforcementProgressing); !proceed {
+		return false, result, err
 	}
 
 	if err := r.ensureKyvernoReady(ctx); err != nil {
@@ -150,44 +154,31 @@ func shouldInstallKyverno(obj *configv1alpha1.EducatesClusterConfig) bool {
 
 // reconcileKyverno performs the helm install/upgrade. Mirrors the
 // cert-manager / Contour / external-dns shape.
-func (r *EducatesClusterConfigReconciler) reconcileKyverno(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) error {
+func (r *EducatesClusterConfigReconciler) reconcileKyverno(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	chrt, err := vendoredcharts.Kyverno()
 	if err != nil {
-		return fmt.Errorf("load embedded kyverno chart: %w", err)
+		return helm.Result{}, fmt.Errorf("load embedded kyverno chart: %w", err)
 	}
 
 	if err := r.ensureNamespace(ctx, kyvernoNamespace, owner); err != nil {
-		return err
+		return helm.Result{}, err
 	}
 
 	hc, err := r.HelmClientFor(kyvernoNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client for %q: %w", kyvernoNamespace, err)
+		return helm.Result{}, fmt.Errorf("build helm client for %q: %w", kyvernoNamespace, err)
 	}
 
-	vals := renderKyvernoValues(owner)
-
-	rel, err := hc.Status(kyvernoReleaseName)
-	switch {
-	case errors.Is(err, helm.ErrReleaseNotFound):
-		if _, err := hc.Install(ctx, kyvernoReleaseName, chrt, vals); err != nil {
-			return err
-		}
-	case err != nil:
-		return err
-	default:
-		if rel.Chart != nil && rel.Chart.Metadata != nil && rel.Chart.Metadata.Version != chrt.Metadata.Version {
-			if _, err := hc.Upgrade(ctx, kyvernoReleaseName, chrt, vals); err != nil {
-				return err
-			}
-		}
+	res, err := hc.EnsureRelease(ctx, kyvernoReleaseName, chrt, renderKyvernoValues(owner))
+	if err != nil {
+		return helm.Result{}, err
 	}
 
 	if owner.Status.BundledChartVersions == nil {
 		owner.Status.BundledChartVersions = map[string]string{}
 	}
 	owner.Status.BundledChartVersions["kyverno"] = vendoredcharts.KyvernoChartVersion
-	return nil
+	return res, nil
 }
 
 // renderKyvernoValues builds the values map. v1alpha1 is minimal —

@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	releasecommon "helm.sh/helm/v4/pkg/release/common"
 	release "helm.sh/helm/v4/pkg/release/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -497,6 +498,50 @@ var _ = Describe("SessionManager reconciler", func() {
 			return smgrReadyStatus()
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal(metav1.ConditionFalse))
 		Expect(smgrConditionReason(conditionReady)).To(Equal("ExtraRefused"))
+	})
+
+	It("surfaces a held-failed extra release as not-ready instead of installed", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		withCAOnClusterConfig() // nodeCATrust Auto → intentInstall
+
+		// Stage a failed node-ca-injector release whose inputs match what
+		// the reconciler will render, so EnsureRelease holds it rather than
+		// reinstalling. Seed before the SessionManager exists so the extra
+		// is already failed when the reconciler reaches the extras step.
+		cc := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: configSingletonName}, cc)).To(Succeed())
+		smObj := &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+		}
+		chrt, err := vendoredcharts.NodeCAInjector()
+		Expect(err).NotTo(HaveOccurred())
+		hc, err := helmFac.For(platformNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(hc.SeedRelease(
+			nodeCAInjectorReleaseName, 1, releasecommon.StatusFailed,
+			chrt, renderNodeCAInjectorValues(smObj, cc),
+			"node-ca-injector DaemonSet is invalid: spec.template.spec.containers: Required value",
+		)).To(Succeed())
+
+		driveSessionManagerReady(smObj)
+
+		// Per-extra condition surfaces the Helm failure.
+		Eventually(func() string {
+			return extraConditionReason(conditionNodeCATrustDeployed)
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("ReleaseFailed"))
+
+		// Aggregate Ready demoted to False/ExtraNotReady (not Installed).
+		Eventually(func() metav1.ConditionStatus {
+			return smgrReadyStatus()
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal(metav1.ConditionFalse))
+		Expect(smgrConditionReason(conditionReady)).To(Equal("ExtraNotReady"))
+
+		// The release is held, not churned: still the single failed revision.
+		live, err := hc.Status(nodeCAInjectorReleaseName)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(live.Version).To(Equal(1))
+		Expect(live.Info.Status).To(Equal(releasecommon.StatusFailed))
 	})
 
 	It("remoteAccess Auto installs when a LookupService CR exists", func() {

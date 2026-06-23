@@ -25,6 +25,16 @@ New Features
   secret, policy engine), allowing Educates to be installed onto clusters with
   pre-existing infrastructure, such as OpenShift.
 
+* When a bundled Helm chart fails to install, the operator now reports the
+  failure on the owning custom resource — the relevant condition goes to
+  ``False`` with reason ``ReleaseFailed`` and the underlying Helm error, and
+  the resource phase becomes ``Degraded`` — rather than reporting ``Ready``.
+  The operator recovers on its own once the cause is resolved: applying an
+  updated operator image or chart triggers a reinstall of a failed first
+  install, an in-place upgrade when a previously working release exists, or a
+  rollback when a release is stuck mid-operation. A failed release whose inputs
+  are unchanged is left untouched rather than reinstalled repeatedly.
+
 * In ``Managed`` mode, wildcard TLS certificates can be issued from a custom
   certificate authority, or obtained automatically from an ACME provider such
   as LetsEncrypt using DNS01 challenges, with support for Amazon Route53

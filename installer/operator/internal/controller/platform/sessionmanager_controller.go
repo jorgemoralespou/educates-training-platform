@@ -205,11 +205,22 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
-	if err := r.installOrUpgradeSM(ctx, obj, cfg); err != nil {
+	res, err := r.installOrUpgradeSM(ctx, obj, cfg)
+	if err != nil {
 		r.markSMDeployed(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		r.markSMReady(obj, metav1.ConditionFalse, "InstallFailed", err.Error())
 		_ = r.updateSMStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, fmt.Errorf("helm install session-manager: %w", err)
+	}
+	if proceed, result, err := handlePlatformReleaseResult("session-manager", res,
+		func(reason, message string) {
+			r.markSMDeployed(obj, metav1.ConditionFalse, reason, message)
+			r.markSMReady(obj, metav1.ConditionFalse, reason, message)
+		},
+		func(phase platformv1alpha1.ComponentPhase) { r.markSMPhase(obj, phase) },
+		func() error { return r.updateSMStatusWithTransitionLog(ctx, obj) },
+	); !proceed {
+		return result, err
 	}
 	r.markSMDeployed(obj, metav1.ConditionTrue, "ChartInstalled",
 		fmt.Sprintf("session-manager chart %s installed in namespace %s",
@@ -239,13 +250,14 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// False so the user notices their misconfiguration; Skip /
 	// Install outcomes leave Ready=True.
 	nctIntent, nctReason, nctMessage := resolveNodeCATrust(obj, cfg)
-	if err := r.reconcileExtra(ctx, obj,
+	nctOut, err := r.reconcileExtra(ctx, obj,
 		conditionNodeCATrustDeployed,
 		nodeCAInjectorReleaseName,
 		vendoredcharts.NodeCAInjector,
 		renderNodeCAInjectorValues,
 		cfg, nctIntent, nctReason, nctMessage,
-	); err != nil {
+	)
+	if err != nil {
 		r.markSMReady(obj, metav1.ConditionFalse, "ExtrasFailed", err.Error())
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
 		_ = r.updateSMStatusWithTransitionLog(ctx, obj)
@@ -256,35 +268,49 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("resolve remoteAccess intent: %w", err)
 	}
-	if err := r.reconcileExtra(ctx, obj,
+	raOut, err := r.reconcileExtra(ctx, obj,
 		conditionRemoteAccessDeployed,
 		remoteAccessReleaseName,
 		vendoredcharts.RemoteAccess,
 		renderRemoteAccessValues,
 		cfg, raIntent, raReason, raMessage,
-	); err != nil {
+	)
+	if err != nil {
 		r.markSMReady(obj, metav1.ConditionFalse, "ExtrasFailed", err.Error())
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
 		_ = r.updateSMStatusWithTransitionLog(ctx, obj)
 		return ctrl.Result{}, err
 	}
 
-	// Refuse outcomes (user wrote Mode=Enabled but the prerequisite
-	// is missing) downgrade the aggregate Ready so the misconfig is
-	// surfaced even though the main install succeeded.
-	if nctIntent == intentRefuse || raIntent == intentRefuse {
-		r.markSMReady(obj, metav1.ConditionFalse, "ExtraRefused",
-			"one or more optional extras is Mode=Enabled with a missing prerequisite; see per-component conditions")
+	// A mid-repair rollback on either extra needs a requeue to drive its
+	// follow-up upgrade — neither the CR nor the component Deployment emits
+	// a watch event for it.
+	requeueAfter := max(nctOut.requeueAfter, raOut.requeueAfter)
+
+	// Refuse outcomes (user wrote Mode=Enabled but the prerequisite is
+	// missing) and not-ready outcomes (an extra is wanted but its release is
+	// failed or mid-repair) both downgrade the aggregate Ready so the problem
+	// is surfaced even though the main install succeeded. A Refuse keeps the
+	// existing reason; a failed/repairing release reports ExtraNotReady.
+	refused := nctIntent == intentRefuse || raIntent == intentRefuse
+	if refused || nctOut.notReady || raOut.notReady {
+		reason, message := "ExtraNotReady",
+			"one or more optional extras is not ready (failed or mid-repair release); see per-component conditions"
+		if refused {
+			reason, message = "ExtraRefused",
+				"one or more optional extras is Mode=Enabled with a missing prerequisite; see per-component conditions"
+		}
+		r.markSMReady(obj, metav1.ConditionFalse, reason, message)
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
 		obj.Status.ObservedGeneration = obj.Generation
-		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
+		return ctrl.Result{RequeueAfter: requeueAfter}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 
 	r.markSMReady(obj, metav1.ConditionTrue, "SessionManagerReady",
 		"session-manager is installed and Available")
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseReady)
 	obj.Status.ObservedGeneration = obj.Generation
-	return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
+	return ctrl.Result{RequeueAfter: requeueAfter}, r.updateSMStatusWithTransitionLog(ctx, obj)
 }
 
 func (r *SessionManagerReconciler) clusterConfigReadySM(ctx context.Context) (*configv1alpha1.EducatesClusterConfig, bool, error) {
@@ -318,32 +344,19 @@ func (r *SessionManagerReconciler) secretsManagerReady(ctx context.Context) (boo
 	return cond != nil && cond.Status == metav1.ConditionTrue, nil
 }
 
-func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) error {
+func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	if err := ensurePlatformNamespace(ctx, r.Client); err != nil {
-		return err
+		return helm.Result{}, err
 	}
 	chrt, err := vendoredcharts.SessionManager()
 	if err != nil {
-		return fmt.Errorf("load embedded chart: %w", err)
+		return helm.Result{}, fmt.Errorf("load embedded chart: %w", err)
 	}
 	hc, err := r.HelmClientFor(platformNamespace)
 	if err != nil {
-		return fmt.Errorf("build helm client: %w", err)
+		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	vals := renderSessionManagerValues(obj, cfg)
-	if _, err := hc.Status(sessionManagerReleaseName); err != nil {
-		if err == helm.ErrReleaseNotFound {
-			if _, err := hc.Install(ctx, sessionManagerReleaseName, chrt, vals); err != nil {
-				return fmt.Errorf("helm install: %w", err)
-			}
-			return nil
-		}
-		return fmt.Errorf("helm status: %w", err)
-	}
-	if _, err := hc.Upgrade(ctx, sessionManagerReleaseName, chrt, vals); err != nil {
-		return fmt.Errorf("helm upgrade: %w", err)
-	}
-	return nil
+	return hc.EnsureRelease(ctx, sessionManagerReleaseName, chrt, renderSessionManagerValues(obj, cfg))
 }
 
 // renderSessionManagerValues maps SessionManagerSpec + cluster config

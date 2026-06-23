@@ -50,6 +50,15 @@ func envoyUseHostPort(values map[string]any) (map[string]any, bool) {
 	return uhp, ok
 }
 
+func envoyService(values map[string]any) (map[string]any, bool) {
+	envoy, ok := values["envoy"].(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	svc, ok := envoy["service"].(map[string]any)
+	return svc, ok
+}
+
 // ClusterIP Envoy has no LB/NodePort, so the operator must bind the node's
 // 80/443 via hostPort (the kind topology, mirroring v3).
 func TestRenderContourValues_ClusterIPEnablesHostPort(t *testing.T) {
@@ -74,6 +83,46 @@ func TestRenderContourValues_NonClusterIPNoHostPort(t *testing.T) {
 		values := renderContourValues(contourConfig(st))
 		if _, ok := envoyUseHostPort(values); ok {
 			t.Errorf("serviceType %q unexpectedly enabled envoy.useHostPort", st)
+		}
+	}
+}
+
+// The chart defaults envoy.service.externalTrafficPolicy to "Local", which
+// the API rejects on a ClusterIP Service and fails the whole release. The
+// operator must clear it to the empty string for ClusterIP so the chart
+// omits the field.
+func TestRenderContourValues_ClusterIPClearsExternalTrafficPolicy(t *testing.T) {
+	values := renderContourValues(contourConfig(configv1alpha1.EnvoyServiceTypeClusterIP))
+
+	svc, ok := envoyService(values)
+	if !ok {
+		t.Fatal("envoy.service missing")
+	}
+	etp, present := svc["externalTrafficPolicy"]
+	if !present {
+		t.Fatal("envoy.service.externalTrafficPolicy not set for ClusterIP; want empty string to override chart default")
+	}
+	if etp != "" {
+		t.Errorf("externalTrafficPolicy = %q, want empty string", etp)
+	}
+}
+
+// For LoadBalancer / NodePort the operator must not touch
+// externalTrafficPolicy — the chart default ("Local") is valid for those
+// externally-accessible service types.
+func TestRenderContourValues_NonClusterIPLeavesExternalTrafficPolicy(t *testing.T) {
+	for _, st := range []configv1alpha1.EnvoyServiceType{
+		configv1alpha1.EnvoyServiceTypeLoadBalancer,
+		configv1alpha1.EnvoyServiceTypeNodePort,
+		"", // default → LoadBalancer
+	} {
+		values := renderContourValues(contourConfig(st))
+		svc, ok := envoyService(values)
+		if !ok {
+			t.Fatalf("serviceType %q: envoy.service missing", st)
+		}
+		if _, present := svc["externalTrafficPolicy"]; present {
+			t.Errorf("serviceType %q unexpectedly set externalTrafficPolicy; chart default must stand", st)
 		}
 	}
 }
