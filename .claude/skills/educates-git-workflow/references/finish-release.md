@@ -23,6 +23,11 @@ After the universal pre-flight:
   to ship. The fix is a normal stabilization commit on the `release/` branch adding
   the notes file and the index entry (release documentation counts as stabilization
   work); it then reaches `develop` through the back-merge like any other fix.
+- The version bump is committed on the release branch: the chart version there equals
+  the target. Check `git show origin/release/4.1.0:installer/charts/educates-installer/Chart.yaml`
+  reports `version: 4.1.0` (and `appVersion: 4.1.0`). If it still shows the previous
+  release, stop: run the `make release-prep VERSION=4.1.0` stabilization step (see the
+  stabilization-fix reference) and commit it on the release branch first.
 
 Present the full five-stage plan with concrete values, then take the stages one at a
 time.

@@ -39,24 +39,28 @@ A release build (triggered by pushing a version tag) produces:
 Release Versioning and Stamping
 -------------------------------
 
-Releases are "tag and go": the committed tree always carries a development version (currently `4.0.0-alpha.1` for the charts, with the runtime `appVersion` pointing at the last released runtime) and is never bumped by a release commit. All released artifacts derive their version from the git tag at build time:
+The committed tree tracks the **last released version**: after `4.0.1` ships, the charts carry version and `appVersion` `4.0.1` and stay there on `develop` until the next release is prepared. (Until the first v4 release ships, the tree carries the development placeholder `4.0.0-alpha.1` with `appVersion` still at the last v3 runtime, `3.7.1`; the first `release-prep` retires that.) The bump is a single commit made on the `release/*` branch during stabilization (see *Cutting a Release Branch* below), produced by:
 
-* CLI binaries get the version and image registry via `-ldflags` (`main.projectVersion`, `main.imageRepository`).
-* Container images are tagged by `docker/metadata-action` from the tag.
-* Charts and everything embedding them are stamped by [hack/stamp-release-version.sh](../hack/stamp-release-version.sh), which the workflow runs in three places: before the operator image build (so the image embeds the runtime subchart tarballs at the released version), in the four CLI binary builds (`--charts-only`, stamping the chart embedded in the CLI), and in the `publish-charts` job.
+```
+make release-prep VERSION=4.0.1
+```
 
-The stamp script rewrites, without ever committing anything back:
+`make release-prep` wraps [hack/stamp-release-version.sh](../hack/stamp-release-version.sh) in full mode and rewrites every place a version or registry appears, so the whole tree stays consistent under one command. Review the diff and commit it on the release branch; the back-merge then carries it to `develop`. It needs `helm` (it repackages the runtime subchart tarballs the operator embeds). `REGISTRY_HOST` / `REGISTRY_NAMESPACE` default to `ghcr.io` / `educates` so the image-registry annotations stay at the canonical values; override them only when preparing a fork release.
 
-* `version` AND `appVersion` to the tag across `educates-installer`, the `educates-training-platform` umbrella (including its `dependencies[].version` pins) and the five runtime subcharts. Stamping `appVersion` too is what makes a release self-consistent: the runtime images the charts reference are exactly the ones the same workflow run published.
-* The `educates.dev/image-registry-host` / `-namespace` annotations on every chart that renders images, to `ghcr.io` / `<repository owner>`. These annotations are the publish-time default registry for all chart-rendered image references (see the decisions log entry "imageRegistry is a development override; publish-time defaults live in Chart.yaml annotations").
+`release-prep` (and the stamp script it calls) rewrites:
+
+* `version` AND `appVersion` across `educates-installer`, the `educates-training-platform` umbrella (including its `dependencies[].version` pins) and the five runtime subcharts. Stamping `appVersion` too is what makes a release self-consistent: the runtime images the charts reference are exactly the ones the same release run published.
+* The `educates.dev/image-registry-host` / `-namespace` annotations on every chart that renders images, to `REGISTRY_HOST` / `REGISTRY_NAMESPACE` (default `ghcr.io` / `educates`). These annotations are the publish-time default registry for all chart-rendered image references (see the decisions log entry "imageRegistry is a development override; publish-time defaults live in Chart.yaml annotations"). For an upstream release the rewrite is a no-op since the committed annotations already say `educates`.
 * The five runtime subchart tarballs under `installer/operator/vendored-charts/`, repackaged at the stamped version, with the `//go:embed` filenames and `<X>ChartVersion` constants in `embed.go` and the `SHA256SUMS` entries updated to match. The upstream cluster-service charts (cert-manager, Contour, external-dns, Kyverno) are NOT touched — those are only ever re-vendored deliberately via `make vendor-charts`.
 * The CLI's embedded copy of the `educates-installer` chart, regenerated from the stamped chart.
 
-Worked example, upstream release: pushing tag `4.2.0` to `educates/educates-training-platform` publishes charts at version/appVersion `4.2.0` whose annotations resolve images to `ghcr.io/educates`, matching the images that same run pushed — for upstream the annotation rewrite is a no-op since the committed annotations already say `educates`.
+The release workflow runs the **same** stamp script again from the git tag at build time, in three places: before the operator image build (so the image embeds the runtime subchart tarballs at the released version), in the four CLI binary builds (`--charts-only`, stamping the chart embedded in the CLI), and in the `publish-charts` job. On a properly prepared release this is **idempotent** — it re-derives the version already committed — but it remains the publish-time authority, so a tag pushed without a `release-prep` commit (or a fork test tag) still produces correctly versioned artifacts. CLI binaries additionally get their version and image registry via `-ldflags` (`main.projectVersion`, `main.imageRepository`) from the tag, and container images are tagged by `docker/metadata-action` from the tag.
 
-Worked example, fork release: pushing tag `0.0.1-alpha.1` to `<user>/educates-training-platform` publishes charts at `0.0.1-alpha.1` whose annotations resolve to `ghcr.io/<user>`, an operator image embedding subcharts stamped `0.0.1-alpha.1`, and CLI binaries defaulting to `ghcr.io/<user>` — a fork release is fully self-contained and needs nothing published upstream.
+Worked example, upstream release: tagging `4.2.0` after a `make release-prep VERSION=4.2.0` commit publishes charts at version/appVersion `4.2.0` whose annotations resolve images to `ghcr.io/educates`, matching the images that same run pushed.
 
-The stamping relies on the committed tree staying uniform (one chart version everywhere, identical annotations, `embed.go` aligned with the committed tarballs). This is enforced by [hack/lint-chart-versions.sh](../hack/lint-chart-versions.sh), run as the `chart-sync-lint` job in the installer operator CI workflow. If you need to inspect what a release would produce, run the stamp script locally (e.g. `./hack/stamp-release-version.sh 4.2.0 ghcr.io educates`) in a scratch clone or discard the resulting working-tree changes afterwards — its output must never be committed.
+Worked example, fork release: on `<user>/educates-training-platform`, run `make release-prep VERSION=0.0.1-alpha.1 REGISTRY_NAMESPACE=<user>` (or pass `REGISTRY_HOST` too) before tagging `0.0.1-alpha.1`. The published charts resolve to `ghcr.io/<user>`, the operator image embeds subcharts stamped `0.0.1-alpha.1`, and the CLI binaries default to `ghcr.io/<user>` — a fork release is fully self-contained and needs nothing published upstream. Do not commit the fork-specific annotation rewrite to a branch destined for the canonical repo.
+
+The stamping relies on the committed tree staying uniform (one chart version everywhere, identical annotations, `embed.go` aligned with the committed tarballs). This is enforced by [hack/lint-chart-versions.sh](../hack/lint-chart-versions.sh), run as the `chart-sync-lint` job in the installer operator CI workflow — a `release-prep` commit keeps it green because it rewrites every location at once. If you only want to inspect what a release would produce without committing, run `make release-prep VERSION=… ` in a scratch clone or discard the resulting working-tree changes afterwards.
 
 Triggering a Development Build
 ------------------------------
@@ -94,6 +98,8 @@ The pre-release stages mark increasing maturity on the road to a final release, 
 * **beta** is feature-complete (or nearly so) but not yet stabilized. The intended scope of the release is present and the focus shifts from adding features to finding and fixing bugs; breakage is still expected. Tagged on `develop`, still before feature freeze, but later in that window than alpha.
 * **rc** (release candidate) is believed ready to ship. The release is feature-frozen and on the `release/*` branch; only fixes for genuine release blockers go in. Each rc is a concrete candidate for the final release; if no blocker is found, that exact code becomes the release. Tagged on the `release/*` branch, after feature freeze.
 
+The `release-prep` version bump (above) only happens on the `release/*` branch, so alpha and beta tagged on `develop` still carry the *previous* release's version in their committed tree. That is fine: the workflow stamps every tag build from the tag itself, so the published alpha/beta artifacts carry the correct version regardless. rc and final builds, tagged after the bump, also match their committed tree.
+
 Note that GitHub cannot enforce this placement (a tag names a commit, not a branch), so it is a convention upheld by process. Tags are not pushed automatically by anything; push them explicitly:
 
 ```
@@ -120,7 +126,7 @@ git switch -c release/4.0.0
 git push -u origin release/4.0.0
 ```
 
-From this point the release is frozen and no new features go onto it. On the `release/*` branch, do only stabilization work: bug fixes, version-number bumps, changelog and documentation updates. Tag rc builds here, since this branch holds the exact code being proposed for release.
+From this point the release is frozen and no new features go onto it. On the `release/*` branch, do only stabilization work: bug fixes, the version bump, changelog and documentation updates. The version bump is a `make release-prep VERSION=X.Y.Z` commit (see *Release Versioning and Stamping* above) — run it early in stabilization so the rc builds tagged here carry the right version in their committed tree, and re-run it (idempotent) if anything it touches changes later. Tag rc builds here, since this branch holds the exact code being proposed for release.
 
 Cutting the branch at feature freeze lets the team start adding features to `develop` for the *next* version while this release is being finalized.
 

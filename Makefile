@@ -254,6 +254,33 @@ else
 endif
 
 # =============================================================================
+# Release preparation
+# =============================================================================
+# Stamp the committed tree to a concrete release version. Run as the final
+# stabilization step on a release/* branch and commit the result, so the
+# committed tree — and anything built from a checkout — tracks the last
+# released version (see developer-docs/release-procedures.md). The release
+# workflow re-runs the same stamping from the git tag at publish time, so
+# this is idempotent on a properly prepared release.
+#
+#   make release-prep VERSION=4.0.1
+#
+# Needs helm: it repackages the runtime subchart tarballs the operator
+# embeds (embed.go, vendored-charts/*.tgz, SHA256SUMS) alongside the
+# Chart.yaml versions and the CLI's embedded chart copy. REGISTRY_HOST /
+# REGISTRY_NAMESPACE default to the committed canonical values so the
+# image-registry annotations stay ghcr.io/educates; override them only
+# when preparing a fork release.
+REGISTRY_HOST ?= ghcr.io
+REGISTRY_NAMESPACE ?= educates
+
+release-prep: ## Stamp the committed tree to VERSION (release/* branch step; commit the result)
+	@test -n "$(VERSION)" || { echo "VERSION is required, e.g. make release-prep VERSION=4.0.1" >&2; exit 1; }
+	./hack/stamp-release-version.sh "$(VERSION)" "$(REGISTRY_HOST)" "$(REGISTRY_NAMESPACE)"
+	@echo ""
+	@echo "Stamped the tree to $(VERSION). Review 'git status' / 'git diff' and commit on the release branch."
+
+# =============================================================================
 # Docker Desktop extension
 # =============================================================================
 
@@ -353,7 +380,7 @@ help: ## Show available targets
   refresh-operator-embeds refresh-cli-embeds package-local-charts \
   generate-cli-schemas verify-cli-schemas embed-installer-chart verify-installer-chart \
   build-cli build-client-programs client-programs-educates ensure-local-registry \
-  stage-renderer-files ci ci-cli ci-operator \
+  stage-renderer-files ci ci-cli ci-operator release-prep \
   build-docker-extension install-docker-extension update-docker-extension \
   restart-training-platform deploy-workshop delete-workshop open-workshop \
   build-project-docs open-project-docs clean-project-docs \
