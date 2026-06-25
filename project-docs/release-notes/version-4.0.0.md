@@ -234,6 +234,13 @@ Deprecations
   from 1.33 to 1.36. A specific node image can still be selected using the
   ``--kind-cluster-image`` option if a different Kubernetes version is required.
 
+* ``educates version`` now also reports the git commit the binary was built
+  from, with a ``-dirty`` suffix when it was built from a modified working
+  tree. This makes otherwise-identical development builds — which all report
+  the floating ``latest`` or ``develop`` version — distinguishable. Release
+  binaries continue to report their release version and additionally show the
+  commit they were built from.
+
 Bugs Fixed
 ----------
 

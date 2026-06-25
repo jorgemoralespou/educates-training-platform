@@ -38,6 +38,15 @@ PACKAGE_VERSION ?= latest
 CLI_VERSION ?= $(PACKAGE_VERSION)
 CLI_IMAGE_REPOSITORY ?= $(IMAGE_REPOSITORY)
 
+# Informational build metadata stamped into the CLI so otherwise-identical
+# development builds (all reporting the floating PACKAGE_VERSION) can be
+# told apart via `educates version`. GIT_COMMIT carries the short commit
+# plus a "-dirty" suffix for an uncommitted working tree; GIT_COMMIT_DATE
+# is that commit's date (deterministic, so the binary stays reproducible
+# per commit). Both empty when not in a git checkout.
+GIT_COMMIT ?= $(shell git rev-parse --short=7 HEAD 2>/dev/null)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+GIT_COMMIT_DATE ?= $(shell git show -s --format=%cd --date=short HEAD 2>/dev/null)
+
 UNAME_SYSTEM := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 UNAME_MACHINE := $(shell uname -m)
 
@@ -93,7 +102,8 @@ IMAGE_DIR.cli = client-programs
 WORKSHOP_BUILD_ARGS = --build-arg IMAGE_REPOSITORY=$(IMAGE_REPOSITORY) --build-arg PACKAGE_VERSION=$(PACKAGE_VERSION)
 $(foreach i,$(WORKSHOP_IMAGES) desktop-environment,$(eval IMAGE_BUILD_ARGS.$(i) = $(WORKSHOP_BUILD_ARGS)))
 IMAGE_BUILD_ARGS.cli = --build-arg REPOSITORY=$(IMAGE_REPOSITORY) --build-arg TAG=$(PACKAGE_VERSION) \
-  --build-arg PROJECT_VERSION=$(CLI_VERSION) --build-arg IMAGE_REPOSITORY=$(CLI_IMAGE_REPOSITORY)
+  --build-arg PROJECT_VERSION=$(CLI_VERSION) --build-arg IMAGE_REPOSITORY=$(CLI_IMAGE_REPOSITORY) \
+  --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg GIT_COMMIT_DATE=$(GIT_COMMIT_DATE)
 
 # =============================================================================
 # Verbs
@@ -197,7 +207,7 @@ verify-installer-chart: embed-installer-chart
 build-cli: refresh-cli-embeds stage-renderer-files ## Build the educates CLI for the current host platform
 	mkdir -p client-programs/bin
 	(cd client-programs; go build -gcflags=all="-N -l" \
-		-ldflags "-X 'main.projectVersion=$(CLI_VERSION)' -X 'main.imageRepository=$(CLI_IMAGE_REPOSITORY)'" \
+		-ldflags "-X 'main.projectVersion=$(CLI_VERSION)' -X 'main.imageRepository=$(CLI_IMAGE_REPOSITORY)' -X 'main.gitCommit=$(GIT_COMMIT)' -X 'main.buildDate=$(GIT_COMMIT_DATE)'" \
 		-o bin/educates-$(TARGET_PLATFORM) cmd/educates/main.go)
 
 build-client-programs: build-cli

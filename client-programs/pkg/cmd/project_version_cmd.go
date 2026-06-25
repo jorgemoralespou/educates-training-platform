@@ -14,6 +14,13 @@ func (p *ProjectInfo) NewProjectVersionCmd() *cobra.Command {
 		Short: "Display the version of Educates being used",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.Println(p.Version)
+			if p.GitCommit != "" {
+				commit := "commit: " + p.GitCommit
+				if p.BuildDate != "" {
+					commit += " (" + p.BuildDate + ")"
+				}
+				cmd.Println(commit)
+			}
 			return nil
 		},
 	}

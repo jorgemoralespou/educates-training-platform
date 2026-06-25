@@ -436,7 +436,9 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
-          go build -o educates-linux-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
+          go build -o educates-linux-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
       - uses: actions/upload-artifact@v7
         with:
@@ -481,7 +483,9 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
-          GOOS=linux GOARCH=arm64 go build -o educates-linux-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
+          GOOS=linux GOARCH=arm64 go build -o educates-linux-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
       - uses: actions/upload-artifact@v7
         with:
@@ -526,8 +530,10 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
           # Need to build for amd64 on darwin on an arm64 runner as they are deprecating amd64 runner.
-          GOOS=darwin GOARCH=amd64 go build -o educates-darwin-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GOOS=darwin GOARCH=amd64 go build -o educates-darwin-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
       - uses: actions/upload-artifact@v7
         with:
@@ -572,7 +578,9 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
-          go build -o educates-darwin-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
+          go build -o educates-darwin-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
       - uses: actions/upload-artifact@v7
         with:
@@ -602,6 +610,8 @@ jobs:
           echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
           echo "REPOSITORY_SHA_TAG=sha-${GITHUB_SHA::7}" >>${GITHUB_ENV}
           echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
+          echo "GIT_COMMIT=${GITHUB_SHA::7}" >>${GITHUB_ENV}
+          echo "GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)" >>${GITHUB_ENV}
 
       # On release tags the chart embedded in the CLI must carry the
       # released version and this fork's registry annotations.
@@ -663,6 +673,8 @@ jobs:
             TAG=${{env.REPOSITORY_SHA_TAG}}
             PROJECT_VERSION=${{env.REPOSITORY_TAG}}
             IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
+            GIT_COMMIT=${{env.GIT_COMMIT}}
+            GIT_COMMIT_DATE=${{env.GIT_COMMIT_DATE}}
           tags: ${{steps.meta.outputs.tags}}
           push: true
 

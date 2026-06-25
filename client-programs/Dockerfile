@@ -34,12 +34,16 @@ ARG TARGETOS
 ARG TARGETARCH
 
 # Compiled-in defaults, matching the ldflags the binary release builds
-# use (see build-and-publish-images.yaml).
+# use (see build-and-publish-images.yaml). GIT_COMMIT/GIT_COMMIT_DATE are
+# informational build metadata shown by `educates version`; the build
+# context has no .git, so they are passed in rather than computed here.
 ARG PROJECT_VERSION=develop
 ARG IMAGE_REPOSITORY=ghcr.io/educates
+ARG GIT_COMMIT=
+ARG GIT_COMMIT_DATE=
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
-    -ldflags "-X 'main.projectVersion=${PROJECT_VERSION}' -X 'main.imageRepository=${IMAGE_REPOSITORY}'" \
+    -ldflags "-X 'main.projectVersion=${PROJECT_VERSION}' -X 'main.imageRepository=${IMAGE_REPOSITORY}' -X 'main.gitCommit=${GIT_COMMIT}' -X 'main.buildDate=${GIT_COMMIT_DATE}'" \
     -o bin/educates-${TARGETOS}-${TARGETARCH} \
     cmd/educates/main.go
 
