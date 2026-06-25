@@ -17,10 +17,10 @@ appVersion: "3.7.1"
 kubeVersion: ">=1.31.0-0"
 home: https://educates.dev
 sources:
-  - https://github.com/jorgemoralespou/educates-training-platform
+  - https://github.com/educates/educates-training-platform
 maintainers:
   - name: Educates Maintainers
-    url: https://github.com/jorgemoralespou/educates-training-platform/blob/develop/MAINTAINERS.md
+    url: https://github.com/educates/educates-training-platform/blob/develop/MAINTAINERS.md
 dependencies:
   - name: secrets-manager
     version: 4.0.0-alpha.1
