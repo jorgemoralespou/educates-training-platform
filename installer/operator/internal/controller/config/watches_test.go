@@ -28,6 +28,8 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -92,6 +94,7 @@ func readyConditionStatus() metav1.ConditionStatus {
 var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 	var mgrCancel context.CancelFunc
 	var mgrDone chan error
+	var mgrCache cache.Cache
 
 	BeforeEach(func() {
 		ensureNamespace(testOperatorNamespace)
@@ -120,6 +123,7 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 			Controller: crconfig.Controller{SkipNameValidation: new(true)},
 		})
 		Expect(err).NotTo(HaveOccurred())
+		mgrCache = mgr.GetCache()
 
 		Expect((&EducatesClusterConfigReconciler{
 			Client:            mgr.GetClient(),
@@ -185,6 +189,29 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 
 		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(metav1.ConditionTrue), "expected Ready=True after initial reconcile")
+
+		// The ClusterIssuer watch is a deferred (unstructured) informer
+		// registered at runtime by CRDWatcher, not at manager startup. Its
+		// initial LIST/WATCH sync races the Delete below: if the delete
+		// lands before the informer is streaming, the DELETE event is
+		// dropped and — with no periodic resync — nothing ever re-triggers
+		// the reconcile, wedging status at Ready (this is the CI flake).
+		// Gate on the deferred informer being live by reading the issuer
+		// back through the manager cache with the *same* unstructured GVK
+		// the watch uses (a typed read would hit a separate informer, per
+		// checkClusterIssuer). A cache hit proves the informer is synced
+		// and will observe the delete.
+		issuerGVK := schema.GroupVersionKind{
+			Group:   cmv1.SchemeGroupVersion.Group,
+			Version: cmv1.SchemeGroupVersion.Version,
+			Kind:    "ClusterIssuer",
+		}
+		Eventually(func() error {
+			u := &unstructured.Unstructured{}
+			u.SetGroupVersionKind(issuerGVK)
+			return mgrCache.Get(ctx, types.NamespacedName{Name: "test-issuer"}, u)
+		}, 30*time.Second, 200*time.Millisecond).
+			Should(Succeed(), "deferred ClusterIssuer watch did not become live")
 
 		// Delete the ClusterIssuer. The ClusterIssuer watch should map back
 		// to the singleton Reconcile, which finds the missing issuer and
