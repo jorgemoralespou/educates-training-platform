@@ -72,7 +72,11 @@ func translateAndDeploy(
 		HelmLog:          helmLog,
 		Timeout:          flags.Timeout,
 		SyncLocalSecrets: syncLocalSecrets,
-		Progress:         progress.New(w, 0, isStdoutTTY(w)),
+		// Verbose turns off the in-place line morphing: helm debug
+		// streams to the same writer, so every step state change is
+		// committed as its own line to interleave cleanly with that
+		// detail instead of being overwritten (or corrupted).
+		Progress: progress.New(w, 0, isStdoutTTY(w) && !flags.Verbose),
 	})
 }
 

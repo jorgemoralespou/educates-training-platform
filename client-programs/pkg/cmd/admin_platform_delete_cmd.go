@@ -95,11 +95,13 @@ func (p *ProjectInfo) runDelete(ctx context.Context, w io.Writer, o *PlatformDel
 	}
 
 	return deployer.Delete(ctx, deployer.DeleteOptions{
-		Getter:   cf,
-		Out:      w,
-		HelmLog:  helmLog,
-		Timeout:  o.Timeout,
-		Progress: progress.New(w, 0, isStdoutTTY(w)),
+		Getter:  cf,
+		Out:     w,
+		HelmLog: helmLog,
+		Timeout: o.Timeout,
+		// Verbose streams helm debug to w, so drop in-place morphing and
+		// commit each step on its own line to interleave cleanly.
+		Progress: progress.New(w, 0, isStdoutTTY(w) && !o.Verbose),
 		Purge:    o.Purge,
 	})
 }

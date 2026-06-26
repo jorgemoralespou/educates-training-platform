@@ -99,29 +99,27 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	// The kind, registry, loopback and mirror phases all report through
 	// one progress reporter so the create flow reads as a single sequence
 	// of `→ … ✓` steps (the platform deploy tail-call builds its own
-	// reporter against the same writer).
-	rep := progress.New(w, 0, isStdoutTTY(w))
+	// reporter against the same writer). Verbose turns off in-place
+	// morphing so kind's full spinner and the per-step detail lines are
+	// all preserved rather than overwritten.
+	rep := progress.New(w, 0, isStdoutTTY(w) && !o.Verbose)
 
 	// 1. kind bootstrap. kindBootstrapFromConfig builds the focused
 	//    KindBootstrapInput from EducatesLocalConfig.Cluster fields the
-	//    template reads. By default kind's own phases are forwarded onto
-	//    our single step line and its footer chatter is suppressed; with
-	//    --verbose kind prints its full spinner + detail and we frame it
-	//    with a plain header/footer (a morphing line can't wrap kind's
-	//    own terminal output).
+	//    template reads. By default kind's phases are forwarded onto this
+	//    one morphing step line and its footer chatter is suppressed.
+	//    Under --verbose the reporter is non-morphing and kind uses its
+	//    own full logger (spinner + detail), so the step's committed
+	//    header/footer simply frame kind's output.
 	bootstrap := kindBootstrapFromConfig(cfg)
-	if o.Verbose {
-		fmt.Fprintln(w, "→ creating kind cluster 'educates'")
-		if err := clusterConfig.CreateCluster(bootstrap, o.ClusterImage, nil, true); err != nil {
-			return err
+	if err := runStep(rep, "creating kind cluster 'educates'", "ready", func(s progress.Step) error {
+		onPhase := s.Update
+		if o.Verbose {
+			onPhase = nil
 		}
-		fmt.Fprintln(w, "✓ creating kind cluster 'educates'")
-	} else {
-		if err := runStep(rep, "creating kind cluster 'educates'", "ready", func(s progress.Step) error {
-			return clusterConfig.CreateCluster(bootstrap, o.ClusterImage, s.Update, false)
-		}); err != nil {
-			return err
-		}
+		return clusterConfig.CreateCluster(bootstrap, o.ClusterImage, onPhase, o.Verbose)
+	}); err != nil {
+		return err
 	}
 	client, err := clusterConfig.Config.GetClient()
 	if err != nil {
