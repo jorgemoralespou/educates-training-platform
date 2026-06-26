@@ -70,6 +70,18 @@ const (
 // ClusterPolicy resources and wedges the SessionManager finalizer.
 const reasonPlatformCRsPresent = "PlatformCRsPresent"
 
+// inlineSteadyStateResync is the belt-and-suspenders requeue applied to
+// the Inline-mode terminal reconcile outcomes (Ready and validation
+// Degraded). Watch events are the primary trigger for re-evaluating
+// referenced resources, but Inline mode gates on a ClusterIssuer served
+// by a deferred (unstructured) informer registered at runtime by
+// CRDWatcher. That informer's events can be missed, or observed against a
+// momentarily-stale cache, so a delete of the referenced ClusterIssuer
+// could otherwise wedge status at Ready until the next spec change. A
+// periodic requeue re-runs validateInline and lets status self-heal. The
+// interval matches the CRDWatcher PollInterval.
+const inlineSteadyStateResync = 15 * time.Second
+
 // EducatesClusterConfigReconciler reconciles a EducatesClusterConfig object.
 type EducatesClusterConfigReconciler struct {
 	client.Client
@@ -248,14 +260,19 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	if err != nil {
 		if verr, ok := errors.AsType[*validationError](err); ok {
 			r.markDegraded(obj, verr.Field, verr.Reason)
-			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
+			// Requeue so a recreated/repaired referenced resource is
+			// re-detected even if its watch event is missed.
+			return ctrl.Result{RequeueAfter: inlineSteadyStateResync}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		// API error (lookup failed, transient): surface for retry.
 		return ctrl.Result{}, err
 	}
 
 	r.markReady(obj, statusIngress)
-	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
+	// Requeue as a backstop: the deferred ClusterIssuer watch can miss a
+	// delete (or observe a stale cache), which would otherwise wedge
+	// status at Ready. The periodic re-validate flips to Degraded.
+	return ctrl.Result{RequeueAfter: inlineSteadyStateResync}, r.updateStatusWithTransitionLog(ctx, obj)
 }
 
 // readyConditionIsTrue reports whether the Ready condition is currently

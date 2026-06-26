@@ -244,4 +244,9 @@ Deprecations
 Bugs Fixed
 ----------
 
-* ...
+* In Inline mode the ``EducatesClusterConfig`` status could remain ``Ready``
+  after a referenced ``ClusterIssuer`` was deleted, if the deletion event from
+  the cert-manager watch was missed or observed against a momentarily stale
+  cache. The reconciler now periodically re-validates referenced resources, so
+  the status reliably transitions to ``Degraded`` when a referenced
+  ``ClusterIssuer`` disappears.
