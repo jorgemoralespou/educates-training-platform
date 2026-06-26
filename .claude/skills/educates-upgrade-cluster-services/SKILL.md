@@ -27,7 +27,7 @@ all four for newer upstream versions and report before changing anything.
 
 ## Where each piece of version state lives
 
-A version is pinned in **four** places that must stay in lockstep (a
+A version is pinned in **four** canonical places that must stay in lockstep (a
 consistency test enforces it — see Verification):
 
 1. `installer/operator/Makefile` → `VENDORED_CHARTS` list: `name=version=url`.
@@ -37,6 +37,15 @@ consistency test enforces it — see Verification):
    Kyverno) the `<X>AppVersion` constant. cert-manager has a single
    `CertManagerVersion` (its chart version equals its appVersion).
 4. The tarball file itself on disk.
+
+Beyond these four, some tests **hardcode a version string** rather than
+referencing the `embed.go` constant (an import cycle prevents the `helm` package's
+tests from importing `vendoredcharts`). The `DirectoryConsistent` test does **not**
+cover these, so they go stale silently and only surface as a CI test failure. The
+known one is `installer/operator/internal/helm/load_test.go`
+(`TestLoadArchive_VendoredCertManager`), which hardcodes the **cert-manager**
+version twice (the `.tgz` filename and the `AppVersion` assertion). Always finish a
+bump with the straggler grep below — do not rely on the four-place list alone.
 
 ## Upstream sources and version semantics
 
@@ -120,14 +129,25 @@ cert-manager has no separate `AppVersion` constant.
    tar -xzOf installer/operator/vendored-charts/contour-<VER>.tgz contour/Chart.yaml | grep -E '^(version|appVersion):'
    ```
 
-6. **Re-verify reconciler assumptions** (the load-bearing step — see next
+6. **Grep the repo for stragglers — hardcoded references to the *old* version**
+   that live outside the four canonical places (notably tests). Run this with the
+   OLD version string before you forget it, and update every hit:
+   ```bash
+   # e.g. old cert-manager version v1.20.2 → catches internal/helm/load_test.go
+   git grep -n "<old-version>" -- installer/operator
+   ```
+   For cert-manager this always includes `internal/helm/load_test.go` (filename +
+   `AppVersion` assertion). Skip the `vendored-charts/` line for the tarball you
+   just `git rm`'d.
+
+7. **Re-verify reconciler assumptions** (the load-bearing step — see next
    section). The per-service reconciler gates readiness on specific workload
    names / webhook behaviour verified against a chart version.
 
-7. **`installer/operator/vendored-charts/README.md`** — update the "Current
+8. **`installer/operator/vendored-charts/README.md`** — update the "Current
    contents" version table.
 
-8. **Kyverno only — also re-vendor the bundled policies.** See "Kyverno
+9. **Kyverno only — also re-vendor the bundled policies.** See "Kyverno
    special case" below.
 
 ## Re-verify reconciler assumptions
@@ -204,6 +224,7 @@ Ready and its reconciler condition flips (`CertificatesReady`, `IngressReady`,
 - [ ] `VENDORED_CHARTS` (Makefile), `SHA256SUMS`, and `embed.go` all updated to the new version
 - [ ] New tarball downloaded via `make vendor-charts` (hash-verified); old tarball `git rm`'d
 - [ ] `embed.go` `<X>AppVersion` read from the new tarball's `Chart.yaml`
+- [ ] `git grep "<old-version>"` run; straggler hardcoded refs updated (cert-manager: `internal/helm/load_test.go`)
 - [ ] Reconciler workload-name / values / CRD assumptions re-verified; constants + comments updated if changed
 - [ ] Kyverno: bundled policies re-vendored + session-manager subchart repackaged (if appVersion changed)
 - [ ] README "Current contents" table updated
