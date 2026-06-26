@@ -28,7 +28,7 @@ import (
 // bump, the bump procedure in vendored-charts/README.md was likely
 // skipped.
 func TestLoadArchive_VendoredCertManager(t *testing.T) {
-	path := filepath.Join("..", "..", "vendored-charts", "cert-manager-v1.20.2.tgz")
+	path := filepath.Join("..", "..", "vendored-charts", "cert-manager-v1.20.3.tgz")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read vendored chart: %v", err)
@@ -42,7 +42,7 @@ func TestLoadArchive_VendoredCertManager(t *testing.T) {
 	if got, want := chrt.Metadata.Name, "cert-manager"; got != want {
 		t.Errorf("chart name = %q, want %q", got, want)
 	}
-	if got, want := chrt.Metadata.AppVersion, "v1.20.2"; got != want {
+	if got, want := chrt.Metadata.AppVersion, "v1.20.3"; got != want {
 		t.Errorf("chart appVersion = %q, want %q", got, want)
 	}
 }
