@@ -37,9 +37,9 @@ import (
 // CertManagerVersion mirrors the embedded tarball's appVersion and the
 // vendored-charts/SHA256SUMS entry; bumped only when the tarball is
 // replaced via `make vendor-charts`.
-const CertManagerVersion = "v1.20.2"
+const CertManagerVersion = "v1.20.3"
 
-//go:embed cert-manager-v1.20.2.tgz
+//go:embed cert-manager-v1.20.3.tgz
 var certManagerTarball []byte
 
 // CertManager parses the embedded cert-manager tarball and returns a
