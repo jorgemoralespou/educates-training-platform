@@ -10,16 +10,39 @@ Cluster-wide Kyverno policies, gated on
      policy objects platform admins want installed cluster-wide alongside the
      bundle (either the new Policy types or the legacy ClusterPolicy).
 
-This template is policy-type-agnostic: it emits each document verbatim. The
-bundled ValidatingPolicies use `validationActions: [Audit]` so violations are
-logged but workloads aren't blocked. User-supplied policies use whatever
-action they set.
+The bundled profiles ship without a namespace scope and would otherwise match
+every Pod in the cluster — including system namespaces (kube-system, etc.). The
+legacy `ClusterPolicy` path was implicitly narrowed by Kyverno's resourceFilters
+ConfigMap; `ValidatingPolicy` compiles to a native ValidatingAdmissionPolicy and
+ignores those filters. We therefore inject a `matchConstraints.namespaceSelector`
+matching the labels session-manager stamps on the namespaces it manages, mirroring
+the v3 ClusterPolicy scoping:
+
+  - `training.educates.dev/policy.engine` == the (lowercased) engine, and
+  - `training.educates.dev/policy.name` in the profiles the namespace must satisfy.
+    A `restricted` namespace must satisfy both baseline and restricted, so the
+    baseline profile matches [baseline, restricted] while restricted matches
+    [restricted] only.
+
+User-supplied policies are emitted verbatim — their own scope is left untouched.
+The bundled ValidatingPolicies use `validationActions: [Audit]` so violations are
+logged but workloads aren't blocked. User-supplied policies use whatever action
+they set.
 */ -}}
 {{- $cs := include "session-manager.resolvedClusterSecurity" . | fromYaml -}}
 {{- if eq $cs.policyEngine "Kyverno" -}}
+{{- $engine := lower $cs.policyEngine -}}
 {{- range $path, $_ := .Files.Glob "files/kyverno-policies/cluster-policies/*/*.yaml" }}
+{{- $doc := $.Files.Get $path | fromYaml }}
+{{- $profiles := ternary (list "baseline" "restricted") (list "restricted") (contains "/baseline/" $path) }}
+{{- $selector := dict "matchExpressions" (list
+    (dict "key" "training.educates.dev/policy.engine" "operator" "In" "values" (list $engine))
+    (dict "key" "training.educates.dev/policy.name" "operator" "In" "values" $profiles)) }}
+{{- $mc := default dict $doc.spec.matchConstraints }}
+{{- $_ := set $mc "namespaceSelector" $selector }}
+{{- $_ := set $doc.spec "matchConstraints" $mc }}
 ---
-{{ $.Files.Get $path | trim }}
+{{ $doc | toYaml | trim }}
 {{- end }}
 {{- range default list $cs.additionalKyvernoPolicies }}
 ---

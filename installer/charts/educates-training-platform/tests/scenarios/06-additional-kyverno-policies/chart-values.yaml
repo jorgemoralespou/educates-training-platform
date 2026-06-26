@@ -1,9 +1,14 @@
-# Same as scenario 01 plus user-supplied Kyverno ClusterPolicy
-# extras on both paths (cluster-wide via clusterSecurity, per-workshop
-# via workshopSecurity), on top of the chart-bundled baseline + ops
-# set. The post-deploy hook asserts both that the per-environment
-# ClusterPolicy the runtime spawns contains rules from the bundle, and
-# that the user-supplied marker rule is among them.
+# Same as scenario 01 plus user-supplied Kyverno policy extras on both
+# paths (cluster-wide via clusterSecurity, per-workshop via
+# workshopSecurity), on top of the chart-bundled baseline + ops set.
+# Each path supplies both accepted kinds: a legacy ClusterPolicy
+# (kyverno.io) and a new ValidatingPolicy (policies.kyverno.io). The
+# post-deploy hook asserts the bundled cluster ValidatingPolicies are
+# namespace-scoped, that both user cluster markers are applied verbatim,
+# and that the per-environment objects the runtime spawns carry the
+# bundled workshop policies plus both user workshop markers (the
+# ValidatingPolicy as its own scoped object, the ClusterPolicy merged
+# into the legacy educates-environment-<env> ClusterPolicy).
 
 lookup-service:
   enabled: false
@@ -51,6 +56,24 @@ session-manager:
                 cel:
                   expressions:
                     - expression: "true"
+      - apiVersion: policies.kyverno.io/v1alpha1
+        kind: ValidatingPolicy
+        metadata:
+          name: scenario-06-cluster-marker-vp
+        spec:
+          validationActions: [Audit]
+          evaluation:
+            background:
+              enabled: true
+          matchConstraints:
+            resourceRules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                operations: ["CREATE", "UPDATE"]
+                resources: ["pods"]
+          validations:
+            - expression: "true"
+              message: "scenario-06 cluster VP placeholder — never matches"
 
   # Per-workshop rules via Kyverno (the chart default). The chart appends
   # the user marker to the bundled workshop-policies feed; session-manager
@@ -76,3 +99,21 @@ session-manager:
                 cel:
                   expressions:
                     - expression: "true"
+      - apiVersion: policies.kyverno.io/v1alpha1
+        kind: ValidatingPolicy
+        metadata:
+          name: scenario-06-workshop-marker-vp
+        spec:
+          validationActions: [Audit]
+          evaluation:
+            background:
+              enabled: true
+          matchConstraints:
+            resourceRules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                operations: ["CREATE", "UPDATE"]
+                resources: ["pods"]
+          validations:
+            - expression: "true"
+              message: "scenario-06 workshop VP placeholder — never matches"

@@ -5,7 +5,7 @@ the policy type Kyverno 1.18 recommends in place of the legacy `ClusterPolicy`
 (`kyverno.io`). Two independent paths, mirroring v3's split between
 `01-clusterpolicies.yaml` and `06-secrets.yaml`:
 
-## `cluster-policies/` — applied cluster-wide
+## `cluster-policies/` — scoped to Educates-managed namespaces
 
 Vendored from
 [kyverno/policies](https://github.com/kyverno/policies)
@@ -17,15 +17,30 @@ installed unconditionally as `ValidatingPolicy` resources when
 both must be present. Action is `Audit` (`validationActions: [Audit]`),
 inherited from upstream.
 
-| Directory | Source | What it covers |
-|---|---|---|
-| `cluster-policies/baseline/` | `pod-security-vpol/baseline/*` | Pod Security Standards baseline |
-| `cluster-policies/restricted/` | `pod-security-vpol/restricted/*` | Pod Security Standards restricted |
+The upstream policies ship without a namespace scope and would match every Pod
+in the cluster, including system namespaces. The legacy `ClusterPolicy` path was
+implicitly narrowed by Kyverno's `resourceFilters` ConfigMap, but a
+`ValidatingPolicy` compiles to a native `ValidatingAdmissionPolicy` and ignores
+those filters. The `kyverno-cluster-policies.yaml` chart template therefore
+injects a `spec.matchConstraints.namespaceSelector` matching the labels
+session-manager stamps on the namespaces it manages, mirroring the v3
+ClusterPolicy scoping:
+
+- `training.educates.dev/policy.engine` equals the lowercased policy engine
+  (`kyverno`), and
+- `training.educates.dev/policy.name` is one of the profiles the namespace must
+  satisfy. A `restricted` namespace must also satisfy baseline, so the baseline
+  profile selects `[baseline, restricted]` while restricted selects
+  `[restricted]`.
+
+| Directory | Source | What it covers | Selected `policy.name` |
+|---|---|---|---|
+| `cluster-policies/baseline/` | `pod-security-vpol/baseline/*` | Pod Security Standards baseline | `baseline`, `restricted` |
+| `cluster-policies/restricted/` | `pod-security-vpol/restricted/*` | Pod Security Standards restricted | `restricted` |
 
 The upstream `pod-security-vpol` baseline drops the `disallow-host-ports-range`
 "Alternate" policy that the CEL set carried; it folds into `disallow-host-ports`.
-We follow that curation (these are `Audit`-only cluster-wide, so no enforcement
-change).
+We follow that curation (these are `Audit`-only, so no enforcement change).
 
 ## `workshop-policies/` — bundled into the educates-config Secret
 

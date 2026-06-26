@@ -38,9 +38,9 @@ clusterIngress:
 
 # Cluster-level security policy enforcement.
 #
-# - Kyverno: installs the bundled cluster ClusterPolicies (PSS baseline +
-#   restricted profiles + operational best-practices) directly to the cluster.
-#   `additionalKyvernoPolicies` are installed alongside.
+# - Kyverno: installs the bundled cluster ValidatingPolicies (PSS baseline +
+#   restricted profiles), scoped to the namespaces Educates manages.
+#   `additionalKyvernoPolicies` are installed alongside, verbatim, cluster-wide.
 # - OpenShiftSCC: installs ClusterRoleBindings binding the session-manager and
 #   image-puller ServiceAccounts to the `educates-baseline-scc` ClusterRole.
 #   Implies you're on OpenShift; SCC enforcement comes from the platform.
@@ -49,18 +49,22 @@ clusterIngress:
 # - None: no cluster-level policy enforcement. User accepts responsibility.
 #
 # `additionalKyvernoPolicies` is silently ignored when policyEngine is not
-# Kyverno.
+# Kyverno. Each entry may be a legacy `ClusterPolicy` (kyverno.io) or any of the
+# new `policies.kyverno.io` types — `ValidatingPolicy`, `MutatingPolicy`,
+# `GeneratingPolicy` or `DeletingPolicy` — and is applied to the cluster exactly
+# as written (no namespace scoping is added).
 clusterSecurity:
   policyEngine: Kyverno   # Kyverno | PodSecurityStandards | OpenShiftSCC | None
   additionalKyvernoPolicies: []
-    # - apiVersion: kyverno.io/v1
-    #   kind: ClusterPolicy
+    # - apiVersion: policies.kyverno.io/v1alpha1
+    #   kind: ValidatingPolicy
     #   metadata:
     #     name: my-cluster-wide-extra
     #   spec:
-    #     validationFailureAction: Audit
-    #     rules:
-    #       - name: ...
+    #     validationActions: [Audit]
+    #     matchConstraints:
+    #       resourceRules:
+    #         - ...
 
 # Per-workshop policy enforcement. The chart concatenates a curated bundle
 # (operational best-practices + Educates-internal `require-ingress-session-name`)
@@ -69,17 +73,21 @@ clusterSecurity:
 # selector added.
 #
 # `additionalKyvernoPolicies` is appended to the same feed and is silently
-# ignored when rulesEngine is not Kyverno.
+# ignored when rulesEngine is not Kyverno. Entries must be a legacy
+# `ClusterPolicy` (kyverno.io) or a `ValidatingPolicy` (policies.kyverno.io);
+# these are the only kinds the runtime scopes per workshop environment today.
 workshopSecurity:
   rulesEngine: Kyverno    # Kyverno | None
   additionalKyvernoPolicies: []
-    # - apiVersion: kyverno.io/v1
-    #   kind: ClusterPolicy
+    # - apiVersion: policies.kyverno.io/v1alpha1
+    #   kind: ValidatingPolicy
     #   metadata:
     #     name: my-per-workshop-extra
     #   spec:
-    #     rules:
-    #       - name: ...
+    #     validationActions: [Audit]
+    #     matchConstraints:
+    #       resourceRules:
+    #         - ...
 
 # =============================================================================
 # Development overrides

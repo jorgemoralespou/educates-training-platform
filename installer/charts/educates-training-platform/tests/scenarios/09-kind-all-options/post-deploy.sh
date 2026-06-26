@@ -102,9 +102,10 @@ else
   fail=1
 fi
 
-# Kyverno extras: the cluster marker is applied directly as a
-# ClusterPolicy; the workshop marker goes into the per-workshop feed
-# (the kyverno-policies.yaml key of the educates-config Secret).
+# Kyverno extras: the cluster markers are applied directly cluster-wide
+# (a legacy ClusterPolicy and a new ValidatingPolicy); the workshop
+# markers (also one of each kind) go into the per-workshop feed (the
+# kyverno-policies.yaml key of the educates-config Secret).
 # Per-environment clone depth is scenario 06's job.
 if kubectl get clusterpolicy scenario-09-cluster-marker >/dev/null 2>&1; then
   echo "[post-deploy] ✓ user-supplied cluster ClusterPolicy applied"
@@ -112,13 +113,21 @@ else
   echo "[post-deploy] ✗ clusterpolicy/scenario-09-cluster-marker missing" >&2
   fail=1
 fi
-WPOL="$(kubectl -n "$NS" get secret educates-config -o jsonpath='{.data.kyverno-policies\.yaml}' 2>/dev/null | base64 -d || true)"
-if grep -q "scenario-09-workshop-marker" <<<"$WPOL"; then
-  echo "[post-deploy] ✓ workshop marker policy in kyverno-policies.yaml feed"
+if kubectl get validatingpolicy scenario-09-cluster-marker-vp >/dev/null 2>&1; then
+  echo "[post-deploy] ✓ user-supplied cluster ValidatingPolicy applied"
 else
-  echo "[post-deploy] ✗ workshop marker policy not in kyverno-policies.yaml feed" >&2
+  echo "[post-deploy] ✗ validatingpolicy/scenario-09-cluster-marker-vp missing" >&2
   fail=1
 fi
+WPOL="$(kubectl -n "$NS" get secret educates-config -o jsonpath='{.data.kyverno-policies\.yaml}' 2>/dev/null | base64 -d || true)"
+for marker in scenario-09-workshop-marker scenario-09-workshop-marker-vp; do
+  if grep -q "$marker" <<<"$WPOL"; then
+    echo "[post-deploy] ✓ workshop marker policy in kyverno-policies.yaml feed: $marker"
+  else
+    echo "[post-deploy] ✗ workshop marker policy not in kyverno-policies.yaml feed: $marker" >&2
+    fail=1
+  fi
+done
 
 # --- 4. Theme end-to-end -------------------------------------------------
 

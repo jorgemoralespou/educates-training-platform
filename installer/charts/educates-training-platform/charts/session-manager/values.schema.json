@@ -32,21 +32,61 @@
         }
       },
 
-      "kyvernoClusterPolicy": {
-        "description": "A Kyverno ClusterPolicy resource. Open shape; only top-level identity is validated.",
+      "kyvernoPolicyMetadata": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      },
+
+      "kyvernoLegacyClusterPolicy": {
+        "description": "A legacy Kyverno ClusterPolicy resource (kyverno.io). Open shape; only top-level identity is validated.",
         "type": "object",
         "required": ["apiVersion", "kind", "metadata"],
         "properties": {
           "apiVersion": { "const": "kyverno.io/v1" },
           "kind":       { "const": "ClusterPolicy" },
-          "metadata": {
-            "type": "object",
-            "required": ["name"],
-            "properties": {
-              "name": { "type": "string", "minLength": 1 }
-            }
-          }
+          "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
         }
+      },
+
+      "kyvernoValidatingPolicy": {
+        "description": "A Kyverno ValidatingPolicy resource (policies.kyverno.io). Open shape; only top-level identity is validated.",
+        "type": "object",
+        "required": ["apiVersion", "kind", "metadata"],
+        "properties": {
+          "apiVersion": { "type": "string", "pattern": "^policies\\.kyverno\\.io/" },
+          "kind":       { "const": "ValidatingPolicy" },
+          "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
+        }
+      },
+
+      "kyvernoNewPolicy": {
+        "description": "A Kyverno policy resource from the policies.kyverno.io group: ValidatingPolicy, MutatingPolicy, GeneratingPolicy or DeletingPolicy. Open shape; only top-level identity is validated.",
+        "type": "object",
+        "required": ["apiVersion", "kind", "metadata"],
+        "properties": {
+          "apiVersion": { "type": "string", "pattern": "^policies\\.kyverno\\.io/" },
+          "kind":       { "enum": ["ValidatingPolicy", "MutatingPolicy", "GeneratingPolicy", "DeletingPolicy"] },
+          "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
+        }
+      },
+
+      "kyvernoClusterAdditionalPolicy": {
+        "description": "A policy accepted by clusterSecurity.additionalKyvernoPolicies: a legacy ClusterPolicy (kyverno.io) or any policies.kyverno.io type (ValidatingPolicy, MutatingPolicy, GeneratingPolicy, DeletingPolicy). The chart applies these verbatim cluster-wide.",
+        "oneOf": [
+          { "$ref": "#/definitions/kyvernoLegacyClusterPolicy" },
+          { "$ref": "#/definitions/kyvernoNewPolicy" }
+        ]
+      },
+
+      "kyvernoWorkshopAdditionalPolicy": {
+        "description": "A policy accepted by workshopSecurity.additionalKyvernoPolicies: a legacy ClusterPolicy (kyverno.io) or a ValidatingPolicy (policies.kyverno.io). session-manager scopes these per workshop environment; only these two kinds are honoured by the runtime today.",
+        "oneOf": [
+          { "$ref": "#/definitions/kyvernoLegacyClusterPolicy" },
+          { "$ref": "#/definitions/kyvernoValidatingPolicy" }
+        ]
       },
 
       "trackingIdBlock": {
@@ -107,7 +147,7 @@
           },
           "additionalKyvernoPolicies": {
             "type": "array",
-            "items": { "$ref": "#/definitions/kyvernoClusterPolicy" }
+            "items": { "$ref": "#/definitions/kyvernoClusterAdditionalPolicy" }
           }
         }
       },
@@ -123,7 +163,7 @@
           },
           "additionalKyvernoPolicies": {
             "type": "array",
-            "items": { "$ref": "#/definitions/kyvernoClusterPolicy" }
+            "items": { "$ref": "#/definitions/kyvernoWorkshopAdditionalPolicy" }
           }
         }
       },

@@ -80,6 +80,8 @@ session-manager:
   # this is the v3-default behaviour, exercised here).
   clusterAdmin: true
 
+  # Exercise both accepted kinds on each path: a legacy ClusterPolicy
+  # (kyverno.io) and a new ValidatingPolicy (policies.kyverno.io).
   clusterSecurity:
     additionalKyvernoPolicies:
       - apiVersion: kyverno.io/v1
@@ -100,6 +102,24 @@ session-manager:
                 cel:
                   expressions:
                     - expression: "true"
+      - apiVersion: policies.kyverno.io/v1alpha1
+        kind: ValidatingPolicy
+        metadata:
+          name: scenario-09-cluster-marker-vp
+        spec:
+          validationActions: [Audit]
+          evaluation:
+            background:
+              enabled: true
+          matchConstraints:
+            resourceRules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                operations: ["CREATE", "UPDATE"]
+                resources: ["pods"]
+          validations:
+            - expression: "true"
+              message: "scenario-09 cluster VP placeholder — never matches"
 
   workshopSecurity:
     additionalKyvernoPolicies:
@@ -121,6 +141,24 @@ session-manager:
                 cel:
                   expressions:
                     - expression: "true"
+      - apiVersion: policies.kyverno.io/v1alpha1
+        kind: ValidatingPolicy
+        metadata:
+          name: scenario-09-workshop-marker-vp
+        spec:
+          validationActions: [Audit]
+          evaluation:
+            background:
+              enabled: true
+          matchConstraints:
+            resourceRules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                operations: ["CREATE", "UPDATE"]
+                resources: ["pods"]
+          validations:
+            - expression: "true"
+              message: "scenario-09 workshop VP placeholder — never matches"
 
   # Appended to the chart's default image inventory (name not in the
   # default list) — asserted in the rendered config blob, never pulled.
