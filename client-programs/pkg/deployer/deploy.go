@@ -110,13 +110,14 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		opts.Progress = progress.New(io.Discard, 0, false)
 	}
 
-	// Note-class lines (no step counter) for the setup operations
-	// that aren't part of the install sequence proper.
+	// Push cached local secrets so the operator can consume them.
 	if opts.SyncLocalSecrets {
-		opts.Progress.Note("syncing cached local secrets to cluster")
+		step := opts.Progress.Start("syncing cached local secrets to cluster")
 		if err := syncLocalSecrets(opts.Getter); err != nil {
+			step.Fail(err)
 			return err
 		}
+		step.Done("")
 	}
 
 	chrt, err := chart.Load()
@@ -145,7 +146,7 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	}
 
 	// 2. Helm install/upgrade the operator chart.
-	step := opts.Progress.Start(fmt.Sprintf("helm upgrade --install %s", OperatorReleaseName))
+	step := opts.Progress.Start("Installing Educates Kubernetes Operator")
 	helmClient, err := helm.New(opts.Getter, OperatorNamespace, opts.HelmLog)
 	if err != nil {
 		step.Fail(err)
@@ -155,10 +156,10 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		step.Fail(err)
 		return err
 	}
-	step.Done("released")
+	step.Done("")
 
 	// 3. Apply EducatesClusterConfig + wait.
-	if err := applyAndWaitStep(ctx, opts, applier, waiter, out.EducatesClusterConfig, "EducatesClusterConfig"); err != nil {
+	if err := installStep(ctx, opts, applier, waiter, out.EducatesClusterConfig, "EducatesClusterConfig"); err != nil {
 		return err
 	}
 
@@ -176,75 +177,89 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	}
 
 	// 5. SecretsManager + wait.
-	if err := applyAndWaitStep(ctx, opts, applier, waiter, out.SecretsManager, "SecretsManager"); err != nil {
+	if err := installStep(ctx, opts, applier, waiter, out.SecretsManager, "SecretsManager"); err != nil {
 		return err
 	}
 
 	// 6. LookupService + SessionManager — applied together, waited
 	//    together. See remote-access-token cycle comment from commit
-	//    0d79afc6.
+	//    0d79afc6. Both applies happen before either wait; the per-CR
+	//    "Installing" step covers the wait (the slow, meaningful part).
 	if out.LookupService != nil {
-		if err := applyOnlyStep(ctx, opts, applier, out.LookupService, "LookupService"); err != nil {
+		if err := applyQuiet(ctx, applier, out.LookupService, "LookupService"); err != nil {
 			return err
 		}
 	}
-	if err := applyOnlyStep(ctx, opts, applier, out.SessionManager, "SessionManager"); err != nil {
+	if err := applyQuiet(ctx, applier, out.SessionManager, "SessionManager"); err != nil {
 		return err
 	}
 	if out.LookupService != nil {
-		if err := waitOnlyStep(ctx, opts, waiter, out.LookupService, "LookupService"); err != nil {
+		if err := installWaitStep(ctx, opts, waiter, out.LookupService, "LookupService"); err != nil {
 			return err
 		}
 	}
-	if err := waitOnlyStep(ctx, opts, waiter, out.SessionManager, "SessionManager"); err != nil {
+	if err := installWaitStep(ctx, opts, waiter, out.SessionManager, "SessionManager"); err != nil {
 		return err
 	}
 
-	opts.Progress.Note("deploy complete")
+	opts.Progress.Note("Educates successfully deployed")
 	return nil
 }
 
-// applyAndWaitStep does apply + wait under a single progress step.
-// Used by ECC and SecretsManager where the two operations are
-// strictly sequential.
-func applyAndWaitStep(ctx context.Context, opts Options, applier *apply.Client, waiter *wait.Client, obj map[string]interface{}, label string) error {
-	if err := applyOnlyStep(ctx, opts, applier, obj, label); err != nil {
-		return err
-	}
-	return waitOnlyStep(ctx, opts, waiter, obj, label)
-}
-
-// applyOnlyStep is one progress step that just applies and reports
-// the apply outcome. Used by the interleaved LookupService /
-// SessionManager path where applies and waits are deliberately split.
-func applyOnlyStep(ctx context.Context, opts Options, applier *apply.Client, obj map[string]interface{}, label string) error {
+// installStep applies obj and waits for it to become Ready under a
+// single "Installing <label>" progress step. The apply is surfaced as an
+// "applying" phase and the wait surfaces the CR's status.phase changes,
+// so one morphing line carries the whole install of one component. Used
+// by ECC and SecretsManager, where apply and wait are strictly
+// sequential.
+func installStep(ctx context.Context, opts Options, applier *apply.Client, waiter *wait.Client, obj map[string]interface{}, label string) error {
 	u, err := mapToUnstructured(obj)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	step := opts.Progress.Start(fmt.Sprintf("apply %s/%s", label, u.GetName()))
+	step := opts.Progress.Start("Installing " + label)
+	step.Update("applying")
 	if _, err := applier.Apply(ctx, u); err != nil {
 		step.Fail(err)
 		return err
 	}
-	step.Done("applied")
-	return nil
-}
-
-// waitOnlyStep is one progress step that just polls for Ready and
-// surfaces phase changes (when the CR's status.phase field updates)
-// as Update calls on the step.
-func waitOnlyStep(ctx context.Context, opts Options, waiter *wait.Client, obj map[string]interface{}, label string) error {
-	u, err := mapToUnstructured(obj)
-	if err != nil {
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	step := opts.Progress.Start(fmt.Sprintf("wait %s/%s Ready", label, u.GetName()))
 	if _, err := waiter.WaitReadyWithPhase(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout, step.Update); err != nil {
 		step.Fail(err)
 		return err
 	}
-	step.Done("Ready")
+	step.Done("")
+	return nil
+}
+
+// installWaitStep waits for an already-applied obj to become Ready under
+// a single "Installing <label>" step. Used by the LookupService /
+// SessionManager pair, whose applies are both done up front (see the
+// remote-access-token cycle) before either is waited on.
+func installWaitStep(ctx context.Context, opts Options, waiter *wait.Client, obj map[string]interface{}, label string) error {
+	u, err := mapToUnstructured(obj)
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	step := opts.Progress.Start("Installing " + label)
+	if _, err := waiter.WaitReadyWithPhase(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout, step.Update); err != nil {
+		step.Fail(err)
+		return err
+	}
+	step.Done("")
+	return nil
+}
+
+// applyQuiet applies obj without opening a progress step. Used for the
+// LookupService / SessionManager pair, which must both be applied before
+// either is waited on; their "Installing" steps cover the wait.
+func applyQuiet(ctx context.Context, applier *apply.Client, obj map[string]interface{}, label string) error {
+	u, err := mapToUnstructured(obj)
+	if err != nil {
+		return fmt.Errorf("%s: %w", label, err)
+	}
+	if _, err := applier.Apply(ctx, u); err != nil {
+		return fmt.Errorf("apply %s: %w", label, err)
+	}
 	return nil
 }
 

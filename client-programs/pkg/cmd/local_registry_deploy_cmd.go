@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
@@ -17,7 +18,9 @@ type LocalRegistryDeployOptions struct {
 }
 
 func (o *LocalRegistryDeployOptions) Run() error {
-	err := registry.DeployRegistry(o.BindIP)
+	err := stepOnStdout("deploy local registry", "ready", func(s progress.Step) error {
+		return registry.DeployRegistry(o.BindIP, s)
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "failed to deploy registry")

@@ -4,7 +4,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 )
 
@@ -39,7 +39,9 @@ func (o *LocalMirrorDeployOptions) Run() error {
 		Password: o.Password,
 	}
 
-	err := registry.DeployMirrorAndLinkToCluster(mirrorConfig)
+	err := stepOnStdout("registry mirror "+o.MirrorName, "ready", func(s progress.Step) error {
+		return registry.DeployMirrorAndLinkToCluster(mirrorConfig, s)
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "failed to deploy registry mirror")

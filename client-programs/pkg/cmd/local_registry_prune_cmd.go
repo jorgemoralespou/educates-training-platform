@@ -4,6 +4,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 )
 
@@ -11,7 +12,9 @@ type LocalRegistryPruneOptions struct {
 }
 
 func (o *LocalRegistryPruneOptions) Run() error {
-	err := registry.PruneRegistry()
+	err := stepOnStdout("prune local registry", "pruned", func(s progress.Step) error {
+		return registry.PruneRegistry(s)
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "failed to prune registry")

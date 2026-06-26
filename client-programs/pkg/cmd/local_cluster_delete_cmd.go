@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 	"github.com/educates/educates-training-platform/client-programs/pkg/resolver"
 )
@@ -17,10 +18,15 @@ func (o *LocalClusterDeleteOptions) Run() error {
 	c := cluster.NewKindClusterConfig("")
 
 	if o.AllComponents {
-		registry.DeleteRegistry()
+		// Best-effort cleanup: surface each as a step but don't abort the
+		// cluster delete if a component is already gone.
+		_ = stepOnStdout("delete local registry", "deleted", func(s progress.Step) error {
+			return registry.DeleteRegistry(s)
+		})
 		resolver.DeleteResolver()
-		// Delete all mirrors
-		registry.DeleteRegistryMirrors()
+		_ = stepOnStdout("delete registry mirrors", "deleted", func(s progress.Step) error {
+			return registry.DeleteRegistryMirrors(s)
+		})
 	}
 
 	return c.DeleteCluster()

@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 )
 
@@ -23,7 +23,9 @@ func (o *LocalMirrorDeleteOptions) Run() error {
 		Mirror: o.MirrorName,
 	}
 
-	return registry.DeleteMirrorAndUnlinkFromCluster(mirrorConfig)
+	return stepOnStdout("delete registry mirror "+o.MirrorName, "deleted", func(s progress.Step) error {
+		return registry.DeleteMirrorAndUnlinkFromCluster(mirrorConfig, s)
+	})
 }
 
 func (p *ProjectInfo) NewLocalMirrorDeleteCmd() *cobra.Command {

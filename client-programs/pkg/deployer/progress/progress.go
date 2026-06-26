@@ -98,11 +98,17 @@ func (r *reporter) Note(msg string) {
 	fmt.Fprintln(r.w, "·", msg)
 }
 
+// clearEOL is the ANSI "erase to end of line" sequence. Emitted after a
+// carriage-return rewrite on a TTY so the new (possibly shorter) line
+// fully replaces whatever was there before — no byte/column width math,
+// no trailing-space residue, and any stray characters left by an
+// interleaved writer are wiped rather than surviving as garble.
+const clearEOL = "\033[K"
+
 type step struct {
-	r        *reporter
-	n        int
-	label    string
-	lastLine string // tracks last rendered text for TTY overwrite
+	r     *reporter
+	n     int
+	label string
 }
 
 func (s *step) Update(phase string) { s.render(phase) }
@@ -115,29 +121,30 @@ func (s *step) Fail(err error) {
 	s.finalize("✗", err.Error())
 }
 
-// render writes the in-progress line, optionally overwriting the
-// previous render on a TTY.
+// render writes the in-progress line. On a TTY the step occupies a
+// single line that morphs in place (→ to its eventual ✓/✗) via a
+// carriage return + erase-to-EOL, leaving no trailing newline until
+// finalize commits it. On a non-TTY every state change is its own
+// appended line so the log stays grep-able.
 func (s *step) render(phase string) {
 	line := s.format("→", phase)
-	if s.r.isTTY && s.lastLine != "" {
-		// Carriage return + spaces to clear previous content.
-		fmt.Fprint(s.r.w, "\r"+pad(line, len(s.lastLine)))
+	if s.r.isTTY {
+		fmt.Fprint(s.r.w, "\r"+line+clearEOL)
 	} else {
 		fmt.Fprintln(s.r.w, line)
 	}
-	s.lastLine = line
 }
 
-// finalize writes the closing line (✓ or ✗). On a TTY this overwrites
-// the in-progress line; on a non-TTY it appends.
+// finalize writes the closing line (✓ or ✗). On a TTY it overwrites the
+// in-progress line and commits it with a newline; on a non-TTY it
+// appends.
 func (s *step) finalize(symbol, msg string) {
 	final := s.format(symbol, msg)
 	if s.r.isTTY {
-		fmt.Fprintln(s.r.w, "\r"+pad(final, len(s.lastLine)))
+		fmt.Fprint(s.r.w, "\r"+final+clearEOL+"\n")
 	} else {
 		fmt.Fprintln(s.r.w, final)
 	}
-	s.lastLine = ""
 }
 
 // format builds '[3/6] symbol Label: detail'. Empty total hides the
@@ -152,24 +159,4 @@ func (s *step) format(symbol, detail string) string {
 		out += ": " + detail
 	}
 	return out
-}
-
-// pad right-pads s with spaces to at least width characters so a TTY
-// overwrite hides longer previous content.
-func pad(s string, width int) string {
-	if len(s) >= width {
-		return s
-	}
-	return s + spaces(width-len(s))
-}
-
-func spaces(n int) string {
-	if n <= 0 {
-		return ""
-	}
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = ' '
-	}
-	return string(b)
 }

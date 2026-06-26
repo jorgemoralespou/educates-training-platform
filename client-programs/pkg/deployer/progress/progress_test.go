@@ -56,6 +56,45 @@ func TestTTY_OverwritesWithCarriageReturn(t *testing.T) {
 	}
 }
 
+func TestTTY_ClearsToEOLAndCommitsWithNewline(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 0, true)
+
+	s := r.Start("registry mirror ghcr.io")
+	s.Update("a much longer intermediate phase line")
+	s.Done("ready")
+
+	out := buf.String()
+	// Every TTY rewrite must erase to end of line so a shorter final
+	// line can't leave residue from a longer intermediate one (the
+	// `rror`/`Cot` garble). No space-padding is used anymore.
+	if !strings.Contains(out, "\r✓ registry mirror ghcr.io: ready\033[K\n") {
+		t.Errorf("final line must rewrite, clear-to-EOL, then commit a newline:\n%q", out)
+	}
+	// The intermediate render must also clear to EOL.
+	if !strings.Contains(out, "\033[K") {
+		t.Errorf("expected erase-to-EOL escape on TTY renders:\n%q", out)
+	}
+	// Final visible state must end the line with a newline so the next
+	// writer starts clean.
+	if !strings.HasSuffix(out, "\n") {
+		t.Errorf("committed step must end in newline:\n%q", out)
+	}
+}
+
+func TestTTY_MultibyteSymbolsDoNotMisalign(t *testing.T) {
+	// The symbols (→ ✓ ✗) and labels may carry multi-byte runes. The
+	// clear-to-EOL approach must not depend on byte-vs-column width, so
+	// just assert the rewrite carries the full intended text intact.
+	var buf bytes.Buffer
+	r := New(&buf, 0, true)
+	r.Start("wait SecretsManager/cluster Ready ⏳").Done("Ready 💚")
+	out := buf.String()
+	if !strings.Contains(out, "✓ wait SecretsManager/cluster Ready ⏳: Ready 💚\033[K\n") {
+		t.Errorf("multibyte content must survive the rewrite intact:\n%q", out)
+	}
+}
+
 func TestNoCounter_WhenTotalZero(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, 0, false)

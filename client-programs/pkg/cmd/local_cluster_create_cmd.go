@@ -14,6 +14,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
@@ -107,31 +108,46 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 		return err
 	}
 
+	// The registry, loopback and mirror phases all report through one
+	// progress reporter so the create flow reads as a single sequence of
+	// `→ … ✓` steps (the platform deploy tail-call builds its own
+	// reporter against the same writer).
+	rep := progress.New(w, 0, isStdoutTTY(w))
+
 	// 2. always-on local registry + k8s Service for imgpkg pulls.
-	fmt.Fprintln(w, "→ bringing up localhost:5001 registry")
-	if err := registry.DeployRegistryAndLinkToCluster(o.RegistryBindIP, client); err != nil {
+	if err := runStep(rep, "bringing up localhost:5001 registry", "ready", func(s progress.Step) error {
+		if err := registry.DeployRegistryAndLinkToCluster(o.RegistryBindIP, client, s); err != nil {
+			return err
+		}
+		s.Update("registering cluster service")
+		return registry.UpdateRegistryK8SService(client)
+	}); err != nil {
 		return fmt.Errorf("registry: %w", err)
-	}
-	if err := registry.UpdateRegistryK8SService(client); err != nil {
-		return fmt.Errorf("registry service: %w", err)
 	}
 
 	// 3. loopback service for hugo livereload (educates serve-workshop).
-	if err := cluster.CreateLoopbackService(client, cfg.Ingress.Domain); err != nil {
+	if err := runStep(rep, "creating loopback service", "ready", func(s progress.Step) error {
+		return cluster.CreateLoopbackService(client, cfg.Ingress.Domain)
+	}); err != nil {
 		return fmt.Errorf("loopback service: %w", err)
 	}
 
 	// 4. registry mirrors declared in config (pull-through caches).
 	for _, m := range cfg.Cluster.RegistryMirrors {
-		fmt.Fprintf(w, "→ registry mirror %s → %s\n", m.Mirror, m.URL)
+		label := "registry mirror " + m.Mirror
+		if m.URL != "" {
+			label += " → " + m.URL
+		}
 		mc := registryMirrorFromConfig(m)
-		if err := registry.DeployMirrorAndLinkToCluster(&mc); err != nil {
+		if err := runStep(rep, label, "ready", func(s progress.Step) error {
+			return registry.DeployMirrorAndLinkToCluster(&mc, s)
+		}); err != nil {
 			return fmt.Errorf("mirror %s: %w", m.Mirror, err)
 		}
 	}
 
 	if o.ClusterOnly {
-		fmt.Fprintln(w, "✓ cluster + registry ready (--cluster-only; skipped platform deploy)")
+		rep.Note("cluster + registry ready (--cluster-only; skipped platform deploy)")
 		return nil
 	}
 
@@ -140,7 +156,6 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	//    the host-IP fallback non-deterministically against a freshly
 	//    started cluster's IP), translate here and call deployer.Deploy
 	//    directly.
-	fmt.Fprintln(w, "→ tail-calling admin platform deploy")
 	return tailCallDeploy(ctx, w, cfg, configPath, p, o)
 }
 
