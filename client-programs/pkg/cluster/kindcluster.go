@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -16,10 +17,65 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/kind/pkg/cluster"
 	"sigs.k8s.io/kind/pkg/cmd"
+	"sigs.k8s.io/kind/pkg/log"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
+
+// phaseLogger adapts kind's logger interface to a single status
+// callback. kind's status helper (cli.StatusForLogger) only drives its
+// terminal spinner when the logger is kind's own *cli.Logger; for any
+// other logger it falls back to logging each phase via V(0).Infof
+// (" • Ensuring node image  ...", " ✓ Ensuring node image", …). We
+// intercept those, clean off the marker/ellipsis, and forward the phase
+// text to onPhase so the create flow can surface it on its own single
+// progress line. Warnings and errors still reach the user on stderr;
+// higher verbosity levels are dropped.
+type phaseLogger struct {
+	onPhase func(string)
+}
+
+func (l phaseLogger) Warn(message string)            { fmt.Fprintln(os.Stderr, message) }
+func (l phaseLogger) Warnf(format string, a ...any)  { fmt.Fprintf(os.Stderr, format+"\n", a...) }
+func (l phaseLogger) Error(message string)           { fmt.Fprintln(os.Stderr, message) }
+func (l phaseLogger) Errorf(format string, a ...any) { fmt.Fprintf(os.Stderr, format+"\n", a...) }
+func (l phaseLogger) V(level log.Level) log.InfoLogger {
+	return phaseInfo{onPhase: l.onPhase, enabled: level == 0}
+}
+
+// phaseInfo is the InfoLogger half of phaseLogger. Only V(0) is enabled,
+// so kind skips formatting the noisier debug/trace levels entirely.
+type phaseInfo struct {
+	onPhase func(string)
+	enabled bool
+}
+
+func (i phaseInfo) Enabled() bool            { return i.enabled }
+func (i phaseInfo) Info(message string)      { i.emit(message) }
+func (i phaseInfo) Infof(f string, a ...any) { i.emit(fmt.Sprintf(f, a...)) }
+
+func (i phaseInfo) emit(s string) {
+	if !i.enabled || i.onPhase == nil {
+		return
+	}
+	if s = cleanKindStatus(s); s != "" {
+		i.onPhase(s)
+	}
+}
+
+// cleanKindStatus strips the bullet/check/cross marker and trailing
+// ellipsis that kind's Status wraps each phase in, leaving just the
+// phase text (e.g. "Ensuring node image (kindest/node:v1.36.1) 🖼").
+func cleanKindStatus(s string) string {
+	s = strings.TrimSpace(s)
+	for _, marker := range []string{"•", "✓", "✗"} {
+		s = strings.TrimPrefix(s, marker)
+	}
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, "...")
+	return strings.TrimSpace(s)
+}
 
 type KindClusterConfig struct {
 	Config   ClusterConfig
@@ -59,7 +115,13 @@ func (o *KindClusterConfig) ClusterExists() (bool, error) {
 	return slices.Contains(clusters, "educates"), nil
 }
 
-func (o *KindClusterConfig) CreateCluster(input *KindBootstrapInput, image string) error {
+// CreateCluster boots the 'educates' kind cluster. By default kind's own
+// status spinner and end-of-create salutation/usage footer are
+// suppressed: each kind phase is forwarded to onPhase (so the caller can
+// render it on one line), and the footer chatter is turned off. When
+// verbose is true kind's full logger is used instead (spinner + detail
+// on stderr) and onPhase is ignored.
+func (o *KindClusterConfig) CreateCluster(input *KindBootstrapInput, image string, onPhase func(string), verbose bool) error {
 	if exists, err := o.ClusterExists(); err != nil {
 		return err
 	} else if exists {
@@ -95,17 +157,26 @@ func (o *KindClusterConfig) CreateCluster(input *KindBootstrapInput, image strin
 	if err != nil {
 		return errors.Wrap(err, "failed to write cluster config to file")
 	}
-	// TODO: Make this output only show when verbose is enabled
-	fmt.Println("Cluster config used is saved to: ", kindConfigPath)
+	if verbose {
+		fmt.Println("Cluster config used is saved to: ", kindConfigPath)
+	}
 
-	if err := o.provider.Create(
+	// Verbose: kind's own logger (terminal spinner + detail). Default:
+	// forward each phase to onPhase and stay silent otherwise.
+	var logger log.Logger = phaseLogger{onPhase: onPhase}
+	if verbose {
+		logger = cmd.NewLogger()
+	}
+	provider := cluster.NewProvider(cluster.ProviderWithLogger(logger))
+
+	if err := provider.Create(
 		"educates",
 		cluster.CreateWithRawConfig(clusterConfigData.Bytes()),
 		cluster.CreateWithNodeImage(image),
 		cluster.CreateWithWaitForReady(time.Duration(time.Duration(60)*time.Second)),
 		cluster.CreateWithKubeconfigPath(o.Config.Kubeconfig),
-		cluster.CreateWithDisplayUsage(true),
-		cluster.CreateWithDisplaySalutation(true),
+		cluster.CreateWithDisplayUsage(false),
+		cluster.CreateWithDisplaySalutation(false),
 	); err != nil {
 		return errors.Wrap(err, "failed to create cluster")
 	}

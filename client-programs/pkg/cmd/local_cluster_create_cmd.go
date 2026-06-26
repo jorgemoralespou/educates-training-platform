@@ -96,23 +96,37 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 		return err
 	}
 
+	// The kind, registry, loopback and mirror phases all report through
+	// one progress reporter so the create flow reads as a single sequence
+	// of `→ … ✓` steps (the platform deploy tail-call builds its own
+	// reporter against the same writer).
+	rep := progress.New(w, 0, isStdoutTTY(w))
+
 	// 1. kind bootstrap. kindBootstrapFromConfig builds the focused
-	//    KindBootstrapInput from EducatesLocalConfig.Cluster fields
-	//    the template reads.
-	fmt.Fprintln(w, "→ creating kind cluster 'educates'")
-	if err := clusterConfig.CreateCluster(kindBootstrapFromConfig(cfg), o.ClusterImage); err != nil {
-		return err
+	//    KindBootstrapInput from EducatesLocalConfig.Cluster fields the
+	//    template reads. By default kind's own phases are forwarded onto
+	//    our single step line and its footer chatter is suppressed; with
+	//    --verbose kind prints its full spinner + detail and we frame it
+	//    with a plain header/footer (a morphing line can't wrap kind's
+	//    own terminal output).
+	bootstrap := kindBootstrapFromConfig(cfg)
+	if o.Verbose {
+		fmt.Fprintln(w, "→ creating kind cluster 'educates'")
+		if err := clusterConfig.CreateCluster(bootstrap, o.ClusterImage, nil, true); err != nil {
+			return err
+		}
+		fmt.Fprintln(w, "✓ creating kind cluster 'educates'")
+	} else {
+		if err := runStep(rep, "creating kind cluster 'educates'", "ready", func(s progress.Step) error {
+			return clusterConfig.CreateCluster(bootstrap, o.ClusterImage, s.Update, false)
+		}); err != nil {
+			return err
+		}
 	}
 	client, err := clusterConfig.Config.GetClient()
 	if err != nil {
 		return err
 	}
-
-	// The registry, loopback and mirror phases all report through one
-	// progress reporter so the create flow reads as a single sequence of
-	// `→ … ✓` steps (the platform deploy tail-call builds its own
-	// reporter against the same writer).
-	rep := progress.New(w, 0, isStdoutTTY(w))
 
 	// 2. always-on local registry + k8s Service for imgpkg pulls.
 	if err := runStep(rep, "bringing up localhost:5001 registry", "ready", func(s progress.Step) error {
