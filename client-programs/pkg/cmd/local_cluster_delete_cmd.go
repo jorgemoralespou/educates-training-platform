@@ -20,11 +20,11 @@ func (o *LocalClusterDeleteOptions) Run() error {
 	if o.AllComponents {
 		// Best-effort cleanup: surface each as a step but don't abort the
 		// cluster delete if a component is already gone.
-		_ = stepOnStdout("delete local registry", "deleted", func(s progress.Step) error {
+		_ = stepOnStdout(false, "delete local registry", "deleted", func(s progress.Step) error {
 			return registry.DeleteRegistry(s)
 		})
 		resolver.DeleteResolver()
-		_ = stepOnStdout("delete registry mirrors", "deleted", func(s progress.Step) error {
+		_ = stepOnStdout(false, "delete registry mirrors", "deleted", func(s progress.Step) error {
 			return registry.DeleteRegistryMirrors(s)
 		})
 	}

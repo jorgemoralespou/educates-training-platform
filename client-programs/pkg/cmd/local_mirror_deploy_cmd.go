@@ -29,6 +29,7 @@ type LocalMirrorDeployOptions struct {
 	MirrorURL  string
 	Username   string
 	Password   string
+	Verbose    bool
 }
 
 func (o *LocalMirrorDeployOptions) Run() error {
@@ -39,7 +40,7 @@ func (o *LocalMirrorDeployOptions) Run() error {
 		Password: o.Password,
 	}
 
-	err := stepOnStdout("registry mirror "+o.MirrorName, "ready", func(s progress.Step) error {
+	err := stepOnStdout(o.Verbose, "registry mirror "+o.MirrorName, "ready", func(s progress.Step) error {
 		return registry.DeployMirrorAndLinkToCluster(mirrorConfig, s)
 	})
 
@@ -83,6 +84,13 @@ func (p *ProjectInfo) NewLocalMirrorDeployCmd() *cobra.Command {
 		"password",
 		"",
 		"Password for the registry mirror",
+	)
+
+	c.Flags().BoolVar(
+		&o.Verbose,
+		"verbose",
+		false,
+		"show per-step detail instead of a single collapsed line",
 	)
 
 	return c

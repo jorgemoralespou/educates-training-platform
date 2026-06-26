@@ -12,7 +12,7 @@ type LocalRegistryPruneOptions struct {
 }
 
 func (o *LocalRegistryPruneOptions) Run() error {
-	err := stepOnStdout("prune local registry", "pruned", func(s progress.Step) error {
+	err := stepOnStdout(false, "prune local registry", "pruned", func(s progress.Step) error {
 		return registry.PruneRegistry(s)
 	})
 

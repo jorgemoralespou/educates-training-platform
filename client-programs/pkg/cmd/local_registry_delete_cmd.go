@@ -13,7 +13,7 @@ func (p *ProjectInfo) NewLocalRegistryDeleteCmd() *cobra.Command {
 		Use:   "delete",
 		Short: "Deletes the local image registry",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return stepOnStdout("delete local registry", "deleted", func(s progress.Step) error {
+			return stepOnStdout(false, "delete local registry", "deleted", func(s progress.Step) error {
 				return registry.DeleteRegistry(s)
 			})
 		},

@@ -14,11 +14,12 @@ import (
 
 type LocalRegistryDeployOptions struct {
 	KubeconfigOptions
-	BindIP string
+	BindIP  string
+	Verbose bool
 }
 
 func (o *LocalRegistryDeployOptions) Run() error {
-	err := stepOnStdout("deploy local registry", "ready", func(s progress.Step) error {
+	err := stepOnStdout(o.Verbose, "deploy local registry", "ready", func(s progress.Step) error {
 		return registry.DeployRegistry(o.BindIP, s)
 	})
 
@@ -89,6 +90,13 @@ func (p *ProjectInfo) NewLocalRegistryDeployCmd() *cobra.Command {
 		"bind-ip",
 		"127.0.0.1",
 		"Bind ip for the registry service",
+	)
+
+	c.Flags().BoolVar(
+		&o.Verbose,
+		"verbose",
+		false,
+		"show per-step detail instead of a single collapsed line",
 	)
 
 	return c

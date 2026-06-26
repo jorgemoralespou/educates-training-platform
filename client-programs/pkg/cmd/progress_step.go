@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 )
 
@@ -22,7 +24,9 @@ func runStep(rep progress.Reporter, label, summary string, fn func(progress.Step
 
 // stepOnStdout brackets a single operation against a fresh stdout
 // reporter — the standalone registry/mirror commands that render one
-// operation and exit.
-func stepOnStdout(label, summary string, fn func(progress.Step) error) error {
-	return runStep(progress.NewForStdout(0), label, summary, fn)
+// operation and exit. verbose turns off in-place line morphing so each
+// sub-operation detail line is committed rather than overwritten.
+func stepOnStdout(verbose bool, label, summary string, fn func(progress.Step) error) error {
+	rep := progress.New(os.Stdout, 0, isStdoutTTY(os.Stdout) && !verbose)
+	return runStep(rep, label, summary, fn)
 }
