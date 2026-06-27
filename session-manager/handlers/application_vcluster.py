@@ -10,8 +10,32 @@ from .operator_config import (
     LOFTSH_KUBERNETES_V1_32_IMAGE,
     LOFTSH_KUBERNETES_V1_33_IMAGE,
     LOFTSH_KUBERNETES_V1_34_IMAGE,
+    VCLUSTER_INTERNAL_CONTOUR_IMAGE,
+    VCLUSTER_INTERNAL_ENVOY_IMAGE,
     CLUSTER_STORAGE_GROUP,
 )
+
+# The Contour manifests in packages/contour/upstream pin specific upstream
+# image refs. Rewrite them to the refs from the imageVersions inventory so
+# the inventory entry — and any air-gap relocation override of it — is what
+# actually gets deployed into the vcluster, mirroring how the loft-sh
+# images are sourced.
+CONTOUR_IMAGE_REPOSITORIES = {
+    "ghcr.io/projectcontour/contour": VCLUSTER_INTERNAL_CONTOUR_IMAGE,
+    "docker.io/envoyproxy/envoy": VCLUSTER_INTERNAL_ENVOY_IMAGE,
+}
+
+
+def relocate_contour_images(objects):
+    for obj in objects:
+        pod_spec = xget(obj, "spec.template.spec", {})
+        for key in ("initContainers", "containers"):
+            for container in pod_spec.get(key, []):
+                image = container.get("image")
+                if image is None:
+                    continue
+                repository = image.rsplit(":", 1)[0]
+                container["image"] = CONTOUR_IMAGE_REPOSITORIES.get(repository, image)
 
 K8S_DEFAULT_VERSION = "1.33"
 
@@ -171,6 +195,8 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                             port.pop("hostPort", None)
 
                 contour_objects.append(obj)
+
+        relocate_contour_images(contour_objects)
 
         vcluster_objects.extend(contour_objects)
 

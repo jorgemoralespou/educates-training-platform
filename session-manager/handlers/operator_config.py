@@ -165,7 +165,12 @@ LOFTSH_KUBERNETES_V1_34_IMAGE = image_reference("loftsh-kubernetes-v1.34")
 
 LOFTSH_VCLUSTER_IMAGE = image_reference("loftsh-vcluster")
 
-CONTOUR_BUNDLE_IMAGE = image_reference("contour-bundle")
+# Contour ingress controller deployed inside a vcluster session when the
+# vcluster application enables ingress. Sourced from the imageVersions
+# inventory so the refs are relocatable and captured in the air-gap image
+# list, the same way the loft-sh images are.
+VCLUSTER_INTERNAL_CONTOUR_IMAGE = image_reference("vcluster-internal-contour")
+VCLUSTER_INTERNAL_ENVOY_IMAGE = image_reference("vcluster-internal-envoy")
 
 
 def resolve_workshop_image(name):

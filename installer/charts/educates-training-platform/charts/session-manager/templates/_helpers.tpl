@@ -283,7 +283,6 @@ Returns the merged list as a YAML array string (consume via fromYamlArray).
     (dict "name" "tunnel-manager"          "image" (printf "%s/educates-tunnel-manager:%s" $repo $v))
     (dict "name" "image-cache"             "image" (printf "%s/educates-image-cache:%s" $repo $v))
     (dict "name" "assets-server"           "image" (printf "%s/educates-assets-server:%s" $repo $v))
-    (dict "name" "contour-bundle"          "image" (printf "%s/educates-contour-bundle:%s" $repo $v))
     (dict "name" "base-environment"        "image" (printf "%s/educates-base-environment:%s" $repo $v))
     (dict "name" "jdk8-environment"        "image" (printf "%s/educates-jdk8-environment:%s" $repo $v))
     (dict "name" "jdk11-environment"       "image" (printf "%s/educates-jdk11-environment:%s" $repo $v))
@@ -297,6 +296,8 @@ Returns the merged list as a YAML array string (consume via fromYamlArray).
     (dict "name" "loftsh-kubernetes-v1.33" "image" "ghcr.io/loft-sh/kubernetes:v1.33.4")
     (dict "name" "loftsh-kubernetes-v1.34" "image" "ghcr.io/loft-sh/kubernetes:v1.34.0")
     (dict "name" "loftsh-vcluster"         "image" "ghcr.io/loft-sh/vcluster-oss:0.30.2")
+    (dict "name" "vcluster-internal-contour" "image" "ghcr.io/projectcontour/contour:v1.30.2")
+    (dict "name" "vcluster-internal-envoy"   "image" "docker.io/envoyproxy/envoy:v1.31.5")
 -}}
 {{- $overrides := dict -}}
 {{- range default list .Values.imageVersions -}}

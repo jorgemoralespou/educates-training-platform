@@ -88,7 +88,14 @@ New Features
 * The Helm charts are published as OCI artifacts to
   ``ghcr.io/educates/charts`` with each release, and a digest-pinned list of
   all images used by a release is attached to the GitHub release to support
-  mirroring images into air-gapped registries.
+  mirroring images into air-gapped registries. The list is intentionally
+  complete: in addition to the platform and bundled cluster-service images it
+  includes every image in the session-manager image inventory — the
+  workshop base, the JDK and conda workshop environments, and the images the
+  vcluster workshop application uses (``vcluster`` itself, its loft-sh
+  Kubernetes distribution images, the Contour and Envoy images for vcluster
+  ingress, ``docker-in-docker`` and the debian base). When mirroring, delete
+  the entries you do not use rather than guessing which ones might be missing.
 
 * ``imageVersions`` entries in the CLI configuration now reach every
   platform image: entries named ``secrets-manager`` and ``lookup-service``
@@ -243,6 +250,15 @@ Deprecations
 
 Bugs Fixed
 ----------
+
+* The Contour ingress controller deployed inside a vcluster workshop session
+  (when the ``vcluster`` application enables ingress) used hardcoded upstream
+  Contour and Envoy image references that were not subject to image relocation
+  and were absent from the published image list, so vcluster ingress could not
+  work in air-gapped or registry-mirrored environments. These images are now
+  first-class entries in the ``imageVersions`` inventory, so they are
+  relocatable through the same per-name override mechanism as the other
+  platform images and are included in the air-gap image list.
 
 * In Inline mode the ``EducatesClusterConfig`` status could remain ``Ready``
   after a referenced ``ClusterIssuer`` was deleted, if the deletion event from

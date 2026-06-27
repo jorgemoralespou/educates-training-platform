@@ -873,10 +873,13 @@ jobs:
       contents: read
       packages: read
 
-    # Digest resolution needs every listed image already pushed.
+    # Digest resolution needs every listed image already pushed. The
+    # list now includes the JDK/conda workshop environments, so the
+    # workshop-images job has to finish first too.
     needs:
       - publish-generic-images
       - publish-workshop-base-image
+      - publish-workshop-images
 
     steps:
       - name: Check out the repository
@@ -889,10 +892,12 @@ jobs:
           echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
           echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
 
-      # Digest-pinned list of every image an air-gapped install needs
-      # (platform images + base-environment + upstream cluster-service
-      # images from the vendored charts). Attached to the GitHub
-      # release for name-preserving mirroring with skopeo/crane.
+      # Digest-pinned list of every image an air-gapped install can need
+      # (platform images + the full session-manager image inventory:
+      # base-environment, JDK/conda environments, and the vcluster
+      # application images + upstream cluster-service images from the
+      # vendored charts). Attached to the GitHub release for
+      # name-preserving mirroring with skopeo/crane.
       - name: Generate image list
         shell: bash
         run: |

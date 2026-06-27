@@ -4,23 +4,30 @@
 #   hack/generate-image-list.sh <version> <registry-host> <registry-namespace> [--no-digests]
 #
 # Writes one fully qualified image reference per line to stdout
-# (`<repo>:<tag>@sha256:<digest>`), covering everything an air-gapped
-# install of the platform needs (see decisions.md "Image relocation is
-# a published digest-pinned list"):
+# (`<repo>:<tag>@sha256:<digest>`), covering everything an install of the
+# platform can need (see decisions.md "Image relocation is a published
+# digest-pinned list"):
 #
 #   - the Educates platform images at the released version (operator,
-#     runtime components, pause-container, docker-registry, ...) plus
-#     the workshop base-environment image, composed from the given
-#     registry host/namespace;
+#     runtime components, pause-container, docker-registry, ...);
+#   - the full session-manager image inventory (the `imageVersions`
+#     helper): the workshop base, the JDK and conda workshop
+#     environments, and the optional runtime images for the vcluster
+#     workshop application — vcluster itself plus its loft-sh Kubernetes
+#     distro images, docker-in-docker, and the debian base. Extracted by
+#     rendering the session-manager chart, so version bumps in the chart
+#     flow through without editing this script;
 #   - the upstream cluster-service images (cert-manager, Contour,
-#     external-dns, Kyverno), extracted by rendering the vendored
-#     chart tarballs with default values. Defaults are a superset of
-#     what the operator enables, so this over-collects slightly rather
-#     than ever missing an image.
+#     external-dns, Kyverno), extracted by rendering the vendored chart
+#     tarballs with default values. Defaults are a superset of what the
+#     operator enables, so this over-collects slightly rather than ever
+#     missing an image.
 #
-# Workshop environment images beyond base-environment (jdk*, conda)
-# are deliberately excluded — they add many GB per release. Air-gap
-# users append them to the list as needed.
+# The list is intentionally COMPLETE — it includes the JDK/conda
+# environments and the vcluster application images even though most
+# installs use only a subset. When mirroring, delete the entries you do
+# not use rather than guessing which ones might be missing. The
+# JDK/conda environment images are multi-GB each.
 #
 # Digest resolution uses skopeo (preinstalled on GitHub runners) and
 # requires the images to already be published — the release workflow
@@ -47,24 +54,21 @@ fi
 cd "$(dirname "$0")/.."
 
 VENDORED_CHARTS_DIR=installer/operator/vendored-charts
+SESSION_MANAGER_CHART=installer/charts/educates-training-platform/charts/session-manager
+REGISTRY_PREFIX="$REGISTRY_HOST/$REGISTRY_NAMESPACE"
 
-# Educates-built platform images: the publish-generic-images matrix
-# (with the operator's published name) plus the workshop
-# base-environment. educates-cli and the docker extension are client
-# tools, not platform images, and stay out.
+# Educates-built platform images that are NOT part of the session-manager
+# imageVersions inventory (the operator, the other components, and the
+# pause image). The inventory-resident Educates images — training-portal,
+# docker-registry, base-environment, jdk*, conda, ... — come from the
+# chart render below and are deduplicated against this list.
 PLATFORM_IMAGES="
-docker-registry
 pause-container
 session-manager
-training-portal
 secrets-manager
-tunnel-manager
-image-cache
-assets-server
 lookup-service
 node-ca-injector
 operator
-base-environment
 "
 
 # Upstream cluster-service charts the operator installs in Managed
@@ -94,10 +98,6 @@ emit() {
     fi
 }
 
-for name in $PLATFORM_IMAGES; do
-    emit "$REGISTRY_HOST/$REGISTRY_NAMESPACE/educates-$name:$VERSION"
-done
-
 # Image references appear in rendered manifests as `image:` fields and,
 # for cert-manager's acmesolver, as a `--*-image=` controller argument.
 extract_chart_images() {
@@ -107,7 +107,39 @@ extract_chart_images() {
         sed -E 's/^image: *"?//; s/"$//; s/^--[a-z0-9-]*image=//'
 }
 
-upstream_refs=""
+# Render the session-manager chart and pull every image reference out of
+# the imageVersions inventory (and the chart's own pod images). The
+# registry prefix is forced to the release's host/namespace so the
+# Educates-built entries resolve to the published location; clusterIngress
+# .domain is a required value that does not affect image refs.
+render_session_manager_images() {
+    helm template image-list-probe "$SESSION_MANAGER_CHART" \
+        --set clusterIngress.domain=image-list-probe.invalid \
+        --set development.imageRegistry.host="$REGISTRY_HOST" \
+        --set development.imageRegistry.namespace="$REGISTRY_NAMESPACE" \
+        2>/dev/null |
+        grep -ohE 'image: *"?[^"[:space:]]+"?' |
+        sed -E 's/^image: *"?//; s/"$//'
+}
+
+all_refs=""
+
+for name in $PLATFORM_IMAGES; do
+    all_refs+="$REGISTRY_PREFIX/educates-$name:$VERSION"$'\n'
+done
+
+# Educates-built inventory entries render at the chart's appVersion; pin
+# them to the release VERSION instead. External entries (vcluster,
+# loft-sh Kubernetes, the vcluster Contour/Envoy, docker-in-docker,
+# debian) pass through verbatim.
+while read -r ref; do
+    [ -n "$ref" ] || continue
+    case "$ref" in
+        "$REGISTRY_PREFIX"/*) all_refs+="${ref%:*}:$VERSION"$'\n' ;;
+        *) all_refs+="$ref"$'\n' ;;
+    esac
+done < <(render_session_manager_images)
+
 for glob in $UPSTREAM_CHART_GLOBS; do
     # shellcheck disable=SC2086 -- glob expansion is the point
     set -- $VENDORED_CHARTS_DIR/$glob
@@ -115,10 +147,10 @@ for glob in $UPSTREAM_CHART_GLOBS; do
         echo "no vendored chart matching $glob in $VENDORED_CHARTS_DIR" >&2
         exit 1
     }
-    upstream_refs+="$(extract_chart_images "$1")"$'\n'
+    all_refs+="$(extract_chart_images "$1")"$'\n'
 done
 
 while read -r ref; do
     [ -n "$ref" ] || continue
     emit "$ref"
-done < <(echo "$upstream_refs" | sort -u)
+done < <(echo "$all_refs" | sort -u)
