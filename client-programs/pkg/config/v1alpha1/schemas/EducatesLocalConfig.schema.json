@@ -7,57 +7,62 @@
   "additionalProperties": false,
   "required": ["apiVersion", "kind"],
   "properties": {
-    "apiVersion": { "const": "cli.educates.dev/v1alpha1" },
-    "kind":       { "const": "EducatesLocalConfig" },
+    "apiVersion": { "const": "cli.educates.dev/v1alpha1", "description": "API version of the configuration kind. Always cli.educates.dev/v1alpha1." },
+    "kind":       { "const": "EducatesLocalConfig", "description": "Configuration kind. Always EducatesLocalConfig." },
 
     "cluster": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Settings for the local Kind cluster the CLI creates.",
       "properties": {
-        "listenAddress":         { "type": "string", "default": "127.0.0.1" },
-        "registryListenAddress": { "type": "string" },
+        "listenAddress":         { "type": "string", "default": "127.0.0.1", "description": "Host address the cluster ingress is published on. Defaults to 127.0.0.1; set to 0.0.0.0 when the Docker daemon runs in a VM such as Colima so the cluster is reachable." },
+        "registryListenAddress": { "type": "string", "description": "Host address the local image registry is published on. Defaults to the cluster listenAddress." },
         "apiServer": {
           "type": "object",
           "additionalProperties": false,
+          "description": "Overrides for the Kind cluster's Kubernetes API server endpoint.",
           "properties": {
-            "address": { "type": "string" },
-            "port":    { "type": "integer", "minimum": 0, "maximum": 65535 }
+            "address": { "type": "string", "description": "Host address the API server is published on." },
+            "port":    { "type": "integer", "minimum": 0, "maximum": 65535, "description": "Host port the API server is published on. A fixed port keeps the kubeconfig stable across cluster recreations." }
           }
         },
         "networking": {
           "type": "object",
           "additionalProperties": false,
+          "description": "Overrides for the Kind cluster's pod and service network ranges.",
           "properties": {
-            "serviceSubnet": { "type": "string" },
-            "podSubnet":     { "type": "string" }
+            "serviceSubnet": { "type": "string", "description": "CIDR range for cluster Service IPs." },
+            "podSubnet":     { "type": "string", "description": "CIDR range for cluster Pod IPs." }
           }
         },
         "volumeMounts": {
           "type": "array",
+          "description": "Extra host directories to mount into the Kind node, for example to share workshop content from the host.",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["hostPath", "containerPath"],
             "properties": {
-              "hostPath":      { "type": "string", "minLength": 1 },
-              "containerPath": { "type": "string", "minLength": 1 },
-              "readOnly":      { "type": "boolean" }
+              "hostPath":      { "type": "string", "minLength": 1, "description": "Absolute path on the host to mount." },
+              "containerPath": { "type": "string", "minLength": 1, "description": "Path inside the Kind node where the host path is mounted." },
+              "readOnly":      { "type": "boolean", "description": "Mount the volume read-only." }
             }
           }
         },
         "registryMirrors": {
           "type": "array",
+          "description": "Pull-through cache registries to configure on the cluster, reducing repeated pulls from upstream registries. The always-on localhost:5001 registry is implicit and not listed here.",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["mirror"],
             "properties": {
-              "mirror":   { "type": "string", "minLength": 1 },
-              "url":      { "type": "string" },
-              "username": { "type": "string" },
-              "password": { "type": "string" },
-              "port":     { "type": "string" },
-              "bindIP":   { "type": "string" }
+              "mirror":   { "type": "string", "minLength": 1, "description": "Upstream registry host to mirror, for example docker.io or ghcr.io." },
+              "url":      { "type": "string", "description": "URL of the registry the mirror proxies to. Defaults to the mirror host." },
+              "username": { "type": "string", "description": "Username for authenticating to the upstream registry." },
+              "password": { "type": "string", "description": "Password for authenticating to the upstream registry." },
+              "port":     { "type": "string", "description": "Host port the mirror is published on." },
+              "bindIP":   { "type": "string", "description": "Host address the mirror is published on." }
             }
           }
         }
@@ -67,17 +72,19 @@
     "resolver": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Settings for the local DNS resolver that maps the ingress domain to the cluster on the host.",
       "properties": {
-        "targetAddress": { "type": "string" },
-        "extraDomains":  { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        "targetAddress": { "type": "string", "description": "IP address the resolver answers with for the ingress domain. Defaults to the host's primary network interface IP." },
+        "extraDomains":  { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Additional domains the resolver should also answer for, directed at the same address as the ingress domain." }
       }
     },
 
     "ingress": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Ingress domain and TLS settings for the cluster.",
       "properties": {
-        "domain": { "type": "string" },
+        "domain": { "type": "string", "description": "Wildcard ingress domain Educates serves workshops under. When left empty the CLI derives a <host-IP>.nip.io domain and serves the cluster insecurely over plain HTTP." },
         "insecure": {
           "type": "boolean",
           "default": false,
@@ -86,24 +93,26 @@
       }
     },
 
-    "clusterAdmin":   { "type": "boolean", "default": true },
-    "lookupService":  { "type": "boolean", "default": true },
-    "imagePrePuller": { "type": "boolean", "default": true },
+    "clusterAdmin":   { "type": "boolean", "default": true, "description": "Grant workshop sessions cluster-admin access. Enabled by default for the local environment so workshops that manage cluster-scoped resources work out of the box." },
+    "lookupService":  { "type": "boolean", "default": true, "description": "Deploy the lookup service used for service discovery across training portals. Enabled by default." },
+    "imagePrePuller": { "type": "boolean", "default": true, "description": "Pre-pull workshop images onto every node ahead of time so session startup is not blocked on image pulls. Enabled by default." },
 
     "websiteStyling": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Customisation of the workshop dashboard and training portal appearance.",
       "properties": {
-        "defaultTheme": { "type": "string" },
+        "defaultTheme": { "type": "string", "description": "Name of the theme applied to workshop sessions and portals by default." },
         "themeDataRefs": {
           "type": "array",
+          "description": "Secrets holding theme data (CSS, HTML, JavaScript) to load into the cluster.",
           "items": {
             "type": "object",
             "additionalProperties": false,
             "required": ["namespace", "name"],
             "properties": {
-              "namespace": { "type": "string", "minLength": 1 },
-              "name":      { "type": "string", "minLength": 1 }
+              "namespace": { "type": "string", "minLength": 1, "description": "Namespace of the Secret holding the theme data." },
+              "name":      { "type": "string", "minLength": 1, "description": "Name of the Secret holding the theme data." }
             }
           }
         }
@@ -113,9 +122,11 @@
     "secretPropagation": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Secrets from the local cache to copy into workshop session namespaces.",
       "properties": {
         "imagePullSecretNames": {
           "type": "array",
+          "description": "Names of cached image pull Secrets to make available to workshop sessions.",
           "items": { "type": "string", "minLength": 1 }
         }
       }
@@ -123,13 +134,14 @@
 
     "imageVersions": {
       "type": "array",
+      "description": "Per-component image overrides. Each entry points a named platform component at a specific image, for example to test a locally built image.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["name", "image"],
         "properties": {
-          "name":  { "type": "string", "minLength": 1 },
-          "image": { "type": "string", "minLength": 1 }
+          "name":  { "type": "string", "minLength": 1, "description": "Component name to override, for example session-manager or training-portal." },
+          "image": { "type": "string", "minLength": 1, "description": "Full image reference (repository and tag) to use for the component." }
         }
       }
     },
@@ -137,27 +149,32 @@
     "operator": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Settings for the Educates installer operator deployment.",
       "properties": {
         "image": {
           "type": "object",
           "additionalProperties": false,
+          "description": "Image used for the installer operator. Defaults to the image matching the CLI version.",
           "properties": {
-            "repository": { "type": "string" },
-            "tag":        { "type": "string" },
+            "repository": { "type": "string", "description": "Operator image repository." },
+            "tag":        { "type": "string", "description": "Operator image tag." },
             "pullPolicy": {
               "type": "string",
-              "enum": ["Always", "IfNotPresent", "Never"]
+              "enum": ["Always", "IfNotPresent", "Never"],
+              "description": "Image pull policy. When empty the chart derives it: Always for floating tags such as latest or develop, IfNotPresent otherwise."
             }
           }
         },
         "imagePullSecrets": {
           "type": "array",
+          "description": "Names of image pull Secrets the operator deployment should use.",
           "items": { "type": "string", "minLength": 1 }
         },
         "logLevel": {
           "type": "string",
           "enum": ["debug", "info", "warn", "error"],
-          "default": "info"
+          "default": "info",
+          "description": "Log verbosity for the operator and platform components."
         }
       }
     }
