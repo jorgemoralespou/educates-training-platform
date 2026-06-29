@@ -13,7 +13,7 @@ func TestLocalConfigInit_WritesDefault(t *testing.T) {
 	t.Setenv("EDUCATES_CLI_DATA_HOME", t.TempDir())
 
 	o := &LocalConfigInitOptions{}
-	if err := o.Run(io.Discard); err != nil {
+	if err := (&ProjectInfo{}).runLocalConfigInit(o, io.Discard); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 
@@ -37,7 +37,7 @@ func TestLocalConfigInit_ExistingFile_ErrorsWithoutForce(t *testing.T) {
 	}
 
 	o := &LocalConfigInitOptions{}
-	err := o.Run(io.Discard)
+	err := (&ProjectInfo{}).runLocalConfigInit(o, io.Discard)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -53,7 +53,7 @@ func TestLocalConfigInit_Force_Overwrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := &LocalConfigInitOptions{Force: true}
-	if err := o.Run(io.Discard); err != nil {
+	if err := (&ProjectInfo{}).runLocalConfigInit(o, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	body, _ := os.ReadFile(filepath.Join(dataHome, "config.yaml"))
@@ -155,7 +155,7 @@ func stageInitConfig(t *testing.T) string {
 	t.Helper()
 	dataHome := t.TempDir()
 	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
-	if err := (&LocalConfigInitOptions{}).Run(io.Discard); err != nil {
+	if err := (&ProjectInfo{}).runLocalConfigInit(&LocalConfigInitOptions{}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	return dataHome
