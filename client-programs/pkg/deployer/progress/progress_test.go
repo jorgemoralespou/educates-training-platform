@@ -117,6 +117,63 @@ func TestFail_RendersErrorMessage(t *testing.T) {
 	}
 }
 
+func TestStartConcurrent_NonTTY_AppendsEachStateChange(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 0, false)
+
+	steps := r.StartConcurrent("Installing LookupService", "Installing SessionManager")
+	if len(steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(steps))
+	}
+	steps[1].Update("Reconciling")
+	steps[0].Done("")
+	steps[1].Done("")
+
+	out := buf.String()
+	if strings.Contains(out, "\r") || strings.Contains(out, "\033[") {
+		t.Errorf("non-TTY group must not emit \\r or cursor escapes:\n%q", out)
+	}
+	for _, want := range []string{
+		"→ Installing LookupService",
+		"→ Installing SessionManager",
+		"→ Installing SessionManager: Reconciling",
+		"✓ Installing LookupService",
+		"✓ Installing SessionManager",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestStartConcurrent_TTY_RepaintsBlockInPlace(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 0, true)
+
+	steps := r.StartConcurrent("Installing LookupService", "Installing SessionManager")
+	steps[0].Update("Reconciling")
+	steps[0].Done("")
+	steps[1].Done("")
+
+	out := buf.String()
+	// A two-line block repaints by moving the cursor up two lines before
+	// redrawing, so both lines animate together rather than scrolling.
+	if !strings.Contains(out, "\033[2A") {
+		t.Errorf("expected a cursor-up-2 escape for the two-line block repaint:\n%q", out)
+	}
+	// Each rewrite clears to EOL so a shorter line leaves no residue.
+	if !strings.Contains(out, clearEOL) {
+		t.Errorf("expected erase-to-EOL escape on TTY repaints:\n%q", out)
+	}
+	// Both lines must end in their final ✓ state.
+	if !strings.Contains(out, "✓ Installing LookupService") {
+		t.Errorf("LookupService final state missing:\n%q", out)
+	}
+	if !strings.Contains(out, "✓ Installing SessionManager") {
+		t.Errorf("SessionManager final state missing:\n%q", out)
+	}
+}
+
 func TestNote_HasNoCounter(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, 5, false)

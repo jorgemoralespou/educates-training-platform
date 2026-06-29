@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
@@ -181,25 +182,70 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		return err
 	}
 
-	// 6. LookupService + SessionManager — applied together, waited
-	//    together. See remote-access-token cycle comment from commit
-	//    0d79afc6. Both applies happen before either wait; the per-CR
-	//    "Installing" step covers the wait (the slow, meaningful part).
+	// 6. SessionManager + LookupService. There's a Ready cycle between
+	//    them: LookupService's pod mounts a remote-access-token Secret that
+	//    SessionManager's remote-access install creates, and in Auto mode
+	//    SessionManager installs remote-access only when a LookupService CR
+	//    is present. Both CRs are therefore applied before either is waited
+	//    on, then waited on concurrently. The order between the two applies
+	//    is not load-bearing — the SessionManager reconciler watches
+	//    LookupService and re-evaluates the Auto decision when one appears
+	//    — so they go SessionManager-first to read top-to-bottom in the
+	//    progress block. A shared progress group renders both installs side
+	//    by side, each line morphing with its own status.phase, so the user
+	//    sees them progress in parallel — one may go Ready while the other
+	//    is still reconciling — instead of one appearing to finish before
+	//    the other starts.
+	type installTarget struct {
+		obj   map[string]interface{}
+		label string
+	}
+	targets := make([]installTarget, 0, 2)
+	targets = append(targets, installTarget{out.SessionManager, "SessionManager"})
 	if out.LookupService != nil {
-		if err := applyQuiet(ctx, applier, out.LookupService, "LookupService"); err != nil {
+		targets = append(targets, installTarget{out.LookupService, "LookupService"})
+	}
+
+	// Apply all before waiting on any (remote-access-token cycle).
+	objs := make([]*unstructured.Unstructured, len(targets))
+	for i, t := range targets {
+		u, err := mapToUnstructured(t.obj)
+		if err != nil {
+			return fmt.Errorf("%s: %w", t.label, err)
+		}
+		if _, err := applier.Apply(ctx, u); err != nil {
+			return fmt.Errorf("apply %s: %w", t.label, err)
+		}
+		objs[i] = u
+	}
+
+	// Wait on all concurrently, each reporting to its own line in the group.
+	labels := make([]string, len(targets))
+	for i, t := range targets {
+		labels[i] = "Installing " + t.label
+	}
+	steps := opts.Progress.StartConcurrent(labels...)
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(targets))
+	for i := range targets {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			u, step := objs[i], steps[i]
+			if _, err := waiter.WaitReadyWithPhase(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout, step.Update); err != nil {
+				step.Fail(err)
+				errs[i] = err
+				return
+			}
+			step.Done("")
+		}(i)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
 			return err
 		}
-	}
-	if err := applyQuiet(ctx, applier, out.SessionManager, "SessionManager"); err != nil {
-		return err
-	}
-	if out.LookupService != nil {
-		if err := installWaitStep(ctx, opts, waiter, out.LookupService, "LookupService"); err != nil {
-			return err
-		}
-	}
-	if err := installWaitStep(ctx, opts, waiter, out.SessionManager, "SessionManager"); err != nil {
-		return err
 	}
 
 	opts.Progress.Note("Educates successfully deployed")
@@ -228,38 +274,6 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 		return err
 	}
 	step.Done("")
-	return nil
-}
-
-// installWaitStep waits for an already-applied obj to become Ready under
-// a single "Installing <label>" step. Used by the LookupService /
-// SessionManager pair, whose applies are both done up front (see the
-// remote-access-token cycle) before either is waited on.
-func installWaitStep(ctx context.Context, opts Options, waiter *wait.Client, obj map[string]interface{}, label string) error {
-	u, err := mapToUnstructured(obj)
-	if err != nil {
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	step := opts.Progress.Start("Installing " + label)
-	if _, err := waiter.WaitReadyWithPhase(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout, step.Update); err != nil {
-		step.Fail(err)
-		return err
-	}
-	step.Done("")
-	return nil
-}
-
-// applyQuiet applies obj without opening a progress step. Used for the
-// LookupService / SessionManager pair, which must both be applied before
-// either is waited on; their "Installing" steps cover the wait.
-func applyQuiet(ctx context.Context, applier *apply.Client, obj map[string]interface{}, label string) error {
-	u, err := mapToUnstructured(obj)
-	if err != nil {
-		return fmt.Errorf("%s: %w", label, err)
-	}
-	if _, err := applier.Apply(ctx, u); err != nil {
-		return fmt.Errorf("apply %s: %w", label, err)
-	}
 	return nil
 }
 

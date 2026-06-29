@@ -26,6 +26,17 @@ import (
 // story isn't needed.
 type Reporter interface {
 	Start(label string) Step
+	// StartConcurrent opens a set of steps that run and render together.
+	// On a TTY they occupy a contiguous block of lines repainted in place
+	// as each one changes — so several long-running operations (e.g. the
+	// LookupService and SessionManager installs, which the operator
+	// reconciles at the same time) animate side by side rather than one
+	// appearing to finish before the other starts. On a non-TTY every
+	// state change of every step appends its own line so the log stays
+	// grep-able. The returned steps are safe to drive from separate
+	// goroutines; the group serialises rendering internally. The caller
+	// must close every returned step (Done or Fail).
+	StartConcurrent(labels ...string) []Step
 	// Note prints a one-off informational line outside the step counter
 	// (used for things like 'syncing cached local secrets'). It does
 	// not advance the step counter.
@@ -147,16 +158,107 @@ func (s *step) finalize(symbol, msg string) {
 	}
 }
 
-// format builds '[3/6] symbol Label: detail'. Empty total hides the
-// counter; empty detail hides the colon-detail tail.
+// format builds '[3/6] symbol Label: detail' for a sequential step.
 func (s *step) format(symbol, detail string) string {
+	return formatLine(s.r.total, s.n, symbol, s.label, detail)
+}
+
+// formatLine builds '[3/6] symbol Label: detail'. total<=0 hides the
+// counter; empty detail hides the colon-detail tail. Shared by the
+// sequential step and the concurrent group line.
+func formatLine(total, n int, symbol, label, detail string) string {
 	prefix := ""
-	if s.r.total > 0 {
-		prefix = fmt.Sprintf("[%d/%d] ", s.n, s.r.total)
+	if total > 0 {
+		prefix = fmt.Sprintf("[%d/%d] ", n, total)
 	}
-	out := fmt.Sprintf("%s%s %s", prefix, symbol, s.label)
+	out := fmt.Sprintf("%s%s %s", prefix, symbol, label)
 	if detail != "" {
 		out += ": " + detail
 	}
 	return out
+}
+
+// StartConcurrent — see the Reporter interface doc. Each label becomes one
+// line in a shared group; the steps may be driven concurrently.
+func (r *reporter) StartConcurrent(labels ...string) []Step {
+	g := &group{r: r}
+	steps := make([]Step, len(labels))
+	for i, label := range labels {
+		r.mu.Lock()
+		r.current++
+		n := r.current
+		r.mu.Unlock()
+		gl := &groupLine{g: g, n: n, label: label, symbol: "→"}
+		g.lines = append(g.lines, gl)
+		steps[i] = gl
+	}
+	g.paintInitial()
+	return steps
+}
+
+// group is a block of concurrently-updating steps rendered together. On a
+// TTY the block is repainted in place (cursor up N lines, redraw each)
+// whenever any line changes; on a non-TTY each change is appended.
+type group struct {
+	r       *reporter
+	lines   []*groupLine
+	mu      sync.Mutex
+	painted bool // whether the TTY block has been drawn at least once
+}
+
+func (g *group) paintInitial() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.r.isTTY {
+		g.repaintLocked()
+		return
+	}
+	for _, gl := range g.lines {
+		fmt.Fprintln(g.r.w, gl.format())
+	}
+}
+
+// repaintLocked redraws the whole block on a TTY. After the first paint
+// the cursor sits below the block ("home"); each repaint moves up N lines,
+// rewrites every line (clearing to EOL so a shorter line leaves no
+// residue), and lands back home. Caller holds g.mu.
+func (g *group) repaintLocked() {
+	if g.painted {
+		fmt.Fprintf(g.r.w, "\033[%dA", len(g.lines))
+	}
+	for _, gl := range g.lines {
+		fmt.Fprint(g.r.w, "\r"+gl.format()+clearEOL+"\n")
+	}
+	g.painted = true
+}
+
+// groupLine is one line within a group; it implements Step. Update marks
+// it in-progress (→), Done/Fail close it (✓/✗). The block keeps the
+// closed line on screen — there's no separate commit.
+type groupLine struct {
+	g      *group
+	n      int
+	label  string
+	symbol string
+	detail string
+}
+
+func (gl *groupLine) Update(phase string) { gl.set("→", phase) }
+func (gl *groupLine) Done(summary string) { gl.set("✓", summary) }
+func (gl *groupLine) Fail(err error)      { gl.set("✗", err.Error()) }
+
+func (gl *groupLine) set(symbol, detail string) {
+	g := gl.g
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	gl.symbol, gl.detail = symbol, detail
+	if g.r.isTTY {
+		g.repaintLocked()
+		return
+	}
+	fmt.Fprintln(g.r.w, gl.format())
+}
+
+func (gl *groupLine) format() string {
+	return formatLine(gl.g.r.total, gl.n, gl.symbol, gl.label, gl.detail)
 }
