@@ -5,7 +5,18 @@
   "description": "GKE production scenario. BundledCertManager+ACME(DNS01/CloudDNS) + BundledContour(LoadBalancer) + BundledExternalDNS(CloudDNS) + BundledKyverno. Workload Identity throughout.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "gcp", "domain", "acme"],
+  "required": ["apiVersion", "kind", "gcp", "domain"],
+  "allOf": [
+    {
+      "if": {
+        "not": {
+          "properties": { "externalTLSTermination": { "const": true } },
+          "required": ["externalTLSTermination"]
+        }
+      },
+      "then": { "required": ["acme"] }
+    }
+  ],
   "properties": {
     "apiVersion": { "const": "cli.educates.dev/v1alpha1" },
     "kind":       { "const": "EducatesGKEConfig" },
@@ -36,7 +47,7 @@
     "externalTLSTermination": {
       "type": "boolean",
       "default": false,
-      "description": "Asserts TLS for the ingress domain is terminated outside the cluster (external load balancer or proxy forwarding plain HTTP inward); generated portal and workshop URLs use https regardless of in-cluster certificate presence. Maps to SessionManager.spec.ingressOverrides.protocol: https."
+      "description": "Asserts TLS for the ingress domain is terminated outside the cluster (external load balancer or proxy forwarding plain HTTP inward). Educates issues no in-cluster certificate and generated portal and workshop URLs use https. Maps to EducatesClusterConfig ingress.protocol https with a None certificates provider; acme is not required when set."
     },
 
     "clusterAdmin":   { "type": "boolean", "default": false },

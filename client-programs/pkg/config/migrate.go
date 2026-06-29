@@ -170,6 +170,11 @@ func translateV3ToV4(v3 map[string]interface{}) *v1alpha1.EducatesLocalConfig {
 
 	// ingress
 	cfg.Ingress.Domain = strV3Path(v3, "clusterIngress", "domain")
+	// v3 clusterIngress.protocol: http was a plain-HTTP install with no
+	// TLS; v4 expresses that as ingress.insecure.
+	if strV3Path(v3, "clusterIngress", "protocol") == "http" {
+		cfg.Ingress.Insecure = true
+	}
 
 	// cluster
 	cfg.Cluster.ListenAddress = strV3Path(v3, "localKindCluster", "listenAddress")

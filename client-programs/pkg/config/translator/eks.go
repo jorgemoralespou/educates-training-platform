@@ -13,7 +13,7 @@ func TranslateEKS(cfg *v1alpha1.EducatesEKSConfig, _ Options) (*Output, error) {
 		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
 		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", eksECCSpec(cfg)),
 		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", scenarioSecretsManagerSpec(cfg.Operator.LogLevel, cfg.ImageVersions)),
-		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions, cfg.ExternalTLSTermination)),
+		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions)),
 	}
 	if cfg.LookupService != nil && *cfg.LookupService {
 		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", scenarioLookupServiceSpec(cfg.Operator.LogLevel, cfg.ImageVersions))
@@ -25,43 +25,51 @@ func TranslateEKS(cfg *v1alpha1.EducatesEKSConfig, _ Options) (*Output, error) {
 // shape but with Route53 in place of CloudDNS, and IRSA roles in place
 // of WI service-account emails.
 func eksECCSpec(cfg *v1alpha1.EducatesEKSConfig) map[string]interface{} {
-	route53 := map[string]interface{}{
-		"hostedZoneID": cfg.AWS.Route53HostedZoneId,
-		"region":       cfg.AWS.Region,
-		"iamRoleARN":   cfg.AWS.CertManagerRoleARN,
-	}
-	acme := map[string]interface{}{
-		"email": cfg.ACME.Email,
-		"solvers": map[string]interface{}{
-			"dns01": map[string]interface{}{
-				"provider": "Route53",
-				"route53":  route53,
+	ingress := map[string]interface{}{
+		"domain":           cfg.Domain,
+		"ingressClassName": "contour",
+		"controller": map[string]interface{}{
+			"provider": "BundledContour",
+			"bundledContour": map[string]interface{}{
+				"envoyServiceType": "LoadBalancer",
 			},
 		},
 	}
-	if cfg.ACME.Server != "" {
-		acme["server"] = cfg.ACME.Server
+	if cfg.ExternalTLSTermination {
+		// TLS terminates at the cloud load balancer: Educates issues no
+		// certificate, but the public URLs are still https.
+		ingress["certificates"] = map[string]interface{}{"provider": "None"}
+		ingress["protocol"] = "https"
+	} else {
+		route53 := map[string]interface{}{
+			"hostedZoneID": cfg.AWS.Route53HostedZoneId,
+			"region":       cfg.AWS.Region,
+			"iamRoleARN":   cfg.AWS.CertManagerRoleARN,
+		}
+		acme := map[string]interface{}{
+			"email": cfg.ACME.Email,
+			"solvers": map[string]interface{}{
+				"dns01": map[string]interface{}{
+					"provider": "Route53",
+					"route53":  route53,
+				},
+			},
+		}
+		if cfg.ACME.Server != "" {
+			acme["server"] = cfg.ACME.Server
+		}
+		ingress["certificates"] = map[string]interface{}{
+			"provider": "BundledCertManager",
+			"bundledCertManager": map[string]interface{}{
+				"issuerType": "ACME",
+				"acme":       acme,
+			},
+		}
 	}
 
 	return map[string]interface{}{
-		"mode": "Managed",
-		"ingress": map[string]interface{}{
-			"domain":           cfg.Domain,
-			"ingressClassName": "contour",
-			"controller": map[string]interface{}{
-				"provider": "BundledContour",
-				"bundledContour": map[string]interface{}{
-					"envoyServiceType": "LoadBalancer",
-				},
-			},
-			"certificates": map[string]interface{}{
-				"provider": "BundledCertManager",
-				"bundledCertManager": map[string]interface{}{
-					"issuerType": "ACME",
-					"acme":       acme,
-				},
-			},
-		},
+		"mode":    "Managed",
+		"ingress": ingress,
 		"dns": map[string]interface{}{
 			"provider": "BundledExternalDNS",
 			"bundledExternalDNS": map[string]interface{}{

@@ -16,7 +16,7 @@ func TranslateGKE(cfg *v1alpha1.EducatesGKEConfig, _ Options) (*Output, error) {
 		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
 		EducatesClusterConfig: wrapCR(apiVersionConfig, "EducatesClusterConfig", gkeECCSpec(cfg)),
 		SecretsManager:        wrapCR(apiVersionPlatform, "SecretsManager", scenarioSecretsManagerSpec(cfg.Operator.LogLevel, cfg.ImageVersions)),
-		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions, cfg.ExternalTLSTermination)),
+		SessionManager:        wrapCR(apiVersionPlatform, "SessionManager", scenarioSessionManagerSpec(cfg.Operator.LogLevel, cfg.WebsiteStyling, cfg.ImagePrePuller, cfg.ImageVersions)),
 	}
 	if cfg.LookupService != nil && *cfg.LookupService {
 		out.LookupService = wrapCR(apiVersionPlatform, "LookupService", scenarioLookupServiceSpec(cfg.Operator.LogLevel, cfg.ImageVersions))
@@ -26,42 +26,50 @@ func TranslateGKE(cfg *v1alpha1.EducatesGKEConfig, _ Options) (*Output, error) {
 
 // gkeECCSpec builds the Managed-mode ECC.spec for GKE.
 func gkeECCSpec(cfg *v1alpha1.EducatesGKEConfig) map[string]interface{} {
-	cloudDNS := map[string]interface{}{
-		"project":                        cfg.GCP.Project,
-		"workloadIdentityServiceAccount": cfg.GCP.CertManagerServiceAccount,
-	}
-	acme := map[string]interface{}{
-		"email": cfg.ACME.Email,
-		"solvers": map[string]interface{}{
-			"dns01": map[string]interface{}{
-				"provider": "CloudDNS",
-				"cloudDNS": cloudDNS,
+	ingress := map[string]interface{}{
+		"domain":           cfg.Domain,
+		"ingressClassName": "contour",
+		"controller": map[string]interface{}{
+			"provider": "BundledContour",
+			"bundledContour": map[string]interface{}{
+				"envoyServiceType": "LoadBalancer",
 			},
 		},
 	}
-	if cfg.ACME.Server != "" {
-		acme["server"] = cfg.ACME.Server
+	if cfg.ExternalTLSTermination {
+		// TLS terminates at the cloud load balancer: Educates issues no
+		// certificate, but the public URLs are still https.
+		ingress["certificates"] = map[string]interface{}{"provider": "None"}
+		ingress["protocol"] = "https"
+	} else {
+		cloudDNS := map[string]interface{}{
+			"project":                        cfg.GCP.Project,
+			"workloadIdentityServiceAccount": cfg.GCP.CertManagerServiceAccount,
+		}
+		acme := map[string]interface{}{
+			"email": cfg.ACME.Email,
+			"solvers": map[string]interface{}{
+				"dns01": map[string]interface{}{
+					"provider": "CloudDNS",
+					"cloudDNS": cloudDNS,
+				},
+			},
+		}
+		if cfg.ACME.Server != "" {
+			acme["server"] = cfg.ACME.Server
+		}
+		ingress["certificates"] = map[string]interface{}{
+			"provider": "BundledCertManager",
+			"bundledCertManager": map[string]interface{}{
+				"issuerType": "ACME",
+				"acme":       acme,
+			},
+		}
 	}
 
 	return map[string]interface{}{
-		"mode": "Managed",
-		"ingress": map[string]interface{}{
-			"domain":           cfg.Domain,
-			"ingressClassName": "contour",
-			"controller": map[string]interface{}{
-				"provider": "BundledContour",
-				"bundledContour": map[string]interface{}{
-					"envoyServiceType": "LoadBalancer",
-				},
-			},
-			"certificates": map[string]interface{}{
-				"provider": "BundledCertManager",
-				"bundledCertManager": map[string]interface{}{
-					"issuerType": "ACME",
-					"acme":       acme,
-				},
-			},
-		},
+		"mode":    "Managed",
+		"ingress": ingress,
 		"dns": map[string]interface{}{
 			"provider": "BundledExternalDNS",
 			"bundledExternalDNS": map[string]interface{}{
@@ -114,13 +122,15 @@ func scenarioLookupServiceSpec(logLevel string, ivs []v1alpha1.ImageVersion) map
 // scenarioSessionManagerSpec is the cloud-scenario-shaped SessionManager
 // builder. Mirrors localSessionManagerSpec minus the laptop-specific
 // storage.storageGroup / network.blockedCidrs invariants.
-func scenarioSessionManagerSpec(logLevel string, ws v1alpha1.LocalWebsiteStylingConfig, ipp *bool, imageVersions []v1alpha1.ImageVersion, externalTLS bool) map[string]interface{} {
+//
+// The public-URL scheme is carried by EducatesClusterConfig.spec.ingress.
+// protocol (published in status and consumed by every component), not by
+// a SessionManager override, so external TLS termination needs nothing
+// here.
+func scenarioSessionManagerSpec(logLevel string, ws v1alpha1.LocalWebsiteStylingConfig, ipp *bool, imageVersions []v1alpha1.ImageVersion) map[string]interface{} {
 	spec := map[string]interface{}{}
 	if logLevel != "" {
 		spec["logLevel"] = logLevel
-	}
-	if externalTLS {
-		spec["ingressOverrides"] = map[string]interface{}{"protocol": "https"}
 	}
 	if ws.DefaultTheme != "" {
 		spec["defaultTheme"] = ws.DefaultTheme

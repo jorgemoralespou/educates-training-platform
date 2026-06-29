@@ -11,7 +11,6 @@ import (
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
-	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
@@ -219,12 +218,10 @@ func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfi
 // when empty.
 func applyLocalDefaults(cfg *v1alpha1.EducatesLocalConfig, p *ProjectInfo) error {
 	cfg.ApplyCLIDefaults(p.Version, p.ImageRepository)
-	if cfg.Ingress.Domain == "" {
-		ip, err := hostinfo.DetectHostIP()
-		if err != nil {
-			return fmt.Errorf("auto-detect host IP for ingress.domain: %w", err)
-		}
-		cfg.Ingress.Domain = hostinfo.NipDomain(ip)
+	// Fills <host-IP>.nip.io and defaults ingress.insecure when the
+	// domain was left empty; no-op when the user set one.
+	if _, err := maybeApplyHostDomain(cfg); err != nil {
+		return err
 	}
 	return nil
 }
@@ -275,9 +272,14 @@ func registryMirrorFromConfig(m v1alpha1.RegistryMirror) registry.MirrorConfig {
 // runDeploy via translateAndDeploy; configPath isn't used by the shared
 // helper (it kept the file-path around for the now-deleted re-load).
 func tailCallDeploy(ctx context.Context, w io.Writer, cfg *v1alpha1.EducatesLocalConfig, _ string, _ *ProjectInfo, o *LocalClusterCreateOptions) error {
-	caName, caNS, err := caRefForLocal(cfg)
-	if err != nil {
-		return err
+	var caName, caNS string
+	// An insecure cluster serves plain HTTP and needs no CA.
+	if !cfg.Ingress.Insecure {
+		var err error
+		caName, caNS, err = caRefForLocal(cfg)
+		if err != nil {
+			return err
+		}
 	}
 	return translateAndDeploy(ctx, w, cfg, caName, caNS, true, deployPipelineFlags{
 		Kubeconfig: o.Kubeconfig,

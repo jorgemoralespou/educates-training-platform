@@ -186,6 +186,34 @@ func getNested(root map[string]interface{}, path string) (interface{}, bool) {
 	return cur, true
 }
 
+// TestTranslateLocal_Insecure_NoneProviderHTTP asserts that an insecure
+// local config produces a None certificates provider with http protocol
+// and needs no CA: translateBytes passes empty Options, so a non-empty
+// CASecretName is not required when ingress.insecure is set.
+func TestTranslateLocal_Insecure_NoneProviderHTTP(t *testing.T) {
+	out, err := translateBytes(t, []byte(`
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesLocalConfig
+ingress:
+  domain: 192.168.1.10.nip.io
+  insecure: true
+`))
+	if err != nil {
+		t.Fatalf("translate: %v", err)
+	}
+	ingress := out.EducatesClusterConfig["spec"].(map[string]interface{})["ingress"].(map[string]interface{})
+	certs := ingress["certificates"].(map[string]interface{})
+	if got, want := certs["provider"], "None"; got != want {
+		t.Errorf("certificates.provider = %v, want %v", got, want)
+	}
+	if _, present := certs["bundledCertManager"]; present {
+		t.Errorf("bundledCertManager unexpectedly present for insecure: %v", certs)
+	}
+	if got, want := ingress["protocol"], "http"; got != want {
+		t.Errorf("ingress.protocol = %v, want %v", got, want)
+	}
+}
+
 func TestTranslateLocal_EmptyConfig_AppliesBundledKyvernoInvariant(t *testing.T) {
 	cfg := loadCfg(t, "local-empty.yaml")
 	out, err := Translate(cfg, testOpts())

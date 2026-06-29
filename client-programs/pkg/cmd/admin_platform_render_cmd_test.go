@@ -145,21 +145,20 @@ ingress:
 	}
 }
 
-func TestRender_LocalConfig_AutoDomain_EmitsHeader(t *testing.T) {
+func TestRender_LocalConfig_AutoDomain_DefaultsInsecure(t *testing.T) {
 	// Point --local-config at a temp data home so the test doesn't touch
 	// the user's actual data home.
 	dataHome := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(emptyLocal), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Pre-stage a cached CA matching the host-IP-derived domain that
-	// maybeApplyHostDomain will compute. We mirror the same nip.io
-	// derivation here to know which annotation to write.
-	ip, err := hostinfo.DetectHostIP()
-	if err != nil {
+	// No CA is staged: an empty local config falls back to a nip.io
+	// domain, which defaults to an insecure plain-HTTP install needing no
+	// CA. maybeApplyHostDomain needs a detectable host IP to fill the
+	// domain.
+	if _, err := hostinfo.DetectHostIP(); err != nil {
 		t.Skipf("no host IP detectable: %v", err)
 	}
-	stageCachedCA(t, dataHome, hostinfo.NipDomain(ip))
 	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
 
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
@@ -175,6 +174,12 @@ func TestRender_LocalConfig_AutoDomain_EmitsHeader(t *testing.T) {
 	}
 	if !strings.Contains(s, ".nip.io") {
 		t.Errorf("--local-config with empty domain should produce a nip.io domain:\n%s", s)
+	}
+	if !strings.Contains(s, "provider: None") {
+		t.Errorf("--local-config with empty domain should default to the None certificates provider:\n%s", s)
+	}
+	if !strings.Contains(s, "protocol: http") {
+		t.Errorf("--local-config with empty domain should default to http protocol:\n%s", s)
 	}
 }
 

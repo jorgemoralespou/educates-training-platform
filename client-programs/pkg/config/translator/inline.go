@@ -36,9 +36,15 @@ func inlineECCSpec(cfg *v1alpha1.EducatesInlineConfig) map[string]interface{} {
 	ingress := map[string]interface{}{
 		"domain":           cfg.Domain,
 		"ingressClassName": cfg.IngressClassName,
-		"wildcardCertificateSecretRef": map[string]interface{}{
+	}
+	if cfg.ExternalTLSTermination {
+		// TLS terminates outside the cluster: no in-cluster wildcard
+		// certificate, but the public URLs are still https.
+		ingress["protocol"] = "https"
+	} else {
+		ingress["wildcardCertificateSecretRef"] = map[string]interface{}{
 			"name": cfg.WildcardCertificateSecret,
-		},
+		}
 	}
 	if cfg.CACertificateSecret != "" {
 		ingress["caCertificateSecretRef"] = map[string]interface{}{"name": cfg.CACertificateSecret}
@@ -109,9 +115,6 @@ func inlineSessionManagerSpec(cfg *v1alpha1.EducatesInlineConfig) map[string]int
 	spec := map[string]interface{}{}
 	if cfg.Operator.LogLevel != "" {
 		spec["logLevel"] = cfg.Operator.LogLevel
-	}
-	if cfg.ExternalTLSTermination {
-		spec["ingressOverrides"] = map[string]interface{}{"protocol": "https"}
 	}
 	if cfg.WebsiteStyling.DefaultTheme != "" {
 		spec["defaultTheme"] = cfg.WebsiteStyling.DefaultTheme

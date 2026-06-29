@@ -28,8 +28,10 @@ type EducatesInlineConfig struct {
 
 	// WildcardCertificateSecret names a kubernetes.io/tls Secret in the
 	// operator namespace with keys tls.crt + tls.key, valid for
-	// *.<Domain>. Required.
-	WildcardCertificateSecret string `yaml:"wildcardCertificateSecret"`
+	// *.<Domain>. Required unless externalTLSTermination is set, in which
+	// case TLS lives outside the cluster and no in-cluster certificate is
+	// referenced.
+	WildcardCertificateSecret string `yaml:"wildcardCertificateSecret,omitempty"`
 
 	// CACertificateSecret optionally names a Secret with the ca.crt
 	// key for the CA chain that issued the wildcard. Workshops mount it
@@ -51,9 +53,10 @@ type EducatesInlineConfig struct {
 
 	// ExternalTLSTermination asserts that TLS for the ingress domain is
 	// terminated outside the cluster (corporate load balancer or proxy
-	// forwarding plain HTTP inward). Generated portal and workshop URLs
-	// use https regardless of in-cluster certificate presence. Maps to
-	// SessionManager.spec.ingressOverrides.protocol: https.
+	// forwarding plain HTTP inward). No in-cluster wildcard certificate
+	// is referenced, and generated portal and workshop URLs use https.
+	// Maps to EducatesClusterConfig.spec.inline.ingress.protocol: https
+	// with no wildcardCertificateSecretRef.
 	ExternalTLSTermination bool `yaml:"externalTLSTermination,omitempty"`
 
 	// Top-level toggles shared with EducatesLocalConfig.

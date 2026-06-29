@@ -107,16 +107,19 @@ fallback (output becomes host-specific and unsuitable for GitOps).`, path)
 		}
 		header = hostNote
 
-		// Local-mode invariant: BundledCertManager+CustomCA. Look up the
-		// CA Secret in the local cache by the configured domain. Failing
+		// Local-mode default: BundledCertManager+CustomCA. Look up the CA
+		// Secret in the local cache by the configured domain. Failing
 		// here (before any rendering) gives the user a remediation path
-		// before they pipe output to GitOps.
-		caName, lookupErr := lookupLocalCAByDomain(c.Ingress.Domain)
-		if lookupErr != nil {
-			return lookupErr
+		// before they pipe output to GitOps. An insecure cluster serves
+		// plain HTTP, so it needs no CA and the lookup is skipped.
+		if !c.Ingress.Insecure {
+			caName, lookupErr := lookupLocalCAByDomain(c.Ingress.Domain)
+			if lookupErr != nil {
+				return lookupErr
+			}
+			opts.CASecretName = caName
+			opts.CASecretNamespace = LocalCASecretNamespace
 		}
-		opts.CASecretName = caName
-		opts.CASecretNamespace = LocalCASecretNamespace
 	case *v1alpha1.EducatesConfig:
 		// Escape-hatch: pure passthrough. No CLI-side defaults. User owns
 		// the full surface; missing required fields are caught by the
@@ -182,8 +185,13 @@ func resolveConfigPath(o *PlatformRenderOptions) (string, error) {
 }
 
 // maybeApplyHostDomain applies <host-IP>.nip.io to ingress.domain when
-// empty. Returns the header comment block to emit at the top of the
-// rendered output (empty when no defaulting was needed).
+// empty, and in that case also defaults ingress.insecure to true: a
+// nip.io address cannot obtain a trusted TLS certificate, so the
+// last-resort laptop fallback is a plain-HTTP cluster that needs no CA.
+// A user-set domain is left untouched (and keeps the secure CustomCA
+// path unless ingress.insecure is set explicitly). Returns the header
+// comment block to emit at the top of the rendered output (empty when no
+// defaulting was needed).
 func maybeApplyHostDomain(c *v1alpha1.EducatesLocalConfig) (string, error) {
 	if c.Ingress.Domain != "" {
 		return "", nil
@@ -193,11 +201,15 @@ func maybeApplyHostDomain(c *v1alpha1.EducatesLocalConfig) (string, error) {
 		return "", fmt.Errorf("auto-detect host IP for ingress.domain default: %w", err)
 	}
 	c.Ingress.Domain = hostinfo.NipDomain(ip)
+	c.Ingress.Insecure = true
 	return fmt.Sprintf(`# NOTE: ingress.domain was auto-derived from host IP %s as a last-resort
-# nip.io fallback. For configuration that is portable across networks,
-# consider configuring the resolver block (resolver.targetAddress +
-# resolver.extraDomains) and setting ingress.domain to a fixed name like
-# 'workshop.test'.
+# nip.io fallback, and ingress.insecure was defaulted to true so the
+# cluster is served over plain HTTP with no CA to manage (a nip.io
+# address cannot obtain a trusted TLS certificate). For a secure install
+# portable across networks, configure the resolver block
+# (resolver.targetAddress + resolver.extraDomains), set ingress.domain to
+# a fixed name like 'workshop.test', and add a CA with
+# 'educates local secrets add ca'.
 `, ip), nil
 }
 

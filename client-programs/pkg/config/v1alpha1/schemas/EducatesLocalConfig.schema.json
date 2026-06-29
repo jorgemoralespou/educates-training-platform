@@ -77,7 +77,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "domain": { "type": "string" }
+        "domain": { "type": "string" },
+        "insecure": {
+          "type": "boolean",
+          "default": false,
+          "description": "Serves the cluster over plain HTTP with no TLS. No CA or certificate is needed, so the one-time 'educates local secrets add ca' step is skipped. Maps to EducatesClusterConfig ingress.protocol http with a None certificates provider."
+        }
       }
     },
 

@@ -67,6 +67,12 @@ type LocalResolverConfig struct {
 
 type LocalIngressConfig struct {
 	Domain string `yaml:"domain,omitempty"`
+
+	// Insecure serves the local cluster over plain HTTP with no TLS. No
+	// CA or certificate is needed, so the one-time `educates local
+	// secrets add ca` step is skipped. Translates to the operator's
+	// certificates.provider: None with ingress.protocol: http.
+	Insecure bool `yaml:"insecure,omitempty"`
 }
 
 // LocalWebsiteStylingConfig is the narrow subset exposed by EducatesLocalConfig.

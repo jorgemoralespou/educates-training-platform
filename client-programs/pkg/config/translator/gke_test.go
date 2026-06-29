@@ -108,39 +108,48 @@ func TestTranslateGKE_RenderRoundTripsAsValidYAML(t *testing.T) {
 }
 
 // externalTLSTermination asserts the public edge is https when TLS is
-// terminated at an external load balancer — it must surface as the
-// SessionManager ingressOverrides protocol, and stay absent otherwise.
-func TestTranslateGKE_ExternalTLSTermination_SetsSessionManagerProtocol(t *testing.T) {
+// terminated at an external load balancer. It must surface as the
+// cluster-config ingress.protocol with a None certificates provider (no
+// in-cluster cert issued), and the SessionManager carries no protocol
+// override. Without the field the install issues an ACME certificate and
+// no explicit protocol is set.
+func TestTranslateGKE_ExternalTLSTermination_SetsClusterIngressProtocol(t *testing.T) {
 	out, err := translateBytes(t, []byte(`
 apiVersion: cli.educates.dev/v1alpha1
 kind: EducatesGKEConfig
 gcp:
   project: my-gcp-project
 domain: academy-01.google.educates.dev
-acme:
-  email: ops@example.com
 externalTLSTermination: true
 `))
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}
-	spec := out.SessionManager["spec"].(map[string]interface{})
-	overrides, ok := spec["ingressOverrides"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("sessionManager spec.ingressOverrides missing: %v", spec)
+	ingress := out.EducatesClusterConfig["spec"].(map[string]interface{})["ingress"].(map[string]interface{})
+	if got, want := ingress["protocol"], "https"; got != want {
+		t.Errorf("ingress.protocol = %v, want %v", got, want)
 	}
-	if got, want := overrides["protocol"], "https"; got != want {
-		t.Errorf("ingressOverrides.protocol = %v, want %v", got, want)
+	certs := ingress["certificates"].(map[string]interface{})
+	if got, want := certs["provider"], "None"; got != want {
+		t.Errorf("ingress.certificates.provider = %v, want %v", got, want)
+	}
+	smSpec := out.SessionManager["spec"].(map[string]interface{})
+	if _, present := smSpec["ingressOverrides"]; present {
+		t.Errorf("ingressOverrides unexpectedly present on SessionManager: %v", smSpec)
 	}
 
-	// Default (field unset) must not emit the override.
+	// Default (field unset) issues an ACME cert and sets no protocol.
 	cfg := loadCfg(t, "gke-minimal.yaml").(*v1alpha1.EducatesGKEConfig)
 	out, err = Translate(cfg, Options{})
 	if err != nil {
 		t.Fatalf("Translate: %v", err)
 	}
-	spec = out.SessionManager["spec"].(map[string]interface{})
-	if _, present := spec["ingressOverrides"]; present {
-		t.Errorf("ingressOverrides unexpectedly present without externalTLSTermination: %v", spec)
+	ingress = out.EducatesClusterConfig["spec"].(map[string]interface{})["ingress"].(map[string]interface{})
+	if _, present := ingress["protocol"]; present {
+		t.Errorf("ingress.protocol unexpectedly present without externalTLSTermination: %v", ingress)
+	}
+	certs = ingress["certificates"].(map[string]interface{})
+	if got, want := certs["provider"], "BundledCertManager"; got != want {
+		t.Errorf("ingress.certificates.provider = %v, want %v", got, want)
 	}
 }

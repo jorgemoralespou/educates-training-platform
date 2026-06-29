@@ -5,7 +5,18 @@
   "description": "BYO scenario. User asserts that cert-manager (or pre-issued wildcard cert), an ingress controller, and a policy engine already exist on the cluster.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "domain", "ingressClassName", "wildcardCertificateSecret"],
+  "required": ["apiVersion", "kind", "domain", "ingressClassName"],
+  "allOf": [
+    {
+      "if": {
+        "not": {
+          "properties": { "externalTLSTermination": { "const": true } },
+          "required": ["externalTLSTermination"]
+        }
+      },
+      "then": { "required": ["wildcardCertificateSecret"] }
+    }
+  ],
   "properties": {
     "apiVersion": { "const": "cli.educates.dev/v1alpha1" },
     "kind":       { "const": "EducatesInlineConfig" },
@@ -43,7 +54,7 @@
     "externalTLSTermination": {
       "type": "boolean",
       "default": false,
-      "description": "Asserts TLS for the ingress domain is terminated outside the cluster (external load balancer or proxy forwarding plain HTTP inward); generated portal and workshop URLs use https regardless of in-cluster certificate presence. Maps to SessionManager.spec.ingressOverrides.protocol: https."
+      "description": "Asserts TLS for the ingress domain is terminated outside the cluster (external load balancer or proxy forwarding plain HTTP inward). No in-cluster wildcard certificate is referenced and generated portal and workshop URLs use https. Maps to EducatesClusterConfig inline ingress.protocol https with no wildcardCertificateSecretRef; wildcardCertificateSecret is not required when set."
     },
 
     "clusterAdmin":   { "type": "boolean", "default": false },

@@ -23,6 +23,10 @@ import (
 // cannot complete without a CA, so failing at translate time prevents
 // late surprises at deploy time.
 //
+// When ingress.insecure is set the cluster serves plain HTTP: the
+// certificates provider becomes None, no CA is required, and
+// opts.CASecretName is ignored.
+//
 // Static field defaults (clusterAdmin true, lookupService true,
 // imagePrePuller false, operator.logLevel info, cluster.listenAddress
 // 127.0.0.1) have already been applied by EducatesLocalConfig.WithDefaults()
@@ -34,8 +38,8 @@ import (
 //   - operator.image.tag stays as-is (CLI-binary-version defaulting
 //     belongs in command code that has access to the build info).
 func TranslateLocal(cfg *v1alpha1.EducatesLocalConfig, opts Options) (*Output, error) {
-	if opts.CASecretName == "" {
-		return nil, fmt.Errorf("translator: CustomCA Secret name is required for EducatesLocalConfig; the caller must look it up by ingress.domain from the local secrets cache before translating")
+	if !cfg.Ingress.Insecure && opts.CASecretName == "" {
+		return nil, fmt.Errorf("translator: CustomCA Secret name is required for EducatesLocalConfig; the caller must look it up by ingress.domain from the local secrets cache before translating (or set ingress.insecure to serve plain HTTP)")
 	}
 	out := &Output{
 		OperatorChartValues:   operatorChartValuesFor(cfg.Operator),
@@ -54,11 +58,6 @@ func TranslateLocal(cfg *v1alpha1.EducatesLocalConfig, opts Options) (*Output, e
 // caCertificateRef.name and (optionally) .namespace come from opts —
 // the caller looked them up by ingress.domain in the local secrets cache.
 func localECCSpec(cfg *v1alpha1.EducatesLocalConfig, opts Options) map[string]interface{} {
-	caRef := map[string]interface{}{"name": opts.CASecretName}
-	if opts.CASecretNamespace != "" {
-		caRef["namespace"] = opts.CASecretNamespace
-	}
-
 	ingress := map[string]interface{}{
 		"ingressClassName": "contour",
 		"controller": map[string]interface{}{
@@ -71,7 +70,17 @@ func localECCSpec(cfg *v1alpha1.EducatesLocalConfig, opts Options) map[string]in
 				"envoyServiceType": "ClusterIP",
 			},
 		},
-		"certificates": map[string]interface{}{
+	}
+	if cfg.Ingress.Insecure {
+		// Plain HTTP: no cert-manager, no issuer, no certificate.
+		ingress["certificates"] = map[string]interface{}{"provider": "None"}
+		ingress["protocol"] = "http"
+	} else {
+		caRef := map[string]interface{}{"name": opts.CASecretName}
+		if opts.CASecretNamespace != "" {
+			caRef["namespace"] = opts.CASecretNamespace
+		}
+		ingress["certificates"] = map[string]interface{}{
 			"provider": "BundledCertManager",
 			"bundledCertManager": map[string]interface{}{
 				"issuerType": "CustomCA",
@@ -79,7 +88,7 @@ func localECCSpec(cfg *v1alpha1.EducatesLocalConfig, opts Options) map[string]in
 					"caCertificateRef": caRef,
 				},
 			},
-		},
+		}
 	}
 	if cfg.Ingress.Domain != "" {
 		ingress["domain"] = cfg.Ingress.Domain

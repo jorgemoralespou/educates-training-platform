@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
-	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
@@ -86,19 +85,22 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
 		c.ApplyCLIDefaults(p.Version, p.ImageRepository)
-		if o.LocalConfig && c.Ingress.Domain == "" {
-			ip, err := hostinfo.DetectHostIP()
-			if err != nil {
-				return fmt.Errorf("auto-detect host IP: %w", err)
+		if o.LocalConfig {
+			// Fills <host-IP>.nip.io and defaults ingress.insecure when
+			// the domain was left empty; no-op when the user set one.
+			if _, err := maybeApplyHostDomain(c); err != nil {
+				return err
 			}
-			c.Ingress.Domain = hostinfo.NipDomain(ip)
 		} else if c.Ingress.Domain == "" {
 			return fmt.Errorf("ingress.domain is required when using --config (set it in %s)", path)
 		}
-		var lookupErr error
-		caSecretName, caSecretNamespace, lookupErr = caRefForLocal(c)
-		if lookupErr != nil {
-			return lookupErr
+		// An insecure cluster serves plain HTTP and needs no CA.
+		if !c.Ingress.Insecure {
+			var lookupErr error
+			caSecretName, caSecretNamespace, lookupErr = caRefForLocal(c)
+			if lookupErr != nil {
+				return lookupErr
+			}
 		}
 		syncLocalSecrets = true
 	case *v1alpha1.EducatesConfig:
