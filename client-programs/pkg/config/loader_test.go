@@ -27,8 +27,8 @@ func TestLoad_EmptyLocalConfig_AppliesDefaults(t *testing.T) {
 	if local.LookupService == nil || *local.LookupService != true {
 		t.Errorf("LookupService = %v, want true", local.LookupService)
 	}
-	if local.ImagePrePuller == nil || *local.ImagePrePuller != false {
-		t.Errorf("ImagePrePuller = %v, want false", local.ImagePrePuller)
+	if local.ImagePrePuller == nil || *local.ImagePrePuller != true {
+		t.Errorf("ImagePrePuller = %v, want true", local.ImagePrePuller)
 	}
 	if got, want := local.Operator.LogLevel, "info"; got != want {
 		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
@@ -105,7 +105,7 @@ func TestLoad_FullGKEConfig_RoundTripsAllFields(t *testing.T) {
 		t.Errorf("ExternalTLSTermination = false, want true")
 	}
 	// Explicit toggles must override the kind defaults
-	// (clusterAdmin=false, lookupService=true, imagePrePuller=false).
+	// (clusterAdmin=false, lookupService=true, imagePrePuller=true).
 	if gke.ClusterAdmin == nil || *gke.ClusterAdmin != true {
 		t.Errorf("ClusterAdmin = %v, want true (explicit override)", gke.ClusterAdmin)
 	}

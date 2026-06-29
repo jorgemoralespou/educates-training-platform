@@ -75,7 +75,7 @@ func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 	}
 
 	// Defaults from WithDefaults flow through: LookupService=true → present;
-	// imagePrePuller=false → SessionManager has imagePrePuller.enabled: false;
+	// imagePrePuller=true → SessionManager has imagePrePuller.enabled: true;
 	// logLevel=info → on every spec.
 	if out.LookupService == nil {
 		t.Error("LookupService = nil, want present (default lookupService=true)")
@@ -85,7 +85,7 @@ func TestTranslateLocal_EmptyConfig_AppliesInvariants(t *testing.T) {
 		t.Errorf("SessionManager logLevel = %v, want %v", got, want)
 	}
 	ipp := sm["imagePrePuller"].(map[string]interface{})
-	if got, want := ipp["enabled"], false; got != want {
+	if got, want := ipp["enabled"], true; got != want {
 		t.Errorf("imagePrePuller.enabled = %v, want %v", got, want)
 	}
 }

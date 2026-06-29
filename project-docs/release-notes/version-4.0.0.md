@@ -203,7 +203,13 @@ Deprecations
   in-cluster TLS for the full picture.
 
 * The ``imageCache`` configuration setting has been renamed to
-  ``imagePrePuller``.
+  ``imagePrePuller``. It is now enabled by default in the CLI configuration
+  kinds (``EducatesLocalConfig``, ``EducatesGKEConfig``,
+  ``EducatesEKSConfig`` and ``EducatesInlineConfig``), so installs created
+  with the CLI pre-pull workshop images onto every node ahead of time
+  unless ``imagePrePuller`` is set to ``false``. Installs applied directly
+  from custom resources or the Helm chart keep the chart default of
+  disabled.
 
 * The CLI binaries are no longer published as the ``educates-client-programs``
   imgpkg bundle. Download the binaries from the GitHub release for the

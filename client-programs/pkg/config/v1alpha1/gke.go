@@ -45,7 +45,7 @@ type EducatesGKEConfig struct {
 
 	// Top-level toggles shared with EducatesLocalConfig. Defaults per
 	// the locked design: clusterAdmin=false, lookupService=true,
-	// imagePrePuller=false.
+	// imagePrePuller=true.
 	ClusterAdmin      *bool                        `yaml:"clusterAdmin,omitempty"`
 	LookupService     *bool                        `yaml:"lookupService,omitempty"`
 	ImagePrePuller    *bool                        `yaml:"imagePrePuller,omitempty"`
@@ -96,8 +96,8 @@ func (c *EducatesGKEConfig) WithDefaults() *EducatesGKEConfig {
 		c.LookupService = &t
 	}
 	if c.ImagePrePuller == nil {
-		f := false
-		c.ImagePrePuller = &f
+		t := true
+		c.ImagePrePuller = &t
 	}
 	if c.Operator.LogLevel == "" {
 		c.Operator.LogLevel = "info"

@@ -88,7 +88,7 @@
 
     "clusterAdmin":   { "type": "boolean", "default": true },
     "lookupService":  { "type": "boolean", "default": true },
-    "imagePrePuller": { "type": "boolean", "default": false },
+    "imagePrePuller": { "type": "boolean", "default": true },
 
     "websiteStyling": {
       "type": "object",

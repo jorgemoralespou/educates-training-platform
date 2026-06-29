@@ -40,7 +40,7 @@ type EducatesEKSConfig struct {
 	ExternalTLSTermination bool `yaml:"externalTLSTermination,omitempty"`
 
 	// Top-level toggles shared with EducatesLocalConfig. Defaults:
-	// clusterAdmin=false, lookupService=true, imagePrePuller=false.
+	// clusterAdmin=false, lookupService=true, imagePrePuller=true.
 	ClusterAdmin      *bool                        `yaml:"clusterAdmin,omitempty"`
 	LookupService     *bool                        `yaml:"lookupService,omitempty"`
 	ImagePrePuller    *bool                        `yaml:"imagePrePuller,omitempty"`
@@ -85,8 +85,8 @@ func (c *EducatesEKSConfig) WithDefaults() *EducatesEKSConfig {
 		c.LookupService = &t
 	}
 	if c.ImagePrePuller == nil {
-		f := false
-		c.ImagePrePuller = &f
+		t := true
+		c.ImagePrePuller = &t
 	}
 	if c.Operator.LogLevel == "" {
 		c.Operator.LogLevel = "info"

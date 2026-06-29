@@ -94,8 +94,8 @@ func (c *EducatesInlineConfig) WithDefaults() *EducatesInlineConfig {
 		c.LookupService = &t
 	}
 	if c.ImagePrePuller == nil {
-		f := false
-		c.ImagePrePuller = &f
+		t := true
+		c.ImagePrePuller = &t
 	}
 	if c.Operator.LogLevel == "" {
 		c.Operator.LogLevel = "info"
