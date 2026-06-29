@@ -68,7 +68,7 @@ New Features
   common problems such as ports already being in use.
 
 * The ``educates local config`` command group now provides ``init``, ``get``,
-  ``set``, ``view`` and ``edit`` commands for managing the local
+  ``set``, ``view``, ``edit`` and ``explain`` commands for managing the local
   configuration, with validation against the configuration schemas. The
   ``view`` command prints the effective configuration with all CLI defaults
   filled in, so the values the CLI supplies on your behalf (including the
@@ -78,6 +78,17 @@ New Features
   writes a minimal file by default, or with ``--defaults`` writes the
   fully-defaulted configuration with those same values materialised into
   the file.
+
+* A new ``educates local config explain`` command describes configuration
+  fields from the embedded JSON schema, in the style of ``kubectl explain``,
+  without needing a cluster or a configuration file. It takes a dotted field
+  path (for example ``educates local config explain ingress.insecure``) and
+  prints the field's type, default and description along with its
+  sub-fields. The kind defaults to ``EducatesLocalConfig`` and is chosen
+  with ``--kind``, which accepts a kind name or a short alias (``local``,
+  ``gke``, ``eks``, ``inline``, ``escape``), so the GKE, EKS, inline and
+  escape-hatch kinds can be explored the same way. The descriptions come
+  from the schemas, which now carry field documentation for every kind.
 
 * Workshop sessions on local clusters are now served using TLS certificates
   issued in-cluster by cert-manager from a local certificate authority managed

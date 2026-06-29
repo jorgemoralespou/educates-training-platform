@@ -53,6 +53,8 @@ This prints the effective configuration with the CLI defaults filled in, so the 
 
 If you would rather have those defaults written into the file from the start, initialise it with `educates local config init --defaults`, which materialises the fully-defaulted configuration rather than the minimal file `educates local config init` writes by default.
 
+To look up what a field means while editing, use `educates local config explain`, which describes a field and its sub-fields from the schema in the style of `kubectl explain`, for example `educates local config explain ingress`. See [configuration settings](configuration-settings) for the available fields and the other configuration kinds.
+
 You can also supply a configuration file via the `--config` option when running the `educates local cluster create` command, however by doing so any secrets in the local secrets cache will not be automatically copied to the cluster.
 
 Local image registry

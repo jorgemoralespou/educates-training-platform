@@ -12,6 +12,15 @@ Every kind has a published JSON schema at `https://schemas.educates.dev/cli/v1al
 
 Files created by `educates local config init` include the modeline automatically.
 
+You can also describe the fields of a kind from the command line, without a cluster or a configuration file, using `educates local config explain`. It reads the same embedded schema and prints a field's type, default and description in the style of `kubectl explain`:
+
+```
+educates local config explain ingress.insecure
+educates local config explain gcp.project --kind gke
+```
+
+The argument is a dotted field path; with no argument the top-level fields are listed. The kind defaults to `EducatesLocalConfig` and is chosen with `--kind`, which accepts a kind name or a short alias (`local`, `gke`, `eks`, `inline`, `escape`). The descriptions are the same ones the schema gives editors on hover, so a field documented here is documented in your editor too.
+
 EducatesLocalConfig
 -------------------
 
