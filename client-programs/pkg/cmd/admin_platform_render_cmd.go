@@ -151,22 +151,26 @@ func lookupLocalCAByDomain(domain string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf(`no cached CA Secret found for domain %q.
 
-The Local-mode install configures cert-manager in CustomCA mode and
-needs a CA Secret whose 'training.educates.dev/domain' annotation
-matches this domain. Add one with:
+A secure install is the default (ingress.insecure is false): Educates
+serves workshops over HTTPS from a CA you supply, so it needs a cached CA
+Secret whose 'training.educates.dev/domain' annotation matches this
+domain. Either provide a CA for the domain, or set ingress.insecure to
+true to serve plain HTTP with no CA.
 
-  educates local secrets add ca <name> \
-    --domain %s \
-    --cert ca.crt --key ca.key
+To generate and cache a self-signed CA for the domain:
 
-For development on a laptop, generate a self-signed CA first:
+  educates local secrets add ca <name> --domain %s
 
-  openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-    -subj '/CN=educates-dev-ca' \
-    -keyout ca.key -out ca.crt
+To use an existing CA instead, pass its certificate and key:
 
-The cached Secret is pushed into the %q namespace at deploy time.`,
-			domain, domain, LocalCASecretNamespace)
+  educates local secrets add ca <name> --domain %s --cert ca.crt --key ca.key
+
+To serve plain HTTP with no CA instead:
+
+  educates local config set ingress.insecure true
+
+The cached CA Secret is pushed into the %q namespace at deploy time.`,
+			domain, domain, domain, LocalCASecretNamespace)
 	}
 	return name, nil
 }

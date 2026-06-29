@@ -82,9 +82,21 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	}
 
 	// 0. Preflight: fail fast (before any docker / kind / k8s mutation)
-	//    when the cluster already exists OR host 80/443 are bound. The
-	//    second case is the v3 busybox probe — kind itself fails later
-	//    with a much less actionable error if Envoy can't publish.
+	//    when the cluster already exists, host 80/443 are bound, or a
+	//    secure install is missing its CA. The host-port case is the v3
+	//    busybox probe — kind itself fails later with a much less
+	//    actionable error if Envoy can't publish. The CA case is the one
+	//    the deploy looks up later: without this check it would only fail
+	//    after the kind cluster and registry already exist.
+	// A secure install (the default; ingress.insecure not set) serves
+	// HTTPS from a cached CA. Defaults have already run, so an empty
+	// domain has become a <host-IP>.nip.io insecure install that needs no
+	// CA; only a domain with insecure left false requires one. This is a
+	// pure local-cache read, so do it first: a missing CA is reported
+	// without touching Docker or the cluster at all.
+	if _, _, err := localCASecretIfSecure(cfg); err != nil {
+		return err
+	}
 	clusterConfig := cluster.NewKindClusterConfig(o.Kubeconfig)
 	if exists, err := clusterConfig.ClusterExists(); err != nil {
 		return err
@@ -272,14 +284,12 @@ func registryMirrorFromConfig(m v1alpha1.RegistryMirror) registry.MirrorConfig {
 // runDeploy via translateAndDeploy; configPath isn't used by the shared
 // helper (it kept the file-path around for the now-deleted re-load).
 func tailCallDeploy(ctx context.Context, w io.Writer, cfg *v1alpha1.EducatesLocalConfig, _ string, _ *ProjectInfo, o *LocalClusterCreateOptions) error {
-	var caName, caNS string
-	// An insecure cluster serves plain HTTP and needs no CA.
-	if !cfg.Ingress.Insecure {
-		var err error
-		caName, caNS, err = caRefForLocal(cfg)
-		if err != nil {
-			return err
-		}
+	// A secure install needs a cached CA; an insecure one serves plain
+	// HTTP and needs none. The preflight in runLocalClusterCreate already
+	// failed fast on a missing CA, so this is the same idempotent lookup.
+	caName, caNS, err := localCASecretIfSecure(cfg)
+	if err != nil {
+		return err
 	}
 	return translateAndDeploy(ctx, w, cfg, caName, caNS, true, deployPipelineFlags{
 		Kubeconfig: o.Kubeconfig,

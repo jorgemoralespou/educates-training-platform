@@ -94,13 +94,12 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		} else if c.Ingress.Domain == "" {
 			return fmt.Errorf("ingress.domain is required when using --config (set it in %s)", path)
 		}
-		// An insecure cluster serves plain HTTP and needs no CA.
-		if !c.Ingress.Insecure {
-			var lookupErr error
-			caSecretName, caSecretNamespace, lookupErr = caRefForLocal(c)
-			if lookupErr != nil {
-				return lookupErr
-			}
+		// A secure install needs a cached CA; an insecure one serves
+		// plain HTTP and needs none (localCASecretIfSecure handles both).
+		var lookupErr error
+		caSecretName, caSecretNamespace, lookupErr = localCASecretIfSecure(c)
+		if lookupErr != nil {
+			return lookupErr
 		}
 		syncLocalSecrets = true
 	case *v1alpha1.EducatesConfig:

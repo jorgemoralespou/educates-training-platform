@@ -111,3 +111,16 @@ func caRefForLocal(c *v1alpha1.EducatesLocalConfig) (name, namespace string, err
 	}
 	return name, LocalCASecretNamespace, nil
 }
+
+// localCASecretIfSecure returns the cached CA Secret name + namespace a
+// Local-mode install needs, or ("", "", nil) when ingress.insecure is
+// set (an insecure install serves plain HTTP and needs no CA). It is the
+// shared fail-fast check used by deploy and cluster create. Host-IP
+// defaulting must already have run, so an empty domain has become an
+// insecure nip.io install by this point.
+func localCASecretIfSecure(c *v1alpha1.EducatesLocalConfig) (name, namespace string, err error) {
+	if c.Ingress.Insecure {
+		return "", "", nil
+	}
+	return caRefForLocal(c)
+}
