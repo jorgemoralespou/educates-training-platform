@@ -83,6 +83,51 @@ func TestLocalConfigSet_ScalarRoundTrip(t *testing.T) {
 	}
 }
 
+// TestLocalConfigSet_PreservesModelineAndOrder is the regression guard
+// for set rewriting the file through a map (which dropped comments and
+// sorted keys alphabetically). The yaml-language-server modeline and the
+// original, non-alphabetical key order must survive the edit.
+func TestLocalConfigSet_PreservesModelineAndOrder(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+	original := "# yaml-language-server: $schema=https://schemas.educates.dev/cli/v1alpha1/EducatesLocalConfig.json\n" +
+		"apiVersion: cli.educates.dev/v1alpha1\n" +
+		"kind: EducatesLocalConfig\n" +
+		"cluster:\n  listenAddress: 0.0.0.0\n" +
+		"ingress:\n  domain: insecure.educates.test\n" +
+		"operator:\n  logLevel: debug\n"
+	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	if err := runLocalConfigSet(&buf, "ingress.insecure", "true"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	s := func() string { b, _ := os.ReadFile(filepath.Join(dataHome, "config.yaml")); return string(b) }()
+
+	if !strings.Contains(s, "# yaml-language-server: $schema=") {
+		t.Errorf("set dropped the yaml-language-server modeline:\n%s", s)
+	}
+	if !strings.Contains(s, "insecure: true") {
+		t.Errorf("set did not write the value:\n%s", s)
+	}
+	// Original order has kind before cluster; an alphabetical map sort
+	// would have put cluster, ingress before kind. Asserting this order
+	// holds proves comments+order were preserved rather than re-sorted.
+	last := -1
+	for _, key := range []string{"apiVersion:", "kind:", "cluster:", "ingress:", "operator:"} {
+		idx := strings.Index(s, key)
+		if idx < 0 {
+			t.Fatalf("missing key %q in:\n%s", key, s)
+		}
+		if idx < last {
+			t.Errorf("key %q out of original order (alphabetical scramble?):\n%s", key, s)
+		}
+		last = idx
+	}
+}
+
 func TestLocalConfigSet_CoercesBoolAndInt(t *testing.T) {
 	stageInitConfig(t)
 	if err := runLocalConfigSet(io.Discard, "lookupService", "false"); err != nil {

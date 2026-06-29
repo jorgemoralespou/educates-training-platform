@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/xeipuuv/gojsonschema"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1/schemas"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
@@ -50,70 +51,123 @@ func runLocalConfigSet(w io.Writer, path, rawValue string) error {
 		return fmt.Errorf("read %s (run 'educates local config init' first?): %w", cfgPath, err)
 	}
 
-	// Round-trip through yaml.v2 → JSON-friendly map so gojsonschema
-	// and yaml.v2 marshalling both work the same way.
-	var root map[string]interface{}
-	if err := yaml.Unmarshal(data, &root); err != nil {
+	// Edit the YAML as a yaml.v3 node tree so the file's comments (the
+	// yaml-language-server modeline in particular) and key order survive
+	// the round-trip. Marshalling a decoded map instead would sort keys
+	// alphabetically and drop every comment.
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("parse %s: %w", cfgPath, err)
 	}
-	if root == nil {
-		root = map[string]interface{}{}
-	}
+	root := rootMappingNode(&doc)
 
-	if err := setByPath(root, path, coerce(rawValue)); err != nil {
+	if err := setNodeByPath(root, strings.Split(path, "."), coerce(rawValue)); err != nil {
 		return err
 	}
 
-	if err := validateAgainstLocalSchema(root, cfgPath, path); err != nil {
+	// Validate the edited document against the schema before writing.
+	var asMap map[string]interface{}
+	if err := root.Decode(&asMap); err != nil {
+		return fmt.Errorf("decode edited %s: %w", cfgPath, err)
+	}
+	if asMap == nil {
+		asMap = map[string]interface{}{}
+	}
+	if err := validateAgainstLocalSchema(asMap, cfgPath, path); err != nil {
 		return err
 	}
 
-	out, err := yaml.Marshal(root)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := os.WriteFile(cfgPath, out, 0o644); err != nil {
+	if err := enc.Close(); err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := os.WriteFile(cfgPath, buf.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", cfgPath, err)
 	}
 	fmt.Fprintf(w, "%s.%s = %v\n", filepath.Base(cfgPath), path, coerce(rawValue))
 	return nil
 }
 
-// setByPath walks root by dotted path, creating intermediate maps as
-// needed, and sets the leaf to value. yaml.v2 produces
-// map[interface{}]interface{} for nested objects from a Unmarshal; we
-// normalise every step we touch to map[string]interface{} so the
-// re-marshal is clean.
-func setByPath(root map[string]interface{}, path string, value interface{}) error {
-	segs := strings.Split(path, ".")
+// rootMappingNode returns the top-level mapping node of a parsed
+// document, creating an empty document + mapping when the file was empty
+// so a first 'set' on a blank file still works.
+func rootMappingNode(doc *yaml.Node) *yaml.Node {
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		return doc.Content[0]
+	}
+	root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	doc.Kind = yaml.DocumentNode
+	doc.Content = []*yaml.Node{root}
+	return root
+}
+
+// setNodeByPath walks the mapping node by dotted path, creating
+// intermediate mapping nodes as needed, and sets the leaf to value.
+// Existing key and value nodes are updated in place so any comments
+// attached to them are preserved.
+func setNodeByPath(root *yaml.Node, segs []string, value interface{}) error {
 	if len(segs) == 0 || segs[0] == "" {
 		return fmt.Errorf("empty path")
 	}
 	cur := root
 	for i, s := range segs[:len(segs)-1] {
-		next, ok := cur[s]
-		if !ok {
-			n := map[string]interface{}{}
-			cur[s] = n
-			cur = n
+		v := mappingValue(cur, s)
+		if v == nil {
+			child := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			cur.Content = append(cur.Content, scalarNode("!!str", s), child)
+			cur = child
 			continue
 		}
-		switch m := next.(type) {
-		case map[string]interface{}:
-			cur = m
-		case map[interface{}]interface{}:
-			conv := map[string]interface{}{}
-			for k, v := range m {
-				conv[fmt.Sprint(k)] = v
-			}
-			cur[s] = conv
-			cur = conv
-		default:
-			return fmt.Errorf("path %q: segment %q is a %T, not a map", path, strings.Join(segs[:i+1], "."), next)
+		if v.Kind != yaml.MappingNode {
+			return fmt.Errorf("path %q: segment %q is not a map", strings.Join(segs, "."), strings.Join(segs[:i+1], "."))
+		}
+		cur = v
+	}
+	leaf := segs[len(segs)-1]
+	tag, sval := scalarValue(value)
+	if existing := mappingValue(cur, leaf); existing != nil {
+		existing.Kind = yaml.ScalarNode
+		existing.Tag = tag
+		existing.Value = sval
+		existing.Style = 0
+		existing.Content = nil
+	} else {
+		cur.Content = append(cur.Content, scalarNode("!!str", leaf), scalarNode(tag, sval))
+	}
+	return nil
+}
+
+// mappingValue returns the value node paired with key in a mapping node,
+// or nil when the key is absent.
+func mappingValue(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
 		}
 	}
-	cur[segs[len(segs)-1]] = value
 	return nil
+}
+
+func scalarNode(tag, value string) *yaml.Node {
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: value}
+}
+
+// scalarValue maps a coerced value to its YAML tag and string form so it
+// renders unquoted for bools and ints.
+func scalarValue(value interface{}) (tag, sval string) {
+	switch v := value.(type) {
+	case bool:
+		return "!!bool", strconv.FormatBool(v)
+	case int:
+		return "!!int", strconv.Itoa(v)
+	default:
+		return "!!str", fmt.Sprint(v)
+	}
 }
 
 // coerce maps the raw CLI string to a typed value. Conservative: only
