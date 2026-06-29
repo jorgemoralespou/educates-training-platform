@@ -425,11 +425,12 @@
                   "type": "object"
                 },
                 "provider": {
-                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned.",
+                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. None disables in-cluster TLS entirely: the operator\ninstalls no cert-manager, creates no ClusterIssuer and no wildcard\nCertificate, and Educates serves plain HTTP unless TLS is terminated\noutside the cluster (see ingress.protocol).",
                   "enum": [
                     "BundledCertManager",
                     "ExternalCertManager",
-                    "StaticCertificate"
+                    "StaticCertificate",
+                    "None"
                   ],
                   "type": "string"
                 },
@@ -634,6 +635,14 @@
             "ingressClassName": {
               "description": "ingressClassName names the IngressClass used by Educates. In\nBundledContour mode the operator creates an IngressClass with\nthis name; in External mode it must already exist.",
               "type": "string"
+            },
+            "protocol": {
+              "description": "protocol asserts the scheme of the public-facing URLs Educates\ngenerates. Leave it empty to derive the scheme from the\ncertificates provider: https when a certificate is provisioned,\nhttp when the provider is None. Set it to https with a None\nprovider when TLS is terminated outside the cluster.",
+              "enum": [
+                "http",
+                "https"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -713,8 +722,16 @@
                 "ingressClassName": {
                   "type": "string"
                 },
+                "protocol": {
+                  "description": "protocol asserts the scheme of the public-facing URLs. Leave it\nempty to derive the scheme from wildcardCertificateSecretRef:\nhttps when a wildcard certificate is declared, http otherwise. Set\nit to https with no wildcard certificate when TLS is terminated\noutside the cluster.",
+                  "enum": [
+                    "http",
+                    "https"
+                  ],
+                  "type": "string"
+                },
                 "wildcardCertificateSecretRef": {
-                  "description": "wildcardCertificateSecretRef references a kubernetes.io/tls Secret\nwith keys tls.crt and tls.key, valid for *.\u003cdomain\u003e.",
+                  "description": "wildcardCertificateSecretRef references a kubernetes.io/tls Secret\nwith keys tls.crt and tls.key, valid for *.\u003cdomain\u003e. Omit it when\nthe cluster serves plain HTTP or terminates TLS outside the\ncluster.",
                   "properties": {
                     "name": {
                       "description": "name of the referent.",
@@ -729,8 +746,7 @@
               },
               "required": [
                 "domain",
-                "ingressClassName",
-                "wildcardCertificateSecretRef"
+                "ingressClassName"
               ],
               "type": "object"
             },

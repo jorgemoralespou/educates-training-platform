@@ -505,20 +505,23 @@ func imagePrePullerValues(values map[string]any) map[string]any {
 // config-published namespace; the chart's auto-SecretCopier handles
 // cross-namespace placement.
 func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) {
-	tlsRef := map[string]any{
-		"name":      cfg.Status.Ingress.WildcardCertificateSecretRef.Name,
-		"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
+	// wildcardNS is the cluster-config-published namespace for ingress
+	// secrets; both it and tlsName are empty when there is no in-cluster
+	// wildcard certificate (None provider), which the chart reads as
+	// "render plain ingresses, no TLS block".
+	wildcardNS := ""
+	tlsName := ""
+	if wc := cfg.Status.Ingress.WildcardCertificateSecretRef; wc != nil {
+		wildcardNS = wc.Namespace
+		tlsName = wc.Name
 	}
 	if obj.Spec.IngressOverrides != nil && obj.Spec.IngressOverrides.TLSSecretRef != nil {
-		tlsRef = map[string]any{
-			"name":      obj.Spec.IngressOverrides.TLSSecretRef.Name,
-			"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
-		}
+		tlsName = obj.Spec.IngressOverrides.TLSSecretRef.Name
 	}
 	clusterIngress := map[string]any{
 		"domain":            cfg.Status.Ingress.Domain,
 		"class":             cfg.Status.Ingress.IngressClassName,
-		"tlsCertificateRef": tlsRef,
+		"tlsCertificateRef": map[string]any{"name": tlsName, "namespace": wildcardNS},
 	}
 	caRef := map[string]any{"name": "", "namespace": ""}
 	if cfg.Status.Ingress.CACertificateSecretRef != nil {
@@ -530,14 +533,18 @@ func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionMa
 	if obj.Spec.IngressOverrides != nil && obj.Spec.IngressOverrides.CACertificateSecretRef != nil {
 		caRef = map[string]any{
 			"name":      obj.Spec.IngressOverrides.CACertificateSecretRef.Name,
-			"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
+			"namespace": wildcardNS,
 		}
 	}
 	clusterIngress["caCertificateRef"] = caRef
-	// Asserted public-URL scheme for externally-terminated TLS; when
-	// unset the chart derives it from tlsCertificateRef presence.
+	// Publish the resolved scheme from the cluster-config contract; a
+	// per-SessionManager override still wins when set.
+	protocol := string(cfg.Status.Ingress.Protocol)
 	if obj.Spec.IngressOverrides != nil && obj.Spec.IngressOverrides.Protocol != "" {
-		clusterIngress["protocol"] = obj.Spec.IngressOverrides.Protocol
+		protocol = obj.Spec.IngressOverrides.Protocol
+	}
+	if protocol != "" {
+		clusterIngress["protocol"] = protocol
 	}
 	values["clusterIngress"] = clusterIngress
 }

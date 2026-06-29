@@ -81,7 +81,7 @@ func makeReadyClusterConfig() {
 				Ingress: configv1alpha1.InlineIngress{
 					Domain:           "test.example.com",
 					IngressClassName: "contour",
-					WildcardCertificateSecretRef: configv1alpha1.LocalObjectReference{
+					WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
 						Name: "wildcard-tls",
 					},
 				},
@@ -116,7 +116,8 @@ func makeReadyClusterConfig() {
 		Ingress: &configv1alpha1.StatusIngress{
 			Domain:           "test.example.com",
 			IngressClassName: "contour",
-			WildcardCertificateSecretRef: configv1alpha1.NamespacedSecretRef{
+			Protocol:         configv1alpha1.IngressProtocolHTTPS,
+			WildcardCertificateSecretRef: &configv1alpha1.NamespacedSecretRef{
 				Namespace: "educates-installer",
 				Name:      "wildcard-tls",
 			},

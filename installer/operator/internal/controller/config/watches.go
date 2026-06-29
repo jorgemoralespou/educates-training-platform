@@ -111,7 +111,7 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 		if cr.Spec.Inline == nil {
 			return nil
 		}
-		if matchesOpNamespaceRef(cr.Spec.Inline.Ingress.WildcardCertificateSecretRef.Name) {
+		if ref := cr.Spec.Inline.Ingress.WildcardCertificateSecretRef; ref != nil && matchesOpNamespaceRef(ref.Name) {
 			return singletonRequest
 		}
 		if ref := cr.Spec.Inline.Ingress.CACertificateSecretRef; ref != nil {

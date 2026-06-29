@@ -317,19 +317,21 @@ func renderLookupServiceValues(obj *platformv1alpha1.LookupService, cfg *configv
 	// published in cluster config status. The CR can override the
 	// Secret name; namespace stays the cluster config's (the chart's
 	// auto-SecretCopier handles cross-namespace placement when the
-	// Secret lives outside the release namespace).
-	tlsRef := map[string]any{
-		"name":      cfg.Status.Ingress.WildcardCertificateSecretRef.Name,
-		"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
+	// Secret lives outside the release namespace). Both name and
+	// namespace are empty when there is no in-cluster wildcard
+	// certificate (None provider); the chart then renders a plain
+	// Ingress with no TLS block.
+	wildcardNS := ""
+	tlsName := ""
+	if wc := cfg.Status.Ingress.WildcardCertificateSecretRef; wc != nil {
+		wildcardNS = wc.Namespace
+		tlsName = wc.Name
 	}
 	if obj.Spec.Ingress.TLSSecretRef != nil {
-		tlsRef = map[string]any{
-			"name":      obj.Spec.Ingress.TLSSecretRef.Name,
-			"namespace": cfg.Status.Ingress.WildcardCertificateSecretRef.Namespace,
-		}
+		tlsName = obj.Spec.Ingress.TLSSecretRef.Name
 	}
 	clusterIngress := map[string]any{
-		"tlsCertificateRef": tlsRef,
+		"tlsCertificateRef": map[string]any{"name": tlsName, "namespace": wildcardNS},
 	}
 	if cfg.Status.Ingress.CACertificateSecretRef != nil {
 		clusterIngress["caCertificateRef"] = map[string]any{

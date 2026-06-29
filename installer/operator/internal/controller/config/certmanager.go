@@ -242,6 +242,14 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 		return false, res, err
 	}
 
+	if obj.Spec.Ingress.Certificates.Provider == configv1alpha1.CertificatesProviderNone {
+		// No in-cluster TLS: install no cert-manager, create no issuer
+		// or Certificate. The phase is satisfied immediately so the
+		// orchestrator proceeds to Contour.
+		r.markCertificatesNotManaged(obj)
+		return true, ctrl.Result{}, nil
+	}
+
 	if !shouldInstallCertManager(obj) {
 		// External provider variants are validated elsewhere; nothing
 		// to install or apply here. Future: also populate

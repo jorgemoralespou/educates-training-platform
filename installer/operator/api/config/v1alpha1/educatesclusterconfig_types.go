@@ -64,14 +64,32 @@ const (
 )
 
 // CertificatesProvider selects how the wildcard TLS certificate is
-// provisioned.
-// +kubebuilder:validation:Enum=BundledCertManager;ExternalCertManager;StaticCertificate
+// provisioned. None disables in-cluster TLS entirely: the operator
+// installs no cert-manager, creates no ClusterIssuer and no wildcard
+// Certificate, and Educates serves plain HTTP unless TLS is terminated
+// outside the cluster (see ingress.protocol).
+// +kubebuilder:validation:Enum=BundledCertManager;ExternalCertManager;StaticCertificate;None
 type CertificatesProvider string
 
 const (
 	CertificatesProviderBundledCertManager  CertificatesProvider = "BundledCertManager"
 	CertificatesProviderExternalCertManager CertificatesProvider = "ExternalCertManager"
 	CertificatesProviderStaticCertificate   CertificatesProvider = "StaticCertificate"
+	CertificatesProviderNone                CertificatesProvider = "None"
+)
+
+// IngressProtocol asserts the scheme of the public-facing URLs Educates
+// generates. It is independent of whether the cluster itself terminates
+// TLS. Set it to https with a None certificates provider when TLS is
+// terminated outside the cluster (a cloud load balancer or proxy
+// forwarding plain HTTP inward), so generated links use the right scheme
+// even though no in-cluster certificate is presented.
+// +kubebuilder:validation:Enum=http;https
+type IngressProtocol string
+
+const (
+	IngressProtocolHTTP  IngressProtocol = "http"
+	IngressProtocolHTTPS IngressProtocol = "https"
 )
 
 // IssuerType selects the cert-manager ClusterIssuer flavour for the
@@ -513,6 +531,8 @@ type IngressController struct {
 
 // Ingress groups ingress-related configuration. Required when mode is
 // Managed.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.protocol) || self.protocol != 'http' || self.certificates.provider == 'None'",message="ingress.protocol http is only valid when ingress.certificates.provider is None"
 type Ingress struct {
 	// domain is the wildcard subdomain under which Educates serves
 	// workshops, e.g., "educates.example.com".
@@ -524,6 +544,14 @@ type Ingress struct {
 	// this name; in External mode it must already exist.
 	// +required
 	IngressClassName string `json:"ingressClassName"`
+
+	// protocol asserts the scheme of the public-facing URLs Educates
+	// generates. Leave it empty to derive the scheme from the
+	// certificates provider: https when a certificate is provisioned,
+	// http when the provider is None. Set it to https with a None
+	// provider when TLS is terminated outside the cluster.
+	// +optional
+	Protocol IngressProtocol `json:"protocol,omitempty"`
 
 	// +required
 	Controller IngressController `json:"controller"`
@@ -696,6 +724,8 @@ type ImageRegistry struct {
 
 // InlineIngress declares pre-existing ingress resources for Inline
 // mode. The operator validates these and republishes them in status.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.protocol) || self.protocol != 'http' || !has(self.wildcardCertificateSecretRef)",message="ingress.protocol http is only valid when no wildcardCertificateSecretRef is set"
 type InlineIngress struct {
 	// +required
 	Domain string `json:"domain"`
@@ -703,10 +733,20 @@ type InlineIngress struct {
 	// +required
 	IngressClassName string `json:"ingressClassName"`
 
+	// protocol asserts the scheme of the public-facing URLs. Leave it
+	// empty to derive the scheme from wildcardCertificateSecretRef:
+	// https when a wildcard certificate is declared, http otherwise. Set
+	// it to https with no wildcard certificate when TLS is terminated
+	// outside the cluster.
+	// +optional
+	Protocol IngressProtocol `json:"protocol,omitempty"`
+
 	// wildcardCertificateSecretRef references a kubernetes.io/tls Secret
-	// with keys tls.crt and tls.key, valid for *.<domain>.
-	// +required
-	WildcardCertificateSecretRef LocalObjectReference `json:"wildcardCertificateSecretRef"`
+	// with keys tls.crt and tls.key, valid for *.<domain>. Omit it when
+	// the cluster serves plain HTTP or terminates TLS outside the
+	// cluster.
+	// +optional
+	WildcardCertificateSecretRef *LocalObjectReference `json:"wildcardCertificateSecretRef,omitempty"`
 
 	// caCertificateSecretRef references a Secret with the ca.crt key
 	// for the issuing CA chain. Optional.
@@ -802,10 +842,17 @@ type StatusIngress struct {
 	// +required
 	IngressClassName string `json:"ingressClassName"`
 
-	// wildcardCertificateSecretRef points at the operator-namespace
-	// Secret holding the wildcard cert+key.
+	// protocol is the resolved scheme (http or https) of the
+	// public-facing URLs. Components read it to generate links and to
+	// decide whether to attach a TLS block to the ingresses they create.
 	// +required
-	WildcardCertificateSecretRef NamespacedSecretRef `json:"wildcardCertificateSecretRef"`
+	Protocol IngressProtocol `json:"protocol"`
+
+	// wildcardCertificateSecretRef points at the operator-namespace
+	// Secret holding the wildcard cert+key. Unset when the certificates
+	// provider is None, in which case there is no in-cluster TLS.
+	// +optional
+	WildcardCertificateSecretRef *NamespacedSecretRef `json:"wildcardCertificateSecretRef,omitempty"`
 
 	// caCertificateSecretRef is set when a CA Secret is configured.
 	// +optional

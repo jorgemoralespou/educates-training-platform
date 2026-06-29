@@ -54,17 +54,22 @@ func (r *EducatesClusterConfigReconciler) validateInline(ctx context.Context, in
 		return nil, err
 	}
 
-	if err := r.checkWildcardSecret(ctx, inline.Ingress.WildcardCertificateSecretRef.Name); err != nil {
-		return nil, err
-	}
-
 	out := &configv1alpha1.StatusIngress{
 		Domain:           inline.Ingress.Domain,
 		IngressClassName: inline.Ingress.IngressClassName,
-		WildcardCertificateSecretRef: configv1alpha1.NamespacedSecretRef{
+		Protocol:         resolveInlineProtocol(inline.Ingress),
+	}
+
+	// No wildcard certificate means plain HTTP or TLS terminated outside
+	// the cluster; components read the absent ref accordingly.
+	if ref := inline.Ingress.WildcardCertificateSecretRef; ref != nil {
+		if err := r.checkWildcardSecret(ctx, ref.Name); err != nil {
+			return nil, err
+		}
+		out.WildcardCertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
 			Namespace: r.OperatorNamespace,
-			Name:      inline.Ingress.WildcardCertificateSecretRef.Name,
-		},
+			Name:      ref.Name,
+		}
 	}
 
 	if ref := inline.Ingress.CACertificateSecretRef; ref != nil {
@@ -91,6 +96,20 @@ func (r *EducatesClusterConfigReconciler) validateInline(ctx context.Context, in
 	}
 
 	return out, nil
+}
+
+// resolveInlineProtocol returns the public-URL scheme to publish for
+// Inline mode. An explicit ingress.protocol wins; otherwise it derives
+// from the wildcard certificate: https when one is declared, http
+// otherwise.
+func resolveInlineProtocol(ingress configv1alpha1.InlineIngress) configv1alpha1.IngressProtocol {
+	if ingress.Protocol != "" {
+		return ingress.Protocol
+	}
+	if ingress.WildcardCertificateSecretRef != nil {
+		return configv1alpha1.IngressProtocolHTTPS
+	}
+	return configv1alpha1.IngressProtocolHTTP
 }
 
 func (r *EducatesClusterConfigReconciler) checkIngressClass(ctx context.Context, name string) error {

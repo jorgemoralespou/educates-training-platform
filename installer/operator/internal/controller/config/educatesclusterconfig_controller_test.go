@@ -74,6 +74,50 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 		Expect(err.Error()).To(ContainSubstring("immutable"))
 	})
 
+	It("accepts a Managed-mode resource with a None certificates provider and http protocol", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+				Ingress: &configv1alpha1.Ingress{
+					Domain:           "educates.test",
+					IngressClassName: "contour",
+					Protocol:         configv1alpha1.IngressProtocolHTTP,
+					Controller: configv1alpha1.IngressController{
+						Provider: configv1alpha1.IngressControllerProviderBundledContour,
+					},
+					Certificates: configv1alpha1.Certificates{
+						Provider: configv1alpha1.CertificatesProviderNone,
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+	})
+
+	It("rejects ingress.protocol http with a non-None certificates provider (ingress CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+				Ingress: &configv1alpha1.Ingress{
+					Domain:           "educates.test",
+					IngressClassName: "contour",
+					Protocol:         configv1alpha1.IngressProtocolHTTP,
+					Controller: configv1alpha1.IngressController{
+						Provider: configv1alpha1.IngressControllerProviderBundledContour,
+					},
+					Certificates: configv1alpha1.Certificates{
+						Provider: configv1alpha1.CertificatesProviderBundledCertManager,
+					},
+				},
+			},
+		}
+		err := k8sClient.Create(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("ingress.protocol http is only valid"))
+	})
+
 	It("rejects Managed-mode fields when mode is Inline (exclusivity CEL)", func() {
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -83,7 +127,7 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 					Ingress: configv1alpha1.InlineIngress{
 						Domain:           "educates.test",
 						IngressClassName: "contour",
-						WildcardCertificateSecretRef: configv1alpha1.LocalObjectReference{
+						WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
 							Name: "wildcard-tls",
 						},
 					},
@@ -111,7 +155,7 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 					Ingress: configv1alpha1.InlineIngress{
 						Domain:           "educates.test",
 						IngressClassName: "contour",
-						WildcardCertificateSecretRef: configv1alpha1.LocalObjectReference{
+						WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
 							Name: "wildcard-tls",
 						},
 					},

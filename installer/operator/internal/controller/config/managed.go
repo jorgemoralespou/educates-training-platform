@@ -295,17 +295,25 @@ func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.E
 	obj.Status.ObservedGeneration = obj.Generation
 	obj.Status.Phase = configv1alpha1.ClusterConfigPhaseReady
 	obj.Status.Mode = obj.Spec.Mode
-	obj.Status.Ingress = &configv1alpha1.StatusIngress{
+
+	status := &configv1alpha1.StatusIngress{
 		Domain:           obj.Spec.Ingress.Domain,
 		IngressClassName: obj.Spec.Ingress.IngressClassName,
-		WildcardCertificateSecretRef: configv1alpha1.NamespacedSecretRef{
+		Protocol:         resolveIngressProtocol(obj.Spec.Ingress),
+	}
+	// With a None provider there is no operator-issued wildcard cert or
+	// ClusterIssuer to publish; components read the absent ref as "no
+	// in-cluster TLS" and render plain ingresses.
+	if obj.Spec.Ingress.Certificates.Provider != configv1alpha1.CertificatesProviderNone {
+		status.WildcardCertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
 			Namespace: r.OperatorNamespace,
 			Name:      wildcardTLSSecretName,
-		},
-		ClusterIssuerRef: &configv1alpha1.LocalObjectReference{
+		}
+		status.ClusterIssuerRef = &configv1alpha1.LocalObjectReference{
 			Name: wildcardClusterIssuer,
-		},
+		}
 	}
+	obj.Status.Ingress = status
 
 	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
 		Type:               conditionReady,
@@ -314,6 +322,20 @@ func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.E
 		Message:            "Managed-mode cluster services are ready",
 		ObservedGeneration: obj.Generation,
 	})
+}
+
+// resolveIngressProtocol returns the public-URL scheme to publish in
+// status.ingress.protocol. An explicit spec.ingress.protocol wins;
+// otherwise it derives from the certificates provider: http when the
+// provider is None, https when a certificate is provisioned.
+func resolveIngressProtocol(ingress *configv1alpha1.Ingress) configv1alpha1.IngressProtocol {
+	if ingress.Protocol != "" {
+		return ingress.Protocol
+	}
+	if ingress.Certificates.Provider == configv1alpha1.CertificatesProviderNone {
+		return configv1alpha1.IngressProtocolHTTP
+	}
+	return configv1alpha1.IngressProtocolHTTPS
 }
 
 // reconcileCertManager ensures the cert-manager release exists,
@@ -480,6 +502,10 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 
 	certs := obj.Spec.Ingress.Certificates
 	switch certs.Provider {
+	case configv1alpha1.CertificatesProviderNone:
+		// No in-cluster TLS. The operator installs no cert-manager and
+		// issues no certificate; ingress.protocol (validated by CEL)
+		// decides the scheme of the public URLs.
 	case configv1alpha1.CertificatesProviderBundledCertManager:
 		if certs.BundledCertManager == nil {
 			return &validationError{
@@ -511,7 +537,7 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 	default:
 		return &validationError{
 			Field:  "spec.ingress.certificates.provider",
-			Reason: fmt.Sprintf("provider %q is not yet supported in v1alpha1 (only BundledCertManager)", certs.Provider),
+			Reason: fmt.Sprintf("provider %q is not yet supported in v1alpha1 (only BundledCertManager and None)", certs.Provider),
 		}
 	}
 
@@ -680,6 +706,19 @@ func (r *EducatesClusterConfigReconciler) markCertificatesReadyTrue(obj *configv
 		Status:             metav1.ConditionTrue,
 		Reason:             "CertificateIssued",
 		Message:            "wildcard Certificate is Ready",
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markCertificatesNotManaged flips CertificatesReady to True for the
+// None provider, where Educates serves no in-cluster TLS and there is
+// no wildcard Certificate to wait on.
+func (r *EducatesClusterConfigReconciler) markCertificatesNotManaged(obj *configv1alpha1.EducatesClusterConfig) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionCertificatesReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "CertificatesNotManaged",
+		Message:            "certificates provider is None; no in-cluster TLS",
 		ObservedGeneration: obj.Generation,
 	})
 }

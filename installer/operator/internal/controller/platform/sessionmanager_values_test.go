@@ -52,7 +52,7 @@ func valuesTestClusterConfig() *configv1alpha1.EducatesClusterConfig {
 			Ingress: &configv1alpha1.StatusIngress{
 				Domain:           "test.example.com",
 				IngressClassName: "contour",
-				WildcardCertificateSecretRef: configv1alpha1.NamespacedSecretRef{
+				WildcardCertificateSecretRef: &configv1alpha1.NamespacedSecretRef{
 					Name:      "wildcard-tls",
 					Namespace: "educates-secrets",
 				},
@@ -62,6 +62,33 @@ func valuesTestClusterConfig() *configv1alpha1.EducatesClusterConfig {
 				},
 			},
 		},
+	}
+}
+
+// TestApplySMIngressValues_NoneProvider asserts that a status with no
+// wildcard certificate (certificates provider None) renders an empty
+// tlsCertificateRef and carries the published http protocol, so the
+// chart renders plain HTTP ingresses.
+func TestApplySMIngressValues_NoneProvider(t *testing.T) {
+	cfg := &configv1alpha1.EducatesClusterConfig{
+		Status: configv1alpha1.EducatesClusterConfigStatus{
+			Ingress: &configv1alpha1.StatusIngress{
+				Domain:           "test.example.com",
+				IngressClassName: "contour",
+				Protocol:         configv1alpha1.IngressProtocolHTTP,
+			},
+		},
+	}
+	values := map[string]any{}
+	applySMIngressValues(values, &platformv1alpha1.SessionManager{}, cfg)
+
+	ci := values["clusterIngress"].(map[string]any)
+	tlsRef := ci["tlsCertificateRef"].(map[string]any)
+	if tlsRef["name"] != "" || tlsRef["namespace"] != "" {
+		t.Errorf("tlsCertificateRef = %v, want empty name+namespace for None provider", tlsRef)
+	}
+	if got, want := ci["protocol"], "http"; got != want {
+		t.Errorf("clusterIngress.protocol = %v, want %v", got, want)
 	}
 }
 

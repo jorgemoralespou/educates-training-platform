@@ -85,7 +85,7 @@ func validInlineSpec() configv1alpha1.EducatesClusterConfigSpec {
 			Ingress: configv1alpha1.InlineIngress{
 				Domain:           "educates.test",
 				IngressClassName: "contour",
-				WildcardCertificateSecretRef: configv1alpha1.LocalObjectReference{
+				WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
 					Name: "wildcard-tls",
 				},
 			},

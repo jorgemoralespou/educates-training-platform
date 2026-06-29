@@ -517,11 +517,15 @@ spec:
                       provider:
                         description: |-
                           CertificatesProvider selects how the wildcard TLS certificate is
-                          provisioned.
+                          provisioned. None disables in-cluster TLS entirely: the operator
+                          installs no cert-manager, creates no ClusterIssuer and no wildcard
+                          Certificate, and Educates serves plain HTTP unless TLS is terminated
+                          outside the cluster (see ingress.protocol).
                         enum:
                         - BundledCertManager
                         - ExternalCertManager
                         - StaticCertificate
+                        - None
                         type: string
                       staticCertificate:
                         description: |-
@@ -738,12 +742,28 @@ spec:
                       BundledContour mode the operator creates an IngressClass with
                       this name; in External mode it must already exist.
                     type: string
+                  protocol:
+                    description: |-
+                      protocol asserts the scheme of the public-facing URLs Educates
+                      generates. Leave it empty to derive the scheme from the
+                      certificates provider: https when a certificate is provisioned,
+                      http when the provider is None. Set it to https with a None
+                      provider when TLS is terminated outside the cluster.
+                    enum:
+                    - http
+                    - https
+                    type: string
                 required:
                 - certificates
                 - controller
                 - domain
                 - ingressClassName
                 type: object
+                x-kubernetes-validations:
+                - message: ingress.protocol http is only valid when ingress.certificates.provider
+                    is None
+                  rule: '!has(self.protocol) || self.protocol != ''http'' || self.certificates.provider
+                    == ''None'''
               inline:
                 description: |-
                   inline declares pre-existing cluster resources. Used in Inline
@@ -814,10 +834,23 @@ spec:
                         type: string
                       ingressClassName:
                         type: string
+                      protocol:
+                        description: |-
+                          protocol asserts the scheme of the public-facing URLs. Leave it
+                          empty to derive the scheme from wildcardCertificateSecretRef:
+                          https when a wildcard certificate is declared, http otherwise. Set
+                          it to https with no wildcard certificate when TLS is terminated
+                          outside the cluster.
+                        enum:
+                        - http
+                        - https
+                        type: string
                       wildcardCertificateSecretRef:
                         description: |-
                           wildcardCertificateSecretRef references a kubernetes.io/tls Secret
-                          with keys tls.crt and tls.key, valid for *.<domain>.
+                          with keys tls.crt and tls.key, valid for *.<domain>. Omit it when
+                          the cluster serves plain HTTP or terminates TLS outside the
+                          cluster.
                         properties:
                           name:
                             description: name of the referent.
@@ -828,8 +861,11 @@ spec:
                     required:
                     - domain
                     - ingressClassName
-                    - wildcardCertificateSecretRef
                     type: object
+                    x-kubernetes-validations:
+                    - message: ingress.protocol http is only valid when no wildcardCertificateSecretRef
+                        is set
+                      rule: '!has(self.protocol) || self.protocol != ''http'' || !has(self.wildcardCertificateSecretRef)'
                   policyEnforcement:
                     description: |-
                       InlinePolicyEnforcement declares the policy engines already in place
@@ -1079,10 +1115,20 @@ spec:
                     type: string
                   ingressClassName:
                     type: string
+                  protocol:
+                    description: |-
+                      protocol is the resolved scheme (http or https) of the
+                      public-facing URLs. Components read it to generate links and to
+                      decide whether to attach a TLS block to the ingresses they create.
+                    enum:
+                    - http
+                    - https
+                    type: string
                   wildcardCertificateSecretRef:
                     description: |-
                       wildcardCertificateSecretRef points at the operator-namespace
-                      Secret holding the wildcard cert+key.
+                      Secret holding the wildcard cert+key. Unset when the certificates
+                      provider is None, in which case there is no in-cluster TLS.
                     properties:
                       name:
                         type: string
@@ -1095,7 +1141,7 @@ spec:
                 required:
                 - domain
                 - ingressClassName
-                - wildcardCertificateSecretRef
+                - protocol
                 type: object
               mode:
                 description: |-
