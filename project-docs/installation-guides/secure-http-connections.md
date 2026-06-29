@@ -21,11 +21,12 @@ How certificates are configured in v4
 The `EducatesClusterConfig` resource always carries a certificates configuration; how the wildcard certificate comes to exist depends on the provider you select:
 
 * **ACME, fully managed** (`BundledCertManager` with an ACME issuer) — the operator installs cert-manager and obtains a wildcard certificate from [Let's Encrypt](https://letsencrypt.org/) using a DNS01 challenge against your cloud DNS zone. This is what the `EducatesGKEConfig` (CloudDNS) and `EducatesEKSConfig` (Route53) kinds configure, and renewal is automatic. Wildcard certificates require the DNS01 challenge — Let's Encrypt does not issue wildcards via HTTP01 — which is why these scenarios need DNS provider credentials (Workload Identity / IRSA).
-* **Custom CA, fully managed** (`BundledCertManager` with a CustomCA issuer) — the operator installs cert-manager and issues the wildcard certificate from a CA you supply as a Secret. This is what the local laptop scenario uses: `educates local secrets add ca <name> --domain <domain>` generates a self-signed CA, and the deploy pushes it into the cluster.
+* **Custom CA, fully managed** (`BundledCertManager` with a CustomCA issuer) — the operator installs cert-manager and issues the wildcard certificate from a CA you supply as a Secret. This is what a local laptop install with a custom ingress domain uses: `educates local secrets add ca <name> --domain <domain>` generates a self-signed CA, and the deploy pushes it into the cluster. A local install with no ingress domain set instead defaults to the `None` provider below.
 * **Your cert-manager** (`ExternalCertManager`) — cert-manager already runs in your cluster; you point Educates at your `ClusterIssuer` and it requests the wildcard certificate from it.
 * **Static certificate** (`StaticCertificate`, or Inline mode's `wildcardCertificateSecret`) — you already have a wildcard certificate (bought, issued by a corporate CA, a Cloudflare origin certificate, or generated with `certbot`). Store it as a `kubernetes.io/tls` Secret in the operator's namespace and reference it by name. If the certificate is signed by a CA that is not publicly trusted, also supply the CA certificate Secret (`caCertificateRef` / `caCertificateSecret`) so workshop components can validate connections. Renewals are your responsibility — update the Secret in place.
+* **No in-cluster TLS** (`None`) — the operator installs no cert-manager and issues no certificate, and Educates serves the cluster over plain HTTP. Select this with `ingress.insecure` on the local configuration for a laptop cluster, or with the `None` certificates provider directly. Set `ingress.protocol: https` alongside the `None` provider when TLS is terminated outside the cluster (see External proxies and CDNs below), so generated URLs use the right scheme even though the cluster presents no certificate.
 
-In all cases TLS is terminated by the cluster's ingress controller, and Educates handles HTTPS natively.
+In all cases other than the `None` provider, TLS is terminated by the cluster's ingress controller, and Educates handles HTTPS natively. With the `None` provider the cluster serves plain HTTP, either for a local insecure install or behind an external proxy that terminates TLS for it.
 
 External proxies and CDNs
 -------------------------
@@ -34,9 +35,9 @@ In some environments, a separate proxy server or CDN (Cloudflare, an AWS ALB wit
 
 If the proxy **re-encrypts** traffic toward the cluster using a private certificate (for example a Cloudflare origin certificate, with the Cloudflare SSL mode set to "Full"), this is just the static-certificate scenario from the cluster's point of view: supply the private certificate (and its CA) as the static wildcard certificate.
 
-If the proxy forwards **plain HTTP** to the cluster (Cloudflare "Flexible", Cloudflare Tunnel, the typical ALB+ACM listener), the cluster itself terminates no public TLS, but Educates must still generate `https://` URLs for the public-facing domain. Assert this with `externalTLSTermination: true` in the `EducatesGKEConfig`, `EducatesEKSConfig` or `EducatesInlineConfig` configuration kinds (underneath, it sets `SessionManager.spec.ingressOverrides.protocol: https`, also reachable directly via `EducatesConfig` or when applying the custom resources yourself).
+If the proxy forwards **plain HTTP** to the cluster (Cloudflare "Flexible", Cloudflare Tunnel, the typical ALB+ACM listener), the cluster itself terminates no public TLS, but Educates must still generate `https://` URLs for the public-facing domain. Assert this with `externalTLSTermination: true` in the `EducatesGKEConfig`, `EducatesEKSConfig` or `EducatesInlineConfig` configuration kinds. Underneath, this selects the `None` certificates provider with `ingress.protocol: https`, so the operator issues no in-cluster certificate while the generated URLs stay `https`. The same combination is reachable directly via `EducatesConfig` or when applying the custom resources yourself.
 
-One current limitation: the cluster configuration still requires its certificate settings (the GKE/EKS kinds still provision the ACME stack, and Inline mode still requires the wildcard certificate Secret), even though the external edge never presents that certificate. Fully certificate-less operator-driven installs are tracked as planned work; until then the in-cluster certificate covers the internal hop and the override governs the generated URLs.
+Because the `None` provider issues no certificate, the GKE and EKS kinds no longer require `acme` settings, and Inline mode no longer requires a `wildcardCertificateSecret`, when `externalTLSTermination` is set.
 
 When fronting the cluster with a proxy that traverses public networks, restrict inbound traffic to the proxy's published IP ranges so traffic cannot bypass the proxy's TLS and protections.
 
@@ -58,8 +59,10 @@ Summary
 | Existing cert-manager in cluster  | ExternalCertManager + your ClusterIssuer                  |
 | Wildcard certificate in hand      | StaticCertificate / Inline wildcardCertificateSecret      |
 | Proxy re-encrypting to cluster    | StaticCertificate with the private certificate            |
-| Proxy forwarding plain HTTP       | externalTLSTermination: true (in-cluster cert settings    |
-|                                   | still required — certificate-less installs are planned)   |
+| Proxy forwarding plain HTTP       | externalTLSTermination: true (None provider, protocol     |
+|                                   | https; no in-cluster certificate issued)                  |
+| Plain HTTP, no TLS at all         | ingress.insecure: true (Local) / None provider, protocol  |
+|                                   | http                                                       |
 ```
 
 In all cases, the ingress domain must be set to the wildcard domain for which DNS has been configured.

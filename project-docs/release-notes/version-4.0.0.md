@@ -69,7 +69,15 @@ New Features
 
 * The ``educates local config`` command group now provides ``init``, ``get``,
   ``set``, ``view`` and ``edit`` commands for managing the local
-  configuration, with validation against the configuration schemas.
+  configuration, with validation against the configuration schemas. The
+  ``view`` command prints the effective configuration with all CLI defaults
+  filled in, so the values the CLI supplies on your behalf (including the
+  ``<host-IP>.nip.io`` domain and the insecure default it implies) are
+  explicit rather than hidden behind a sparse file; pass ``--raw`` to print
+  the configuration file exactly as written instead. The ``init`` command
+  writes a minimal file by default, or with ``--defaults`` writes the
+  fully-defaulted configuration with those same values materialised into
+  the file.
 
 * Workshop sessions on local clusters are now served using TLS certificates
   issued in-cluster by cert-manager from a local certificate authority managed
@@ -108,6 +116,25 @@ New Features
   locally built system requires no configuration of image references;
   explicit configuration entries always take precedence. See the developer
   documentation for the local build workflow.
+
+* Educates can be installed without in-cluster TLS. The
+  ``EducatesClusterConfig`` certificates provider accepts a new ``None``
+  value, which installs no cert-manager, issues no certificate, and serves
+  workshops over plain HTTP. A companion ``ingress.protocol`` setting
+  (``http`` or ``https``) asserts the scheme of the generated workshop and
+  portal URLs independently of whether the cluster terminates TLS, so a
+  cluster sitting behind an external load balancer that terminates TLS can
+  still generate ``https`` URLs while presenting no in-cluster certificate.
+  On the local configuration, setting ``ingress.insecure`` selects a plain
+  HTTP install and skips the one-time ``educates local secrets add ca``
+  step. A local configuration that sets no ingress domain now defaults to
+  this insecure mode, since the ``<host-IP>.nip.io`` address it falls back
+  to cannot obtain a trusted certificate; set a custom ``ingress.domain``
+  to get the certificate-backed HTTPS install. On the
+  ``EducatesGKEConfig``, ``EducatesEKSConfig`` and
+  ``EducatesInlineConfig`` kinds, ``externalTLSTermination`` now maps to
+  this provider, so no unused in-cluster certificate is issued when TLS is
+  handled by an external load balancer or proxy.
 
 Features Changed
 ----------------
@@ -163,13 +190,17 @@ Deprecations
   fields ``podCIDR`` and ``serviceCIDR`` to ``podSubnet`` and
   ``serviceSubnet``.
 
-* Fully certificate-less installations are no longer possible. Workshop
-  sessions are always served over HTTPS, so the cluster configuration must
-  provide certificate settings — a wildcard certificate, a certificate
-  authority, or ACME issuer details. On local clusters,
-  ``educates local cluster create`` stops and prints the exact
-  ``educates local secrets add ca`` command to run when no CA exists yet for
-  the ingress domain.
+* Workshop sessions are served over HTTPS when the cluster configuration
+  provides certificate settings, which is a wildcard certificate, a
+  certificate authority, or ACME issuer details. On local clusters with a
+  custom ingress domain, ``educates local cluster create`` stops and prints
+  the exact ``educates local secrets add ca`` command to run when no CA
+  exists yet for that domain. A local configuration with no ingress domain
+  set instead defaults to a plain HTTP install on a ``<host-IP>.nip.io``
+  address and needs no CA, since that address cannot obtain a trusted
+  certificate. Set ``ingress.insecure`` to request plain HTTP explicitly
+  for a custom domain. See the New Features entry on installing without
+  in-cluster TLS for the full picture.
 
 * The ``imageCache`` configuration setting has been renamed to
   ``imagePrePuller``.

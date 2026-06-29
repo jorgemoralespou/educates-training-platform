@@ -43,11 +43,15 @@ educates local config edit
 
 and entering the configuration. See [configuration settings](configuration-settings) for the available fields. This configuration will be automatically used when running `educates local cluster create`.
 
-You can view the configuration file (validating it against the schema) by running:
+You can view the configuration (validating it against the schema) by running:
 
 ```
 educates local config view
 ```
+
+This prints the effective configuration with the CLI defaults filled in, so the values supplied on your behalf are explicit. This includes the `<host-IP>.nip.io` ingress domain and the `ingress.insecure` default it implies when you have not set a domain of your own. To see the configuration file exactly as you wrote it instead, add `--raw`.
+
+If you would rather have those defaults written into the file from the start, initialise it with `educates local config init --defaults`, which materialises the fully-defaulted configuration rather than the minimal file `educates local config init` writes by default.
 
 You can also supply a configuration file via the `--config` option when running the `educates local cluster create` command, however by doing so any secrets in the local secrets cache will not be automatically copied to the cluster.
 
@@ -82,12 +86,13 @@ If you have successively pushed new builds of images to the local image registry
 educates local registry prune
 ```
 
+(custom-ingress-domain)=
 Custom ingress domain
 ---------------------
 
-By default when deployed to the Kubernetes cluster of the local environment, Educates will be configured to use a `nip.io` address for the ingress domain, as a wildcard domain.
+By default, when deployed to the Kubernetes cluster of the local environment, Educates uses a `nip.io` address for the ingress domain, as a wildcard domain, and serves the cluster over plain HTTP. Because it is not possible to obtain an official trusted TLS certificate for a `nip.io` address, the default install sets `ingress.insecure` automatically, so no certificate authority is needed and the `educates local secrets add ca` step is skipped.
 
-This works but because it is not possible to obtain an official trusted TLS certificate for a `nip.io` address, and as such it is not possible to use secure ingresses, some features of the workshop environment may not work. This includes the inability to use a per session image registry, which requires a secure ingress to be trusted by the Kubernetes cluster and other tools which work with registries.
+Serving over plain HTTP is convenient for trying Educates out, but because the ingress is not secured, some features of the workshop environment do not work. This includes the inability to use a per session image registry, which requires a secure ingress to be trusted by the Kubernetes cluster and other tools which work with registries.
 
 Instead of relying on a `nip.io` address you can use your own domain that you control and for which you can generate yourself a wildcard TLS certificate. For example, you might own the domain `educates-local-dev.test`, in which case you could use a wildcard TLS certificate for `*.educates-local-dev.test`. You will also need to be able to configure DNS for the domain, or be able to set up a local DNS resolver on your local machine.
 
@@ -108,7 +113,7 @@ ingress:
   domain: educates-local-dev.test
 ```
 
-Local installs always serve workshop sessions over HTTPS: the install configures cert-manager with a certificate authority (CA) you supply, and the wildcard TLS certificate for the ingress domain is issued from that CA inside the cluster. Provide the CA for your domain with:
+When you set a custom ingress domain, the install serves workshop sessions over HTTPS: it configures cert-manager with a certificate authority (CA) you supply, and the wildcard TLS certificate for the ingress domain is issued from that CA inside the cluster. Setting a custom domain turns off the insecure default, so you provide the CA for your domain with:
 
 ```
 educates local secrets add ca ${INGRESS_DOMAIN}-ca --domain ${INGRESS_DOMAIN}
@@ -125,10 +130,21 @@ educates local secrets add ca ${INGRESS_DOMAIN}-ca \
 
 The `--domain` option indicates which ingress domain the CA is for, as the name of the secret is not significant; the CA annotated with the domain matching `ingress.domain` is used. To have your browser and operating system trust workshop URLs without warnings, configure them to trust this CA certificate.
 
+If you would rather not manage a CA, you can run the local cluster over plain HTTP by setting `ingress.insecure` in the configuration:
+
+```yaml
+ingress:
+  domain: educates-local-dev.test
+  insecure: true
+```
+
+With `ingress.insecure` set, no certificate authority is needed, the `educates local secrets add ca` step is skipped, and `educates local cluster create` serves workshop sessions over HTTP. Because the ingress is not secured, some features that require a trusted secure ingress do not work, including the per session image registry, so an insecure cluster is best suited to trying Educates out rather than developing workshops that rely on those features.
+
 Cached secrets (the CA, and any docker-registry secrets referenced from `secretPropagation.imagePullSecretNames`) are automatically copied to the local Kubernetes cluster when running `educates local cluster create`, provided the `--config` option is not being used.
 
 Note that DNS still needs to be configured to map using a CNAME the wildcard domain to the IP address of your local host machine where the Kubernetes cluster is running. This could be done by modifying your actual DNS registry, or you can run a local DNS resolver. If doing this in your global DNS registry, it doesn't matter that the IP address is a local network address which is not accessible to the internet, although depending on what internet router you use for a home network, you may need to disable DNS rebinding protection in your router for the domain.
 
+(local-dns-resolver)=
 Local DNS resolver
 ------------------
 

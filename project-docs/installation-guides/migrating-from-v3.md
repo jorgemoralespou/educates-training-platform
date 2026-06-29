@@ -55,8 +55,8 @@ Common v3 values map to v4 fields as follows:
 | clusterIngress.tlsCertificateRef        | wildcardCertificateSecret (Inline) — Secret must live in   |
 |                                         | the operator namespace                                     |
 | clusterIngress.caCertificateRef         | caCertificateSecret (Inline) / local secrets add ca (Local)|
-| clusterIngress.protocol                 | externalTLSTermination: true (GKE/EKS/Inline kinds) /      |
-|                                         | SessionManager ingressOverrides.protocol                   |
+| clusterIngress.protocol                 | ingress.insecure: true (Local, plain HTTP) /               |
+|                                         | externalTLSTermination: true (GKE/EKS/Inline kinds)        |
 | aws.region / aws.irsaRoles.*            | aws.region / aws.certManagerRoleARN /                      |
 |                                         | aws.externalDNSRoleARN (EKS kind)                          |
 | gcp.project / gcp.workloadIdentity.*    | gcp.project / gcp.certManagerServiceAccount /              |
@@ -107,4 +107,5 @@ Removed in v4
 
 * The Carvel/`kapp-controller` installation path. GitOps installs now point at the published Helm chart — see [Helm-based installation](helm-based-installation).
 * Pre-canned provider configurations for `minikube` and `vcluster`. Equivalent installs are possible via `EducatesConfig` or `EducatesInlineConfig`.
-* Fully certificate-less installs (v3 allowed installing with no TLS configuration at all). The URL-scheme half of `clusterIngress.protocol` is restored via `externalTLSTermination` / `SessionManager.spec.ingressOverrides.protocol`, but v4 still requires the certificate settings in the cluster configuration — see [secure HTTP connections](secure-http-connections).
+
+Certificate-less, plain-HTTP installs are still supported. A v3 `clusterIngress.protocol: http` install maps to `ingress.insecure: true` on `EducatesLocalConfig`, which the laptop migration applies automatically. On other kinds, `externalTLSTermination` now installs no in-cluster certificate, and at the cluster-configuration level the `None` certificates provider serves the same role. See [secure HTTP connections](secure-http-connections).

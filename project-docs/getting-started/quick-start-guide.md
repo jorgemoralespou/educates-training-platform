@@ -126,13 +126,7 @@ educates local config init
 educates local cluster create
 ```
 
-Workshop sessions are always served over HTTPS, signed by a local certificate authority (CA). If no CA exists yet for your ingress domain, `educates local cluster create` stops and prints the exact command to create one — run it as printed, for example:
-
-```
-educates local secrets add ca educates-ca --domain 192-168-1-1.nip.io
-```
-
-(With no `--cert`/`--key` arguments a self-signed CA is generated for you and cached locally; it is reused for every future cluster with the same domain.) Then run `educates local cluster create` again. For your browser to trust the workshop URLs signed by this CA, you will also need to import its certificate into your operating system trust store — see [Trusting the workshop certificates](trusting-the-workshop-certificates) below.
+With the default configuration the cluster is served over plain HTTP using a `nip.io` ingress domain, so no TLS certificate or certificate authority is needed and the cluster comes up ready to use. This is the quickest way to start experimenting. Some browser features that require a secure context, such as clipboard access, may be limited over plain HTTP, and a few Educates features such as the per session image registry require a trusted secure ingress. When you want trusted HTTPS, see [Serving workshops over HTTPS](serving-workshops-over-https) below.
 
 This command will perform the following steps:
 
@@ -140,7 +134,7 @@ This command will perform the following steps:
 
 * Deploy an image registry accessible via port 5001 on the local machine, and configure the cluster to trust it.
 
-* Install the Educates operator, which in turn installs the required cluster services — Contour as the ingress controller exposed via ports 80/443 on the local machine, cert-manager issuing TLS certificates from your local CA, and a security policy engine.
+* Install the Educates operator, which in turn installs the required cluster services: Contour as the ingress controller exposed via ports 80/443 on the local machine, and a security policy engine. When you configure trusted HTTPS, cert-manager is also installed to issue TLS certificates from your local CA.
 
 * Deploy the Educates training platform components.
 
@@ -148,16 +142,52 @@ Creation of the Kubernetes cluster, including the deployment of any required ser
 
 Once the Kubernetes cluster has been created, you should be able to access it immediately using `kubectl` as the configuration will be added to your local Kube configuration. The name of the Kube config context for the cluster is `kind-educates`.
 
+(serving-workshops-over-https)=
+Serving workshops over HTTPS (optional)
+---------------------------------------
+
+The default cluster is served over plain HTTP. To serve workshops over trusted HTTPS you need an ingress domain you can issue a wildcard TLS certificate for, which rules out `nip.io` since you do not control that domain. The recommended approach for a local machine is to use your own domain, for example `educates-local-dev.test`, together with the Educates local DNS resolver, which resolves the domain to your machine without needing a public DNS registry.
+
+Set this up before creating the cluster, in the following order. The examples use `educates-local-dev.test` as the domain.
+
+First, if you want to use a domain name, deploy the local DNS resolver for it. The `--domain` flag tells the resolver which domain to serve before it is set in the configuration:
+
+```
+educates local resolver deploy --local-config --domain educates-local-dev.test
+```
+
+On macOS you also need to register the domain with the system resolver, and the resolver setup differs by operating system, so follow the full steps under [Local DNS resolver](local-dns-resolver) in the local environment guide.
+
+Next, set the ingress domain in the configuration. Setting a domain turns off the insecure default:
+
+```
+educates local config set ingress.domain educates-local-dev.test
+```
+
+Then create a certificate authority (CA) for the domain. With no `--cert`/`--key` arguments a self-signed CA is generated for you and cached locally, and it is reused for every future cluster with the same domain. To supply an existing CA certificate and key with `--cert`/`--key` instead, for example one created with `mkcert`, see [the local environment guide](custom-ingress-domain). Create the CA with:
+
+```
+educates local secrets add ca educates-local-dev-test-ca --domain educates-local-dev.test
+```
+
+Finally create the cluster, running `educates local cluster delete` first if you already created the plain HTTP cluster:
+
+```
+educates local cluster create
+```
+
+Educates installs cert-manager, issues the wildcard certificate from your CA, and serves workshop URLs over HTTPS.
+
 (trusting-the-workshop-certificates)=
 Trusting the workshop certificates
 ----------------------------------
 
-Workshop URLs are served with TLS certificates signed by the local CA created earlier. Until that CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session.
+Workshop URLs are then served with TLS certificates signed by your local CA. Until that CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session.
 
 First export the CA certificate from the local secrets cache as a PEM file:
 
 ```
-educates local secrets export educates-ca --pem > educates-ca.pem
+educates local secrets export educates-local-dev-test-ca --pem > educates-local-dev-test-ca.pem
 ```
 
 Then import it into the trust store for your operating system:
@@ -166,7 +196,7 @@ Then import it into the trust store for your operating system:
 
 :::{tab-item} macOS
 ```
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain educates-ca.pem
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain educates-local-dev-test-ca.pem
 ```
 
 This covers Safari and Chrome.
@@ -174,27 +204,27 @@ This covers Safari and Chrome.
 
 :::{tab-item} Linux (Debian/Ubuntu)
 ```
-sudo cp educates-ca.pem /usr/local/share/ca-certificates/educates-ca.crt
+sudo cp educates-local-dev-test-ca.pem /usr/local/share/ca-certificates/educates-local-dev-test-ca.crt
 sudo update-ca-certificates
 ```
 
 Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
 
 ```
-certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-ca -i educates-ca.pem
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-dev-test-ca -i educates-local-dev-test-ca.pem
 ```
 :::
 
 :::{tab-item} Linux (Fedora/RHEL)
 ```
-sudo cp educates-ca.pem /etc/pki/ca-trust/source/anchors/educates-ca.pem
+sudo cp educates-local-dev-test-ca.pem /etc/pki/ca-trust/source/anchors/educates-local-dev-test-ca.pem
 sudo update-ca-trust
 ```
 
 Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
 
 ```
-certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-ca -i educates-ca.pem
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-dev-test-ca -i educates-local-dev-test-ca.pem
 ```
 :::
 
