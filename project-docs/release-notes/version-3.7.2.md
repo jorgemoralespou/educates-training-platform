@@ -4,6 +4,17 @@ Version 3.7.2
 Features Changed
 ----------------
 
+* Access to a workshop session's terminals and messaging channel over their
+  WebSocket connections was previously gated by a session specific access
+  token. Because WebSocket upgrade requests bypass the normal HTTP request
+  handling, they were not subject to the same OAuth (or HTTP basic
+  authentication) checks applied to other access to the workshop session.
+  These authentication checks are now also enforced on the WebSocket
+  connections, requiring a completed OAuth handshake and valid session cookie
+  in addition to the access token. Access to the terminals and messaging
+  channel therefore now depends on a fully authenticated workshop session and
+  not solely on possession of the access token.
+
 * When session manager was started it would log Educates configuration at log
   level of INFO for debugging purposes. If log files were being sent to a
   centralised logging service, this would result in training portal credentials
@@ -34,6 +45,10 @@ Features Changed
   terminal size back to the current window size. The "FORBIDDEN" banner
   message which could appear when a terminal connection was rejected for some
   reason has also been replaced with a popup.
+
+* A number of Python and JavaScript package dependencies used across the
+  Educates services and workshop base environment were updated to newer
+  versions, including updates made to address reported CVEs.
 
 Bugs Fixed
 ----------
