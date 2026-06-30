@@ -9,7 +9,7 @@ import { createProxyMiddleware } from "http-proxy-middleware"
 import * as morgan from "morgan"
 import * as url from "url"
 
-import { setup_access } from "./modules/access"
+import { setup_access, is_user_authenticated } from "./modules/access"
 import { setup_proxy } from "./modules/proxy"
 import { setup_session } from "./modules/session"
 import { setup_terminals, terminals } from "./modules/terminals"
@@ -122,14 +122,20 @@ if (FRAME_ANCESTORS) {
     cookie_options["secure"] = true
 }
 
-app.use(session({
+// The session middleware is held in a variable so that the exact same
+// instance, and thus the same backing session store, can also be applied to
+// WebSocket upgrade requests when verifying that the user is authenticated.
+
+const session_parser = session({
     name: cookie_name,
     genid: (req) => { return uuidv4() },
     secret: uuidv4(),
     cookie: cookie_options,
     resave: false,
     saveUninitialized: true,
-}))
+})
+
+app.use(session_parser)
 
 function setup_signals() {
     process.on("SIGTERM", () => {
@@ -200,11 +206,41 @@ async function main() {
 
         server.on("upgrade", (req, socket, head) => {
             let parsedUrl = url.parse(req.url, true)
-            if (terminals.is_enabled() && parsedUrl.pathname == "/terminal/server") {
-                terminals.session_manager().handle_upgrade(req, socket, head)
-            } else if (terminals.is_enabled() && parsedUrl.pathname == "/message/server") {
-                messages.session_manager().handle_upgrade(req, socket, head)
-            }
+
+            let is_terminal = terminals.is_enabled() && parsedUrl.pathname == "/terminal/server"
+            let is_message = messages.is_enabled() && parsedUrl.pathname == "/message/server"
+
+            // Ignore upgrade requests which aren't for one of the WebSocket
+            // endpoints we handle, leaving them to be dealt with elsewhere.
+
+            if (!is_terminal && !is_message)
+                return
+
+            // WebSocket upgrade requests bypass the Express middleware stack,
+            // so the authentication that protects normal HTTP routes is never
+            // applied to them. We therefore replay the session middleware
+            // against the upgrade request to populate req.session and then
+            // explicitly verify the user is authenticated. A WebSocket
+            // handshake cannot survive an HTTP redirect through the OAuth
+            // flow, so when the user isn't authenticated we reject the
+            // connection with a 401 rather than attempting to redirect.
+
+            session_parser(<any>req, <any>{}, () => {
+                if (!is_user_authenticated(req)) {
+                    logger.warn("Rejecting unauthenticated websocket upgrade", { url: req.url })
+
+                    socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n")
+                    socket.destroy()
+
+                    return
+                }
+
+                if (is_terminal) {
+                    terminals.session_manager().handle_upgrade(req, socket, head)
+                } else if (is_message) {
+                    messages.session_manager().handle_upgrade(req, socket, head)
+                }
+            })
         })
 
         start_http_server()

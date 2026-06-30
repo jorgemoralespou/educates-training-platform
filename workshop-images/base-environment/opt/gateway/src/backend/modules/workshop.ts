@@ -4,7 +4,7 @@ import axios from "axios"
 
 import { createProxyMiddleware } from "http-proxy-middleware"
 
-let axios_retry = require("axios-retry")
+let axios_retry = require("axios-retry").default
 
 import { config } from "./config"
 

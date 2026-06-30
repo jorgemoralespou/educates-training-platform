@@ -762,6 +762,10 @@ def training_portal_create(name, uid, body, spec, status, patch, runtime, retry,
                                     "name": "ANALYTICS_WEBHOOK_URL",
                                     "value": analytics_webhook_url,
                                 },
+                                {
+                                    "name": "RANDOMIZE_SESSION_IDS",
+                                    "value": "true",
+                                }
                             ],
                             "volumeMounts": [
                                 {"name": "data", "mountPath": "/opt/app-root/data"},
