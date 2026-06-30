@@ -73,9 +73,13 @@ deploy against a hand-prepared cluster.`,
 }
 
 func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o *LocalClusterCreateOptions) error {
-	cfg, configPath, err := loadLocalConfig(o)
+	cfg, configPath, createdConfig, err := loadLocalConfig(o)
 	if err != nil {
 		return err
+	}
+	if createdConfig {
+		fmt.Fprintf(w, "No local config found — wrote a default EducatesLocalConfig to %s\n", configPath)
+		fmt.Fprintf(w, "Continuing with defaults; view or edit it with 'educates local config view' / 'educates local config edit'.\n\n")
 	}
 	if err := applyLocalDefaults(cfg, p); err != nil {
 		return err
@@ -183,10 +187,13 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 }
 
 // loadLocalConfig returns the loaded v4 config + the path it came from
-// (used by error messages). Accepts EducatesLocalConfig directly or
-// EducatesConfig with target.provider=kind; everything else errors.
-func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfig, string, error) {
+// (used by error messages) + whether it just wrote a default config in
+// place of a missing one (so the caller can tell the user). Accepts
+// EducatesLocalConfig directly or EducatesConfig with target.provider=kind;
+// everything else errors.
+func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfig, string, bool, error) {
 	var path string
+	var created bool
 	// --local-config is the default for laptop create — matches v3
 	// behaviour where running the command with no flags pointed at
 	// <data-home>/config.yaml. --config still wins when set.
@@ -194,20 +201,25 @@ func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfi
 		path = o.Config
 	} else {
 		path = filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
-		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
-			return nil, "", err
+		// Unlike render/deploy, a first-time laptop create shouldn't dead-end
+		// on "run config init first"; write a minimal default in place and
+		// carry on. Migration of an existing v3 install still takes priority.
+		didInit, err := config.EnsureOrInitLocalConfigFile(utils.GetEducatesHomeDir())
+		if err != nil {
+			return nil, "", false, err
 		}
+		created = didInit
 	}
 	cfg, err := config.Load(path)
 	if err != nil {
-		return nil, path, err
+		return nil, path, created, err
 	}
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
-		return c, path, nil
+		return c, path, created, nil
 	case *v1alpha1.EducatesConfig:
 		if c.Target == nil || c.Target.Provider != "kind" {
-			return nil, path, fmt.Errorf("%s: EducatesConfig is accepted only with target.provider=kind for laptop create", path)
+			return nil, path, created, fmt.Errorf("%s: EducatesConfig is accepted only with target.provider=kind for laptop create", path)
 		}
 		// Synthesise a LocalConfig that mirrors the cluster/resolver
 		// envelope from the escape kind. The remaining ECC/SessionManager
@@ -219,9 +231,9 @@ func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfi
 				Kind:       v1alpha1.KindEducatesLocalConfig,
 			},
 			Cluster: c.Target.Cluster,
-		}, path, nil
+		}, path, created, nil
 	default:
-		return nil, path, fmt.Errorf("%s: unsupported kind %q for local cluster create", path, cfg.GetKind())
+		return nil, path, created, fmt.Errorf("%s: unsupported kind %q for local cluster create", path, cfg.GetKind())
 	}
 }
 

@@ -8,19 +8,17 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
-// localConfigSchemaModeline is the yaml-language-server modeline that
-// gives completion and validation in any editor with a YAML language
-// server, against the schema published by the release workflow.
-const localConfigSchemaModeline = `# yaml-language-server: $schema=` + v1alpha1.SchemaBaseURL + v1alpha1.KindEducatesLocalConfig + `.json`
+// The minimal-config building blocks live in the config package so the
+// `local config init` template and the `local cluster create` auto-init
+// stay byte-for-byte identical.
+const localConfigSchemaModeline = config.DefaultLocalConfigModeline
 
-const defaultLocalConfigYAML = localConfigSchemaModeline + `
-apiVersion: ` + v1alpha1.APIVersion + `
-kind: ` + v1alpha1.KindEducatesLocalConfig + `
-`
+const defaultLocalConfigYAML = config.DefaultLocalConfigYAML
 
 type LocalConfigInitOptions struct {
 	Force    bool

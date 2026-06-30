@@ -119,12 +119,13 @@ For the initial deployment we will rely on a `nip.io` address. How to use an alt
 Local Kubernetes cluster
 ------------------------
 
-To create a local Kubernetes cluster using Kind and deploy Educates, run the commands:
+To create a local Kubernetes cluster using Kind and deploy Educates, run the command:
 
 ```
-educates local config init
 educates local cluster create
 ```
+
+If no local configuration file exists yet, this command creates a default one for you, prints where it wrote it, and continues with the default settings, so you do not need to initialise anything first. To view or change that configuration afterwards use `educates local config view` or `educates local config edit`; to write it out ahead of time (for example to customise it before the first install) run `educates local config init`.
 
 With the default configuration the cluster is served over plain HTTP using a `nip.io` ingress domain, so no TLS certificate or certificate authority is needed and the cluster comes up ready to use. This is the quickest way to start experimenting. Some browser features that require a secure context, such as clipboard access, may be limited over plain HTTP, and a few Educates features such as the per session image registry require a trusted secure ingress. When you want trusted HTTPS, see [Serving workshops over HTTPS](serving-workshops-over-https) below.
 
@@ -148,7 +149,7 @@ Serving workshops over HTTPS (optional)
 
 The default cluster is served over plain HTTP. To serve workshops over trusted HTTPS you need an ingress domain you can issue a wildcard TLS certificate for, which rules out `nip.io` since you do not control that domain. The recommended approach for a local machine is to use your own domain, for example `educates-local-dev.test`, together with the Educates local DNS resolver, which resolves the domain to your machine without needing a public DNS registry.
 
-Set this up before creating the cluster, in the following order. The examples use `educates-local-dev.test` as the domain.
+Set this up before creating the cluster, in the following order. The examples use `educates-local-dev.test` as the domain. The steps below read and edit the local configuration file, so if you do not have one yet create it first with `educates local config init`.
 
 First, if you want to use a domain name, deploy the local DNS resolver for it. The `--domain` flag tells the resolver which domain to serve before it is set in the configuration:
 

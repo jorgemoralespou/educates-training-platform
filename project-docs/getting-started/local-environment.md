@@ -13,6 +13,8 @@ To create a local Kubernetes cluster using Kind and deploy Educates, run the com
 educates local cluster create
 ```
 
+If no local configuration file exists yet, this command creates a default one for you, prints where it wrote it, and continues with the default settings, so this single command is all you need to get started. See [custom configuration](custom-configuration) below to view or change that configuration.
+
 Deleting the cluster
 --------------------
 
@@ -32,6 +34,7 @@ educates local cluster delete --all
 
 This will also delete the local image registry and DNS resolver if deployed.
 
+(custom-configuration)=
 Custom configuration
 --------------------
 

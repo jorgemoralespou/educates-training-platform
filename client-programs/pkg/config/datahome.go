@@ -4,7 +4,23 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 )
+
+// DefaultLocalConfigModeline is the yaml-language-server modeline that
+// points editors at the published EducatesLocalConfig schema for
+// completion and validation.
+const DefaultLocalConfigModeline = `# yaml-language-server: $schema=` + v1alpha1.SchemaBaseURL + v1alpha1.KindEducatesLocalConfig + `.json`
+
+// DefaultLocalConfigYAML is the minimal EducatesLocalConfig — modeline,
+// apiVersion and kind only — written by `local config init` and by
+// `local cluster create` when no config exists yet. Every other field
+// takes its default at deploy time.
+const DefaultLocalConfigYAML = DefaultLocalConfigModeline + `
+apiVersion: ` + v1alpha1.APIVersion + `
+kind: ` + v1alpha1.KindEducatesLocalConfig + `
+`
 
 // EnsureLocalConfigFile is the single entry point for commands that
 // read <data-home>/config.yaml. It composes the v3-to-v4 migration
@@ -28,6 +44,38 @@ func EnsureLocalConfigFile(dataHome string) error {
 		return nil
 	}
 	return MissingLocalConfigError(dataHome)
+}
+
+// EnsureOrInitLocalConfigFile is the cluster-create counterpart to
+// EnsureLocalConfigFile: where the latter returns MissingLocalConfigError
+// for a first-time user, this one writes the minimal default
+// EducatesLocalConfig in its place so `local cluster create` runs
+// end-to-end without a preceding `local config init`. It reports whether
+// it created the file so the caller can tell the user.
+//
+// The v3 → v4 migration still runs first and still wins: a laptop-kind v3
+// values.yaml is migrated (created=false), and a non-laptop v3 values.yaml
+// still errors out of MaybeMigrateV3 — we never write a default over a
+// real, if unmigratable, v3 install. The write below is reached only when
+// there is genuinely no prior config to honour.
+func EnsureOrInitLocalConfigFile(dataHome string) (created bool, err error) {
+	configPath := filepath.Join(dataHome, "config.yaml")
+	if _, err := os.Stat(configPath); err == nil {
+		return false, nil
+	}
+	if err := MaybeMigrateV3(dataHome); err != nil {
+		return false, err
+	}
+	if _, err := os.Stat(configPath); err == nil {
+		return false, nil
+	}
+	if err := os.MkdirAll(dataHome, 0o755); err != nil {
+		return false, fmt.Errorf("create data home %q: %w", dataHome, err)
+	}
+	if err := os.WriteFile(configPath, []byte(DefaultLocalConfigYAML), 0o644); err != nil {
+		return false, fmt.Errorf("write %s: %w", configPath, err)
+	}
+	return true, nil
 }
 
 // MissingLocalConfigError diagnoses why <data-home>/config.yaml is missing
