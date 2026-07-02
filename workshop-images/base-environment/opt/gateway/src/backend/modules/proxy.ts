@@ -28,14 +28,14 @@ export function setup_proxy(app: express.Application, auth: string) {
             }
 
             // For a specific ingress, we need to match a host name where the
-            // session name is either prefixed or suffixed with the name of the
-            // ingress. Note that suffix use is deprecated but need to support
-            // it for backwards compatibility.
+            // session namespace is either prefixed or suffixed with the name of
+            // the ingress. Note that suffix use is deprecated but need to
+            // support it for backwards compatibility.
 
             let hosts = []
 
-            hosts.push(`${name}-${config.session_name}.${config.ingress_domain}`)
-            hosts.push(`${config.session_name}-${name}.${config.ingress_domain}`)
+            hosts.push(`${name}-${config.session_namespace}.${config.ingress_domain}`)
+            hosts.push(`${config.session_namespace}-${name}.${config.ingress_domain}`)
 
             // The filter/router function should only match and return a target
             // for requests that are actually for the calculated host names.

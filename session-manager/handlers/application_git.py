@@ -9,7 +9,7 @@ from .helpers import substitute_variables
 def git_workshop_spec_patches(workshop_spec, application_properties):
     characters = string.ascii_letters + string.digits
 
-    git_host = f"git-$(session_name).{INGRESS_DOMAIN}"
+    git_host = f"git-$(session_namespace).{INGRESS_DOMAIN}"
     git_username = "$(session_name)"
     git_password = "$(services_password)"
 
