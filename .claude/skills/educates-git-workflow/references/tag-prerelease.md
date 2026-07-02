@@ -4,7 +4,10 @@ Pre-release tags trigger the CI build and produce a GitHub release marked
 pre-release. Placement is the rule this skill enforces, because GitHub cannot:
 
 - `X.Y.Z-alpha.N` and `X.Y.Z-beta.N`: on `develop`, before feature freeze.
-- `X.Y.Z-rc.N`: on the `release/X.Y.Z` branch, after feature freeze.
+- `X.Y.Z-rc.N`: on the `release/X.Y.Z` branch, after feature freeze. This holds
+  whether the release branch was cut from `develop` or, for a stabilized patch release
+  of a maintained line, from a `support/X.Y.x` branch — an rc always sits on its
+  `release/X.Y.Z` branch.
 
 Maintainer operation: direct clone only.
 
