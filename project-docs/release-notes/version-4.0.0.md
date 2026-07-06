@@ -176,6 +176,15 @@ New Features
   pools for workshops that schedule across several nodes. Leaving
   ``cluster.nodes`` unset keeps the default single control-plane cluster.
 
+* ``educates local cluster status`` now also reports whether Educates is
+  installed on the local cluster and whether its platform components are
+  ready. It reads the ``EducatesClusterConfig``, ``SecretsManager``,
+  ``LookupService`` and ``SessionManager`` custom resources and reports one
+  of three outcomes: a cluster-only cluster (kind running, Educates not
+  installed), an installed-but-not-ready cluster (one or more components not
+  yet ``Ready``), or a fully installed and ready cluster — making it easy to
+  tell a working install from a partial or broken one.
+
 Features Changed
 ----------------
 
