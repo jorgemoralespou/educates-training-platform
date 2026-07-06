@@ -3,10 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -69,14 +68,9 @@ func (o *ClusterWorkshopsListOptions) Run() error {
 		return nil
 	}
 
-	w := new(tabwriter.Writer)
-	w.Init(os.Stdout, 8, 8, 3, ' ', 0)
-
-	defer w.Flush()
-
-	fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", "NAME", "ALIAS", "CAPACITY", "SOURCE")
-
 	workshopsClient := dynamicClient.Resource(workshopResource)
+
+	rows := make([][]string, 0, len(workshops))
 
 	for _, item := range workshops {
 		object := item.(map[string]interface{})
@@ -104,8 +98,12 @@ func (o *ClusterWorkshopsListOptions) Run() error {
 			}
 		}
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", object["name"], object["alias"], capacityField, source)
+		alias, _ := object["alias"].(string)
+
+		rows = append(rows, []string{name, alias, capacityField, source})
 	}
+
+	fmt.Println(utils.PrintTable([]string{"NAME", "ALIAS", "CAPACITY", "SOURCE"}, rows))
 
 	return nil
 }

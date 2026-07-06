@@ -24,3 +24,19 @@ func PrintTable(headers []string, rows [][]string) string {
 
 	return strings.TrimRight(buf.String(), "\n")
 }
+
+// PrintKeyValuesTable renders an aligned "Key: value" table (one row per
+// key/value pair) as a string, without a trailing newline. Each row must be
+// a two-element slice of {key, value}.
+func PrintKeyValuesTable(rows [][]string) string {
+	var buf strings.Builder
+	w := tabwriter.NewWriter(&buf, 8, 8, 3, ' ', 0)
+
+	for _, row := range rows {
+		fmt.Fprintf(w, "%s:\t%s\n", row[0], row[1])
+	}
+
+	w.Flush()
+
+	return strings.TrimRight(buf.String(), "\n")
+}

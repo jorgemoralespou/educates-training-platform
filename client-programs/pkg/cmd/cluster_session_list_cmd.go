@@ -3,10 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -81,12 +80,7 @@ func (o *ClusterSessionListOptions) Run() error {
 		return nil
 	}
 
-	w := new(tabwriter.Writer)
-	w.Init(os.Stdout, 8, 8, 3, ' ', 0)
-
-	defer w.Flush()
-
-	fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", "NAME", "PORTAL", "ENVIRONMENT", "STATUS")
+	rows := make([][]string, 0, len(sessions))
 
 	for _, item := range sessions {
 		name := item.GetName()
@@ -97,8 +91,10 @@ func (o *ClusterSessionListOptions) Run() error {
 
 		status, _, _ := unstructured.NestedString(item.Object, "status", "educates", "phase")
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, portal, environment, status)
+		rows = append(rows, []string{name, portal, environment, status})
 	}
+
+	fmt.Println(utils.PrintTable([]string{"NAME", "PORTAL", "ENVIRONMENT", "STATUS"}, rows))
 
 	return nil
 }

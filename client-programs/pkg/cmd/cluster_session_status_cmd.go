@@ -5,9 +5,24 @@ import (
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/educatesrestapi"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
+
+// printSessionDetails renders a workshop session's details as an aligned
+// "Key: value" table. Shared by the session status, extend, and terminate
+// commands, which all report the same fields.
+func printSessionDetails(details *educatesrestapi.WorkshopSessionDetails) string {
+	return utils.PrintKeyValuesTable([][]string{
+		{"Started", details.Started},
+		{"Expires", details.Expires},
+		{"Expiring", fmt.Sprintf("%t", details.Expiring)},
+		{"Countdown", fmt.Sprintf("%d", details.Countdown)},
+		{"Extendable", fmt.Sprintf("%t", details.Extendable)},
+		{"Status", details.Status},
+	})
+}
 
 var clusterSessionStatusExample = `
   # Show the status of a workshop session:
@@ -40,12 +55,7 @@ func (o *ClusterSessionStatusOptions) Run() error {
 		return err
 	}
 
-	fmt.Println("Started:", details.Started)
-	fmt.Println("Expires:", details.Expires)
-	fmt.Println("Expiring:", details.Expiring)
-	fmt.Println("Countdown:", details.Countdown)
-	fmt.Println("Extendable:", details.Extendable)
-	fmt.Println("Status:", details.Status)
+	fmt.Println(printSessionDetails(details))
 
 	return nil
 }

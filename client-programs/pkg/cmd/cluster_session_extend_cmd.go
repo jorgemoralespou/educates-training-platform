@@ -44,12 +44,7 @@ func (o *ClusterSessionExtendOptions) Run() error {
 		return err
 	}
 
-	fmt.Println("Started:", details.Started)
-	fmt.Println("Expires:", details.Expires)
-	fmt.Println("Expiring:", details.Expiring)
-	fmt.Println("Countdown:", details.Countdown)
-	fmt.Println("Extendable:", details.Extendable)
-	fmt.Println("Status:", details.Status)
+	fmt.Println(printSessionDetails(details))
 
 	return nil
 }

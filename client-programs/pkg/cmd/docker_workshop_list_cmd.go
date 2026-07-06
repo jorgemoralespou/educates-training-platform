@@ -3,12 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
-	"text/tabwriter"
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -33,16 +32,12 @@ func (p *ProjectInfo) NewDockerWorkshopListCmd() *cobra.Command {
 				return errors.Wrap(err, "cannot display list of workshops")
 			}
 
-			w := new(tabwriter.Writer)
-			w.Init(os.Stdout, 8, 8, 3, ' ', 0)
-
-			defer w.Flush()
-
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", "NAME", "URL", "SOURCE", "STATUS")
-
+			rows := make([][]string, 0, len(workshops))
 			for _, workshop := range workshops {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", workshop.Name, workshop.Url, workshop.Source, workshop.Status)
+				rows = append(rows, []string{workshop.Name, workshop.Url, workshop.Source, workshop.Status})
 			}
+
+			fmt.Println(utils.PrintTable([]string{"NAME", "URL", "SOURCE", "STATUS"}, rows))
 
 			return nil
 		},

@@ -3,10 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -70,13 +69,7 @@ func (o *ClusterPortalPasswordOptions) Run() error {
 			return errors.New("unable to access credentials")
 		}
 
-		w := new(tabwriter.Writer)
-		w.Init(os.Stdout, 8, 8, 3, ' ', 0)
-
-		defer w.Flush()
-
-		fmt.Fprintf(w, "%s\t%s\n", "USERNAME", "PASSWORD")
-		fmt.Fprintf(w, "%s\t%s\n", username, password)
+		fmt.Println(utils.PrintTable([]string{"USERNAME", "PASSWORD"}, [][]string{{username, password}}))
 	} else {
 		password, _, _ := unstructured.NestedString(trainingPortal.Object, "spec", "portal", "password")
 
