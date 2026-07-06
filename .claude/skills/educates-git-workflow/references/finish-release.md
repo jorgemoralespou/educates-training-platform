@@ -7,6 +7,14 @@ multiple turns, waiting on the user at each human step.
 
 Maintainer operation: direct clone only.
 
+This describes finishing a **primary-line** release: `release/X.Y.Z` cut from
+`develop`, merged to `main`, tagged there, and back-merged to `develop`. A
+**stabilized patch release of a maintained line** finishes differently — it merges
+back into its `support/X.Y.x` branch, is tagged on that support branch, and is **not**
+back-merged to `develop`. That variant is driven from
+`references/support-and-hotfix.md` (Path B); do not apply the `main`/`develop` targets
+of the stages below to it.
+
 ## Stage 0: pre-flight and plan
 
 After the universal pre-flight:

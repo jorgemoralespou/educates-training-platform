@@ -16,7 +16,7 @@ Branch Overview
 | `develop` | Integration line for the line under development (4.x in this example); alpha/beta tags are made here | `main` |
 | `support/<major>.<minor>.x` | Optional, on-demand maintenance line for a release line that needs patching; several can exist at once (e.g. `support/3.6.x`, `support/3.7.x`) | `main`, at that line's latest release tag, created only when a need to patch it arises |
 | `feature/4.0/*` | Individual features for the line under development | `develop` |
-| `release/<major>.<minor>.<patch>` | Stabilizing an imminent release; rc tags are made here (e.g. `release/4.0.0`) | `develop` |
+| `release/<major>.<minor>.<patch>` | Stabilizing an imminent release; rc tags are made here (e.g. `release/4.0.0`) | `develop`; or a `support/<major>.<minor>.x` branch for a stabilized patch release of a maintained line |
 | `bugfix/<desc>` | A non-feature fix; for the in-development line, or for a release found broken during stabilization | `develop`, or the `release/` branch being stabilized |
 | `hotfix/<major>.<minor>.z` | A single fix for a maintained line | the matching `support/<major>.<minor>.x` |
 
@@ -89,7 +89,7 @@ Do **not** merge `develop` into the `release/` branch to pull in a change. That 
 Maintenance of Released Lines
 -----------------------------
 
-A released line that needs patching after the fact gets an on-demand `support/<major>.<minor>.x` branch, cut from `main` at that line's latest release tag. Individual fixes for it are made on `hotfix/*` branches off the support branch, and patch releases are tagged on the support branch. A fix that affects more than one maintained line, security fixes in particular, must land on **all** affected lines that are still maintained, including `develop`.
+A released line that needs patching after the fact gets an on-demand `support/<major>.<minor>.x` branch, cut from `main` at that line's latest release tag. Most patches are a single fix made on a `hotfix/*` branch off the support branch, with the patch release tagged on the support branch. When a patch needs pre-release (rc) builds, or bundles several changes (often back-ports) that should stabilize together, a `release/<major>.<minor>.<patch>` branch is instead cut from the support branch, stabilized there with rc tags, and merged back into the support branch before the final tag — the same release-branch machinery as the primary line, but based on the support branch rather than `develop`/`main`, and with no back-merge to `develop`. A fix that affects more than one maintained line, security fixes in particular, must land on **all** affected lines that are still maintained, including `develop`.
 
 The mechanics of opening support lines, applying hotfixes, tagging patch releases, and propagating fixes across lines are maintainer operations covered in the [release procedures](release-procedures.md).
 

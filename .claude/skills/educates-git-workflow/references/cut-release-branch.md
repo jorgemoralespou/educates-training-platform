@@ -7,6 +7,12 @@ version.
 
 Maintainer operation: direct clone only, never from a fork.
 
+Its default base is `develop`. There is one other case: a **stabilized patch release
+of a maintained line**, where `release/X.Y.Z` is cut from a `support/X.Y.x` branch
+instead. That variant is driven from `references/support-and-hotfix.md` (Path B); the
+mechanics below are otherwise the same, reading `support/X.Y.x` for `develop` as the
+base and skipping the develop-specific feature-freeze framing.
+
 ## Ask first
 
 - Confirm the user is declaring feature freeze now. Do not cut a release branch as a
