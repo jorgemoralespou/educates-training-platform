@@ -65,6 +65,33 @@
               "bindIP":   { "type": "string", "description": "Host address the mirror is published on." }
             }
           }
+        },
+        "nodes": {
+          "type": "array",
+          "description": "Nodes of the Kind cluster. Leave empty for the default single control-plane cluster; when set, the list fully declares the cluster's nodes and must include a control-plane node.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role"],
+            "properties": {
+              "role":   { "type": "string", "enum": ["control-plane", "worker"], "description": "Kind node role." },
+              "labels": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Kubernetes node labels applied to this node, usable for pod nodeSelectors and affinity." },
+              "taints": {
+                "type": "array",
+                "description": "Kubernetes node taints registered on this node (applies to worker nodes).",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["key", "effect"],
+                  "properties": {
+                    "key":    { "type": "string", "minLength": 1, "description": "Taint key." },
+                    "value":  { "type": "string", "description": "Taint value. Optional." },
+                    "effect": { "type": "string", "enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"], "description": "Taint effect." }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     },

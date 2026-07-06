@@ -12,6 +12,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
+	"github.com/educates/educates-training-platform/client-programs/pkg/constants"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
@@ -30,15 +31,16 @@ var localClusterCreateExample = `
 `
 
 type LocalClusterCreateOptions struct {
-	Config         string
-	LocalConfig    bool
-	Kubeconfig     string
-	Context        string
-	ClusterImage   string
-	ClusterOnly    bool
-	RegistryBindIP string
-	Timeout        time.Duration
-	Verbose        bool
+	Config            string
+	LocalConfig       bool
+	Kubeconfig        string
+	Context           string
+	ClusterImage      string
+	KubernetesVersion string
+	ClusterOnly       bool
+	RegistryBindIP    string
+	Timeout           time.Duration
+	Verbose           bool
 }
 
 func (p *ProjectInfo) NewLocalClusterCreateCmd() *cobra.Command {
@@ -66,6 +68,20 @@ deploy against a hand-prepared cluster.`,
 				return fmt.Errorf("invalid --registry-bind-ip: %w", err)
 			}
 			o.RegistryBindIP = ip
+
+			// --kubernetes-version selects the kind node image. An explicit
+			// --kind-cluster-image always wins, so power users can still pin
+			// an arbitrary image.
+			if o.KubernetesVersion != "" {
+				image, ok := constants.KubernetesVersionToKindImage[o.KubernetesVersion]
+				if !ok {
+					return fmt.Errorf("unsupported --kubernetes-version %q; supported versions are: %v", o.KubernetesVersion, constants.SupportedKubernetesVersions())
+				}
+				if o.ClusterImage == "" {
+					o.ClusterImage = image
+				}
+			}
+
 			return p.runLocalClusterCreate(cmd.Context(), cmd.OutOrStdout(), &o)
 		},
 	}
@@ -74,7 +90,8 @@ deploy against a hand-prepared cluster.`,
 	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml (default when --config is not given)")
 	c.Flags().StringVar(&o.Kubeconfig, "kubeconfig", "", "kubeconfig file (defaults to $KUBECONFIG / ~/.kube/config)")
 	c.Flags().StringVar(&o.Context, "context", "", "context name to use within the kubeconfig (for the platform deploy tail-call)")
-	c.Flags().StringVar(&o.ClusterImage, "kind-cluster-image", "", "docker image to use when booting the kind cluster")
+	c.Flags().StringVar(&o.ClusterImage, "kind-cluster-image", "", "docker image to use when booting the kind cluster (overrides --kubernetes-version)")
+	c.Flags().StringVar(&o.KubernetesVersion, "kubernetes-version", constants.DefaultKubernetesVersion, fmt.Sprintf("Kubernetes version for the kind cluster (supported: %v)", constants.SupportedKubernetesVersions()))
 	c.Flags().BoolVar(&o.ClusterOnly, "cluster-only", false, "create kind cluster + registry; skip the platform deploy")
 	c.Flags().StringVar(&o.RegistryBindIP, "registry-bind-ip", "127.0.0.1", "bind IP for the always-on localhost:5001 registry")
 	c.Flags().DurationVar(&o.Timeout, "timeout", deployer.DefaultTimeout, "per-CR Ready=True wait timeout (passed through to deploy)")
@@ -94,6 +111,9 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 		fmt.Fprintf(w, "Continuing with defaults; view or edit it with 'educates local config view' / 'educates local config edit'.\n\n")
 	}
 	if err := applyLocalDefaults(cfg, p); err != nil {
+		return err
+	}
+	if err := validateClusterNodes(cfg.Cluster.Nodes); err != nil {
 		return err
 	}
 
@@ -262,6 +282,33 @@ func applyLocalDefaults(cfg *v1alpha1.EducatesLocalConfig, p *ProjectInfo) error
 	return nil
 }
 
+// validateClusterNodes checks a user-declared cluster.nodes list: when set,
+// it must contain at least one control-plane node (kind cannot bootstrap
+// without one) and use only the roles kind understands. An empty list keeps
+// the default single control-plane cluster and needs no validation.
+func validateClusterNodes(nodes []v1alpha1.ClusterNode) error {
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	controlPlanes := 0
+	for _, n := range nodes {
+		switch n.Role {
+		case "control-plane":
+			controlPlanes++
+		case "worker":
+		default:
+			return fmt.Errorf("cluster.nodes: invalid node role %q (must be \"control-plane\" or \"worker\")", n.Role)
+		}
+	}
+
+	if controlPlanes == 0 {
+		return fmt.Errorf("cluster.nodes: at least one node must have role \"control-plane\"")
+	}
+
+	return nil
+}
+
 // kindBootstrapFromConfig pulls the kind-template inputs from an
 // EducatesLocalConfig.
 func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBootstrapInput {
@@ -278,6 +325,20 @@ func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBoo
 			mounts[i].ReadOnly = *m.ReadOnly
 		}
 	}
+
+	nodes := make([]cluster.KindNode, len(cfg.Cluster.Nodes))
+	for i, n := range cfg.Cluster.Nodes {
+		taints := make([]cluster.KindNodeTaint, len(n.Taints))
+		for j, t := range n.Taints {
+			taints[j] = cluster.KindNodeTaint{Key: t.Key, Value: t.Value, Effect: t.Effect}
+		}
+		nodes[i] = cluster.KindNode{
+			Role:   n.Role,
+			Labels: n.Labels,
+			Taints: taints,
+		}
+	}
+
 	return &cluster.KindBootstrapInput{
 		ListenAddress: cfg.Cluster.ListenAddress,
 		ApiServer: cluster.KindApiServer{
@@ -289,6 +350,7 @@ func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBoo
 			PodSubnet:     cfg.Cluster.Networking.PodSubnet,
 		},
 		VolumeMounts: mounts,
+		Nodes:        nodes,
 	}
 }
 

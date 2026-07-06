@@ -25,6 +25,8 @@ func checkHostPortsAvailable(ctx context.Context, listenAddress string, verbose 
 		listenAddress = "127.0.0.1"
 	}
 
+	const busyboxImage = "docker.io/library/busybox:latest"
+
 	cli, err := docker.NewDockerClient()
 	if err != nil {
 		return fmt.Errorf("port-availability check: docker client: %w", err)
@@ -34,15 +36,20 @@ func checkHostPortsAvailable(ctx context.Context, listenAddress string, verbose 
 	// Remove any leftover probe container from a previous interrupted run.
 	_ = cli.ContainerRemove(ctx, probeContainer, container.RemoveOptions{Force: true})
 
-	reader, err := cli.ImagePull(ctx, "docker.io/library/busybox:latest", image.PullOptions{})
-	if err != nil {
-		return fmt.Errorf("port-availability check: pull busybox: %w", err)
-	}
-	defer reader.Close()
-	if verbose {
-		_, _ = io.Copy(w, reader)
-	} else {
-		_, _ = io.Copy(io.Discard, reader)
+	// Pull busybox only when it isn't already present locally, so repeat
+	// runs — and air-gapped hosts where it's already cached — don't need
+	// registry access just to probe the ports.
+	if _, err := cli.ImageInspect(ctx, busyboxImage); err != nil {
+		reader, err := cli.ImagePull(ctx, busyboxImage, image.PullOptions{})
+		if err != nil {
+			return fmt.Errorf("port-availability check: pull busybox: %w", err)
+		}
+		defer reader.Close()
+		if verbose {
+			_, _ = io.Copy(w, reader)
+		} else {
+			_, _ = io.Copy(io.Discard, reader)
+		}
 	}
 
 	exposed := nat.PortSet{}
@@ -55,7 +62,7 @@ func checkHostPortsAvailable(ctx context.Context, listenAddress string, verbose 
 
 	resp, err := cli.ContainerCreate(ctx,
 		&container.Config{
-			Image:        "docker.io/library/busybox:latest",
+			Image:        busyboxImage,
 			Cmd:          []string{"/bin/true"},
 			Tty:          false,
 			ExposedPorts: exposed,
@@ -83,4 +90,3 @@ func checkHostPortsAvailable(ctx context.Context, listenAddress string, verbose 
 	}
 	return nil
 }
-

@@ -21,6 +21,54 @@ networking:
   {{- end }}
 {{- end }}
 nodes:
+{{- if .Nodes }}
+{{- range .Nodes }}
+- role: {{ .Role }}
+{{- if eq .Role "control-plane" }}
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        node-labels: "{{ if .LabelsCSV }}{{ .LabelsCSV }},{{ end }}ingress-ready=true"
+  extraPortMappings:
+  - containerPort: 80
+    {{- if $.ListenAddress }}
+    listenAddress: {{ $.ListenAddress }}
+    {{- end }}
+    hostPort: 80
+    protocol: TCP
+  - containerPort: 443
+    {{- if $.ListenAddress }}
+    listenAddress: {{ $.ListenAddress }}
+    {{- end }}
+    hostPort: 443
+    protocol: TCP
+  {{- if $.VolumeMounts }}
+  extraMounts:
+  {{- range $.VolumeMounts }}
+  - hostPath: {{ .HostPath }}
+    containerPath: {{ .ContainerPath }}
+    {{- if .HasReadOnly }}
+    readOnly: {{ .ReadOnly }}
+    {{- end }}
+  {{- end }}
+  {{- end }}
+{{- else if or .Labels .Taints }}
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+    {{- if .Labels }}
+        node-labels: "{{ .LabelsCSV }}"
+    {{- end }}
+    {{- if .Taints }}
+        register-with-taints: "{{ .TaintsCSV }}"
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- else }}
 - role: control-plane
   kubeadmConfigPatches:
   - |
@@ -51,6 +99,7 @@ nodes:
     {{- end }}
   {{- end }}
   {{- end }}
+{{- end }}
 containerdConfigPatches:
 - |-
   [plugins."io.containerd.grpc.v1.cri".registry]

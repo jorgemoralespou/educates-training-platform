@@ -162,6 +162,20 @@ New Features
   ``$(image_repository)`` and ``$(workshop_version)`` variables in the
   exported workshops.
 
+* ``educates local cluster create`` accepts a ``--kubernetes-version`` flag
+  to choose the Kubernetes version of the local Kind cluster. The supported
+  versions are ``1.33``, ``1.34``, ``1.35`` and ``1.36``, defaulting to
+  ``1.36``. The version selects a matching Kind node image; an explicit
+  ``--kind-cluster-image`` still takes precedence for pinning an arbitrary
+  image.
+
+* The local Kind cluster can now be multi-node. The ``EducatesLocalConfig``
+  ``cluster.nodes`` list declares the cluster's nodes — each with a
+  ``role`` (``control-plane`` or ``worker``), optional Kubernetes node
+  ``labels``, and optional ``taints`` — so a laptop cluster can model node
+  pools for workshops that schedule across several nodes. Leaving
+  ``cluster.nodes`` unset keeps the default single control-plane cluster.
+
 Features Changed
 ----------------
 

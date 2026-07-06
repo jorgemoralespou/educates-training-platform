@@ -25,12 +25,33 @@ type EducatesLocalConfig struct {
 }
 
 type LocalClusterConfig struct {
-	ListenAddress         string            `yaml:"listenAddress,omitempty"`
-	RegistryListenAddress string            `yaml:"registryListenAddress,omitempty"`
-	ApiServer             ApiServerConfig   `yaml:"apiServer,omitempty"`
-	Networking            NetworkingConfig  `yaml:"networking,omitempty"`
-	VolumeMounts          []VolumeMount     `yaml:"volumeMounts,omitempty"`
-	RegistryMirrors       []RegistryMirror  `yaml:"registryMirrors,omitempty"`
+	ListenAddress         string           `yaml:"listenAddress,omitempty"`
+	RegistryListenAddress string           `yaml:"registryListenAddress,omitempty"`
+	ApiServer             ApiServerConfig  `yaml:"apiServer,omitempty"`
+	Networking            NetworkingConfig `yaml:"networking,omitempty"`
+	VolumeMounts          []VolumeMount    `yaml:"volumeMounts,omitempty"`
+	RegistryMirrors       []RegistryMirror `yaml:"registryMirrors,omitempty"`
+	Nodes                 []ClusterNode    `yaml:"nodes,omitempty"`
+}
+
+// ClusterNode describes a node of the local kind cluster. Leaving
+// cluster.nodes empty keeps the default single-control-plane cluster; when
+// set, the list fully declares the cluster's nodes and must include a
+// control-plane. Labels become Kubernetes node labels; taints are
+// registered on the node at join time (worker nodes).
+type ClusterNode struct {
+	Role   string             `yaml:"role"`
+	Labels map[string]string  `yaml:"labels,omitempty"`
+	Taints []ClusterNodeTaint `yaml:"taints,omitempty"`
+}
+
+// ClusterNodeTaint is a Kubernetes node taint applied to a worker node when
+// it registers. Value is optional; Effect is one of NoSchedule,
+// PreferNoSchedule, or NoExecute.
+type ClusterNodeTaint struct {
+	Key    string `yaml:"key"`
+	Value  string `yaml:"value,omitempty"`
+	Effect string `yaml:"effect"`
 }
 
 type ApiServerConfig struct {

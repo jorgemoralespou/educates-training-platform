@@ -1,0 +1,22 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesLocalConfig
+
+# A multi-node local cluster: one control-plane plus two workers, with
+# Kubernetes node labels and a taint used to model node pools. Leaving
+# cluster.nodes unset keeps the default single control-plane cluster.
+cluster:
+  nodes:
+    - role: control-plane
+      labels:
+        tier: control
+    - role: worker
+      labels:
+        tier: frontend
+        disktype: ssd
+    - role: worker
+      labels:
+        tier: backend
+      taints:
+        - key: dedicated
+          value: gpu
+          effect: NoSchedule

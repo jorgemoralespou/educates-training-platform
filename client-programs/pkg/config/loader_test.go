@@ -71,6 +71,40 @@ func TestLoad_FullLocalConfig_RoundTripsAllFields(t *testing.T) {
 	}
 }
 
+func TestLoad_LocalMultinodeConfig_ParsesNodes(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "local-multinode.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	local := cfg.(*v1alpha1.EducatesLocalConfig)
+
+	nodes := local.Cluster.Nodes
+	if got, want := len(nodes), 3; got != want {
+		t.Fatalf("Cluster.Nodes len = %d, want %d", got, want)
+	}
+
+	if got, want := nodes[0].Role, "control-plane"; got != want {
+		t.Errorf("nodes[0].Role = %q, want %q", got, want)
+	}
+	if got, want := nodes[0].Labels["tier"], "control"; got != want {
+		t.Errorf("nodes[0].Labels[tier] = %q, want %q", got, want)
+	}
+
+	if got, want := nodes[1].Role, "worker"; got != want {
+		t.Errorf("nodes[1].Role = %q, want %q", got, want)
+	}
+	if got, want := nodes[1].Labels["disktype"], "ssd"; got != want {
+		t.Errorf("nodes[1].Labels[disktype] = %q, want %q", got, want)
+	}
+
+	if got, want := len(nodes[2].Taints), 1; got != want {
+		t.Fatalf("nodes[2].Taints len = %d, want %d", got, want)
+	}
+	if taint := nodes[2].Taints[0]; taint.Key != "dedicated" || taint.Value != "gpu" || taint.Effect != "NoSchedule" {
+		t.Errorf("nodes[2].Taints[0] = %+v, want {dedicated gpu NoSchedule}", taint)
+	}
+}
+
 func TestLoad_FullGKEConfig_RoundTripsAllFields(t *testing.T) {
 	cfg, err := Load(filepath.Join("testdata", "gke-full.yaml"))
 	if err != nil {
