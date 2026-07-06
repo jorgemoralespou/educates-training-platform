@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -222,13 +223,32 @@ func (r *EducatesClusterConfigReconciler) mapPlatformCRToSingleton(_ context.Con
 	return nil
 }
 
-// mapDeploymentToSingleton fires only for Deployments in namespaces
-// the operator manages cluster-services in. Each new cluster service
-// adds its namespace here so its readiness signals reach the
+// clusterServiceDeploymentNamespaces are the namespaces the operator installs
+// cluster-service Deployments in and reads them back for readiness. It is the
+// single source of truth for both the watch-event filter
+// (mapDeploymentToSingleton) and the manager's Deployment cache scope (exposed
+// via DeploymentWatchNamespaces, consumed by cmd/main.go). Each new cluster
+// service adds its namespace here so its readiness signals reach the
 // reconciler.
+var clusterServiceDeploymentNamespaces = []string{
+	certManagerNamespace,
+	contourNamespace,
+	externalDNSNamespace,
+	kyvernoNamespace,
+}
+
+// DeploymentWatchNamespaces returns the namespaces the EducatesClusterConfig
+// reconciler reads Deployments in, so the manager's Deployment informer can be
+// scoped to these instead of caching every Deployment in the cluster (a
+// platform that mass-produces per-session Deployments).
+func DeploymentWatchNamespaces() []string {
+	return slices.Clone(clusterServiceDeploymentNamespaces)
+}
+
+// mapDeploymentToSingleton fires only for Deployments in namespaces the
+// operator manages cluster-services in.
 func (r *EducatesClusterConfigReconciler) mapDeploymentToSingleton(_ context.Context, obj client.Object) []reconcile.Request {
-	switch obj.GetNamespace() {
-	case certManagerNamespace, contourNamespace, externalDNSNamespace, kyvernoNamespace:
+	if slices.Contains(clusterServiceDeploymentNamespaces, obj.GetNamespace()) {
 		return singletonRequest
 	}
 	return nil

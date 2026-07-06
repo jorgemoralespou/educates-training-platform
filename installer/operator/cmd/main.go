@@ -27,6 +27,7 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -212,9 +213,25 @@ func main() {
 	for _, ns := range secretCacheNamespaces {
 		namespaceConfigs[ns] = cache.Config{}
 	}
+
+	// Scope the Deployment informer to the namespaces the operator actually
+	// reads Deployments in (the cluster services plus the platform namespace).
+	// A cluster-wide Deployment cache would hold every Deployment — including
+	// one-plus per workshop session — and run the watch map functions on
+	// every session churn event for nothing. The map functions already filter
+	// to these namespaces (see mapDeploymentToSingleton / the platform
+	// mappers), so the reads are always in scope.
+	deploymentCacheNamespaces := append(configcontroller.DeploymentWatchNamespaces(), platformcontroller.DeploymentWatchNamespaces()...)
+	setupLog.Info("Deployment cache scope", "namespaces", deploymentCacheNamespaces)
+	deploymentNamespaceConfigs := make(map[string]cache.Config, len(deploymentCacheNamespaces))
+	for _, ns := range deploymentCacheNamespaces {
+		deploymentNamespaceConfigs[ns] = cache.Config{}
+	}
+
 	cacheOpts := cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Secret{}: {Namespaces: namespaceConfigs},
+			&corev1.Secret{}:     {Namespaces: namespaceConfigs},
+			&appsv1.Deployment{}: {Namespaces: deploymentNamespaceConfigs},
 		},
 	}
 

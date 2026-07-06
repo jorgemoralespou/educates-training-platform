@@ -82,6 +82,15 @@ const (
 	configSingletonName = "cluster"
 )
 
+// DeploymentWatchNamespaces returns the namespaces the platform reconcilers
+// (SecretsManager, LookupService, SessionManager) read their component
+// Deployments in — all of them the shared platform namespace. Exposed so the
+// manager's Deployment informer can be scoped to it instead of caching every
+// Deployment in the cluster.
+func DeploymentWatchNamespaces() []string {
+	return []string{platformNamespace}
+}
+
 const (
 	// finalizerSecretsManager guarantees the reconciler gets a chance
 	// to uninstall the helm release + delete the platform namespace
