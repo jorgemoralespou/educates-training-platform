@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/go-connections/nat"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
+	"github.com/educates/educates-training-platform/client-programs/pkg/constants"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
@@ -104,6 +105,10 @@ func DeployResolver(domain string, targetAddress string, extraDomains []string) 
 		Tty:   false,
 		ExposedPorts: nat.PortSet{
 			"53/udp": struct{}{},
+		},
+		Labels: map[string]string{
+			constants.EducatesContainersAppLabelKey:  constants.EducatesContainersAppLabel,
+			constants.EducatesContainersRoleLabelKey: constants.EducatesContainersResolverRoleLabel,
 		},
 	}, hostConfig, nil, nil, resolverContainerName)
 

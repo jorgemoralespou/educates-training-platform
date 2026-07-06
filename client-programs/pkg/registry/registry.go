@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
@@ -17,7 +18,9 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/constants"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	yaml "gopkg.in/yaml.v2"
 	v1 "k8s.io/api/core/v1"
@@ -58,9 +61,6 @@ const (
 	EducatesNetworkName           = "educates"
 	EducatesRegistryContainer     = "educates-registry"
 	EducatesControlPlaneContainer = "educates-control-plane"
-	EducatesRegistryRoleLabel     = "registry"
-	EducatesMirrorRoleLabel       = "mirror"
-	EducatesAppLabel              = "educates"
 )
 
 /**
@@ -169,8 +169,8 @@ func createRegistryContainer(bindIP string, p Progress) error {
 	}
 
 	labels := map[string]string{
-		"app":  EducatesAppLabel,
-		"role": EducatesRegistryRoleLabel,
+		constants.EducatesContainersAppLabelKey:  constants.EducatesContainersAppLabel,
+		constants.EducatesContainersRoleLabelKey: constants.EducatesContainersRegistryRoleLabel,
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
@@ -292,9 +292,11 @@ func createMirrorContainer(mirrorConfig *MirrorConfig, p Progress) error {
 	}
 
 	labels := map[string]string{
-		"app":    EducatesAppLabel,
-		"role":   EducatesMirrorRoleLabel,
-		"mirror": mirrorConfig.Mirror,
+		constants.EducatesContainersAppLabelKey:      constants.EducatesContainersAppLabel,
+		constants.EducatesContainersRoleLabelKey:     constants.EducatesContainersMirrorRoleLabel,
+		constants.EducatesContainersMirrorLabelKey:   mirrorConfig.Mirror,
+		constants.EducatesContainersURLLabelKey:      mirrorConfig.URL,
+		constants.EducatesContainersUsernameLabelKey: mirrorConfig.Username,
 	}
 
 	resp, err := cli.ContainerCreate(ctx, &container.Config{
@@ -599,10 +601,8 @@ func DeleteRegistryMirrors(p Progress) error {
 	}
 
 	mirrors, err := cli.ContainerList(ctx, container.ListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", "role="+EducatesMirrorRoleLabel),
-			filters.Arg("label", "app="+EducatesAppLabel),
-		),
+		All:     true,
+		Filters: registryMirrorLabelFilters(),
 	})
 
 	if err != nil {
@@ -628,6 +628,68 @@ func DeleteRegistryMirrors(p Progress) error {
 	}
 
 	return nil
+}
+
+// RegistryMirror describes a deployed local registry mirror, read back from
+// its container labels.
+type RegistryMirror struct {
+	Name          string
+	URL           string
+	Username      string
+	Status        string
+	ContainerName string
+}
+
+// registryMirrorLabelFilters is the label selector identifying registry
+// mirror containers. Shared by the list and bulk-delete paths so both
+// discover exactly the same set.
+func registryMirrorLabelFilters() filters.Args {
+	return filters.NewArgs(
+		filters.Arg("label", constants.EducatesContainersRoleLabelKey+"="+constants.EducatesContainersMirrorRoleLabel),
+		filters.Arg("label", constants.EducatesContainersAppLabelKey+"="+constants.EducatesContainersAppLabel),
+	)
+}
+
+// ListRegistryMirrors returns the deployed local registry mirrors, sorted
+// by name. Each mirror's metadata (name, URL, username) is read back from
+// the container labels set at deploy time.
+func ListRegistryMirrors() ([]RegistryMirror, error) {
+	ctx := context.Background()
+
+	cli, err := docker.NewDockerClient()
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to create docker client")
+	}
+
+	mirrors, err := cli.ContainerList(ctx, container.ListOptions{
+		All:     true,
+		Filters: registryMirrorLabelFilters(),
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to list registry mirrors")
+	}
+
+	result := make([]RegistryMirror, 0, len(mirrors))
+	for _, item := range mirrors {
+		name := item.Labels[constants.EducatesContainersMirrorLabelKey]
+
+		url := item.Labels[constants.EducatesContainersURLLabelKey]
+		if url == "" {
+			url = name
+		}
+
+		result = append(result, RegistryMirror{
+			Name:          name,
+			URL:           url,
+			Username:      item.Labels[constants.EducatesContainersUsernameLabelKey],
+			Status:        item.Status,
+			ContainerName: utils.GetContainerName(item),
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+
+	return result, nil
 }
 
 /**

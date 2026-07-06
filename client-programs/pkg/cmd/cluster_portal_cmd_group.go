@@ -25,6 +25,7 @@ func (p *ProjectInfo) NewClusterPortalCmdGroup() *cobra.Command {
 				p.NewClusterPortalOpenCmd(),
 				p.NewClusterPortalDeleteCmd(),
 				p.NewClusterPortalPasswordCmd(),
+				p.NewClusterPortalExportCmd(),
 			},
 		},
 	}

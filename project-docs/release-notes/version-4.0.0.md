@@ -147,6 +147,21 @@ New Features
   this provider, so no unused in-cluster certificate is issued when TLS is
   handled by an external load balancer or proxy.
 
+* The ``educates local mirror list`` command lists the local image
+  registry mirrors that have been deployed, complementing the existing
+  ``deploy`` and ``delete`` commands in the ``educates local mirror``
+  group.
+
+* The ``educates cluster portal export`` command exports a training portal
+  and the workshops it references as Kubernetes resource YAML, either to
+  standard output as a single document stream or, with ``--as-files``, as
+  one file per resource in a target directory. The exported resources are
+  sanitised so they can be re-applied to another cluster: cluster-managed
+  status and metadata are stripped and the portal password is removed. The
+  ``--image-repository`` and ``--workshop-version`` options substitute the
+  ``$(image_repository)`` and ``$(workshop_version)`` variables in the
+  exported workshops.
+
 Features Changed
 ----------------
 

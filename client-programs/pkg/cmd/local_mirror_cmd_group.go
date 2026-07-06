@@ -21,6 +21,7 @@ func (p *ProjectInfo) NewLocalMirrorCmdGroup() *cobra.Command {
 			Commands: []*cobra.Command{
 				p.NewLocalMirrorDeployCmd(),
 				p.NewLocalMirrorDeleteCmd(),
+				p.NewLocalMirrorListCmd(),
 			},
 		},
 	}
