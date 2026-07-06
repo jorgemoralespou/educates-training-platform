@@ -13,11 +13,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var dockerWorkshopListExample = `
+  # List the workshops deployed to Docker:
+  educates docker workshop list
+`
+
 func (p *ProjectInfo) NewDockerWorkshopListCmd() *cobra.Command {
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "list",
-		Short: "List workshops deployed to Docker",
+		Args:    cobra.NoArgs,
+		Use:     "list",
+		Short:   "List workshops deployed to Docker",
+		Example: dockerWorkshopListExample,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			dockerWorkshopsManager := NewDockerWorkshopsManager()
 

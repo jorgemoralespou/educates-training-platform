@@ -2,43 +2,48 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	apiv1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/yaml"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
+
+var localSecretsExportExample = `
+  # Export all cached secrets as YAML:
+  educates local secrets export
+
+  # Export a single cached secret as YAML:
+  educates local secrets export mydomain-tls
+
+  # Export a CA certificate as PEM for importing into a trust store:
+  educates local secrets export mydomain-ca --pem > mydomain-ca.pem
+`
 
 func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 	var pem bool
 
 	var c = &cobra.Command{
-		Args:  cobra.ArbitraryArgs,
-		Use:   "export [NAME]",
-		Short: "Export secrets in the cache",
-		RunE: func(_ *cobra.Command, args []string) error {
-			secretsCacheDir := path.Join(utils.GetEducatesHomeDir(), "secrets")
-
-			err := os.MkdirAll(secretsCacheDir, os.ModePerm)
-
-			if err != nil {
-				return errors.Wrapf(err, "unable to create secrets cache directory")
-			}
-
+		Args:    cobra.ArbitraryArgs,
+		Use:     "export [NAME]",
+		Short:   "Export secrets in the cache",
+		Example: localSecretsExportExample,
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if pem {
 				if len(args) != 1 {
-					return errors.New("--pem requires exactly one secret name")
+					return utils.CmdError(cmd, "--pem requires exactly one secret name", "NAME")
 				}
 
-				return printSecretCertificatePEM(secretsCacheDir, args[0])
+				return printSecretCertificatePEM(args[0])
 			}
 
-			err = utils.PrintYamlFilesInDir(secretsCacheDir, args)
+			secretsCacheDir, err := secrets.CacheDir()
 			if err != nil {
+				return err
+			}
+
+			if err := utils.PrintYamlFilesInDir(secretsCacheDir, args); err != nil {
 				return errors.Wrapf(err, "unable to read secrets cache directory")
 			}
 
@@ -60,23 +65,10 @@ func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 // secret to stdout as PEM, so it can be redirected to a file and
 // imported into an operating system trust store. The private key is
 // never printed.
-func printSecretCertificatePEM(secretsCacheDir string, name string) error {
-	secretFilePath := path.Join(secretsCacheDir, name+".yaml")
-
-	secretData, err := os.ReadFile(secretFilePath)
-
+func printSecretCertificatePEM(name string) error {
+	secret, err := secrets.LoadCachedSecret(name)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return errors.Errorf("no secret named %q in the local secrets cache", name)
-		}
-
-		return errors.Wrapf(err, "unable to read secret file %s", secretFilePath)
-	}
-
-	var secret apiv1.Secret
-
-	if err := yaml.Unmarshal(secretData, &secret); err != nil {
-		return errors.Wrapf(err, "unable to parse secret file %s", secretFilePath)
+		return err
 	}
 
 	certificate, exists := secret.Data["tls.crt"]

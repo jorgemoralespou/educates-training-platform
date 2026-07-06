@@ -4,11 +4,19 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mitchellh/go-homedir"
-	"github.com/spf13/cobra"
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/diagnostics"
+	"github.com/mitchellh/go-homedir"
+	"github.com/spf13/cobra"
 )
+
+var adminDiagnosticsCollectExample = `
+  # Collect cluster diagnostics into the default archive:
+  educates admin diagnostics collect
+
+  # Collect into a specific path:
+  educates admin diagnostics collect --dest ./educates-diagnostics.tar.gz
+`
 
 type AdminDiagnosticsCollectOptions struct {
 	KubeconfigOptions
@@ -32,10 +40,11 @@ func (p *ProjectInfo) NewAdminDiagnosticsCollectCmd() *cobra.Command {
 	var o AdminDiagnosticsCollectOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "collect",
-		Short: "Collect diagnostic information for an Educates cluster",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "collect",
+		Short:   "Collect diagnostic information for an Educates cluster",
+		Example: adminDiagnosticsCollectExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

@@ -15,6 +15,14 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
+const adminPlatformDeployExample = `
+  # Install Educates from a checked-in config file:
+  educates admin platform deploy --config env.yaml
+
+  # Install Educates using the laptop config (~/.educates/config.yaml):
+  educates admin platform deploy --local-config
+`
+
 // PlatformDeployOptions mirrors PlatformRenderOptions plus the kubectl
 // connection flags consumed by the install path.
 type PlatformDeployOptions struct {
@@ -44,6 +52,7 @@ then push to the cluster:
   5. apply LookupService (if configured) → wait Ready=True
      (interleaved with SessionManager — both apply, then both wait)
   6. apply SessionManager → wait Ready=True`,
+		Example: adminPlatformDeployExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return p.runDeploy(cmd.Context(), cmd.OutOrStdout(), &o)
 		},

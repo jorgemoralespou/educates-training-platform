@@ -1,11 +1,19 @@
 package cmd
 
 import (
-	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
 )
+
+var localSecretsSyncExample = `
+  # Copy all cached secrets into the cluster:
+  educates local secrets sync
+
+  # Copy cached secrets into a specific cluster context:
+  educates local secrets sync --context mycluster
+`
 
 type LocalSecretsSyncOptions struct {
 	KubeconfigOptions
@@ -31,10 +39,11 @@ func (p *ProjectInfo) NewLocalSecretsSyncCmd() *cobra.Command {
 	var o LocalSecretsSyncOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "sync",
-		Short: "Copy secrets to cluster",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "sync",
+		Short:   "Copy secrets to cluster",
+		Example: localSecretsSyncExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

@@ -3,11 +3,16 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/educatesrestapi"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
 )
+
+var clusterSessionStatusExample = `
+  # Show the status of a workshop session:
+  educates cluster session status my-session-name
+`
 
 type ClusterSessionStatusOptions struct {
 	KubeconfigOptions
@@ -49,10 +54,11 @@ func (p *ProjectInfo) NewClusterSessionStatusCmd() *cobra.Command {
 	var o ClusterSessionStatusOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.ExactArgs(1),
-		Use:   "status NAME",
-		Short: "Output status of session in Kubernetes",
-		RunE:  func(_ *cobra.Command, args []string) error { o.Name = args[0]; return o.Run() },
+		Args:    exactArgs(1, "session name is required", "NAME"),
+		Use:     "status NAME",
+		Short:   "Output status of session in Kubernetes",
+		Example: clusterSessionStatusExample,
+		RunE:    func(_ *cobra.Command, args []string) error { o.Name = args[0]; return o.Run() },
 	}
 
 	c.Flags().StringVar(

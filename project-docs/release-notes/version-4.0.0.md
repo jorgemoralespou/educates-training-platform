@@ -168,6 +168,16 @@ Features Changed
   activity while waiting on the Kubernetes API, reducing failed sessions and
   improving reliability under high traffic.
 
+* The ``educates`` CLI commands now give clearer feedback when invoked
+  incorrectly and document themselves more consistently. Commands that take a
+  positional argument — such as ``educates local mirror deploy``,
+  ``educates local secrets add``, ``educates cluster session status`` and
+  ``educates workshop new`` — now report a specific message naming the
+  missing, extra or invalid argument along with a pointer to ``--help``,
+  instead of a generic ``accepts 1 arg(s), received 0`` error. Every
+  ``educates`` command now also includes usage examples in its ``--help``
+  output.
+
 Deprecations
 ------------
 

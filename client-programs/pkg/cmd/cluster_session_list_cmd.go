@@ -6,14 +6,22 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+var clusterSessionListExample = `
+  # List active sessions on the default portal:
+  educates cluster session list
+
+  # List sessions for a specific workshop environment:
+  educates cluster session list --environment my-workshop-w01
+`
 
 type ClusterSessionListOptions struct {
 	KubeconfigOptions
@@ -99,10 +107,11 @@ func (p *ProjectInfo) NewClusterSessionListCmd() *cobra.Command {
 	var o ClusterSessionListOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "list",
-		Short: "List active sessions in Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "list",
+		Short:   "List active sessions in Kubernetes",
+		Example: clusterSessionListExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

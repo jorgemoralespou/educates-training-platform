@@ -6,13 +6,21 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+var clusterPortalPasswordExample = `
+  # Print the access code for the default portal:
+  educates cluster portal password
+
+  # Print the admin credentials for a named portal:
+  educates cluster portal password --portal my-portal --admin
+`
 
 type ClusterPortalPasswordOptions struct {
 	KubeconfigOptions
@@ -82,10 +90,11 @@ func (p *ProjectInfo) NewClusterPortalPasswordCmd() *cobra.Command {
 	var o ClusterPortalPasswordOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "password",
-		Short: "View portal credentials in Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "password",
+		Short:   "View portal credentials in Kubernetes",
+		Example: clusterPortalPasswordExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

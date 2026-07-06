@@ -20,6 +20,17 @@ const localConfigSchemaModeline = config.DefaultLocalConfigModeline
 
 const defaultLocalConfigYAML = config.DefaultLocalConfigYAML
 
+var localConfigInitExample = `
+  # Write a minimal EducatesLocalConfig:
+  educates local config init
+
+  # Overwrite an existing config file:
+  educates local config init --force
+
+  # Write the fully-defaulted configuration:
+  educates local config init --defaults
+`
+
 type LocalConfigInitOptions struct {
 	Force    bool
 	Defaults bool
@@ -42,6 +53,7 @@ already exists unless --force.
 
 <data-home> is $EDUCATES_CLI_DATA_HOME if set, otherwise
 $XDG_DATA_HOME/educates.`,
+		Example: localConfigInitExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return p.runLocalConfigInit(&o, cmd.OutOrStdout())
 		},

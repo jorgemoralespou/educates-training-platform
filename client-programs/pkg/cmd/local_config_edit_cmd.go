@@ -25,6 +25,11 @@ const localConfigEditHeader = `## Edit the Educates local configuration below.
 ##
 `
 
+var localConfigEditExample = `
+  # Edit the local configuration in $EDITOR, validating on save:
+  educates local config edit
+`
+
 func (p *ProjectInfo) NewLocalConfigEditCmd() *cobra.Command {
 	return &cobra.Command{
 		Args:  cobra.NoArgs,
@@ -36,6 +41,7 @@ EducatesLocalConfig schema. A passing validation atomically replaces the
 canonical file. A failing validation reopens the editor with the error
 shown inline (kubectl-edit style), preserving your in-progress changes,
 until the configuration is valid or you abort.`,
+		Example: localConfigEditExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLocalConfigEdit()
 		},

@@ -16,6 +16,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+var dockerWorkshopDeleteExample = `
+  # Delete the workshop in the current directory from Docker:
+  educates docker workshop delete
+
+  # Delete a workshop by name:
+  educates docker workshop delete --name my-workshop
+`
+
 type DockerWorkshopDeleteOptions struct {
 	Name            string
 	Path            string
@@ -111,10 +119,11 @@ func (p *ProjectInfo) NewDockerWorkshopDeleteCmd() *cobra.Command {
 	var o DockerWorkshopDeleteOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "delete",
-		Short: "Delete workshop from Docker",
-		RunE:  func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
+		Args:    cobra.NoArgs,
+		Use:     "delete",
+		Short:   "Delete workshop from Docker",
+		Example: dockerWorkshopDeleteExample,
+		RunE:    func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
 	}
 
 	c.Flags().StringVarP(

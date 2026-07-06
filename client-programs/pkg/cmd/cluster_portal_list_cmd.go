@@ -6,13 +6,18 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+var clusterPortalListExample = `
+  # List the training portals deployed to the cluster:
+  educates cluster portal list
+`
 
 type ClusterPortalListOptions struct {
 	KubeconfigOptions
@@ -72,10 +77,11 @@ func (p *ProjectInfo) NewClusterPortalListCmd() *cobra.Command {
 	var o ClusterPortalListOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "list",
-		Short: "List portals deployed to Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "list",
+		Short:   "List portals deployed to Kubernetes",
+		Example: clusterPortalListExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

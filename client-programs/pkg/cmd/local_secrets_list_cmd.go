@@ -2,40 +2,32 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+
+	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 )
+
+var localSecretsListExample = `
+  # List the names of all secrets in the local cache:
+  educates local secrets list
+`
 
 func (p *ProjectInfo) NewLocalSecretsListCmd() *cobra.Command {
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "list",
-		Short: "List secrets in the cache",
+		Args:    cobra.NoArgs,
+		Use:     "list",
+		Short:   "List secrets in the cache",
+		Example: localSecretsListExample,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			secretsCacheDir := path.Join(utils.GetEducatesHomeDir(), "secrets")
-
-			err := os.MkdirAll(secretsCacheDir, os.ModePerm)
-
+			names, err := secrets.ListCachedSecretNames()
 			if err != nil {
-				return errors.Wrapf(err, "unable to create secrets cache directory")
+				return errors.Wrap(err, "unable to list cached secrets")
 			}
 
-			files, err := os.ReadDir(secretsCacheDir)
-
-			if err != nil {
-				return errors.Wrapf(err, "unable to read secrets cache directory")
-			}
-
-			for _, f := range files {
-				if strings.HasSuffix(f.Name(), ".yaml") {
-					name := strings.TrimSuffix(f.Name(), ".yaml")
-					fmt.Println(name)
-				}
+			for _, name := range names {
+				fmt.Println(name)
 			}
 
 			return nil

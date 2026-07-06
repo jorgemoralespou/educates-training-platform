@@ -13,9 +13,18 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
+var localConfigGetExample = `
+  # Print the whole config file:
+  educates local config get
+
+  # Read a single field by dotted path:
+  educates local config get ingress.domain
+  educates local config get operator.image
+`
+
 func (p *ProjectInfo) NewLocalConfigGetCmd() *cobra.Command {
 	c := &cobra.Command{
-		Args:  cobra.MaximumNArgs(1),
+		Args:  maximumArgs(1, "expected at most one PATH argument", "[PATH]"),
 		Use:   "get [PATH]",
 		Short: "Read a field from <data-home>/config.yaml by dotted path",
 		Long: `Print a field from the EducatesLocalConfig. Path is dotted, e.g.
@@ -24,9 +33,7 @@ whole file.
 
 For scalar fields, the value is printed bare (no quoting). For maps and
 lists, YAML-serialised output is emitted.`,
-		Example: `  educates local config get
-  educates local config get ingress.domain
-  educates local config get operator.image`,
+		Example: localConfigGetExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := ""
 			if len(args) == 1 {

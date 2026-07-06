@@ -14,6 +14,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+var clusterWorkshopListExample = `
+  # List the workshops deployed to the default portal:
+  educates cluster workshop list
+
+  # List the workshops on a named portal:
+  educates cluster workshop list --portal my-portal
+`
+
 type ClusterWorkshopsListOptions struct {
 	KubeconfigOptions
 	Portal string
@@ -106,10 +114,11 @@ func (p *ProjectInfo) NewClusterWorkshopListCmd() *cobra.Command {
 	var o ClusterWorkshopsListOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "list",
-		Short: "List workshops deployed to Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "list",
+		Short:   "List workshops deployed to Kubernetes",
+		Example: clusterWorkshopListExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

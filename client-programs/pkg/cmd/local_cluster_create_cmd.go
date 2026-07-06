@@ -18,6 +18,17 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
+var localClusterCreateExample = `
+  # Create a local kind cluster and install Educates using the laptop config:
+  educates local cluster create
+
+  # Create using a specific config file:
+  educates local cluster create --config config.yaml
+
+  # Create only the kind cluster + registry, skipping the platform install:
+  educates local cluster create --cluster-only
+`
+
 type LocalClusterCreateOptions struct {
 	Config         string
 	LocalConfig    bool
@@ -48,6 +59,7 @@ func (p *ProjectInfo) NewLocalClusterCreateCmd() *cobra.Command {
 
 --cluster-only stops after step 4 — useful for testing the platform
 deploy against a hand-prepared cluster.`,
+		Example: localClusterCreateExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ip, err := utils.ValidateAndResolveIP(o.RegistryBindIP)
 			if err != nil {

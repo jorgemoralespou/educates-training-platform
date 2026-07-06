@@ -14,6 +14,14 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
+var localConfigViewExample = `
+  # Print the effective configuration with all CLI defaults applied:
+  educates local config view
+
+  # Print the configuration file exactly as written:
+  educates local config view --raw
+`
+
 type LocalConfigViewOptions struct {
 	Raw bool
 }
@@ -37,6 +45,7 @@ With --raw it instead prints the configuration file exactly as written,
 comments included.
 
 For programmatic field reads use 'educates local config get [PATH]'.`,
+		Example: localConfigViewExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return p.runLocalConfigView(&o, cmd.OutOrStdout())
 		},

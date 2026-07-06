@@ -3,12 +3,20 @@ package cmd
 import (
 	"context"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var clusterPortalDeleteExample = `
+  # Delete the default training portal:
+  educates cluster portal delete
+
+  # Delete a named portal:
+  educates cluster portal delete --portal my-portal
+`
 
 type ClusterPortalDeleteOptions struct {
 	KubeconfigOptions
@@ -57,10 +65,11 @@ func (p *ProjectInfo) NewClusterPortalDeleteCmd() *cobra.Command {
 	var o ClusterPortalDeleteOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "delete",
-		Short: "Delete portal from Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "delete",
+		Short:   "Delete portal from Kubernetes",
+		Example: clusterPortalDeleteExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

@@ -26,6 +26,19 @@ var explainableKinds = map[string][]byte{
 	"escape":               schemas.EducatesConfig,
 }
 
+var localConfigExplainExample = `
+  # List the top-level fields of EducatesLocalConfig:
+  educates local config explain
+
+  # Describe a specific field by dotted path:
+  educates local config explain ingress.insecure
+
+  # Describe a field of another config kind:
+  educates local config explain gcp.project --kind gke
+  educates local config explain policyEnforcement --kind inline
+  educates local config explain educatesClusterConfig --kind escape
+`
+
 type LocalConfigExplainOptions struct {
 	Kind string
 }
@@ -34,7 +47,7 @@ func (p *ProjectInfo) NewLocalConfigExplainCmd() *cobra.Command {
 	var o LocalConfigExplainOptions
 
 	c := &cobra.Command{
-		Args:  cobra.MaximumNArgs(1),
+		Args:  maximumArgs(1, "expected at most one PATH argument", "[PATH]"),
 		Use:   "explain [PATH]",
 		Short: "Describe configuration fields, like 'kubectl explain'",
 		Long: `Describe the fields of an Educates CLI configuration kind from its
@@ -49,11 +62,7 @@ file is needed; the descriptions come from the schema.
   EducatesLocalConfig (local), EducatesGKEConfig (gke),
   EducatesEKSConfig (eks), EducatesInlineConfig (inline),
   EducatesConfig (escape).`,
-		Example: `  educates local config explain
-  educates local config explain ingress.insecure
-  educates local config explain gcp.project --kind gke
-  educates local config explain policyEnforcement --kind inline
-  educates local config explain educatesClusterConfig --kind escape`,
+		Example: localConfigExplainExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			schema, err := explainSchemaForKind(o.Kind)
 			if err != nil {

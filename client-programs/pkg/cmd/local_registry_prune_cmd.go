@@ -8,6 +8,11 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 )
 
+var localRegistryPruneExample = `
+  # Prune untagged images from the local image registry:
+  educates local registry prune
+`
+
 type LocalRegistryPruneOptions struct {
 }
 
@@ -27,10 +32,11 @@ func (p *ProjectInfo) NewLocalRegistryPruneCmd() *cobra.Command {
 	var o LocalRegistryPruneOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "prune",
-		Short: "Prunes the local image registry (deletes any untagged image)",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "prune",
+		Short:   "Prunes the local image registry (deletes any untagged image)",
+		Example: localRegistryPruneExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	return c

@@ -17,9 +17,25 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
+var localConfigSetExample = `
+  # Set a string field:
+  educates local config set ingress.domain workshop.test
+
+  # Set an enum field:
+  educates local config set operator.logLevel debug
+
+  # Set a boolean field:
+  educates local config set lookupService false
+`
+
 func (p *ProjectInfo) NewLocalConfigSetCmd() *cobra.Command {
 	c := &cobra.Command{
-		Args:  cobra.ExactArgs(2),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) != 2 {
+				return utils.CmdErrorFullUsage(cmd, "PATH and VALUE are both required", "PATH VALUE")
+			}
+			return nil
+		},
 		Use:   "set PATH VALUE",
 		Short: "Set a field in <data-home>/config.yaml by dotted path",
 		Long: `Modify a field in the EducatesLocalConfig file. Path is dotted, e.g.
@@ -34,9 +50,7 @@ VALUE is coerced based on its raw form:
 The full config is re-validated against the EducatesLocalConfig schema
 after the change. The write only happens when validation passes, so
 type / enum errors are caught up front with the offending field path.`,
-		Example: `  educates local config set ingress.domain workshop.test
-  educates local config set operator.logLevel debug
-  educates local config set lookupService false`,
+		Example: localConfigSetExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLocalConfigSet(cmd.OutOrStdout(), args[0], args[1])
 		},

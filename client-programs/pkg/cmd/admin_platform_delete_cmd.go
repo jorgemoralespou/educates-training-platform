@@ -16,6 +16,17 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 )
 
+const adminPlatformDeleteExample = `
+  # Uninstall Educates (prompts for confirmation on a TTY):
+  educates admin platform delete
+
+  # Uninstall without prompting (required in CI / non-interactive shells):
+  educates admin platform delete --yes
+
+  # Uninstall and also remove the CRDs and operator namespaces:
+  educates admin platform delete --purge --yes
+`
+
 type PlatformDeleteOptions struct {
 	Kubeconfig string
 	Context    string
@@ -59,6 +70,7 @@ piping).
 Unlike deploy, this command takes no --config / --local-config — the
 resources are always the four CRs at metadata.name=cluster plus the
 educates-installer release.`,
+		Example: adminPlatformDeleteExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return p.runDelete(cmd.Context(), cmd.OutOrStdout(), &o)
 		},

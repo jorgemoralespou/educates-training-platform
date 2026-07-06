@@ -11,6 +11,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var tunnelConnectExample = `
+  # Connect an SSH proxy through a workshop session websocket tunnel:
+  educates tunnel connect --url wss://workshop.example.com/session/tunnel
+`
+
 type TunnelConnectOptions struct {
 	Url string
 }
@@ -59,10 +64,11 @@ func (p *ProjectInfo) NewTunnelConnectCmd() *cobra.Command {
 	var o TunnelConnectOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "connect",
-		Short: "SSH proxy for tunnelling over websockets",
-		RunE:  func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
+		Args:    cobra.NoArgs,
+		Use:     "connect",
+		Short:   "SSH proxy for tunnelling over websockets",
+		Example: tunnelConnectExample,
+		RunE:    func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
 	}
 
 	c.Flags().StringVar(

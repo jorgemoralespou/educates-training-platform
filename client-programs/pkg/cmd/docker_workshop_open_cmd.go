@@ -16,6 +16,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+var dockerWorkshopOpenExample = `
+  # Open the running workshop in the current directory in a browser:
+  educates docker workshop open
+
+  # Open a workshop by name:
+  educates docker workshop open --name my-workshop
+`
+
 type DockerWorkshopOpenOptions struct {
 	Name            string
 	Path            string
@@ -115,10 +123,11 @@ func (p *ProjectInfo) NewDockerWorkshopOpenCmd() *cobra.Command {
 	var o DockerWorkshopOpenOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "open",
-		Short: "Open workshop in browser",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "open",
+		Short:   "Open workshop in browser",
+		Example: dockerWorkshopOpenExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVarP(

@@ -57,7 +57,7 @@ func (p *ProjectInfo) NewWorkshopNewCmd() *cobra.Command {
 	var o workshops.WorkshopNewOptions
 
 	var c = &cobra.Command{
-		Args:    cobra.ExactArgs(1),
+		Args:    exactArgs(1, "workshop path is required", "PATH"),
 		Use:     "new PATH",
 		Short:   "Create workshop files from template",
 		RunE:    func(_ *cobra.Command, args []string) error { return o.Run(args) },

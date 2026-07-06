@@ -1,4 +1,4 @@
-package cmd
+package secrets
 
 import (
 	"crypto/rand"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// generateSelfSignedCA produces a fresh self-signed CA certificate +
+// GenerateSelfSignedCA produces a fresh self-signed CA certificate +
 // private key suitable for the EducatesLocalConfig laptop flow.
 // cert-manager's CA-typed ClusterIssuer signs workshop certs from it.
 //
@@ -25,7 +25,7 @@ import (
 //     visually identifiable in browser cert UIs.
 //   - KeyUsageCertSign + IsCA + BasicConstraintsValid so cert-manager
 //     can sign downstream leaf certs.
-func generateSelfSignedCA(commonName string) (certPEM, keyPEM []byte, err error) {
+func GenerateSelfSignedCA(commonName string) (certPEM, keyPEM []byte, err error) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, nil, fmt.Errorf("generate RSA key: %w", err)

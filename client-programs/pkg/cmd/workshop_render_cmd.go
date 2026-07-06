@@ -209,14 +209,23 @@ func (o *FilesRenderOptions) Render(directory string, outputFile string) error {
 	return nil
 }
 
+var workshopRenderExample = `
+  # Render the workshop in the current directory as static HTML to stdout:
+  educates workshop render
+
+  # Render a workshop from a path into a ZIP file:
+  educates workshop render ./my-workshop --output-file workshop.zip
+`
+
 func (p *ProjectInfo) NewWorkshopRenderCmd() *cobra.Command {
 	var o FilesRenderOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.MaximumNArgs(1),
-		Use:   "render [PATH]",
-		Short: "Render workshop as static HTML",
-		RunE:  func(cmd *cobra.Command, args []string) error { return o.Run(args) },
+		Args:    maximumArgs(1, "expected at most one PATH argument", "[PATH]"),
+		Use:     "render [PATH]",
+		Short:   "Render workshop as static HTML",
+		Example: workshopRenderExample,
+		RunE:    func(cmd *cobra.Command, args []string) error { return o.Run(args) },
 	}
 
 	c.Flags().StringVar(

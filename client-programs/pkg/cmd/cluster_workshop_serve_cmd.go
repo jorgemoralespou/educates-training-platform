@@ -57,6 +57,14 @@ func calculateWorkshopRoot(path string) (string, error) {
 // 	return name, nil
 // }
 
+var clusterWorkshopServeExample = `
+  # Serve the workshop in the current directory from the local system:
+  educates cluster workshop serve
+
+  # Serve a workshop from a path on a specific local port:
+  educates cluster workshop serve --file ./my-workshop --local-port 10081
+`
+
 type ClusterWorkshopServeOptions struct {
 	KubeconfigOptions
 	Name            string
@@ -237,10 +245,11 @@ func (p *ProjectInfo) NewClusterWorkshopServeCmd() *cobra.Command {
 	var o ClusterWorkshopServeOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "serve",
-		Short: "Serve workshop from local system",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "serve",
+		Short:   "Serve workshop from local system",
+		Example: clusterWorkshopServeExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVarP(

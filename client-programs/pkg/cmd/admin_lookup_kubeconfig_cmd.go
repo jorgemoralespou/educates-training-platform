@@ -6,11 +6,19 @@ import (
 	"fmt"
 	"io/ioutil"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
+
+var adminLookupKubeconfigExample = `
+  # Print a kubeconfig for lookup-service remote access:
+  educates admin lookup kubeconfig
+
+  # Write the kubeconfig to a file:
+  educates admin lookup kubeconfig --output kubeconfig.yaml
+`
 
 type LookupConfigOptions struct {
 	KubeconfigOptions
@@ -101,9 +109,10 @@ func (p *ProjectInfo) NewAdminLookupKubeconfigCmd() *cobra.Command {
 	var o LookupConfigOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "kubeconfig",
-		Short: "Fetch kubeconfig for lookup service remote access",
+		Args:    cobra.NoArgs,
+		Use:     "kubeconfig",
+		Short:   "Fetch kubeconfig for lookup service remote access",
+		Example: adminLookupKubeconfigExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.Run()
 		},

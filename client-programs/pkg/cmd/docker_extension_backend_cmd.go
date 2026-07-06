@@ -17,6 +17,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var dockerExtensionBackendExample = `
+  # Run the Docker Desktop extension backend on a socket:
+  educates docker extension backend --socket /run/guest-services/backend.sock
+`
+
 type DockerExtensionBackendOptions struct {
 	Socket string
 }
@@ -233,10 +238,11 @@ func (p *ProjectInfo) NewDockerExtensionBackendCmd() *cobra.Command {
 	var o DockerExtensionBackendOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "backend",
-		Short: "Docker desktop extension backend",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run(p) },
+		Args:    cobra.NoArgs,
+		Use:     "backend",
+		Short:   "Docker desktop extension backend",
+		Example: dockerExtensionBackendExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run(p) },
 	}
 
 	c.Flags().StringVar(

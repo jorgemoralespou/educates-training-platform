@@ -12,6 +12,14 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
+var localRegistryDeployExample = `
+  # Deploy a local image registry bound to localhost:
+  educates local registry deploy
+
+  # Deploy a local image registry reachable from the local network:
+  educates local registry deploy --bind-ip 192.168.1.10
+`
+
 type LocalRegistryDeployOptions struct {
 	KubeconfigOptions
 	BindIP  string
@@ -57,9 +65,10 @@ func (p *ProjectInfo) NewLocalRegistryDeployCmd() *cobra.Command {
 	var o LocalRegistryDeployOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "deploy",
-		Short: "Deploys a local image registry",
+		Args:    cobra.NoArgs,
+		Use:     "deploy",
+		Short:   "Deploys a local image registry",
+		Example: localRegistryDeployExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ip, err := utils.ValidateAndResolveIP(o.BindIP)
 			if err != nil {

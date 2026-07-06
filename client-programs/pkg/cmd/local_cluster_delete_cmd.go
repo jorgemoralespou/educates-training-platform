@@ -9,6 +9,14 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/resolver"
 )
 
+var localClusterDeleteExample = `
+  # Delete the local cluster:
+  educates local cluster delete
+
+  # Delete the local cluster along with the registry, resolver, and mirrors:
+  educates local cluster delete --all
+`
+
 type LocalClusterDeleteOptions struct {
 	Kubeconfig    string
 	AllComponents bool
@@ -36,10 +44,11 @@ func (p *ProjectInfo) NewLocalClusterDeleteCmd() *cobra.Command {
 	var o LocalClusterDeleteOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "delete",
-		Short: "Deletes the local Kubernetes cluster",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "delete",
+		Short:   "Deletes the local Kubernetes cluster",
+		Example: localClusterDeleteExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().BoolVar(

@@ -9,15 +9,23 @@ import (
 	"strings"
 
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/educatesrestapi"
 	"github.com/joho/godotenv"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
-	"github.com/educates/educates-training-platform/client-programs/pkg/educatesrestapi"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+var clusterWorkshopRequestExample = `
+  # Request a session for the workshop in the current directory:
+  educates cluster workshop request
+
+  # Request a session for a workshop by name on a named portal:
+  educates cluster workshop request --name my-workshop --portal my-portal
+`
 
 type ClusterWorkshopRequestOptions struct {
 	KubeconfigOptions
@@ -142,10 +150,11 @@ func (p *ProjectInfo) NewClusterWorkshopRequestCmd() *cobra.Command {
 	var o ClusterWorkshopRequestOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "request",
-		Short: "Request workshop in Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "request",
+		Short:   "Request workshop in Kubernetes",
+		Example: clusterWorkshopRequestExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVarP(

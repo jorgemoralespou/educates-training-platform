@@ -32,7 +32,7 @@ func (p *ProjectInfo) NewLocalMirrorDeleteCmd() *cobra.Command {
 	var o LocalMirrorDeleteOptions
 
 	var c = &cobra.Command{
-		Args:    cobra.ExactArgs(1),
+		Args:    exactArgs(1, "mirror name is required", "NAME"),
 		Use:     "delete NAME",
 		Short:   "Deletes the local image registry mirror",
 		RunE:    func(_ *cobra.Command, args []string) error { o.MirrorName = args[0]; return o.Run() },

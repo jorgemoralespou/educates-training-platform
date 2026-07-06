@@ -25,6 +25,14 @@ import (
 	"k8s.io/kubectl/pkg/scheme"
 )
 
+var clusterWorkshopUpdateExample = `
+  # Update the workshop in the current directory on the default portal:
+  educates cluster workshop update
+
+  # Update a workshop from a path on a named portal:
+  educates cluster workshop update --file ./my-workshop --portal my-portal
+`
+
 type ClusterWorkshopUpdateOptions struct {
 	KubeconfigOptions
 	Name            string
@@ -93,10 +101,11 @@ func (p *ProjectInfo) NewClusterWorkshopUpdateCmd() *cobra.Command {
 	var o ClusterWorkshopUpdateOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "update",
-		Short: "Update workshop in Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "update",
+		Short:   "Update workshop in Kubernetes",
+		Example: clusterWorkshopUpdateExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVarP(

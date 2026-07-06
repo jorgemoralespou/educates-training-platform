@@ -12,6 +12,17 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
+var localResolverDeployExample = `
+  # Deploy the local DNS resolver using the laptop config:
+  educates local resolver deploy --local-config
+
+  # Deploy using a specific config file:
+  educates local resolver deploy --config config.yaml
+
+  # Override the ingress domain from the config:
+  educates local resolver deploy --local-config --domain mydomain.test
+`
+
 type LocalResolverDeployOptions struct {
 	Config      string
 	LocalConfig bool
@@ -34,10 +45,11 @@ func (p *ProjectInfo) NewLocalResolverDeployCmd() *cobra.Command {
 	var o LocalResolverDeployOptions
 
 	c := &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "deploy",
-		Short: "Deploys a local DNS resolver (macOS)",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "deploy",
+		Short:   "Deploys a local DNS resolver (macOS)",
+		Example: localResolverDeployExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
 	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml")

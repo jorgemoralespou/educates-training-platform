@@ -13,6 +13,14 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
+var clusterPortalCreateExample = `
+  # Create a training portal with default settings:
+  educates cluster portal create
+
+  # Create a named portal with a session capacity:
+  educates cluster portal create --portal my-portal --capacity 10
+`
+
 type ClusterConfigViewOptions struct {
 	KubeconfigOptions
 	Portal       string
@@ -61,9 +69,10 @@ func (p *ProjectInfo) NewClusterPortalCreateCmd() *cobra.Command {
 	var o ClusterConfigViewOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "create",
-		Short: "Create portal in Kubernetes",
+		Args:    cobra.NoArgs,
+		Use:     "create",
+		Short:   "Create portal in Kubernetes",
+		Example: clusterPortalCreateExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			isPasswordSet := cmd.Flags().Lookup("password").Changed
 
