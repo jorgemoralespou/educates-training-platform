@@ -56,6 +56,12 @@ const (
 	// same way, so EnsureRelease does nothing and the caller surfaces the
 	// failure. This is the brake that prevents reinstall churn.
 	ActionHeldFailed Action = "held-failed"
+	// ActionWaitingUninstall: the release is transiently mid-uninstall
+	// (StatusUninstalling) because a reconcile raced an in-flight teardown.
+	// EnsureRelease neither installs (Helm rejects re-using a name that is
+	// still in use) nor errors; the caller requeues until the uninstall
+	// settles, keeping the teardown race out of the ERROR log.
+	ActionWaitingUninstall Action = "waiting-uninstall"
 )
 
 // Result is the outcome of EnsureRelease. Release is the live or resulting
@@ -123,6 +129,9 @@ func (c *Client) EnsureRelease(ctx context.Context, name string, chrt *chart.Cha
 	case decHold:
 		return Result{Action: ActionHeldFailed, Release: live}, nil
 
+	case decWait:
+		return Result{Action: ActionWaitingUninstall, Release: live}, nil
+
 	default: // decUnchanged
 		return Result{Action: ActionUnchanged, Release: live}, nil
 	}
@@ -150,6 +159,7 @@ const (
 	decRepair
 	decUnchanged
 	decHold
+	decWait
 )
 
 // classify decides how to converge a release given its live record (or
@@ -175,9 +185,16 @@ func classify(live *release.Release, notFound bool, desiredFP string) decision {
 		}
 		return decHold
 
+	case releasecommon.StatusUninstalling:
+		// A prior uninstall is still in flight (a reconcile raced an
+		// in-flight teardown). Installing now would fail with "cannot
+		// reuse a name that is still in use"; wait it out so the race
+		// self-heals without surfacing a retryable error as ERROR noise.
+		return decWait
+
 	default:
-		// uninstalled / uninstalling / superseded-as-latest / unknown:
-		// no usable release record, so install fresh.
+		// uninstalled / superseded-as-latest / unknown: no usable
+		// release record, so install fresh.
 		return decInstall
 	}
 }

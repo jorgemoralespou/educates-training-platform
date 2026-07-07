@@ -311,9 +311,9 @@ func renderNodeCAInjectorValues(obj *platformv1alpha1.SessionManager, cfg *confi
 
 // renderRemoteAccessValues maps cluster config status into the
 // remote-access subchart's values shape. The subchart has no
-// configurable knobs in v0.1.0 — pull secrets aren't even needed
-// because no image is deployed (it's just RBAC + a token Secret).
-// Returning an empty map keeps the chart on its defaults.
+// configurable knobs — pull secrets aren't even needed because no
+// image is deployed (it's just RBAC + a token Secret). Returning an
+// empty map keeps the chart on its defaults.
 func renderRemoteAccessValues(_ *platformv1alpha1.SessionManager, _ *configv1alpha1.EducatesClusterConfig) map[string]any {
 	return map[string]any{}
 }

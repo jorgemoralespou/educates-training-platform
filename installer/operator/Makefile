@@ -59,6 +59,13 @@ manifests: controller-gen ## Generate ClusterRole and CustomResourceDefinition o
 	"$(CONTROLLER_GEN)" \
 		crd paths="./..." output:crd:artifacts:config="$(CRD_OUTPUT_DIR)" \
 		rbac:roleName=educates-installer-manager output:rbac:artifacts:config="$(RBAC_OUTPUT_DIR)"
+	@# Keep the operator's embedded copy of its CRDs byte-identical to the
+	@# chart's crds/. The operator SSA-applies these at startup (internal/crds)
+	@# so its running code always matches its CRD schemas regardless of how it
+	@# was installed. CI's manifest-drift check covers this copy too.
+	rm -rf internal/crds/files
+	mkdir -p internal/crds/files
+	cp "$(CRD_OUTPUT_DIR)"/*.yaml internal/crds/files/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"helm.sh/helm/v4/pkg/action"
 	chart "helm.sh/helm/v4/pkg/chart/v2"
@@ -45,6 +46,20 @@ import (
 // in-cluster should use so that `helm list` from a kubectl shell sees
 // releases the operator created.
 const helmDriver = "secrets"
+
+// actionTimeout bounds every Install/Upgrade/Uninstall/Rollback call.
+// Because all four run with HookOnlyStrategy (below), this governs only
+// how long Helm blocks on a chart's hooks — general resource readiness
+// is enforced by the operator's own reconcile loop, not by Helm. We set
+// it explicitly rather than inheriting Helm v4's implicit fallback
+// (kube.DefaultStatusWatcherTimeout, 30s): that default is undocumented
+// at the call site and too tight for the slower hooks the vendored
+// charts ship (Kyverno's pre-delete webhook cleanup and scale-to-zero,
+// its post-upgrade resource migration). Helm v4's Uninstall and Rollback
+// take no context, so this timeout is their only bound; Install/Upgrade
+// use RunWithContext and are additionally cancelled if the reconcile
+// context is.
+const actionTimeout = 5 * time.Minute
 
 // ErrReleaseNotFound is returned by Status when the release is absent
 // from the configured driver. Wrapping helm's own driver.ErrReleaseNotFound
@@ -110,6 +125,7 @@ func (c *Client) Install(ctx context.Context, releaseName string, chrt *chart.Ch
 	act.Namespace = c.namespace
 	act.CreateNamespace = false              // operator manages cluster-service namespaces explicitly elsewhere
 	act.WaitStrategy = kube.HookOnlyStrategy // readiness is enforced by the reconciler, not Helm
+	act.Timeout = actionTimeout
 	act.SkipCRDs = c.skipCRDs
 
 	rel, err := act.RunWithContext(ctx, chrt, vals)
@@ -130,6 +146,7 @@ func (c *Client) Upgrade(ctx context.Context, releaseName string, chrt *chart.Ch
 	act := action.NewUpgrade(c.cfg)
 	act.Namespace = c.namespace
 	act.WaitStrategy = kube.HookOnlyStrategy
+	act.Timeout = actionTimeout
 
 	rel, err := act.RunWithContext(ctx, releaseName, chrt, vals)
 	if err != nil {
@@ -155,6 +172,7 @@ func (c *Client) Uninstall(releaseName string) error {
 	act := action.NewUninstall(c.cfg)
 	act.IgnoreNotFound = true
 	act.WaitStrategy = kube.HookOnlyStrategy
+	act.Timeout = actionTimeout
 
 	if _, err := act.Run(releaseName); err != nil {
 		return fmt.Errorf("helm uninstall %q: %w", releaseName, err)
@@ -174,6 +192,7 @@ func (c *Client) Rollback(releaseName string, revision int) error {
 	act := action.NewRollback(c.cfg)
 	act.Version = revision
 	act.WaitStrategy = kube.HookOnlyStrategy
+	act.Timeout = actionTimeout
 	act.CleanupOnFail = true
 
 	if err := act.Run(releaseName); err != nil {

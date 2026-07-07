@@ -383,8 +383,8 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 // OperationalBlock in the API package.)
 //
 // crds.enabled=true: cert-manager v1.18+ defaults its CRDs to OFF
-// (`crds.enabled: false` in chart values.yaml — verified against
-// the vendored v1.20.2 tarball). Without this override, helm-install
+// (`crds.enabled: false` in the vendored chart's values.yaml).
+// Without this override, helm-install
 // succeeds, cert-manager pods come up, the operator's deployment
 // readiness gate passes — and then every typed SSA call against
 // ClusterIssuer/Certificate returns NoMatchError forever because
@@ -409,9 +409,10 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 //     on SSA failures). Having both means we pay for the same probe
 //     twice on every fresh install.
 //
-//  2. The hook is wrapped in Helm's WaitStrategy timeout (default 5
-//     minutes). If cainjector hasn't injected the caBundle by then,
-//     the install returns a hard error and the release is left
+//  2. The hook is wrapped in Helm's WaitStrategy timeout (set
+//     explicitly by the helm wrapper — see actionTimeout in
+//     internal/helm). If cainjector hasn't injected the caBundle by
+//     then, the install returns a hard error and the release is left
 //     "failed" — turning a transient bootstrap race into a deadlock
 //     that needs a manual `helm uninstall`. With the hook disabled,
 //     the install completes fast and the operator's own retry loop
@@ -847,6 +848,9 @@ func (r *EducatesClusterConfigReconciler) markManagedPhase(obj *configv1alpha1.E
 //     Degraded rather than reporting Ready off a partial install.
 //   - ActionRepairedRollback: a lock-stuck release was rolled back to its
 //     last good revision; requeue so the follow-up upgrade applies desired.
+//   - ActionWaitingUninstall: the release is transiently mid-uninstall (a
+//     reconcile raced an in-flight teardown); requeue until it settles
+//     rather than failing an install against a name still in use.
 func (r *EducatesClusterConfigReconciler) handleManagedReleaseResult(
 	ctx context.Context,
 	obj *configv1alpha1.EducatesClusterConfig,
@@ -861,6 +865,10 @@ func (r *EducatesClusterConfigReconciler) handleManagedReleaseResult(
 		return false, ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 	case helm.ActionRepairedRollback:
 		mark(obj, "RepairingRelease", fmt.Sprintf("rolled %s release back to its last deployed revision; re-applying desired configuration", service))
+		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
+		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
+	case helm.ActionWaitingUninstall:
+		mark(obj, "ReleaseUninstalling", fmt.Sprintf("%s Helm release is being uninstalled; waiting for teardown to complete before re-converging", service))
 		r.markManagedPhase(obj, configv1alpha1.ClusterConfigPhaseInstalling)
 		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, r.updateStatusWithTransitionLog(ctx, obj)
 	default:

@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -45,6 +46,7 @@ import (
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	configcontroller "github.com/educates/educates-training-platform/installer/operator/internal/controller/config"
 	platformcontroller "github.com/educates/educates-training-platform/installer/operator/internal/controller/platform"
+	"github.com/educates/educates-training-platform/installer/operator/internal/crds"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
 	// +kubebuilder:scaffold:imports
 )
@@ -67,6 +69,7 @@ func init() {
 	utilruntime.Must(configv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(cmv1.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -191,6 +194,25 @@ func main() {
 	// manager.Start below.
 	signalCtx := ctrl.SetupSignalHandler()
 
+	// Reconcile the operator's own CRDs to the schemas embedded in this
+	// binary before the manager starts. Helm never updates the chart's crds/
+	// on `helm upgrade`, so an imperative upgrade would otherwise run new
+	// operator code against stale CRDs (new spec fields pruned, new CEL rules
+	// absent) while a declarative GitOps sync of the same chart gets the new
+	// schema. Applying the embedded CRDs here keeps both install paths
+	// identical at CRD-schema changes. A direct (uncached) client is used
+	// because the manager's cache is not running yet.
+	crdClient, err := client.New(restCfg, client.Options{Scheme: scheme})
+	if err != nil {
+		setupLog.Error(err, "failed to create client for applying CRDs")
+		os.Exit(1)
+	}
+	if err := crds.Apply(signalCtx, crdClient); err != nil {
+		setupLog.Error(err, "failed to apply embedded CRDs")
+		os.Exit(1)
+	}
+	setupLog.Info("Applied embedded CRDs")
+
 	// Scope the Secret cache to: operator namespace, 'educates-secrets'
 	// (v3 / CLI laptop convention), plus any cross-namespace refs the
 	// current EducatesClusterConfig singleton points at. APIReader still
@@ -221,7 +243,10 @@ func main() {
 	// every session churn event for nothing. The map functions already filter
 	// to these namespaces (see mapDeploymentToSingleton / the platform
 	// mappers), so the reads are always in scope.
-	deploymentCacheNamespaces := append(configcontroller.DeploymentWatchNamespaces(), platformcontroller.DeploymentWatchNamespaces()...)
+	deploymentCacheNamespaces := append(
+		configcontroller.DeploymentWatchNamespaces(),
+		platformcontroller.DeploymentWatchNamespaces()...,
+	)
 	setupLog.Info("Deployment cache scope", "namespaces", deploymentCacheNamespaces)
 	deploymentNamespaceConfigs := make(map[string]cache.Config, len(deploymentCacheNamespaces))
 	for _, ns := range deploymentCacheNamespaces {

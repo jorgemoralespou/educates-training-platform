@@ -1,11 +1,11 @@
 {{/*
-  Phase 2/3 development shortcut: bind the operator ServiceAccount to
-  the built-in cluster-admin ClusterRole.
+  Development shortcut: bind the operator ServiceAccount to the
+  built-in cluster-admin ClusterRole.
 
   Why this is needed: the operator drives Helm SDK installs of upstream
-  charts (cert-manager today; Contour, Kyverno, external-dns in Phase
-  3). Those installs apply every resource the chart contains —
-  ServiceAccounts, ClusterRoles, RoleBindings, Services, ConfigMaps,
+  charts (cert-manager, Contour, Kyverno, external-dns). Those installs
+  apply every resource the chart contains — ServiceAccounts,
+  ClusterRoles, RoleBindings, Services, ConfigMaps,
   ValidatingWebhookConfigurations, Deployments, CRDs — under the
   operator's own ServiceAccount. Kubernetes RBAC requires the actor to
   hold at least the permissions of the resources it creates, so any
@@ -13,12 +13,11 @@
   resource type we don't pre-enumerate.
 
   Why this is acceptable today: the operator is the only consumer of
-  cluster services in v4 (see decisions.md → no umbrella chart), and
-  Phase 6 will replace this binding with a fine-grained ClusterRole
-  derived from the manifests every vendored chart actually produces.
-  Until then, this is the "cluster-admin shortcut" referenced from
-  internal/controller/config/educatesclusterconfig_controller.go's
-  RBAC comment block.
+  cluster services (there is no umbrella chart). This binding will be
+  replaced with a fine-grained ClusterRole derived from the manifests
+  every vendored chart actually produces; until then, this is the
+  "cluster-admin shortcut" referenced from the RBAC comment block in
+  internal/controller/config/educatesclusterconfig_controller.go.
 */}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

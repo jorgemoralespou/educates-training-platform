@@ -38,7 +38,7 @@ import (
 // external-dns install constants. Mirrors the cert-manager / Contour
 // shape: dedicated namespace owned by the EducatesClusterConfig,
 // helm release named after the chart, single Deployment name
-// (verified against external-dns-1.21.1 templates: the chart's
+// (verified against the vendored chart's templates: the chart's
 // fullname helper resolves release name → "external-dns" since the
 // release name contains the chart name).
 const (

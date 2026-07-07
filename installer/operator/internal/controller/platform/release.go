@@ -41,6 +41,9 @@ import (
 //     instead of reporting Ready off a partial install.
 //   - ActionRepairedRollback: a lock-stuck release was rolled back to its last
 //     good revision; requeue so the follow-up upgrade applies desired.
+//   - ActionWaitingUninstall: the release is transiently mid-uninstall (a
+//     reconcile raced an in-flight teardown); requeue until it settles rather
+//     than failing an install against a name still in use.
 func handlePlatformReleaseResult(
 	service string,
 	res helm.Result,
@@ -55,6 +58,10 @@ func handlePlatformReleaseResult(
 		return false, ctrl.Result{}, persist()
 	case helm.ActionRepairedRollback:
 		markNotReady("RepairingRelease", fmt.Sprintf("rolled %s release back to its last deployed revision; re-applying desired configuration", service))
+		setPhase(platformv1alpha1.ComponentPhaseInstalling)
+		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, persist()
+	case helm.ActionWaitingUninstall:
+		markNotReady("ReleaseUninstalling", fmt.Sprintf("%s Helm release is being uninstalled; waiting for teardown to complete before re-converging", service))
 		setPhase(platformv1alpha1.ComponentPhaseInstalling)
 		return false, ctrl.Result{RequeueAfter: 15 * time.Second}, persist()
 	default:

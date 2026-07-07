@@ -44,8 +44,8 @@ const (
 	contourReleaseName = "contour"
 )
 
-// Workload names installed by the chart. Verified against
-// contour-0.6.0 templates: workload names are produced via
+// Workload names installed by the chart. Verified against the
+// vendored chart's templates: workload names are produced via
 //
 //	{{ printf "%s-contour" (include "common.names.fullname" .) }}
 //	{{ printf "%s-envoy"   (include "common.names.fullname" .) }}
@@ -75,7 +75,7 @@ var errContourNotReady = errors.New("contour install not yet Available")
 //  2. Wait for the contour Deployment + envoy DaemonSet to be Ready.
 //
 // Contour does NOT install an admission webhook (verified against
-// the 0.6.0 chart templates), so there is no cainjector-style
+// the vendored chart templates), so there is no cainjector-style
 // bootstrap race to classify — the only "waiting" state is the
 // workload rollout. CRDs (HTTPProxy, TLSCertificateDelegation,
 // ExtensionService) are installed by the chart with

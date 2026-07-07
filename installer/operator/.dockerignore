@@ -15,3 +15,8 @@
 # without this rule docker build fails with
 # "pattern <name>.tgz: no matching files found".
 !vendored-charts/*.tgz
+
+# Re-include the operator's embedded CRDs. The operator //go:embed-s these
+# (see internal/crds/crds.go) and applies them at startup; without this rule
+# docker build fails with "pattern files/*.yaml: no matching files found".
+!internal/crds/files/*.yaml
