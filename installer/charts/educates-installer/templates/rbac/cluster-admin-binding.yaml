@@ -1,24 +1,16 @@
 {{/*
-  Development shortcut: bind the operator ServiceAccount to the
-  built-in cluster-admin ClusterRole.
+  Opt-in escape hatch (off by default): bind the operator ServiceAccount
+  to the built-in cluster-admin ClusterRole.
 
-  Why this is needed: the operator drives Helm SDK installs of upstream
-  charts (cert-manager, Contour, Kyverno, external-dns). Those installs
-  apply every resource the chart contains — ServiceAccounts,
-  ClusterRoles, RoleBindings, Services, ConfigMaps,
-  ValidatingWebhookConfigurations, Deployments, CRDs — under the
-  operator's own ServiceAccount. Kubernetes RBAC requires the actor to
-  hold at least the permissions of the resources it creates, so any
-  scoping narrower than cluster-admin breaks on the first new chart
-  resource type we don't pre-enumerate.
-
-  Why this is acceptable today: the operator is the only consumer of
-  cluster services (there is no umbrella chart). This binding will be
-  replaced with a fine-grained ClusterRole derived from the manifests
-  every vendored chart actually produces; until then, this is the
-  "cluster-admin shortcut" referenced from the RBAC comment block in
-  internal/controller/config/educatesclusterconfig_controller.go.
+  In normal operation the operator runs with the fine-grained
+  educates-installer-charts ClusterRole (generated from what the vendored
+  charts actually produce — see hack/generate-installer-rbac.sh) alongside
+  its own educates-installer-manager role. Enable this binding
+  (rbac.clusterAdmin=true) only as a fallback if the derived role turns out
+  to be missing a permission on some cluster or configuration — and please
+  report the gap so the generator can be corrected.
 */}}
+{{- if .Values.rbac.clusterAdmin }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
@@ -33,3 +25,4 @@ subjects:
   - kind: ServiceAccount
     name: educates-installer
     namespace: {{ .Release.Namespace }}
+{{- end }}

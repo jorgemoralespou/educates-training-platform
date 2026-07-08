@@ -163,11 +163,18 @@ refresh-operator-embeds: ## Regenerate CRDs + deepcopy + the subchart tarballs t
 		old_sum=$$( (git show HEAD:"$$f" | tar -tz; git show HEAD:"$$f" | tar -xzO) 2>/dev/null | shasum -a 256 ); \
 		if [ "$$new_sum" = "$$old_sum" ]; then git checkout --quiet -- "$$f"; fi; \
 	done
+	$(MAKE) generate-installer-rbac
 
 refresh-cli-embeds: refresh-operator-embeds embed-installer-chart generate-cli-schemas ## Refresh everything the CLI embeds (chart + schemas)
 
 package-local-charts: ## Repackage the runtime subcharts into the operator's vendored-charts/
 	$(MAKE) -C installer/operator package-local-charts
+
+generate-installer-rbac: ## Regenerate the operator's fine-grained chart-install ClusterRole from the vendored charts
+	@# Renders every vendored chart and emits templates/rbac/charts-role.yaml
+	@# (educates-installer-charts). Run after `make vendor-charts`; CI's
+	@# ci-operator drift check covers the result.
+	./hack/generate-installer-rbac.sh
 
 generate-cli-schemas:
 	@# Regenerates EducatesConfig.schema.json from the platform CRDs.
@@ -242,8 +249,9 @@ ci-operator: ## CI parity for the operator (installer-operator-ci.yaml)
 	cd installer/operator && go vet ./...
 	cd installer/operator && go build ./...
 	$(MAKE) -C installer/operator manifests
+	$(MAKE) generate-installer-rbac
 	@git diff --exit-code -- installer/charts/educates-installer/crds installer/charts/educates-installer/templates/rbac \
-		|| { echo "ERROR: generated CRDs/RBAC drifted. Run 'make -C installer/operator manifests' and commit."; exit 1; }
+		|| { echo "ERROR: generated CRDs/RBAC drifted. Run 'make -C installer/operator manifests && make generate-installer-rbac' and commit."; exit 1; }
 	$(MAKE) -C installer/operator generate
 	@git diff --exit-code -- installer/operator/api \
 		|| { echo "ERROR: generated DeepCopy drifted. Run 'make -C installer/operator generate' and commit."; exit 1; }

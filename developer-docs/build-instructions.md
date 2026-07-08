@@ -196,7 +196,8 @@ CLI-schema drift checks (`verify-installer-chart`, `verify-cli-schemas`).
 `make ci-operator` is what the installer-operator workflow runs: it runs
 `hack/lint-chart-versions.sh`, `go vet` and `go build` against
 `installer/operator`, the generated-CRD/RBAC and DeepCopy drift checks
-(`make manifests` / `make generate` followed by a `git diff`), the envtest
+(`make manifests`, `make generate-installer-rbac`, and `make generate`
+followed by a `git diff`), the envtest
 suite (`make test`), and `golangci-lint` (`make lint`). Because the drift
 checks regenerate files in place and fail on any difference, a failure may
 leave generated files modified in your working tree — review the diff,

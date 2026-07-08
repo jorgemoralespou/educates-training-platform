@@ -89,18 +89,28 @@ in `embed_test.go`.
    the same names; update the reconciler constants and their
    "verified against" comments if not.
 
-8. **Update the version table above.**
+8. **Regenerate the operator's fine-grained install RBAC.** The operator
+   installs the vendored charts under its own ServiceAccount, so its
+   `educates-installer-charts` ClusterRole must cover every resource kind
+   the charts produce. Run `make generate-installer-rbac` (repo root): it
+   renders the vendored charts and rebuilds
+   `installer/charts/educates-installer/templates/rbac/charts-role.yaml`,
+   failing if a chart now emits a Kind not in the curated map (add it to
+   `hack/generate-installer-rbac.sh`). Then `make embed-installer-chart`
+   to sync the CLI copy. `make ci-operator` enforces both.
 
-9. **`make test`** — `TestVendoredCharts_DirectoryConsistent` in
-   `embed_test.go` ties the Makefile, `SHA256SUMS`, `embed.go` and the
-   tarballs on disk together, so a half-finished upgrade (or a stale
-   leftover tarball) fails the test suite and CI. The per-chart load
-   tests also assert the embedded chart's version matches the
-   constants.
+9. **Update the version table above.**
 
-10. **Commit everything together**: new tarball, old tarball removal,
-    `SHA256SUMS`, Makefile, `embed.go`, any reconciler updates, and
-    this README.
+10. **`make test`** — `TestVendoredCharts_DirectoryConsistent` in
+    `embed_test.go` ties the Makefile, `SHA256SUMS`, `embed.go` and the
+    tarballs on disk together, so a half-finished upgrade (or a stale
+    leftover tarball) fails the test suite and CI. The per-chart load
+    tests also assert the embedded chart's version matches the
+    constants.
+
+11. **Commit everything together**: new tarball, old tarball removal,
+    `SHA256SUMS`, Makefile, `embed.go`, any reconciler updates, the
+    regenerated `charts-role.yaml`, and this README.
 
 Chart-specific follow-ups:
 

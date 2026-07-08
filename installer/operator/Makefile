@@ -92,6 +92,15 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 smoke-test: ## Local kind-based smoke test of the operator + chart.
 	bash hack/smoke-test.sh
 
+# Local-only RBAC acceptance test. Installs and tears down the full platform on
+# kind with the operator running under only its fine-grained roles (no
+# cluster-admin), asserting no RBAC-forbidden errors. The real gate for the
+# fine-grained-role change — envtest runs privileged and cannot catch an
+# under-grant. Not run in CI (kind-in-Actions is a separate follow-up).
+.PHONY: rbac-verify
+rbac-verify: ## Local kind-based RBAC acceptance test (install+teardown, cluster-admin off).
+	bash hack/rbac-verify.sh
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
 	"$(GOLANGCI_LINT)" run

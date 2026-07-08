@@ -156,9 +156,10 @@ type EducatesClusterConfigReconciler struct {
 //   - Deployments (watch — cert-manager readiness gate).
 //   - cert-manager ClusterIssuers + Certificates (SSA + watch).
 // Helm-managed resources (cert-manager's own ConfigMaps, Services,
-// MutatingWebhookConfigurations, etc.) ride on the helm SDK's
-// internal kube client and don't need explicit verbs here — but they
-// will once the cluster-admin shortcut is removed.
+// MutatingWebhookConfigurations, etc.) ride on the helm SDK's internal
+// kube client under this same ServiceAccount; their verbs live in the
+// generated educates-installer-charts ClusterRole
+// (hack/generate-installer-rbac.sh), not in these markers.
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch

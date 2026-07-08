@@ -54,11 +54,10 @@ kubectl delete secretsmanager cluster
 kubectl delete educatesclusterconfig cluster
 ```
 
-Deleting `EducatesClusterConfig` first drains the cluster services
-(cert-manager, contour, kyverno, external-dns); platform-component
-finalizers then can't clean up resources whose CRDs are already gone,
-and you'll see opaque `helm uninstall ... failed to delete release`
-errors from the operator. A follow-up
-(`Block EducatesClusterConfig finalize while platform CRs exist`)
-will turn this into an explicit refusal with a clear message; until
-that lands, the order above is required.
+Deleting `EducatesClusterConfig` first is safe but blocks: its finalizer
+refuses to drain the cluster services (cert-manager, contour, kyverno,
+external-dns) while any platform CR still exists, reporting
+`Ready=False reason=PlatformCRsPresent` and naming the offenders, and
+requeues until you remove them. This prevents the platform-component
+finalizers from failing to clean up resources whose CRDs would otherwise
+already be gone. Following the reverse order above avoids the wait.

@@ -226,6 +226,7 @@ Ready and its reconciler condition flips (`CertificatesReady`, `IngressReady`,
 - [ ] `embed.go` `<X>AppVersion` read from the new tarball's `Chart.yaml`
 - [ ] `git grep "<old-version>"` run; straggler hardcoded refs updated (cert-manager: `internal/helm/load_test.go`)
 - [ ] Reconciler workload-name / values / CRD assumptions re-verified; constants + comments updated if changed
+- [ ] Fine-grained install RBAC regenerated (`make generate-installer-rbac`) + CLI copy synced (`make embed-installer-chart`); an "unmapped Kind" error means adding the Kind to `hack/generate-installer-rbac.sh`
 - [ ] Kyverno: bundled policies re-vendored + session-manager subchart repackaged (if appVersion changed)
 - [ ] README "Current contents" table updated
 - [ ] `make verify-vendored-charts` and `make test` pass
