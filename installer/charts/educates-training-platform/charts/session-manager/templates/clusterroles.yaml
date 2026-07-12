@@ -474,3 +474,77 @@ rules:
   - apiGroups: [policies.kyverno.io]
     resources: [validatingpolicies]
     verbs: [get, list, watch, create, update, patch, delete]
+---
+# Extends session-manager's permissions with the host-cluster RBAC a vcluster
+# workshop needs. session-manager creates per-session Roles + a ClusterRole
+# for the vcluster ServiceAccount (see
+# session-manager/handlers/application_vcluster.py), and Kubernetes
+# privilege-escalation prevention requires session-manager to already hold
+# every permission it grants. With clusterAdmin: false it no longer inherits
+# these from cluster-admin, so this role adds them via the documented
+# `rbac.educates.dev/extends-workshop-permissions` aggregation label (it
+# merges into the educates-session-manager ClusterRole — no separate binding).
+# Keep it a superset of the rules application_vcluster.py puts in the vcluster
+# Roles/ClusterRole — if a rule is added there, add it here too.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager:vcluster
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+    rbac.educates.dev/extends-workshop-permissions: "true"
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - pods
+      - pods/attach
+      - pods/exec
+      - pods/portforward
+      - pods/status
+      - secrets
+      - serviceaccounts
+      - services
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [events, pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, update, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+---
+# Extends session-manager's permissions so it can create the kapp-controller
+# App objects that workshops declare in their session.objects. session-manager
+# applies a workshop's session.objects as itself, and kapp-controller (Carvel)
+# is used by many existing workshops to deploy content — including into a
+# vcluster — so with clusterAdmin: false it must hold this explicitly. Added
+# via the documented `rbac.educates.dev/extends-workshop-permissions`
+# aggregation label (merges into educates-session-manager — no separate
+# binding). Add other Carvel kinds here if workshops need them (e.g.
+# packaging.carvel.dev PackageInstalls). Inert when kapp-controller (and its
+# CRD) isn't installed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager:kapp-controller
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+    rbac.educates.dev/extends-workshop-permissions: "true"
+rules:
+  - apiGroups: [kappctrl.k14s.io]
+    resources: [apps]
+    verbs: ["*"]
