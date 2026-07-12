@@ -331,6 +331,15 @@ Deprecations
   therefore see a larger client/server version skew and should be verified
   against a supported cluster version.
 
+* The ``vcluster`` software used by the ``vcluster`` workshop application has
+  been updated from 0.30.2 to 0.35.2, and the set of Kubernetes versions the
+  virtual cluster can provision has been aligned with the versions supported
+  elsewhere in the platform. The 1.31 and 1.32 versions have been dropped and
+  1.35 and 1.36 have been added, so the supported range is now 1.33 to 1.36
+  with 1.36 the default. Workshops which pin the virtual cluster to Kubernetes
+  1.31 or 1.32 through the ``vcluster`` application ``version`` property must be
+  updated to a supported version.
+
 * The version of ``kind`` embedded in the ``educates`` CLI has been updated
   from 0.29 to 0.32. As a result the default Kubernetes version used when
   creating a local cluster with ``educates local cluster create`` has changed

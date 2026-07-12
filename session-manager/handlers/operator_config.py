@@ -158,10 +158,10 @@ workshop_images_table = {
     "conda-environment:*": CONDA_ENVIRONMENT_IMAGE,
 }
 
-LOFTSH_KUBERNETES_V1_31_IMAGE = image_reference("loftsh-kubernetes-v1.31")
-LOFTSH_KUBERNETES_V1_32_IMAGE = image_reference("loftsh-kubernetes-v1.32")
 LOFTSH_KUBERNETES_V1_33_IMAGE = image_reference("loftsh-kubernetes-v1.33")
 LOFTSH_KUBERNETES_V1_34_IMAGE = image_reference("loftsh-kubernetes-v1.34")
+LOFTSH_KUBERNETES_V1_35_IMAGE = image_reference("loftsh-kubernetes-v1.35")
+LOFTSH_KUBERNETES_V1_36_IMAGE = image_reference("loftsh-kubernetes-v1.36")
 
 LOFTSH_VCLUSTER_IMAGE = image_reference("loftsh-vcluster")
 

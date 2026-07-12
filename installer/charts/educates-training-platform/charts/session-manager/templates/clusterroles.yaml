@@ -501,19 +501,27 @@ rules:
       - persistentvolumeclaims
       - pods
       - pods/attach
+      - pods/ephemeralcontainers
       - pods/exec
       - pods/portforward
+      - pods/resize
       - pods/status
       - secrets
       - serviceaccounts
       - services
     verbs: [create, delete, get, list, patch, update, watch]
   - apiGroups: [""]
-    resources: [events, pods/log]
+    resources: [events]
+    verbs: [create, get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [create, get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
     verbs: [get, list, watch]
   - apiGroups: [discovery.k8s.io]
     resources: [endpointslices]
-    verbs: [get, list, update, watch]
+    verbs: [create, delete, get, list, patch, update, watch]
   - apiGroups: [networking.k8s.io]
     resources: [ingresses]
     verbs: [create, delete, get, list, patch, update, watch]
@@ -525,7 +533,7 @@ rules:
     verbs: [get, list, watch]
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets]
-    verbs: [get, list, watch]
+    verbs: [get, list, patch, update, watch]
 ---
 # Extends session-manager's permissions so it can create the kapp-controller
 # App objects that workshops declare in their session.objects. session-manager

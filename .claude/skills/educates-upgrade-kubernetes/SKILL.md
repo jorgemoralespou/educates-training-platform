@@ -142,6 +142,21 @@ After editing `go.mod`, run:
 cd client-programs && go mod tidy
 ```
 
+## Keep the vcluster application aligned
+
+The `vcluster` workshop application provisions Kubernetes at its own set of
+versions (the `loftsh-kubernetes` images in session-manager), maintained by the
+**`educates-upgrade-vcluster`** skill. Keep that set the same as the versions
+supported here, and keep the vcluster `K8S_DEFAULT_VERSION` the same as
+`DefaultKubernetesVersion`, as long as the vcluster release in use supports them
+(check its `images-optional.txt` / `images.txt`).
+
+After changing the supported set here, **ask the user for permission to run
+`educates-upgrade-vcluster`** to bring the vcluster application's `K8S_VERSIONS`
+/ `K8S_DEFAULT_VERSION` in line (or to accept a deliberate divergence, for
+example when the current vcluster release cannot yet provision a newly added
+version). Do not silently leave the two sets out of sync.
+
 ## Step 3: Verify
 
 Run in order, fix any failures before proceeding:
@@ -164,3 +179,4 @@ cd client-programs && go mod tidy && go build ./...
 - [ ] `k8s.io/*` versions in `go.mod` align with `DefaultKubernetesVersion`
 - [ ] Code comments naming a specific version or kind release were updated to match
 - [ ] `go mod tidy` ran cleanly in `client-programs/`
+- [ ] vcluster application k8s set aligned, or divergence agreed with the user (see `educates-upgrade-vcluster`)
