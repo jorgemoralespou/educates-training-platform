@@ -1,203 +1,134 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"path/filepath"
+	"time"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
-	"github.com/educates/educates-training-platform/client-programs/pkg/installer"
-	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
+	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
-var (
-	adminPlatformDeployExample = `
-  # Deploy educates platform
-  educates admin platform deploy --config config.yaml
+const adminPlatformDeployExample = `
+  # Install Educates from a checked-in config file:
+  educates admin platform deploy --config env.yaml
 
-  # Get deployment descriptors for a specific provider with provided config
-  educates admin platform deploy --config config.yaml --dry-run
+  # Install Educates using the laptop config (~/.educates/config.yaml):
+  educates admin platform deploy --local-config
+`
 
-  # Get deployment descriptors for local cluster default installation
-  educates admin platform deploy --local-config --dry-run
-
-  # Deploy educates platform with verbose output
-  educates admin platform deploy --config config.yaml --verbose
-
-  # Deploy educates platform with an alternate domain
-  educates admin platform deploy --config config.yaml --domain test.educates.io
-  educates admin platform deploy --local-config --domain test.educates.io
-
-  # Deploy educates platform without resolving images via kbld (using latest images)
-  educates admin platform deploy --config config.yaml --skip-image-resolution
-
-  # Deploy educates platform showing the changes to be applied to the cluster
-  educates admin platform deploy --config config.yaml --show-changes
-
-  # Install educates with bundle from different repository
-  educates admin platform deploy --config config.yaml --package-repository ghcr.io/jorgemoralespou --version installer-clean
-
-  # Install educates when locally built (version latest does the same and skips image resolution)
-  educates admin platform deploy --config config.yaml  --package-repository localhost:5001 --version 0.0.1
-  educates admin platform deploy --config config.yaml  --version latest
-
-  # Install educates on a specific cluster
-  educates admin platform deploy --config config.yaml --kubeconfig /path/to/kubeconfig --context my-cluster
-  educates admin platform deploy --config config.yaml --kubeconfig /path/to/kubeconfig
-  educates admin platform deploy --config config.yaml --context my-cluster
-  `
-)
-
+// PlatformDeployOptions mirrors PlatformRenderOptions plus the kubectl
+// connection flags consumed by the install path.
 type PlatformDeployOptions struct {
-	KubeconfigOptions
-	Config              string
-	Domain              string
-	DryRun              bool
-	Version             string
-	PackageRepository   string
-	Verbose             bool
-	LocalConfig         bool
-	skipImageResolution bool
-	showChanges         bool
-}
-
-func (o *PlatformDeployOptions) Run() error {
-	installer := installer.NewInstaller()
-
-	fullConfig, err := config.ConfigForLocalClusters(o.Config, o.Domain, o.LocalConfig)
-
-	if err != nil {
-		return err
-	}
-
-	if o.DryRun {
-		if err = installer.DryRun(o.Version, o.PackageRepository, fullConfig, o.Verbose, false, o.skipImageResolution); err != nil {
-			return errors.Wrap(err, "educates could not be installed")
-		}
-		return nil
-	}
-
-	clusterConfig, err := cluster.NewClusterConfigIfAvailable(o.Kubeconfig, o.Context)
-	if err != nil {
-		return err
-	}
-
-	client, err := clusterConfig.GetClient()
-	if err != nil {
-		return err
-	}
-
-	// This creates the educates-secrets namespace if it doesn't exist and creates the
-	// wildcard and CA secrets in there
-	if err = secrets.SyncLocalCachedSecretsToCluster(client); err != nil {
-		return err
-	}
-
-	err = installer.Run(o.Version, o.PackageRepository, fullConfig, clusterConfig, o.Verbose, false, o.skipImageResolution, o.showChanges)
-	if err != nil {
-		return errors.Wrap(err, "educates could not be installed")
-	}
-
-	// This is for hugo livereload (educates serve-workshop). Reconfigures the loopback service
-	// We do create this loopback service for all providers except vcluster, as vcluster will map
-	// it's own service to the host's loopback service to use the host's single loopback service
-	if fullConfig.ClusterInfrastructure.Provider != "vcluster" {
-		if err = cluster.CreateLoopbackService(client, fullConfig.ClusterIngress.Domain); err != nil {
-			return err
-		}
-	}
-
-	fmt.Println("\nEducates has been installed succesfully")
-
-	return nil
+	Config      string
+	LocalConfig bool
+	Kubeconfig  string
+	Context     string
+	Timeout     time.Duration
+	Verbose     bool
 }
 
 func (p *ProjectInfo) NewAdminPlatformDeployCmd() *cobra.Command {
 	var o PlatformDeployOptions
 
-	var c = &cobra.Command{
+	c := &cobra.Command{
 		Args:  cobra.NoArgs,
 		Use:   "deploy",
-		Short: "Install Educates and related cluster services onto your cluster in an imperative manner",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if o.LocalConfig {
-				o.Config = ""
-			}
-			return o.Run()
-		},
+		Short: "Install Educates: helm install operator + apply 4 platform CRs",
+		Long: `Drive the install end-to-end. Same translator as 'admin platform render',
+then push to the cluster:
+
+  1. helm upgrade --install educates-installer (embedded chart)
+  2. apply EducatesClusterConfig → wait Ready=True
+  3. verify educates-custom-ca Secret prerequisite (skipped when
+     --local-config syncs the cached CA in step 0)
+  4. apply SecretsManager → wait Ready=True
+  5. apply LookupService (if configured) → wait Ready=True
+     (interleaved with SessionManager — both apply, then both wait)
+  6. apply SessionManager → wait Ready=True`,
 		Example: adminPlatformDeployExample,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return p.runDeploy(cmd.Context(), cmd.OutOrStdout(), &o)
+		},
 	}
 
-	c.Flags().StringVar(
-		&o.Config,
-		"config",
-		"",
-		"path to the installation config file for Educates",
-	)
-	c.Flags().StringVar(
-		&o.Kubeconfig,
-		"kubeconfig",
-		"",
-		"kubeconfig file to use instead of $KUBECONFIG or $HOME/.kube/config",
-	)
-	c.Flags().StringVar(
-		&o.Context,
-		"context",
-		"",
-		"Context to use from Kubeconfig",
-	)
-	c.Flags().StringVar(
-		&o.Domain,
-		"domain",
-		"",
-		"wildcard ingress subdomain name for Educates",
-	)
-	c.Flags().BoolVar(
-		&o.DryRun,
-		"dry-run",
-		false,
-		"prints to stdout the yaml that would be deployed to the cluster",
-	)
-	c.Flags().BoolVar(
-		&o.Verbose,
-		"verbose",
-		false,
-		"print verbose output",
-	)
-	c.Flags().StringVar(
-		&o.PackageRepository,
-		"package-repository",
-		p.ImageRepository,
-		"image repository hosting package bundles",
-	)
-	c.Flags().StringVar(
-		&o.Version,
-		"version",
-		p.Version,
-		"version to be installed",
-	)
-	c.Flags().BoolVar(
-		&o.LocalConfig,
-		"local-config",
-		false,
-		"Use local configuration. When used, --config and --domain flags are ignored",
-	)
-	c.Flags().BoolVar(
-		&o.skipImageResolution,
-		"skip-image-resolution",
-		false,
-		"skips resolution of referenced images so that all will be fetched from their original location",
-	)
-	c.Flags().BoolVar(
-		&o.showChanges,
-		"show-changes",
-		false,
-		"shows the diffs to be applied to the cluster when running the install",
-	)
+	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
+	c.Flags().BoolVar(&o.LocalConfig, "local-config", false,
+		"use <data-home>/config.yaml; applies host-IP nip.io fallback for ingress.domain")
+	c.Flags().StringVar(&o.Kubeconfig, "kubeconfig", "", "kubeconfig file (defaults to $KUBECONFIG / ~/.kube/config)")
+	c.Flags().StringVar(&o.Context, "context", "", "context name to use within the kubeconfig")
+	c.Flags().DurationVar(&o.Timeout, "timeout", deployer.DefaultTimeout, "per-CR Ready=True wait timeout")
+	c.Flags().BoolVar(&o.Verbose, "verbose", false, "show helm SDK debug output on stderr")
 	c.MarkFlagsMutuallyExclusive("config", "local-config")
 	c.MarkFlagsOneRequired("config", "local-config")
 
 	return c
+}
+
+func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDeployOptions) error {
+	// Reuse the same load → default → translate path as render so the
+	// two commands stay in lock-step. (Step-9 cleanup factors this into
+	// a shared helper.)
+	path, err := resolveDeployConfigPath(o)
+	if err != nil {
+		return err
+	}
+	if o.LocalConfig {
+		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
+			return err
+		}
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+
+	var caSecretName, caSecretNamespace string
+	syncLocalSecrets := false
+	switch c := cfg.(type) {
+	case *v1alpha1.EducatesLocalConfig:
+		c.ApplyCLIDefaults(p.Version, p.ImageRepository)
+		if o.LocalConfig {
+			// Fills <host-IP>.nip.io and defaults ingress.insecure when
+			// the domain was left empty; no-op when the user set one.
+			if _, err := maybeApplyHostDomain(c); err != nil {
+				return err
+			}
+		} else if c.Ingress.Domain == "" {
+			return fmt.Errorf("ingress.domain is required when using --config (set it in %s)", path)
+		}
+		// A secure install needs a cached CA; an insecure one serves
+		// plain HTTP and needs none (localCASecretIfSecure handles both).
+		var lookupErr error
+		caSecretName, caSecretNamespace, lookupErr = localCASecretIfSecure(c)
+		if lookupErr != nil {
+			return lookupErr
+		}
+		syncLocalSecrets = true
+	case *v1alpha1.EducatesConfig:
+		// Pure passthrough.
+	}
+
+	return translateAndDeploy(ctx, w, cfg, caSecretName, caSecretNamespace, syncLocalSecrets, deployPipelineFlags{
+		Kubeconfig: o.Kubeconfig,
+		Context:    o.Context,
+		Timeout:    o.Timeout,
+		Verbose:    o.Verbose,
+	})
+}
+
+func resolveDeployConfigPath(o *PlatformDeployOptions) (string, error) {
+	if o.LocalConfig {
+		return filepath.Join(utils.GetEducatesHomeDir(), "config.yaml"), nil
+	}
+	if o.Config == "" {
+		return "", fmt.Errorf("internal: neither --config nor --local-config set")
+	}
+	return o.Config, nil
 }

@@ -60,33 +60,24 @@ Note that this later command will create/update service resources in the Kuberne
 Defining installer configuration
 --------------------------------
 
-Before building and deploying Educates from source code, you will need to supply a configuration file providing details of the target cluster and what is to be installed. This configuration should be placed in the file:
+Before building and deploying Educates from source code, you will need a configuration describing the target cluster and what is to be installed. The local configuration is managed by the `educates` CLI itself and lives in the CLI data home (by default `$XDG_DATA_HOME/educates/config.yaml`). Create a minimal configuration by running:
 
 ```
-developer-testing/educates-installer-values.yaml
+educates local config init
 ```
 
-within the Educates source code directory.
+You can inspect it with `educates local config view` and change it with `educates local config edit`. The local configuration uses the `EducatesLocalConfig` format and should contain at least:
 
-Where deploying to the local Kind cluster created using the Educates CLI, you can create this by running:
-
-```
-educates local config view > developer-testing/educates-installer-values.yaml
-```
-
-this should contain at least:
-
-```
-clusterInfrastructure:
-  provider: kind
-
-clusterIngress:
-  domain: 192.168.1.1.nip.io
+```yaml
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesLocalConfig
+ingress:
+  domain: 192-168-1-1.nip.io
 ```
 
-By setting the `provider` as `kind`, an opinionated configuration suitable for a Kubernetes cluster created using Kind will be used. This includes the automatic deployment and configuration of an ingress router for the cluster using Contour, and the installation of Kyverno for implementing cluster and workshop security policies.
+The `EducatesLocalConfig` kind implies an opinionated configuration suitable for a Kubernetes cluster created using Kind: the operator deploys an ingress router for the cluster using Contour, cert-manager for TLS, and Kyverno for implementing cluster and workshop security policies.
 
-The `domain` should be set to be a `nip.io` address mapping to the IP address of your local host where you are doing development, or some other FQDN which maps to your local host.
+The `domain` should be set to be a `nip.io` address mapping to the IP address of your local host where you are doing development, or some other FQDN which maps to your local host. If left unset, the deploy command falls back to a `nip.io` address derived from your host IP.
 
 If the configuration requires additional secrets these will need added to the local Kubernetes cluster in the namespace required by the configuration. If these secrets had previously been added to the local secrets cache, you can copy them to the local Kubernetes cluster by running:
 
@@ -94,110 +85,145 @@ If the configuration requires additional secrets these will need added to the lo
 educates local secrets sync
 ```
 
-Building Educates platform images
----------------------------------
+Building Educates from source
+-----------------------------
 
-To build the container images for the Educates training platform you can run:
-
-```
-make build-core-images
-```
-
-NOTE: By default, images will be pushed to a local registry. There's instructions above on how to provide a local registry
-via the Educates cli.
-
-This will trigger the building of the container images and push the resulting images to the local docker image registry.
-
-Targets for make are also available for building and pushing to the local docker image registry individual container images.
+To build everything needed for local testing — the `educates` CLI, the core platform images and the installer operator image — run, from the repository root:
 
 ```
-make build-session-manager
-make build-secrets-manager
-make build-training-portal
-...
+make
 ```
 
-See the [Makefile](../Makefile) for more details of the make targets that are available. There are parameters that can be
-set to alter behavior of the Makefile. There's comprehensive documentation at the top of the file.
+This is the default target (`local-build`). It:
 
-Once the container images have been built and pushed to the local docker image registry, you can then deploy everything by running:
+* builds the `educates` CLI for your host platform into `client-programs/bin/educates-<os>-<arch>`, with compiled-in defaults pointing at the local image registry (`localhost:5001`, tag `latest`);
+* deploys the local image registry container using that CLI if it isn't already running;
+* builds the core platform images and the operator image **for your host architecture only** and pushes them to the local registry;
+* regenerates the committed embedded artifacts (operator CRDs, the runtime subchart tarballs the operator embeds, the CLI-embedded operator chart and JSON schemas) when their sources changed — if `git status` is dirty after `make`, commit the regenerated files.
 
-```
-make deploy-platform
-```
-
-This will perform an install directly from configuration files in the current directory. If needing to test that the `educates-installer` package bundle used by the Educates CLI installer can be installed using `kapp-controller`, ensure that `kapp-controller` is installed in the cluster and then use the commands:
+Then deploy the locally built system:
 
 ```
-make build-all-images
-make push-installer-bundle
-make deploy-platform-app
+client-programs/bin/educates-<os>-<arch> local cluster create
 ```
 
-The `make build-all-images` command will make sure that optional workshop base images as well as the core Educates platform are built. It is necessary to build all images when testing the package bundle as the package generated will include image hashes for all images.
+Because the CLI was built with a non-release version (`latest`), it identifies itself as a development build and automatically points every platform image — the operator, secrets-manager, lookup-service, session-manager, training-portal, the workshop base environment and the rest of the core set — at `localhost:5001/educates-<name>:latest`. No configuration editing is needed. Explicit `imageVersions` or `operator.image` entries in your local configuration always win over these defaults, so remove any manual overrides left over from earlier workflows unless you want them.
 
-To delete everything deployed using the `educates-installer` package when using the `make` command, use:
+Make knobs (environment variables or `make VAR=value`):
+
+* `TARGET_PLATFORMS` — image platforms. Defaults to the current host architecture only (e.g. `linux/arm64` on Apple silicon); multi-architecture builds are explicit opt-in (`TARGET_PLATFORMS=linux/amd64,linux/arm64`) and slow under emulation.
+* `IMAGE_REPOSITORY` / `PACKAGE_VERSION` — registry and tag for images (default `localhost:5001` / `latest`).
+* `PUSH_IMAGES=false` — load images into the Docker daemon instead of pushing.
+* `CLI_VERSION` / `CLI_IMAGE_REPOSITORY` — the CLI binary's compiled-in defaults; a semver `CLI_VERSION` makes the binary behave like a release build (no local-image defaulting).
+
+Any single image can be rebuilt with `make image-<name>`, for example `make image-training-portal` or `make image-operator` (the operator target refreshes the embedded subchart tarballs first). Run `make help` for the full target list. Building requires `docker`, Go and `helm` (used to repackage the runtime subcharts the operator embeds).
+
+After rebuilding runtime component images, restart the deployed components to pick them up (dev tags are pulled with `Always`):
 
 ```
-make delete-platform
+make restart-training-platform
 ```
 
-or:
+For the operator itself, `make image-operator` then `kubectl rollout restart deployment -n educates-installer`. See the [operator README](../installer/operator/README.md) and the make targets there (`make smoke-test`, `make test`) for the operator development loop.
+
+If the cluster is already up and you only want to (re)deploy the platform, run:
 
 ```
-make delete-platform-app
+client-programs/bin/educates-<os>-<arch> admin platform deploy --local-config
 ```
 
-as appropriate.
+To delete everything deployed to the cluster, use:
+
+```
+educates admin platform delete
+```
 
 Building additional workshop images
 -----------------------------------
 
-When using `make build-core-images`, it will only build the main workshop base image. That is, it will not build workshop base images for Java and Python.
-
-If you want to build all workshop base images you can instead run:
+The default `make` only builds the main workshop base image. The workshop language images (Java and Python variants) are optional — when a workshop uses one and it isn't built locally, the published `ghcr.io/educates` image is used. To build them locally:
 
 ```
-make build-all-images
+make build-workshop-images
 ```
 
-Note that this will consume a lot more storage space in the local docker environment. In general you will probably want to configure the local docker environment with 100Gi or more of storage space to be used across local image caching, the local docker image registry and the Kubernetes cluster itself.
+or everything at once with `make build-all-images`. Note that this will consume a lot more storage space in the local docker environment. In general you will probably want to configure the local docker environment with 100Gi or more of storage space to be used across local image caching, the local docker image registry and the Kubernetes cluster itself.
 
-As well as the `build-all-images`, make targets are also supplied for building and pushing to the local docker image registry individual workshop base images.
+Individual workshop images can be built with the generic image target:
 
 ```
-make build-base-environment
-make build-jdk8-environment
-make build-jdk11-environment
-make build-jdk17-environment
-make build-jdk21-environment
-make build-conda-environment
+make image-base-environment
+make image-jdk17-environment
+make image-conda-environment
 ```
 
-See the [Makefile](../Makefile) for more details of the make targets that are available.
+If you want a locally built language image to be used by deployed workshops, add a matching `imageVersions` entry to the local configuration (only the core set is defaulted automatically), for example `name: jdk17-environment`, `image: localhost:5001/educates-jdk17-environment:latest`.
 
 Building the Educates CLI program
 ---------------------------------
 
-If needing to work on the `educates` CLI it can be built using the command:
+If needing to work on just the `educates` CLI it can be built using the command:
 
 ```
-make build-client-programs
+make build-cli
 ```
 
-You can then run the `educates` CLI program from the `client-programs/bin` subdirectory. The name of the compiled CLI will incorporate the target system and machine architecture, e.g.: `educates-linux-amd64`.
+You can then run the `educates` CLI program from the `client-programs/bin` subdirectory. The name of the compiled CLI will incorporate the target system and machine architecture, e.g.: `educates-darwin-arm64`. (`make build-client-programs` remains as an alias.)
 
-Note that when building the `educates` CLI from local source code, the embedded project version will be `develop`. If you are running it to test creation of the local Kubernetes cluster with Educates using an existing version, you will need to tell it what previously released version of the package should be used. This can be done using the `--version` of sub commands where this is necessary.
+Note that when building the `educates` CLI from local source code, the embedded project version defaults to `latest` and the embedded image registry to `localhost:5001` — the CLI behaves as a development build, defaulting all platform images to your local registry as described above. The operator Helm chart and config schemas embedded in the CLI are refreshed from your source tree as part of the build. To build a CLI that behaves like a release binary, pass a semver version: `make build-cli CLI_VERSION=4.0.0 CLI_IMAGE_REPOSITORY=ghcr.io/educates`.
+
+Running CI checks locally
+-------------------------
+
+The GitHub Actions workflows that gate pull requests
+(`.github/workflows/client-programs-ci.yaml` and
+`.github/workflows/installer-operator-ci.yaml`) invoke these same make
+targets, so running them locally exercises exactly what CI runs — there is
+no second copy of the step list to drift out of sync. From the repository
+root:
 
 ```
-./client-programs/bin/educates-linux-amd64 create-cluster --version=3.0.0
+make ci             # run all CI checks (CLI + operator)
+make ci-cli         # only the client-programs checks
+make ci-operator    # only the installer-operator checks
 ```
 
-If you have built and pushed to the local image registry the package bundles for `educates-installer`, you will need to tell the CLI to use the package bundles and images from the local image registry rather than those hosted on GitHub container registry. This can be done by specifying the version to be `latest`.
+`make ci-cli` is what the client-programs workflow runs: it stages the
+embedded theme files (see below), then runs `go vet`, `go build` and
+`go test` against `client-programs`, and finally the embedded-chart and
+CLI-schema drift checks (`verify-installer-chart`, `verify-cli-schemas`).
+
+`make ci-operator` is what the installer-operator workflow runs: it runs
+`hack/lint-chart-versions.sh`, `go vet` and `go build` against
+`installer/operator`, the generated-CRD/RBAC and DeepCopy drift checks
+(`make manifests`, `make generate-installer-rbac`, and `make generate`
+followed by a `git diff`), the envtest
+suite (`make test`), and `golangci-lint` (`make lint`). Because the drift
+checks regenerate files in place and fail on any difference, a failure may
+leave generated files modified in your working tree — review the diff,
+which is exactly what CI is flagging, and commit it if it is a legitimate
+regeneration.
+
+The CLI's Hugo renderer embeds theme files via `//go:embed` from
+`client-programs/pkg/renderer/files/`, but that directory is `.gitignore`d
+and populated at build time from the workshop base environment
+(`workshop-images/base-environment/opt/eduk8s/etc/themes`). Without it
+`go vet`/`build`/`test` fail with `pattern all:files/*: no matching files
+found`. Both `make build-cli` and `make ci-cli` stage it automatically; if
+you ever need it on its own, run:
 
 ```
-./client-programs/bin/educates-linux-amd64 create-cluster --version=latest
+make stage-renderer-files
 ```
+
+The operator module is pinned to a specific Go version (see
+`installer/operator/go.mod`). If you have more than one Go toolchain
+installed, set `GOTOOLCHAIN` to that version (e.g.
+`GOTOOLCHAIN=go1.26.0 make ci-operator`) or ensure the pinned toolchain is
+the one on your `PATH`, otherwise some build steps may mix toolchains and
+fail with a `compile: version "…" does not match go tool version "…"`
+error. CI is unaffected because it provisions a single Go version via
+`actions/setup-go`.
 
 Cleaning up available storage space
 -----------------------------------

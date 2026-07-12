@@ -1,0 +1,44 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesEKSConfig
+
+aws:
+  accountId: "123456789012"
+  region: us-east-1
+  route53HostedZoneId: Z0123456789ABCDEF
+  certManagerRoleARN: arn:aws:iam::123456789012:role/custom-cert-manager
+  externalDNSRoleARN: arn:aws:iam::123456789012:role/custom-external-dns
+
+domain: academy-01.workshops.example.com
+
+acme:
+  email: ops@example.com
+  server: https://acme-staging-v02.api.letsencrypt.org/directory
+
+externalTLSTermination: true
+
+clusterAdmin: true
+lookupService: false
+imagePrePuller: true
+
+websiteStyling:
+  defaultTheme: my-theme-data
+  themeDataRefs:
+    - namespace: educates
+      name: my-theme-data
+
+secretPropagation:
+  imagePullSecretNames:
+    - my-pull-secret
+
+imageVersions:
+  - name: base-environment
+    image: ghcr.io/educates/base-environment:4.0.0
+
+operator:
+  image:
+    repository: ghcr.io/educates/educates-operator
+    tag: 4.0.0
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - operator-pull-secret
+  logLevel: debug

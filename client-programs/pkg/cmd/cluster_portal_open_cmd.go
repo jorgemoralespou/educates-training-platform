@@ -10,13 +10,21 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+var clusterPortalOpenExample = `
+  # Open the default training portal in a browser:
+  educates cluster portal open
+
+  # Open the admin pages of a named portal:
+  educates cluster portal open --portal my-portal --admin
+`
 
 type ClusterPortalOpenOptions struct {
 	KubeconfigOptions
@@ -127,10 +135,11 @@ func (p *ProjectInfo) NewClusterPortalOpenCmd() *cobra.Command {
 	var o ClusterPortalOpenOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "open",
-		Short: "Browse portal in Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "open",
+		Short:   "Browse portal in Kubernetes",
+		Example: clusterPortalOpenExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

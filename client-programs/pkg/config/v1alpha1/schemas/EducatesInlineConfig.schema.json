@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.educates.dev/cli/v1alpha1/EducatesInlineConfig.json",
+  "title": "EducatesInlineConfig",
+  "description": "BYO scenario. User asserts that cert-manager (or pre-issued wildcard cert), an ingress controller, and a policy engine already exist on the cluster.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "domain", "ingressClassName"],
+  "allOf": [
+    {
+      "if": {
+        "not": {
+          "properties": { "externalTLSTermination": { "const": true } },
+          "required": ["externalTLSTermination"]
+        }
+      },
+      "then": { "required": ["wildcardCertificateSecret"] }
+    }
+  ],
+  "properties": {
+    "apiVersion": { "const": "cli.educates.dev/v1alpha1", "description": "API version of the configuration kind. Always cli.educates.dev/v1alpha1." },
+    "kind":       { "const": "EducatesInlineConfig", "description": "Configuration kind. Always EducatesInlineConfig." },
+
+    "domain":                    { "type": "string", "minLength": 1, "description": "Wildcard ingress domain Educates serves workshops under. You arrange DNS for it yourself." },
+    "ingressClassName":          { "type": "string", "minLength": 1, "description": "Name of the existing IngressClass routing to your ingress controller, for example contour or openshift-default." },
+    "wildcardCertificateSecret": { "type": "string", "minLength": 1, "description": "Name of an existing kubernetes.io/tls Secret in the operator namespace holding tls.crt and tls.key valid for *.<domain>. Required unless externalTLSTermination is set." },
+    "caCertificateSecret":       { "type": "string", "description": "Name of an existing Secret with a ca.crt key for the CA chain that issued the wildcard certificate. Workshops mount it when they need to trust calls to endpoints signed by that CA. Optional." },
+    "clusterIssuerName":         { "type": "string", "description": "Name of the cert-manager ClusterIssuer that signed the wildcard certificate, if any. Informational; surfaced in status. Optional." },
+
+    "imageRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Rewrite workshop image references to live behind an in-cluster or mirror registry, and supply pull credentials for it.",
+      "properties": {
+        "prefix":      { "type": "string", "description": "Registry prefix that workshop image references are rewritten to live under." },
+        "pullSecrets": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of image pull Secrets for the rewritten registry." }
+      }
+    },
+
+    "policyEnforcement": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The security policy engines the cluster already enforces. Educates identifies them rather than installing them. Defaults to Kyverno for both.",
+      "properties": {
+        "clusterEngine": {
+          "type": "string",
+          "enum": ["Kyverno", "PodSecurityStandards", "OpenShiftSCC", "None"],
+          "description": "Cluster-wide policy engine already in place. None disables cluster-level enforcement."
+        },
+        "workshopEngine": {
+          "type": "string",
+          "enum": ["Kyverno", "None"],
+          "description": "Per-workshop policy engine already in place. None disables workshop-level enforcement."
+        }
+      }
+    },
+
+    "externalTLSTermination": {
+      "type": "boolean",
+      "default": false,
+      "description": "Asserts TLS for the ingress domain is terminated outside the cluster (external load balancer or proxy forwarding plain HTTP inward). No in-cluster wildcard certificate is referenced and generated portal and workshop URLs use https. Maps to EducatesClusterConfig inline ingress.protocol https with no wildcardCertificateSecretRef; wildcardCertificateSecret is not required when set."
+    },
+
+    "clusterAdmin":   { "type": "boolean", "default": false, "description": "Grant workshop sessions cluster-admin access. Disabled by default." },
+    "lookupService":  { "type": "boolean", "default": true, "description": "Deploy the lookup service used for service discovery across training portals. Enabled by default." },
+    "imagePrePuller": { "type": "boolean", "default": true, "description": "Pre-pull workshop images onto every node ahead of time so session startup is not blocked on image pulls. Enabled by default." },
+
+    "websiteStyling": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Customisation of the workshop dashboard and training portal appearance.",
+      "properties": {
+        "defaultTheme": { "type": "string", "description": "Name of the theme applied to workshop sessions and portals by default." },
+        "themeDataRefs": {
+          "type": "array",
+          "description": "Secrets holding theme data (CSS, HTML, JavaScript) to load into the cluster.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["namespace", "name"],
+            "properties": {
+              "namespace": { "type": "string", "minLength": 1, "description": "Namespace of the Secret holding the theme data." },
+              "name":      { "type": "string", "minLength": 1, "description": "Name of the Secret holding the theme data." }
+            }
+          }
+        }
+      }
+    },
+
+    "secretPropagation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Secrets to copy into workshop session namespaces.",
+      "properties": {
+        "imagePullSecretNames": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of image pull Secrets to make available to workshop sessions." }
+      }
+    },
+
+    "imageVersions": {
+      "type": "array",
+      "description": "Per-component image overrides. Each entry points a named platform component at a specific image.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "image"],
+        "properties": {
+          "name":  { "type": "string", "minLength": 1, "description": "Component name to override, for example session-manager or training-portal." },
+          "image": { "type": "string", "minLength": 1, "description": "Full image reference (repository and tag) to use for the component." }
+        }
+      }
+    },
+
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings for the Educates installer operator deployment.",
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Image used for the installer operator. Defaults to the image matching the CLI version.",
+          "properties": {
+            "repository": { "type": "string", "description": "Operator image repository." },
+            "tag":        { "type": "string", "description": "Operator image tag." },
+            "pullPolicy": {
+              "type": "string",
+              "enum": ["Always", "IfNotPresent", "Never"],
+              "description": "Image pull policy. When empty the chart derives it: Always for floating tags, IfNotPresent otherwise."
+            }
+          }
+        },
+        "imagePullSecrets": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Names of image pull Secrets the operator deployment should use." },
+        "logLevel": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info",
+          "description": "Log verbosity for the operator and platform components."
+        }
+      }
+    }
+  }
+}

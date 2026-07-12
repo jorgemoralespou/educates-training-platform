@@ -1,0 +1,4 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesLocalConfig
+clusterAdmin: true
+bogusField: 42

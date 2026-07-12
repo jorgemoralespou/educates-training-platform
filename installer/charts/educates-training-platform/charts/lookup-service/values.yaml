@@ -1,0 +1,64 @@
+# Values for the lookup-service subchart.
+
+# Local-development override. Leave empty in normal use — image refs
+# resolve from Chart.yaml annotations (`educates.dev/image-registry-host`
+# / `-namespace`) which the chart's publish workflow updates per fork.
+# Override at the umbrella level under `global.development.imageRegistry`
+# to redirect every Educates-image reference (across all subcharts) in
+# one knob.
+development:
+  imageRegistry:
+    host: ""
+    namespace: ""
+
+image:
+  # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-lookup-service`.
+  # Empty `tag` falls through to `Chart.AppVersion`.
+  repository: ""
+  tag: ""
+  pullPolicy: ""
+
+# Image pull secret references in the operator namespace.
+imagePullSecrets: []
+
+resources: {}
+
+# Cluster-wide ingress identity. Same shape as the umbrella's
+# `global.clusterIngress`; under the umbrella, set values there and they
+# propagate here automatically. This subchart consumes:
+#
+#   - `tlsCertificateRef` — TLS Secret backing this Ingress. Typically the
+#     wildcard cert covering `*.<domain>` (which includes the lookup-service
+#     hostname). Empty disables TLS on the Ingress.
+#   - `caCertificateRef` — CA Secret. When set, the chart renders a
+#     ca-trust-store init container that builds a trust store from the CA
+#     and the main container mounts it at `/etc/pki/ca-trust`. Required
+#     when the lookup-service must verify TLS against a private/self-signed
+#     CA when calling other clusters' lookup-service endpoints.
+#
+# When either ref's `namespace` differs from the release namespace, the
+# chart auto-creates a SecretCopier so the runtime finds the Secret locally.
+clusterIngress:
+  tlsCertificateRef:
+    name: ""
+    namespace: ""
+  caCertificateRef:
+    name: ""
+    namespace: ""
+
+ingress:
+  # Fully-qualified hostname for the lookup-service ingress (e.g.
+  # `lookup.workshops.example.com`). The v4 operator computes this from
+  # the LookupService CR's prefix and EducatesClusterConfig.status.domain.
+  host: ""
+  # IngressClass name. Empty leaves the cluster default.
+  className: ""
+
+# When true, the Deployment mounts the `remote-access-token` Secret at
+# /opt/cluster-access-token. Set true automatically by the operator when
+# the umbrella's `remote-access.enabled` is on; can be set explicitly when
+# installing this subchart standalone. The lookup-service runtime only
+# requires this when serving a "local" ClusterConfig target (no kubeconfig
+# secretRef).
+remoteAccessTokenMount:
+  enabled: true

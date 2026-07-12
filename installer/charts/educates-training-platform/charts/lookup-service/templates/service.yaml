@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: lookup-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "lookup-service.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "lookup-service.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 80
+      targetPort: 8080

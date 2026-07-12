@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Educates remote-access subchart values",
+  "description": "Read-only RBAC surface for external CLI clients. No configurable knobs in v0.1.0 — enable/disable is the only control.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "global":  { "type": "object" }
+  }
+}

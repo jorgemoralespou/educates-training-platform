@@ -1,8 +1,0 @@
-clusterInfrastructure:
-  provider: "kind"
-imagePuller:
-  enabled: true
-  prePullImages:
-    - "jdk17-environment"
-clusterIngress:
-  domain: "educates.example.com"

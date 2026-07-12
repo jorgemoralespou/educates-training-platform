@@ -78,7 +78,14 @@ WORKDIR /opt/helper
 RUN npm install && \
     npm run vsce-package
 
-FROM golang:1.19-buster as builder-image
+# Pin the builder to the build host's platform so Go cross-compiles
+# git-serve to the target platform via GOOS/GOARCH below, instead of
+# running the toolchain under QEMU emulation for non-native target
+# architectures during a multiarch build.
+FROM --platform=$BUILDPLATFORM golang:1.26 as builder-image
+
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /app
 
@@ -87,7 +94,7 @@ echo "09cd14a34f17d88cd4f0d2b73e0bbd0bf56984be21bc947f416a7824a709011e /tmp/git-
     tar xvf /tmp/git-serve.tar.gz && \
     cd git-serve-0.0.5 && \
     go mod download && \
-    go build -o git-serve cmd/git-serve/main.go
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o git-serve cmd/git-serve/main.go
 
 FROM system-base AS scratch-image
 

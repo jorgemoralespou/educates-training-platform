@@ -1,0 +1,1503 @@
+{
+  "$defs": {
+    "EducatesClusterConfigSpec": {
+      "description": "EducatesClusterConfigSpec defines the desired state of\nEducatesClusterConfig.\n\nCEL invariants (structural):\n  - spec.mode is immutable; switching modes requires delete + recreate.\n  - When mode is Inline, the Managed-mode top-level fields\n    (infrastructure, ingress, dns, policyEnforcement, imageRegistry)\n    are forbidden.\n  - When mode is Managed, spec.inline is forbidden.",
+      "properties": {
+        "dns": {
+          "description": "dns configures DNS management in Managed mode; ignored in Inline\nmode.",
+          "properties": {
+            "bundledExternalDNS": {
+              "description": "BundledExternalDNSConfig configures the operator-installed\nexternal-dns chart. v1alpha1 supports Route53 and CloudDNS; other\nproviders (Cloudflare, AzureDNS, etc.) surface \"not yet supported\"\nvalidation errors.\n\nCEL invariants:\n  - provider==Route53 requires route53 to be set and forbids cloudDNS.\n  - provider==CloudDNS requires cloudDNS to be set and forbids route53.",
+              "properties": {
+                "cloudDNS": {
+                  "description": "ExternalDNSCloudDNSConfig configures the GCP CloudDNS provider for\nthe operator-installed external-dns.\n\nCredentials are supplied via *exactly one* of:\n  - CredentialsSecretRef: a Secret in the operator namespace with\n    key `credentials.json` containing the GCP service-account\n    JSON key.\n  - WorkloadIdentityServiceAccount: a GCP service-account email\n    bound to the external-dns ServiceAccount via the\n    `iam.gke.io/gcp-service-account` annotation. Preferred on GKE.",
+                  "properties": {
+                    "credentialsSecretRef": {
+                      "description": "LocalObjectReference is a reference to a Kubernetes object by name in\nthe operator namespace. Cluster-scoped references (e.g., ClusterIssuer,\nIngressClass) also use this shape.",
+                      "properties": {
+                        "name": {
+                          "description": "name of the referent.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "project": {
+                      "type": "string"
+                    },
+                    "workloadIdentityServiceAccount": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "project"
+                  ],
+                  "type": "object"
+                },
+                "provider": {
+                  "allOf": [
+                    {
+                      "enum": [
+                        "Route53",
+                        "CloudDNS",
+                        "Cloudflare",
+                        "AzureDNS"
+                      ]
+                    },
+                    {
+                      "enum": [
+                        "Route53",
+                        "CloudDNS"
+                      ]
+                    }
+                  ],
+                  "description": "provider selects which DNS provider external-dns publishes\nrecords to. Reuses the DNS01Provider enum for vocabulary\nconsistency with cert-manager's solver config; validation\nrejects Cloudflare/AzureDNS for now.",
+                  "type": "string"
+                },
+                "route53": {
+                  "description": "ExternalDNSRoute53Config configures the AWS Route53 provider for\nthe operator-installed external-dns. HostedZoneID is required to\nscope external-dns to a specific zone — running unscoped is a\nproduction footgun (a broad IAM role plus no zone filter can\nsilently rewrite records across the entire account).\n\nCredentials are supplied via *exactly one* of:\n  - CredentialsSecretRef: a Secret in the operator namespace with\n    keys `aws_access_key_id` and `aws_secret_access_key`.\n  - IAMRoleARN: an IRSA / Pod Identity role assumed via the\n    external-dns ServiceAccount's `eks.amazonaws.com/role-arn`\n    annotation. Preferred on EKS.\n\nCEL elsewhere enforces the exactly-one rule; the operator\nvalidator backs it up with a friendlier error message.",
+                  "properties": {
+                    "credentialsSecretRef": {
+                      "description": "LocalObjectReference is a reference to a Kubernetes object by name in\nthe operator namespace. Cluster-scoped references (e.g., ClusterIssuer,\nIngressClass) also use this shape.",
+                      "properties": {
+                        "name": {
+                          "description": "name of the referent.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "hostedZoneID": {
+                      "type": "string"
+                    },
+                    "iamRoleARN": {
+                      "type": "string"
+                    },
+                    "region": {
+                      "description": "region defaults to the AWS SDK's default detection (pod IMDS\n/ env vars). Set explicitly when running outside AWS or in\nair-gapped environments.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "hostedZoneID"
+                  ],
+                  "type": "object"
+                },
+                "sources": {
+                  "default": [
+                    "service"
+                  ],
+                  "description": "sources controls which Kubernetes kinds external-dns watches\nfor hostname records. Defaults to [\"service\"] because Educates\npublishes the wildcard via an annotation on the Envoy Service.\nUsers can broaden to [\"service\",\"ingress\"] (or any\nchart-accepted source) when they want per-workshop Ingress\nrecords published as well.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "provider"
+              ],
+              "type": "object"
+            },
+            "provider": {
+              "default": "None",
+              "description": "provider defaults to None — appropriate for local clusters using\nnip.io or hosts-file resolution. Cloud installs must set this\nexplicitly.",
+              "enum": [
+                "BundledExternalDNS",
+                "Manual",
+                "None"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "imageRegistry": {
+          "description": "imageRegistry rewrites bundled chart image refs and supplies pull\ncredentials. Applies in Managed mode (Inline mode has its own\nequivalent under spec.inline.imageRegistry).",
+          "properties": {
+            "prefix": {
+              "description": "prefix rewrites every bundled image reference to live under this\nprefix, e.g., \"internal-registry.corp.local/educates\". Pre-relocated\nbundles (via helm dt wrap/unwrap) do not need this set.",
+              "type": "string"
+            },
+            "pullSecrets": {
+              "description": "pullSecrets references kubernetes.io/dockerconfigjson Secrets in\nthe operator namespace.",
+              "items": {
+                "description": "LocalObjectReference is a reference to a Kubernetes object by name in\nthe operator namespace. Cluster-scoped references (e.g., ClusterIssuer,\nIngressClass) also use this shape.",
+                "properties": {
+                  "name": {
+                    "description": "name of the referent.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "infrastructure": {
+          "description": "infrastructure describes the cluster substrate. Used in Managed\nmode; ignored in Inline mode.",
+          "properties": {
+            "cloud": {
+              "description": "cloud carries provider-specific configuration. Required for cloud\nproviders (EKS, GKE) when bundled cert-manager or external-dns is\nenabled.",
+              "properties": {
+                "project": {
+                  "description": "project / account identifier, e.g., GCP project ID or AWS account\nalias.",
+                  "type": "string"
+                },
+                "region": {
+                  "type": "string"
+                },
+                "serviceAccounts": {
+                  "description": "CloudServiceAccounts maps Educates' bundled cluster services to\nprovider-native workload identities.",
+                  "properties": {
+                    "certManager": {
+                      "description": "certManager identity used by cert-manager when requesting\nDNS01-validated certificates.",
+                      "type": "string"
+                    },
+                    "externalDNS": {
+                      "description": "externalDNS identity used by external-dns when managing DNS\nrecords.",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
+            "provider": {
+              "description": "InfrastructureProvider identifies the underlying cluster substrate.\nUsed by the operator to compute provider-specific defaults and to\nvalidate cloud-related fields.",
+              "enum": [
+                "Kind",
+                "Minikube",
+                "EKS",
+                "GKE",
+                "OpenShift",
+                "VCluster",
+                "Generic"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "provider"
+          ],
+          "type": "object"
+        },
+        "ingress": {
+          "description": "ingress configures the Educates ingress in Managed mode; ignored\nin Inline mode.",
+          "properties": {
+            "certificates": {
+              "description": "Certificates groups certificate-provider configuration.",
+              "properties": {
+                "bundledCertManager": {
+                  "description": "BundledCertManagerConfig configures the operator-installed cert-manager\nchart and the ClusterIssuer it provides.",
+                  "properties": {
+                    "acme": {
+                      "description": "ACMEConfig configures the cert-manager ACME ClusterIssuer.",
+                      "properties": {
+                        "email": {
+                          "type": "string"
+                        },
+                        "server": {
+                          "description": "server is the ACME directory URL. Defaults to Let's Encrypt\nproduction. Override for Let's Encrypt staging or another CA.",
+                          "type": "string"
+                        },
+                        "solvers": {
+                          "description": "ACMESolvers groups the cert-manager solvers used to satisfy the ACME\nchallenge.",
+                          "properties": {
+                            "dns01": {
+                              "description": "dns01 is required for wildcard issuance.",
+                              "properties": {
+                                "azureDNS": {
+                                  "description": "AzureDNSConfig configures the Azure DNS DNS01 solver.",
+                                  "properties": {
+                                    "resourceGroup": {
+                                      "type": "string"
+                                    },
+                                    "subscriptionID": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "resourceGroup",
+                                    "subscriptionID"
+                                  ],
+                                  "type": "object"
+                                },
+                                "cloudDNS": {
+                                  "description": "CloudDNSConfig configures the cert-manager GCP CloudDNS DNS01\nsolver and the GCP-side credentials.\n\nCredentials must be supplied via *exactly one* mechanism:\n  - WorkloadIdentityServiceAccount: a GCP service-account email\n    bound to cert-manager's K8s ServiceAccount via the\n    `iam.gke.io/gcp-service-account` annotation. Recommended on\n    GKE.\n  - CredentialsSecretRef: a Secret in the operator namespace\n    with key `credentials.json` containing a GCP service-account\n    JSON key. v1alpha1 reserves the field but rejects it as\n    \"not yet supported\"; static-creds support is a follow-up.",
+                                  "properties": {
+                                    "credentialsSecretRef": {
+                                      "description": "LocalObjectReference is a reference to a Kubernetes object by name in\nthe operator namespace. Cluster-scoped references (e.g., ClusterIssuer,\nIngressClass) also use this shape.",
+                                      "properties": {
+                                        "name": {
+                                          "description": "name of the referent.",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "name"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "project": {
+                                      "type": "string"
+                                    },
+                                    "workloadIdentityServiceAccount": {
+                                      "type": "string"
+                                    },
+                                    "zone": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "project"
+                                  ],
+                                  "type": "object"
+                                },
+                                "cloudflare": {
+                                  "description": "CloudflareConfig configures the Cloudflare DNS01 solver.",
+                                  "properties": {
+                                    "apiTokenSecretRef": {
+                                      "description": "apiTokenSecretRef references a Secret holding the Cloudflare API\ntoken. The default key is \"api-token\".",
+                                      "properties": {
+                                        "key": {
+                                          "description": "key within the Secret. Defaults vary by use site.",
+                                          "type": "string"
+                                        },
+                                        "name": {
+                                          "description": "name of the Secret.",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "name"
+                                      ],
+                                      "type": "object"
+                                    }
+                                  },
+                                  "required": [
+                                    "apiTokenSecretRef"
+                                  ],
+                                  "type": "object"
+                                },
+                                "provider": {
+                                  "description": "DNS01Provider names a cert-manager DNS01 solver. Required for wildcard\ncertificate issuance via ACME.",
+                                  "enum": [
+                                    "Route53",
+                                    "CloudDNS",
+                                    "Cloudflare",
+                                    "AzureDNS"
+                                  ],
+                                  "type": "string"
+                                },
+                                "route53": {
+                                  "description": "Route53Config configures the cert-manager Route53 DNS01 solver\nand the AWS-side credentials it needs to write TXT records during\nACME challenges.\n\nCredentials must be supplied via *exactly one* mechanism:\n  - IAMRoleARN: marks cert-manager's ServiceAccount with an\n    `eks.amazonaws.com/role-arn` annotation; cert-manager assumes\n    the role via IRSA / Pod Identity. Recommended on EKS.\n  - CredentialsSecretRef: a Secret in the operator namespace\n    with keys `aws_access_key_id` + `aws_secret_access_key`.\n    v1alpha1 reserves the field but rejects it as \"not yet\n    supported\"; static-creds support is a follow-up.\n\nCEL elsewhere enforces the mutual-exclusivity rule; the\noperator validator backs it up with a friendlier message.",
+                                  "properties": {
+                                    "credentialsSecretRef": {
+                                      "description": "LocalObjectReference is a reference to a Kubernetes object by name in\nthe operator namespace. Cluster-scoped references (e.g., ClusterIssuer,\nIngressClass) also use this shape.",
+                                      "properties": {
+                                        "name": {
+                                          "description": "name of the referent.",
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "name"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    "hostedZoneID": {
+                                      "type": "string"
+                                    },
+                                    "iamRoleARN": {
+                                      "type": "string"
+                                    },
+                                    "region": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "required": [
+                                    "hostedZoneID"
+                                  ],
+                                  "type": "object"
+                                }
+                              },
+                              "required": [
+                                "provider"
+                              ],
+                              "type": "object"
+                            },
+                            "http01": {
+                              "description": "ACMEHTTP01Solver configures the optional HTTP01 solver. Rarely needed\nbecause DNS01 is required for wildcards.",
+                              "properties": {
+                                "ingressClassName": {
+                                  "description": "ingressClassName defaults to spec.ingress.ingressClassName when\nunset.",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "dns01"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "email",
+                        "solvers"
+                      ],
+                      "type": "object"
+                    },
+                    "customCA": {
+                      "description": "CustomCAConfig configures a self-signed/custom CA-backed ClusterIssuer.",
+                      "properties": {
+                        "caCertificateRef": {
+                          "description": "caCertificateRef references a Secret holding the CA's own cert and\nkey (keys: tls.crt, tls.key). Namespace defaults to the operator\nnamespace when empty.",
+                          "properties": {
+                            "name": {
+                              "description": "name of the referent.",
+                              "type": "string"
+                            },
+                            "namespace": {
+                              "description": "namespace of the referent. Empty means the operator namespace.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "caCertificateRef"
+                      ],
+                      "type": "object"
+                    },
+                    "issuerType": {
+                      "description": "IssuerType selects the cert-manager ClusterIssuer flavour for the\nBundledCertManager provider.",
+                      "enum": [
+                        "ACME",
+                        "CustomCA"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "issuerType"
+                  ],
+                  "type": "object"
+                },
+                "externalCertManager": {
+                  "description": "ExternalCertManagerConfig assumes cert-manager is already installed\nand references an existing ClusterIssuer; the operator only creates\nthe wildcard Certificate.",
+                  "properties": {
+                    "clusterIssuerRef": {
+                      "description": "LocalObjectReference is a reference to a Kubernetes object by name in\nthe operator namespace. Cluster-scoped references (e.g., ClusterIssuer,\nIngressClass) also use this shape.",
+                      "properties": {
+                        "name": {
+                          "description": "name of the referent.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "clusterIssuerRef"
+                  ],
+                  "type": "object"
+                },
+                "provider": {
+                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. None disables in-cluster TLS entirely: the operator\ninstalls no cert-manager, creates no ClusterIssuer and no wildcard\nCertificate, and Educates serves plain HTTP unless TLS is terminated\noutside the cluster (see ingress.protocol).",
+                  "enum": [
+                    "BundledCertManager",
+                    "ExternalCertManager",
+                    "StaticCertificate",
+                    "None"
+                  ],
+                  "type": "string"
+                },
+                "staticCertificate": {
+                  "description": "StaticCertificateConfig declares a pre-provisioned wildcard TLS\ncertificate; no cert-manager is involved.",
+                  "properties": {
+                    "caCertificateRef": {
+                      "description": "caCertificateRef optionally references a Secret with the ca.crt\nkey for the issuing CA chain.",
+                      "properties": {
+                        "name": {
+                          "description": "name of the referent.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "tlsSecretRef": {
+                      "description": "tlsSecretRef references a kubernetes.io/tls Secret with keys\ntls.crt and tls.key.",
+                      "properties": {
+                        "name": {
+                          "description": "name of the referent.",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "tlsSecretRef"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "provider"
+              ],
+              "type": "object"
+            },
+            "controller": {
+              "description": "IngressController groups ingress-controller configuration.",
+              "properties": {
+                "bundledContour": {
+                  "description": "BundledContourConfig configures the operator-installed Contour ingress\ncontroller.",
+                  "properties": {
+                    "envoyServiceType": {
+                      "default": "LoadBalancer",
+                      "description": "envoyServiceType selects the Kubernetes Service type for the\nEnvoy DaemonSet. Defaults to LoadBalancer so cloud-provider\ninstalls (EKS, GKE, AKS, OpenShift) work out of the box;\nset explicitly to NodePort on kind / minikube / vCluster\ninstalls where no in-cluster LoadBalancer controller exists.",
+                      "enum": [
+                        "LoadBalancer",
+                        "NodePort",
+                        "ClusterIP"
+                      ],
+                      "type": "string"
+                    },
+                    "operational": {
+                      "description": "OperationalBlock collects the per-Deployment operational knobs of a\nBundled cluster service. In v1alpha1 only BundledContour carries it:\nthe cert-manager / external-dns / kyverno blocks were dropped\n(2026-06-11) because their semantics didn't hold against the\nupstream charts — external-dns 1.21.1 hardcodes replicas to 1 and\nexposes no replica value, Kyverno fanning one count across its four\ncontrollers conflicts with upstream HA guidance (3+ for the\nadmission controller only), and cert-manager never consumed it.\nThey return when per-service shapes are validated against each\nchart's real values surface. Of the knobs below, the reconciler\ncurrently applies replicas; the rest are accepted but not yet\nwired into chart values.",
+                      "properties": {
+                        "nodeSelector": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "podAnnotations": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "podLabels": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "priorityClassName": {
+                          "type": "string"
+                        },
+                        "replicas": {
+                          "description": "replicas overrides the operator-computed default. The default\nvaries by infrastructure provider (typically 1 for Kind/Minikube,\n2+ otherwise).",
+                          "format": "int32",
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "resources": {
+                          "description": "ResourceRequirements describes the compute resource requirements.",
+                          "properties": {
+                            "claims": {
+                              "description": "Claims lists the names of resources, defined in spec.resourceClaims,\nthat are used by this container.\n\nThis field depends on the\nDynamicResourceAllocation feature gate.\n\nThis field is immutable. It can only be set for containers.",
+                              "items": {
+                                "description": "ResourceClaim references one entry in PodSpec.ResourceClaims.",
+                                "properties": {
+                                  "name": {
+                                    "description": "Name must match the name of one entry in pod.spec.resourceClaims of\nthe Pod where this field is used. It makes that resource available\ninside a container.",
+                                    "type": "string"
+                                  },
+                                  "request": {
+                                    "description": "Request is the name chosen for a request in the referenced claim.\nIf empty, everything from the claim is made available, otherwise\nonly the result of this request.",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "name"
+                                ],
+                                "type": "object"
+                              },
+                              "type": "array"
+                            },
+                            "limits": {
+                              "additionalProperties": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ],
+                                "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+                              },
+                              "description": "Limits describes the maximum amount of compute resources allowed.\nMore info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+                              "type": "object"
+                            },
+                            "requests": {
+                              "additionalProperties": {
+                                "anyOf": [
+                                  {
+                                    "type": "integer"
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ],
+                                "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+                              },
+                              "description": "Requests describes the minimum amount of compute resources required.\nIf Requests is omitted for a container, it defaults to Limits if that is explicitly specified,\notherwise to an implementation-defined value. Requests cannot exceed Limits.\nMore info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+                              "type": "object"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "tolerations": {
+                          "items": {
+                            "description": "The pod this Toleration is attached to tolerates any taint that matches\nthe triple \u003ckey,value,effect\u003e using the matching operator \u003coperator\u003e.",
+                            "properties": {
+                              "effect": {
+                                "description": "Effect indicates the taint effect to match. Empty means match all taint effects.\nWhen specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.",
+                                "type": "string"
+                              },
+                              "key": {
+                                "description": "Key is the taint key that the toleration applies to. Empty means match all taint keys.\nIf the key is empty, operator must be Exists; this combination means to match all values and all keys.",
+                                "type": "string"
+                              },
+                              "operator": {
+                                "description": "Operator represents a key's relationship to the value.\nValid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.\nExists is equivalent to wildcard for value, so that a pod can\ntolerate all taints of a particular category.\nLt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).",
+                                "type": "string"
+                              },
+                              "tolerationSeconds": {
+                                "description": "TolerationSeconds represents the period of time the toleration (which must be\nof effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,\nit is not set, which means tolerate the taint forever (do not evict). Zero and\nnegative values will be treated as 0 (evict immediately) by the system.",
+                                "format": "int64",
+                                "type": "integer"
+                              },
+                              "value": {
+                                "description": "Value is the taint value the toleration matches to.\nIf the operator is Exists, the value should be empty, otherwise just a regular string.",
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                },
+                "provider": {
+                  "description": "IngressControllerProvider selects how the cluster's ingress controller\nis provided.",
+                  "enum": [
+                    "BundledContour",
+                    "ExternalIngressController"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider"
+              ],
+              "type": "object"
+            },
+            "domain": {
+              "description": "domain is the wildcard subdomain under which Educates serves\nworkshops, e.g., \"educates.example.com\".",
+              "type": "string"
+            },
+            "ingressClassName": {
+              "description": "ingressClassName names the IngressClass used by Educates. In\nBundledContour mode the operator creates an IngressClass with\nthis name; in External mode it must already exist.",
+              "type": "string"
+            },
+            "protocol": {
+              "description": "protocol asserts the scheme of the public-facing URLs Educates\ngenerates. Leave it empty to derive the scheme from the\ncertificates provider: https when a certificate is provisioned,\nhttp when the provider is None. Set it to https with a None\nprovider when TLS is terminated outside the cluster.",
+              "enum": [
+                "http",
+                "https"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "certificates",
+            "controller",
+            "domain",
+            "ingressClassName"
+          ],
+          "type": "object"
+        },
+        "inline": {
+          "description": "inline declares pre-existing cluster resources. Used in Inline\nmode; ignored in Managed mode.",
+          "properties": {
+            "imageRegistry": {
+              "description": "ImageRegistry configures registry rewriting and pull credentials.\nApplies to all bundled charts in Managed mode and to the runtime in\nboth modes.",
+              "properties": {
+                "prefix": {
+                  "description": "prefix rewrites every bundled image reference to live under this\nprefix, e.g., \"internal-registry.corp.local/educates\". Pre-relocated\nbundles (via helm dt wrap/unwrap) do not need this set.",
+                  "type": "string"
+                },
+                "pullSecrets": {
+                  "description": "pullSecrets references kubernetes.io/dockerconfigjson Secrets in\nthe operator namespace.",
+                  "items": {
+                    "description": "LocalObjectReference is a reference to a Kubernetes object by name in\nthe operator namespace. Cluster-scoped references (e.g., ClusterIssuer,\nIngressClass) also use this shape.",
+                    "properties": {
+                      "name": {
+                        "description": "name of the referent.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "ingress": {
+              "description": "InlineIngress declares pre-existing ingress resources for Inline\nmode. The operator validates these and republishes them in status.",
+              "properties": {
+                "caCertificateSecretRef": {
+                  "description": "caCertificateSecretRef references a Secret with the ca.crt key\nfor the issuing CA chain. Optional.",
+                  "properties": {
+                    "name": {
+                      "description": "name of the referent.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "namespace of the referent. Empty means the operator namespace.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "clusterIssuerRef": {
+                  "description": "clusterIssuerRef references an existing ClusterIssuer that must be\nReady. Optional; informational for components.",
+                  "properties": {
+                    "name": {
+                      "description": "name of the referent.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                },
+                "domain": {
+                  "type": "string"
+                },
+                "ingressClassName": {
+                  "type": "string"
+                },
+                "protocol": {
+                  "description": "protocol asserts the scheme of the public-facing URLs. Leave it\nempty to derive the scheme from wildcardCertificateSecretRef:\nhttps when a wildcard certificate is declared, http otherwise. Set\nit to https with no wildcard certificate when TLS is terminated\noutside the cluster.",
+                  "enum": [
+                    "http",
+                    "https"
+                  ],
+                  "type": "string"
+                },
+                "wildcardCertificateSecretRef": {
+                  "description": "wildcardCertificateSecretRef references a kubernetes.io/tls Secret\nwith keys tls.crt and tls.key, valid for *.\u003cdomain\u003e. Omit it when\nthe cluster serves plain HTTP or terminates TLS outside the\ncluster.",
+                  "properties": {
+                    "name": {
+                      "description": "name of the referent.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "domain",
+                "ingressClassName"
+              ],
+              "type": "object"
+            },
+            "policyEnforcement": {
+              "description": "InlinePolicyEnforcement declares the policy engines already in place\nfor Inline mode. Enforced engines are identified, not installed.",
+              "properties": {
+                "clusterPolicyEngine": {
+                  "description": "ClusterPolicyEngine names the cluster-wide policy enforcement engine.",
+                  "enum": [
+                    "Kyverno",
+                    "PodSecurityStandards",
+                    "OpenShiftSCC",
+                    "None"
+                  ],
+                  "type": "string"
+                },
+                "workshopPolicyEngine": {
+                  "description": "WorkshopPolicyEngine names the engine enforcing per-workshop isolation\nrules. Setting to None disables workshop isolation.",
+                  "enum": [
+                    "Kyverno",
+                    "None"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "clusterPolicyEngine",
+                "workshopPolicyEngine"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ingress",
+            "policyEnforcement"
+          ],
+          "type": "object"
+        },
+        "mode": {
+          "description": "ClusterConfigMode selects between operator-managed and user-declared\ncluster infrastructure. Immutable once set; switching modes requires\ndeleting and recreating the resource.",
+          "enum": [
+            "Managed",
+            "Inline"
+          ],
+          "type": "string"
+        },
+        "policyEnforcement": {
+          "description": "policyEnforcement configures the cluster and workshop policy\nengines in Managed mode; ignored in Inline mode.",
+          "properties": {
+            "clusterPolicy": {
+              "description": "ClusterPolicyConfig configures the cluster-wide policy engine.",
+              "properties": {
+                "engine": {
+                  "default": "Kyverno",
+                  "description": "engine defaults to Kyverno.",
+                  "enum": [
+                    "Kyverno",
+                    "PodSecurityStandards",
+                    "OpenShiftSCC",
+                    "None"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "kyverno": {
+              "description": "kyverno is required when either engine above resolves to Kyverno.",
+              "properties": {
+                "provider": {
+                  "default": "Bundled",
+                  "description": "provider defaults to Bundled.",
+                  "enum": [
+                    "Bundled",
+                    "External"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "workshopPolicy": {
+              "description": "WorkshopPolicyConfig configures the per-workshop isolation engine.",
+              "properties": {
+                "engine": {
+                  "default": "Kyverno",
+                  "description": "engine defaults to Kyverno. Setting to None disables workshop\nisolation; the cluster operator takes responsibility for\ncontainment.",
+                  "enum": [
+                    "Kyverno",
+                    "None"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "clusterPolicy",
+            "workshopPolicy"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "mode"
+      ],
+      "type": "object"
+    },
+    "LookupServiceSpec": {
+      "description": "LookupServiceSpec defines the desired state of LookupService.\n\nComponent-specific settings (auth, rate-limiting, storage) will be\nadded when the lookup-service owner specifies them; intentionally\nout-of-scope for the v1alpha1 surface.",
+      "properties": {
+        "image": {
+          "description": "ImageRef declares a chart-render-time image override as a separable\nrepository + tag pair. The split shape matches what helm dt\nwrap/unwrap (and similar relocation tools) expect.",
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "ingress": {
+          "description": "LookupServiceIngress configures the lookup-service Ingress.",
+          "properties": {
+            "prefix": {
+              "description": "prefix combines with EducatesClusterConfig.status.ingress.domain\nto form the full hostname (e.g., \"educates-api\" with domain\n\"educates.example.com\" yields \"educates-api.educates.example.com\").",
+              "type": "string"
+            },
+            "tlsSecretRef": {
+              "description": "tlsSecretRef optionally overrides the cluster wildcard\ncertificate. When unset, the ingress uses\nEducatesClusterConfig.status.ingress.wildcardCertificateSecretRef.",
+              "properties": {
+                "name": {
+                  "description": "name of the referent.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "prefix"
+          ],
+          "type": "object"
+        },
+        "logLevel": {
+          "default": "info",
+          "description": "logLevel defaults to info.",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "type": "string"
+        },
+        "resources": {
+          "description": "ResourceRequirements describes the compute resource requirements.",
+          "properties": {
+            "claims": {
+              "description": "Claims lists the names of resources, defined in spec.resourceClaims,\nthat are used by this container.\n\nThis field depends on the\nDynamicResourceAllocation feature gate.\n\nThis field is immutable. It can only be set for containers.",
+              "items": {
+                "description": "ResourceClaim references one entry in PodSpec.ResourceClaims.",
+                "properties": {
+                  "name": {
+                    "description": "Name must match the name of one entry in pod.spec.resourceClaims of\nthe Pod where this field is used. It makes that resource available\ninside a container.",
+                    "type": "string"
+                  },
+                  "request": {
+                    "description": "Request is the name chosen for a request in the referenced claim.\nIf empty, everything from the claim is made available, otherwise\nonly the result of this request.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "limits": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+              },
+              "description": "Limits describes the maximum amount of compute resources allowed.\nMore info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+              "type": "object"
+            },
+            "requests": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+              },
+              "description": "Requests describes the minimum amount of compute resources required.\nIf Requests is omitted for a container, it defaults to Limits if that is explicitly specified,\notherwise to an implementation-defined value. Requests cannot exceed Limits.\nMore info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "ingress"
+      ],
+      "type": "object"
+    },
+    "SecretsManagerSpec": {
+      "description": "SecretsManagerSpec defines the desired state of SecretsManager.\n\nsecrets-manager is a singleton at the pod level (the upstream\nimplementation can't scale beyond one replica) so no replicas knob is\nexposed. Image-pull credentials are inherited from\nEducatesClusterConfig.status.imageRegistry.pullSecrets and are not\nduplicated here.",
+      "properties": {
+        "image": {
+          "description": "image overrides the default image reference. Both fields are\noptional; defaults come from the chart's appVersion-derived\nimage inventory.",
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "logLevel": {
+          "default": "info",
+          "description": "logLevel defaults to info.",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "type": "string"
+        },
+        "resources": {
+          "description": "ResourceRequirements describes the compute resource requirements.",
+          "properties": {
+            "claims": {
+              "description": "Claims lists the names of resources, defined in spec.resourceClaims,\nthat are used by this container.\n\nThis field depends on the\nDynamicResourceAllocation feature gate.\n\nThis field is immutable. It can only be set for containers.",
+              "items": {
+                "description": "ResourceClaim references one entry in PodSpec.ResourceClaims.",
+                "properties": {
+                  "name": {
+                    "description": "Name must match the name of one entry in pod.spec.resourceClaims of\nthe Pod where this field is used. It makes that resource available\ninside a container.",
+                    "type": "string"
+                  },
+                  "request": {
+                    "description": "Request is the name chosen for a request in the referenced claim.\nIf empty, everything from the claim is made available, otherwise\nonly the result of this request.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "limits": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+              },
+              "description": "Limits describes the maximum amount of compute resources allowed.\nMore info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+              "type": "object"
+            },
+            "requests": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "pattern": "^(\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\\+|-)?(([0-9]+(\\.[0-9]*)?)|(\\.[0-9]+))))?$"
+              },
+              "description": "Requests describes the minimum amount of compute resources required.\nIf Requests is omitted for a container, it defaults to Limits if that is explicitly specified,\notherwise to an implementation-defined value. Requests cannot exceed Limits.\nMore info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+              "type": "object"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "SessionManagerSpec": {
+      "description": "SessionManagerSpec defines the desired state of SessionManager.\n\nRequires SecretsManager.Ready and EducatesClusterConfig.Ready; both\ndependencies are singletons so no explicit refs are carried.\n\nImage registry prefix and pull secrets are inherited from\nEducatesClusterConfig.status.imageRegistry; only per-image overrides\nland in spec.images.overrides.",
+      "properties": {
+        "allowedEmbeddingHosts": {
+          "description": "allowedEmbeddingHosts lists hosts allowed to embed Educates\nworkshop frames (CSP frame-ancestors).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "defaultAccessCredentials": {
+          "description": "DefaultAccessCredentials configures the default\nusername/password used for workshop access when a TrainingPortal\ndoesn't override them.",
+          "properties": {
+            "passwordSecretRef": {
+              "description": "passwordSecretRef references a Secret holding the password value.",
+              "properties": {
+                "name": {
+                  "description": "name of the referent.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "username": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "defaultTheme": {
+          "description": "defaultTheme names the entry from themes used as the install-wide\ndefault. Must match a Theme.name.",
+          "type": "string"
+        },
+        "imagePrePuller": {
+          "description": "ImagePrePuller configures the optional DaemonSet that pre-pulls workshop\nimages onto every node ahead of time, so session startup isn't blocked on\nimage pulls.",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "images": {
+          "description": "Images groups image-related overrides. Registry prefix and pull\nsecrets are inherited from\nEducatesClusterConfig.status.imageRegistry; only per-image overrides\nbelong here.",
+          "properties": {
+            "overrides": {
+              "items": {
+                "description": "ImageOverride entries replace one chart-default image by short name.\nMirrors the v3 imageVersions shape: any image the chart's default\ninventory exposes by name can be overridden here (e.g.,\n\"training-portal\", \"base-environment\", \"jdk17-environment\"). Three\nnames are special-cased by the reconciler because they live outside\nthat inventory: \"session-manager\" (the chart-pod image),\n\"pause-container\" (the pre-puller pause image) and\n\"node-ca-injector\" (its own subchart) — they route to the dedicated\nchart values that control those images.",
+                "properties": {
+                  "image": {
+                    "description": "image is the full reference including tag. Digest-pinned\nreferences are not supported for the special-cased names\n(\"session-manager\", \"pause-container\", \"node-ca-injector\"),\nwhose chart values are repository+tag shaped.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "name is the image's short name, e.g. \"session-manager\",\n\"training-portal\", \"jdk17-environment\".",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "image",
+                  "name"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "ingressOverrides": {
+          "description": "IngressOverrides allows SessionManager to override the cluster-wide\ningress secrets for the bare-domain hostnames it serves directly\n(TrainingPortal CRs prefix the domain for individual portals).",
+          "properties": {
+            "caCertificateSecretRef": {
+              "description": "LocalObjectReference is a name-only reference to an object in the\noperator namespace (or, for cluster-scoped kinds, to the cluster-\nscoped object). Mirrors the shape used in the config API group;\nduplicated here to avoid cross-group Go coupling.",
+              "properties": {
+                "name": {
+                  "description": "name of the referent.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "protocol": {
+              "description": "protocol asserts the scheme of the public-facing URLs the\nsession manager and workshops generate. Set to https when TLS\nis terminated outside the cluster (external load balancer or\nproxy forwarding plain HTTP inward) so links are generated\ncorrectly despite no in-cluster certificate being presented.\nEmpty derives from the TLS configuration: https when a\nwildcard certificate is configured, http otherwise.",
+              "enum": [
+                "http",
+                "https"
+              ],
+              "type": "string"
+            },
+            "tlsSecretRef": {
+              "description": "LocalObjectReference is a name-only reference to an object in the\noperator namespace (or, for cluster-scoped kinds, to the cluster-\nscoped object). Mirrors the shape used in the config API group;\nduplicated here to avoid cross-group Go coupling.",
+              "properties": {
+                "name": {
+                  "description": "name of the referent.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "logLevel": {
+          "default": "info",
+          "description": "logLevel defaults to info.",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "type": "string"
+        },
+        "network": {
+          "description": "SessionNetwork configures network characteristics applied to workshop\nsessions.",
+          "properties": {
+            "blockedCidrs": {
+              "description": "blockedCidrs lists CIDR ranges workshop sessions are denied\nnetwork access to (e.g., cloud metadata endpoints).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "packetSize": {
+              "description": "packetSize sets the MTU for workshop session networking. Useful\non overlay networks where the default MTU is too large.",
+              "format": "int32",
+              "minimum": 576,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "nodeCATrust": {
+          "description": "nodeCATrust controls the optional node-ca-injector install.",
+          "properties": {
+            "mode": {
+              "default": "Auto",
+              "description": "mode defaults to Auto. Auto installs the subchart only when\nthe cluster config publishes a CA Secret reference; with no CA\nconfigured, Auto skips the install silently. Enabled forces\nthe install (refuses if no CA is configured). Disabled keeps\nit uninstalled.",
+              "enum": [
+                "Auto",
+                "Enabled",
+                "Disabled"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "registryMirrors": {
+          "description": "registryMirrors configures per-registry mirrors for workshop\ncontainer pulls.",
+          "items": {
+            "description": "RegistryMirror declares a registry mirror used by workshop containers.",
+            "properties": {
+              "mirror": {
+                "description": "mirror is the upstream registry being mirrored\n(e.g., \"docker.io\").",
+                "type": "string"
+              },
+              "url": {
+                "description": "url is the mirror endpoint.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "mirror",
+              "url"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "remoteAccess": {
+          "description": "remoteAccess controls the optional remote-access install.",
+          "properties": {
+            "mode": {
+              "default": "Auto",
+              "description": "mode defaults to Auto. Auto installs the subchart only when a\n`LookupService` CR exists in the cluster (the signal that\ncross-cluster federation is being used). Enabled forces the\ninstall regardless of LookupService presence. Disabled keeps\nit uninstalled.",
+              "enum": [
+                "Auto",
+                "Enabled",
+                "Disabled"
+              ],
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "sessionCookieDomain": {
+          "description": "sessionCookieDomain sets the cookie domain used by workshop\nsessions for cross-subdomain authentication.",
+          "type": "string"
+        },
+        "storage": {
+          "description": "SessionStorage configures persistent storage characteristics for\nworkshop sessions.",
+          "properties": {
+            "storageClass": {
+              "type": "string"
+            },
+            "storageGroup": {
+              "description": "storageGroup sets the supplemental GID for mounted volumes.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "storageUser": {
+              "description": "storageUser sets the UID for mounted volumes.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "themes": {
+          "description": "themes is a list of named themes available to TrainingPortals.",
+          "items": {
+            "description": "Theme is one named entry in the spec.themes list.",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "source": {
+                "description": "ThemeSource sources theme content. Exactly one of the per-type fields\n(secretRef, configMapRef) should be populated for the selected type.\nSecret is the only source the reconciler supports in v1alpha1;\nConfigMap and URL are reserved and rejected as \"not yet supported\".",
+                "properties": {
+                  "configMapRef": {
+                    "description": "configMapRef applies when type is ConfigMap.",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "namespace"
+                    ],
+                    "type": "object"
+                  },
+                  "secretRef": {
+                    "description": "secretRef applies when type is Secret. It names a Secret holding\nthe theme assets; when its namespace differs from the release\nnamespace the runtime chart auto-creates a SecretCopier for it.",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "namespace": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "namespace"
+                    ],
+                    "type": "object"
+                  },
+                  "type": {
+                    "description": "ThemeSourceType selects how a theme's content is sourced.\nAdditional types may be added by the session-manager owner.",
+                    "enum": [
+                      "ConfigMap",
+                      "Secret",
+                      "URL"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "name",
+              "source"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "tracking": {
+          "description": "Tracking groups analytics provider configuration.",
+          "properties": {
+            "amplitude": {
+              "description": "TrackingProvider holds a single analytics provider's tracking ID.",
+              "properties": {
+                "trackingId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "trackingId"
+              ],
+              "type": "object"
+            },
+            "clarity": {
+              "description": "TrackingProvider holds a single analytics provider's tracking ID.",
+              "properties": {
+                "trackingId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "trackingId"
+              ],
+              "type": "object"
+            },
+            "googleAnalytics": {
+              "description": "TrackingProvider holds a single analytics provider's tracking ID.",
+              "properties": {
+                "trackingId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "trackingId"
+              ],
+              "type": "object"
+            },
+            "webhook": {
+              "description": "TrackingWebhook configures an HTTP webhook receiver for analytics\nevents.",
+              "properties": {
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "workshopPolicyOverride": {
+          "description": "WorkshopPolicyOverride locally overrides\nEducatesClusterConfig.status.policyEnforcement.workshopPolicyEngine\nfor this SessionManager.",
+          "properties": {
+            "engine": {
+              "description": "WorkshopPolicyEngine names the engine enforcing per-workshop isolation\nrules. Mirrors the same-named enum in the config API group;\nduplicated to avoid cross-group Go coupling.",
+              "enum": [
+                "Kyverno",
+                "None"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "engine"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://schemas.educates.dev/cli/v1alpha1/EducatesConfig.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Escape-hatch CLI config kind. Mirrors the platform CRDs verbatim; CLI hand-wraps apiVersion/kind/metadata at translate time.",
+  "properties": {
+    "apiVersion": {
+      "const": "cli.educates.dev/v1alpha1"
+    },
+    "educatesClusterConfig": {
+      "$ref": "#/$defs/EducatesClusterConfigSpec"
+    },
+    "kind": {
+      "const": "EducatesConfig"
+    },
+    "lookupService": {
+      "$ref": "#/$defs/LookupServiceSpec"
+    },
+    "operator": {
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "imagePullSecrets": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "logLevel": {
+          "default": "info",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "secretsManager": {
+      "$ref": "#/$defs/SecretsManagerSpec"
+    },
+    "sessionManager": {
+      "$ref": "#/$defs/SessionManagerSpec"
+    },
+    "target": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster": {
+          "type": "object"
+        },
+        "provider": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "resolver": {
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind"
+  ],
+  "title": "EducatesConfig",
+  "type": "object"
+}

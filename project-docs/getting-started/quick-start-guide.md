@@ -41,7 +41,7 @@ In case you are using [Colima](https://github.com/abiosoft/colima), you need to 
 
 ```
 $ educates local config edit
-localKindCluster:
+cluster:
   listenAddress: 0.0.0.0
 ```
 
@@ -93,29 +93,15 @@ curl -o educates -sL https://github.com/educates/educates-training-platform/rele
 
 If you are running macOS with Apple silicon (arm64), the Intel 64 (amd64) binary will still work and be run under Rosetta emulation, however, by using it you will be able to use both `amd64` and `arm64` images in the Kubernetes cluster. If you use the Apple silicon (arm64) binary you will only be able to use `amd64` images in the Kubernetes cluster. Neither of the macOS binaries are signed so you will need to tell macOS to trust it before you can run it.
 
-The `educates` CLI can also be downloaded from the `educates/educates-training-platform` GitHub repository packaged as an OCI image using the command:
+The `educates` CLI is also published as the `educates-cli` container image, a multi-architecture (amd64/arm64) Linux image with the binary at `/educates`. It can be run directly, or used in a `Dockerfile` if needing to embed the `educates` CLI in a container image:
 
 ```
-imgpkg pull -i ghcr.io/educates/educates-client-programs:X.Y.Z -o educates-client-programs
-```
-
-Replace `X.Y.Z` with the version of Educates you want to use. Use the appropriate binary found in the `educates-client-programs` sub directory which is created.
-
-The `imgpkg` command if you do not have it can be downloaded as part of the [Carvel](https://carvel.dev/) toolset.
-
-Note that the `imgpkg` command pulls down an OCI image artefact from GitHub container registry. That image is public, if however you get an authentication failure make sure you haven't previously logged into GitHub container registry with a GitHub personal access token which has since expired as that will cause a failure even though the image is public.
-
-The OCI image containing the `educates` CLI can also be used in a `Dockerfile` if needing to embed the `educates` CLI in a container image:
-
-```
-FROM ghcr.io/educates/educates-client-programs:X.Y.Z AS client-programs
-
 FROM fedora:42
 
-ARG TARGETARCH
-
-COPY --from=client-programs educates-linux-${TARGETARCH} /educates
+COPY --from=ghcr.io/educates/educates-cli:X.Y.Z /educates /usr/local/bin/educates
 ```
+
+Replace `X.Y.Z` with the version of Educates you want to use. The image is public; if you get an authentication failure make sure you haven't previously logged into GitHub container registry with a GitHub personal access token which has since expired, as that will cause a failure even though the image is public.
 
 Default ingress domain
 ----------------------
@@ -136,26 +122,118 @@ Local Kubernetes cluster
 To create a local Kubernetes cluster using Kind and deploy Educates, run the command:
 
 ```
-educates create-cluster
+educates local cluster create
 ```
+
+If no local configuration file exists yet, this command creates a default one for you, prints where it wrote it, and continues with the default settings, so you do not need to initialise anything first. To view or change that configuration afterwards use `educates local config view` or `educates local config edit`; to write it out ahead of time (for example to customise it before the first install) run `educates local config init`.
+
+With the default configuration the cluster is served over plain HTTP using a `nip.io` ingress domain, so no TLS certificate or certificate authority is needed and the cluster comes up ready to use. This is the quickest way to start experimenting. Some browser features that require a secure context, such as clipboard access, may be limited over plain HTTP, and a few Educates features such as the per session image registry require a trusted secure ingress. When you want trusted HTTPS, see [Serving workshops over HTTPS](serving-workshops-over-https) below.
 
 This command will perform the following steps:
 
 * Create the Kubernetes cluster using Kind.
 
-* Enable a security policy engine in the Kubernetes cluster.
+* Deploy an image registry accessible via port 5001 on the local machine, and configure the cluster to trust it.
 
-* Install Contour into the Kubernetes cluster and expose it via ports 80/443 on the local machine.
+* Install the Educates operator, which in turn installs the required cluster services: Contour as the ingress controller exposed via ports 80/443 on the local machine, and a security policy engine. When you configure trusted HTTPS, cert-manager is also installed to issue TLS certificates from your local CA.
 
-* Deploy an image registry running accessible via port 5001 on the local machine.
-
-* Configure the Kubernetes cluster to trust the container image registry.
-
-* Deploy Educates to the Kubernetes cluster.
+* Deploy the Educates training platform components.
 
 Creation of the Kubernetes cluster, including the deployment of any required services and Educates, can take up to 5 minutes depending on your network speed.
 
 Once the Kubernetes cluster has been created, you should be able to access it immediately using `kubectl` as the configuration will be added to your local Kube configuration. The name of the Kube config context for the cluster is `kind-educates`.
+
+(serving-workshops-over-https)=
+Serving workshops over HTTPS (optional)
+---------------------------------------
+
+The default cluster is served over plain HTTP. To serve workshops over trusted HTTPS you need an ingress domain you can issue a wildcard TLS certificate for, which rules out `nip.io` since you do not control that domain. The recommended approach for a local machine is to use your own domain, for example `educates-local-dev.test`, together with the Educates local DNS resolver, which resolves the domain to your machine without needing a public DNS registry.
+
+Set this up before creating the cluster, in the following order. The examples use `educates-local-dev.test` as the domain. The steps below read and edit the local configuration file, so if you do not have one yet create it first with `educates local config init`.
+
+First, if you want to use a domain name, deploy the local DNS resolver for it. The `--domain` flag tells the resolver which domain to serve before it is set in the configuration:
+
+```
+educates local resolver deploy --local-config --domain educates-local-dev.test
+```
+
+On macOS you also need to register the domain with the system resolver, and the resolver setup differs by operating system, so follow the full steps under [Local DNS resolver](local-dns-resolver) in the local environment guide.
+
+Next, set the ingress domain in the configuration. Setting a domain turns off the insecure default:
+
+```
+educates local config set ingress.domain educates-local-dev.test
+```
+
+Then create a certificate authority (CA) for the domain. With no `--cert`/`--key` arguments a self-signed CA is generated for you and cached locally, and it is reused for every future cluster with the same domain. To supply an existing CA certificate and key with `--cert`/`--key` instead, for example one created with `mkcert`, see [the local environment guide](custom-ingress-domain). Create the CA with:
+
+```
+educates local secrets add ca educates-local-dev-test-ca --domain educates-local-dev.test
+```
+
+Finally create the cluster, running `educates local cluster delete` first if you already created the plain HTTP cluster:
+
+```
+educates local cluster create
+```
+
+Educates installs cert-manager, issues the wildcard certificate from your CA, and serves workshop URLs over HTTPS.
+
+(trusting-the-workshop-certificates)=
+Trusting the workshop certificates
+----------------------------------
+
+Workshop URLs are then served with TLS certificates signed by your local CA. Until that CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session.
+
+First export the CA certificate from the local secrets cache as a PEM file:
+
+```
+educates local secrets export educates-local-dev-test-ca --pem > educates-local-dev-test-ca.pem
+```
+
+Then import it into the trust store for your operating system:
+
+::::{tab-set}
+
+:::{tab-item} macOS
+```
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain educates-local-dev-test-ca.pem
+```
+
+This covers Safari and Chrome.
+:::
+
+:::{tab-item} Linux (Debian/Ubuntu)
+```
+sudo cp educates-local-dev-test-ca.pem /usr/local/share/ca-certificates/educates-local-dev-test-ca.crt
+sudo update-ca-certificates
+```
+
+Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
+
+```
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-dev-test-ca -i educates-local-dev-test-ca.pem
+```
+:::
+
+:::{tab-item} Linux (Fedora/RHEL)
+```
+sudo cp educates-local-dev-test-ca.pem /etc/pki/ca-trust/source/anchors/educates-local-dev-test-ca.pem
+sudo update-ca-trust
+```
+
+Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
+
+```
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-dev-test-ca -i educates-local-dev-test-ca.pem
+```
+:::
+
+::::
+
+Firefox maintains its own certificate store on every platform. Import the PEM file via Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import, and check "Trust this CA to identify websites".
+
+Restart your browser after importing for the change to take effect. The import only needs to be done once: the CA is reused for every future cluster created with the same ingress domain.
 
 Deploying a workshop
 --------------------

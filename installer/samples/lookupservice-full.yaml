@@ -1,0 +1,34 @@
+# LookupService with every spec field populated. See lookupservice.yaml
+# for the minimal form and the apply-order prerequisites
+# (EducatesClusterConfig must be Ready first).
+---
+apiVersion: platform.educates.dev/v1alpha1
+kind: LookupService
+metadata:
+  name: cluster
+spec:
+  ingress:
+    # Combined with EducatesClusterConfig.status.ingress.domain to form
+    # the full hostname; "lookup" against domain "academy.example.com"
+    # serves at https://lookup.academy.example.com (published in
+    # status.url).
+    prefix: lookup
+    # Optional override of the cluster wildcard certificate for just
+    # this Ingress. The Secret must exist in the operator namespace.
+    # Omit to use status.ingress.wildcardCertificateSecretRef.
+    tlsSecretRef:
+      name: lookup-tls
+  # Both image fields are optional; empty values derive from the
+  # vendored chart's appVersion-based inventory.
+  image:
+    repository: ghcr.io/educates/educates-lookup-service
+    tag: 4.0.0
+  # debug | info | warn | error (default info)
+  logLevel: debug
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

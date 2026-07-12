@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-ca-injector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "node-ca-injector.labels" . | nindent 4 }}
+    app.kubernetes.io/role: sync
+spec:
+  selector:
+    matchLabels:
+      app: node-ca-injector
+  template:
+    metadata:
+      labels:
+        {{- include "node-ca-injector.labels" . | nindent 8 }}
+        app.kubernetes.io/role: sync
+        app: node-ca-injector
+    spec:
+      tolerations:
+        - operator: Exists
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: sync
+          image: "{{ include "node-ca-injector.image.repository" . }}:{{ include "node-ca-injector.image.tag" . }}"
+          imagePullPolicy: {{ include "node-ca-injector.image.pullPolicy" . }}
+          args: ["sync"]
+          # Privileged: writes per-host containerd registry-CA configuration
+          # under /etc/containerd/certs.d/ on the host.
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: hosts-config
+              mountPath: /config/hosts
+              readOnly: true
+            - name: ca-secret
+              mountPath: /config/ca
+              readOnly: true
+            - name: containerd-certs-d
+              mountPath: /host/etc/containerd/certs.d
+          {{- with .Values.sync.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        # `educates-registry-hosts` is created by the controller Deployment
+        # from the cluster's Ingress resources. Marked `optional` so the
+        # DaemonSet starts before the controller has populated it.
+        - name: hosts-config
+          configMap:
+            name: educates-registry-hosts
+            optional: true
+        - name: ca-secret
+          secret:
+            secretName: {{ include "node-ca-injector.caSecretName" . | quote }}
+        - name: containerd-certs-d
+          hostPath:
+            path: /etc/containerd/certs.d
+            type: DirectoryOrCreate

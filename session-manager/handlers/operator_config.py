@@ -158,14 +158,19 @@ workshop_images_table = {
     "conda-environment:*": CONDA_ENVIRONMENT_IMAGE,
 }
 
-LOFTSH_KUBERNETES_V1_31_IMAGE = image_reference("loftsh-kubernetes-v1.31")
-LOFTSH_KUBERNETES_V1_32_IMAGE = image_reference("loftsh-kubernetes-v1.32")
 LOFTSH_KUBERNETES_V1_33_IMAGE = image_reference("loftsh-kubernetes-v1.33")
 LOFTSH_KUBERNETES_V1_34_IMAGE = image_reference("loftsh-kubernetes-v1.34")
+LOFTSH_KUBERNETES_V1_35_IMAGE = image_reference("loftsh-kubernetes-v1.35")
+LOFTSH_KUBERNETES_V1_36_IMAGE = image_reference("loftsh-kubernetes-v1.36")
 
 LOFTSH_VCLUSTER_IMAGE = image_reference("loftsh-vcluster")
 
-CONTOUR_BUNDLE_IMAGE = image_reference("contour-bundle")
+# Contour ingress controller deployed inside a vcluster session when the
+# vcluster application enables ingress. Sourced from the imageVersions
+# inventory so the refs are relocatable and captured in the air-gap image
+# list, the same way the loft-sh images are.
+VCLUSTER_INTERNAL_CONTOUR_IMAGE = image_reference("vcluster-internal-contour")
+VCLUSTER_INTERNAL_ENVOY_IMAGE = image_reference("vcluster-internal-envoy")
 
 
 def resolve_workshop_image(name):

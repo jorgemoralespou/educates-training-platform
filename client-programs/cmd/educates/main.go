@@ -20,6 +20,13 @@ import (
 var projectVersion string = "develop"
 var imageRepository string = "ghcr.io/educates"
 
+// gitCommit and buildDate are informational build metadata stamped via
+// -ldflags so that otherwise-identical development builds (all reporting
+// the floating "develop"/"latest" version) can be told apart. Empty for
+// a plain `go build` with no ldflags.
+var gitCommit string = ""
+var buildDate string = ""
+
 // Main entrypoint for execution of Educates CLI.
 
 func main() {
@@ -30,7 +37,7 @@ func main() {
 	logf.SetLogger(log)                   // This one is used in the reconciler code
 	klog.SetLogger(log)                   // This one is used in the k8s client-go code
 
-	p := cmd.NewProjectInfo(strings.TrimSpace(projectVersion), strings.TrimSpace(imageRepository))
+	p := cmd.NewProjectInfo(strings.TrimSpace(projectVersion), strings.TrimSpace(imageRepository), strings.TrimSpace(gitCommit), strings.TrimSpace(buildDate))
 
 	c := p.NewEducatesCmdGroup()
 

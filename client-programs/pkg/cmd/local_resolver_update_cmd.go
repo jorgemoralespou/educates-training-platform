@@ -3,48 +3,43 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/resolver"
 )
 
+var localResolverUpdateExample = `
+  # Update the local DNS resolver from the laptop config:
+  educates local resolver update --local-config
+
+  # Update using a specific config file:
+  educates local resolver update --config config.yaml
+`
+
 type LocalResolverUpdateOptions struct {
-	Config string
-	Domain string
+	Config      string
+	LocalConfig bool
 }
 
 func (o *LocalResolverUpdateOptions) Run() error {
-	var fullConfig *config.InstallationConfig
-	var err error = nil
-
-	if o.Config != "" {
-		fullConfig, err = config.NewInstallationConfigFromFile(o.Config)
-	} else {
-		fullConfig, err = config.NewInstallationConfigFromUserFile()
-	}
-
+	cfg, err := loadResolverInputs(o.Config, o.LocalConfig)
 	if err != nil {
 		return err
 	}
-
-	return resolver.UpdateResolver(fullConfig.ClusterIngress.Domain, fullConfig.LocalDNSResolver.TargetAddress, fullConfig.LocalDNSResolver.ExtraDomains)
+	return resolver.UpdateResolver(cfg.Ingress.Domain, cfg.Resolver.TargetAddress, cfg.Resolver.ExtraDomains)
 }
 
 func (p *ProjectInfo) NewLocalResolverUpdateCmd() *cobra.Command {
 	var o LocalResolverUpdateOptions
 
-	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "update",
-		Short: "Updates the local DNS resolver",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+	c := &cobra.Command{
+		Args:    cobra.NoArgs,
+		Use:     "update",
+		Short:   "Updates the local DNS resolver (macOS)",
+		Example: localResolverUpdateExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
-
-	c.Flags().StringVar(
-		&o.Config,
-		"config",
-		"",
-		"path to the installation config file for Educates",
-	)
-
+	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
+	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml")
+	c.MarkFlagsMutuallyExclusive("config", "local-config")
+	c.MarkFlagsOneRequired("config", "local-config")
 	return c
 }

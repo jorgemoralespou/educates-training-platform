@@ -1,0 +1,10 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesGKEConfig
+
+gcp:
+  project: my-gcp-project
+
+domain: academy-01.google.educates.dev
+
+acme:
+  email: ops@example.com

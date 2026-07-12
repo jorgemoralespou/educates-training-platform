@@ -439,7 +439,7 @@ func RunHugoServer(workshopRoot string, kubeconfig string, context string, works
 
 	// Also catch signals so we can try and cleanup temporary directory.
 
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 1)
 
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {

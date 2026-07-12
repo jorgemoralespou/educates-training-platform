@@ -13,6 +13,14 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
+var clusterWorkshopDeleteExample = `
+  # Delete the workshop in the current directory from the default portal:
+  educates cluster workshop delete
+
+  # Delete a workshop by name from a named portal:
+  educates cluster workshop delete --name my-workshop --portal my-portal
+`
+
 type ClusterWorkshopDeleteOptions struct {
 	KubeconfigOptions
 	Name            string
@@ -86,10 +94,11 @@ func (p *ProjectInfo) NewClusterWorkshopDeleteCmd() *cobra.Command {
 	var o ClusterWorkshopDeleteOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "delete",
-		Short: "Delete workshop from Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "delete",
+		Short:   "Delete workshop from Kubernetes",
+		Example: clusterWorkshopDeleteExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVarP(

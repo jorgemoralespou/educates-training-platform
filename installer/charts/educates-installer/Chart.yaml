@@ -1,0 +1,27 @@
+apiVersion: v2
+name: educates-installer
+description: |
+  Educates v4 installer. Installs the four CRDs that drive the v4
+  control plane (EducatesClusterConfig, SecretsManager, LookupService,
+  SessionManager) plus the operator that reconciles them: the operator
+  installs the cluster services (cert-manager, Contour, Kyverno,
+  external-dns) in Managed mode and the Educates runtime components.
+type: application
+# Publish-time default registry for the operator image. The release
+# workflow rewrites these per fork (one yq -i call); local overrides go
+# through values (image.repository or development.imageRegistry). Keep
+# in sync with the educates-training-platform subcharts — see
+# decisions.md "imageRegistry is a development override; publish-time
+# defaults live in Chart.yaml annotations".
+annotations:
+  educates.dev/image-registry-host: "ghcr.io"
+  educates.dev/image-registry-namespace: "educates"
+version: 4.0.0-alpha.1
+appVersion: 4.0.0-alpha.1
+kubeVersion: ">=1.31.0-0"
+home: https://educates.dev
+sources:
+  - https://github.com/educates/educates-training-platform
+maintainers:
+  - name: Educates Maintainers
+    url: https://github.com/educates/educates-training-platform/blob/develop/MAINTAINERS.md

@@ -1,0 +1,558 @@
+{{- /*
+ClusterRoles consumed by the session-manager and the runtime it spawns
+(training portal pods, workshop session pods, tunnel manager). Copied
+verbatim from v3 — these are the contract between session-manager and
+its runtime, and changing them is out of scope for the v4 installer
+work. Chart labels are added; the resource bodies are unchanged.
+*/ -}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.educates.dev/extends-workshop-permissions: "true"
+# `rules` is intentionally omitted: the clusterrole-aggregation-controller
+# owns the .rules field on aggregate ClusterRoles, populating it by merging
+# rules from labelled child roles. Declaring `rules: []` here would claim
+# field ownership under server-side-apply (Helm v3+ uses SSA on upgrade),
+# fighting the aggregation controller and producing a conflict error every
+# reconcile: `conflict with "clusterrole-aggregation-controller": .rules`.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager:core
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+    rbac.educates.dev/extends-workshop-permissions: "true"
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: ["*"]
+  - apiGroups: [""]
+    resources: [limitranges, resourcequotas]
+    verbs: ["*"]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: ["*"]
+  - apiGroups: [training.educates.dev]
+    resources:
+      - workshops
+      - workshopsessions
+      - trainingportals
+      - workshopenvironments
+      - workshopallocations
+      - workshoprequests
+    verbs: ["*"]
+  - apiGroups: [secrets.educates.dev]
+    resources: [secretcopiers]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-view-session-role
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - persistentvolumeclaims/status
+      - pods
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - serviceaccounts
+      - services
+      - services/status
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources:
+      - bindings
+      - events
+      - limitranges
+      - namespaces/status
+      - pods/log
+      - pods/status
+      - replicationcontrollers/status
+      - resourcequotas
+      - resourcequotas/status
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources:
+      - controllerrevisions
+      - daemonsets
+      - daemonsets/status
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers, horizontalpodautoscalers/status]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, cronjobs/status, jobs, jobs/status]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions]
+    resources:
+      - daemonsets
+      - daemonsets/status
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - ingresses
+      - ingresses/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - replicationcontrollers/scale
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets, poddisruptionbudgets/status]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingresses/status]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-edit-session-role
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods/attach, pods/exec, pods/portforward, pods/proxy, secrets, services/proxy]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [impersonate]
+  - apiGroups: [""]
+    resources: [pods, pods/attach, pods/exec, pods/portforward, pods/proxy]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - secrets
+      - serviceaccounts
+      - services
+      - services/proxy
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [apps]
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/rollback
+      - deployments/scale
+      - replicasets
+      - replicasets/scale
+      - statefulsets
+      - statefulsets/scale
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [extensions]
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/rollback
+      - deployments/scale
+      - ingresses
+      - replicasets
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - persistentvolumeclaims/status
+      - pods
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - serviceaccounts
+      - services
+      - services/status
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources:
+      - bindings
+      - events
+      - limitranges
+      - namespaces/status
+      - pods/log
+      - pods/status
+      - replicationcontrollers/status
+      - resourcequotas
+      - resourcequotas/status
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources:
+      - controllerrevisions
+      - daemonsets
+      - daemonsets/status
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers, horizontalpodautoscalers/status]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, cronjobs/status, jobs, jobs/status]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions]
+    resources:
+      - daemonsets
+      - daemonsets/status
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - ingresses
+      - ingresses/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - replicationcontrollers/scale
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets, poddisruptionbudgets/status]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingresses/status]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-admin-session-role
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods/attach, pods/exec, pods/portforward, pods/proxy, secrets, services/proxy]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [impersonate]
+  - apiGroups: [""]
+    resources: [pods, pods/attach, pods/exec, pods/portforward, pods/proxy]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - secrets
+      - serviceaccounts
+      - services
+      - services/proxy
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [apps]
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/rollback
+      - deployments/scale
+      - replicasets
+      - replicasets/scale
+      - statefulsets
+      - statefulsets/scale
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [extensions]
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/rollback
+      - deployments/scale
+      - ingresses
+      - replicasets
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [create, delete, deletecollection, patch, update]
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - persistentvolumeclaims/status
+      - pods
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - serviceaccounts
+      - services
+      - services/status
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources:
+      - bindings
+      - events
+      - limitranges
+      - namespaces/status
+      - pods/log
+      - pods/status
+      - replicationcontrollers/status
+      - resourcequotas
+      - resourcequotas/status
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources:
+      - controllerrevisions
+      - daemonsets
+      - daemonsets/status
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers, horizontalpodautoscalers/status]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, cronjobs/status, jobs, jobs/status]
+    verbs: [get, list, watch]
+  - apiGroups: [extensions]
+    resources:
+      - daemonsets
+      - daemonsets/status
+      - deployments
+      - deployments/scale
+      - deployments/status
+      - ingresses
+      - ingresses/status
+      - replicasets
+      - replicasets/scale
+      - replicasets/status
+      - replicationcontrollers/scale
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets, poddisruptionbudgets/status]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingresses/status]
+    verbs: [get, list, watch]
+  - apiGroups: [authorization.k8s.io]
+    resources: [localsubjectaccessreviews]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, roles]
+    verbs: [create, delete, deletecollection, get, list, patch, update, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-training-portal
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [default]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create]
+  - apiGroups: [training.educates.dev]
+    resources:
+      - workshops
+      - workshopenvironments
+      - workshopsessions
+      - workshopallocations
+      - trainingportals
+    verbs: [get, list, watch]
+  - apiGroups: [training.educates.dev]
+    resources:
+      - trainingportals/finalizers
+      - workshopenvironments/finalizers
+      - workshopsessions/finalizers
+    verbs: [update]
+  - apiGroups: [training.educates.dev]
+    resources:
+      - workshopenvironments
+      - workshopsessions
+      - workshopallocations
+    verbs: [create, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-tunnel-manager
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch, create, delete, deletecollection, patch, update]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, list, watch, patch, update]
+  - apiGroups: [training.educates.dev]
+    resources: [workshopsessions]
+    verbs: [get, list, watch]
+---
+# Lets session-manager create the per-workshop-environment Kyverno
+# ValidatingPolicy objects (policies.kyverno.io) that scope the bundled
+# workshop rules to a workshop's session namespaces. The Kyverno-shipped
+# `kyverno:rbac:admin:policies` role (bound separately) only covers the
+# legacy kyverno.io ClusterPolicy group, so the new Policy group needs an
+# explicit grant. Inert when Kyverno (and the CRD) isn't installed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager:kyverno-validatingpolicies
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [policies.kyverno.io]
+    resources: [validatingpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+# Extends session-manager's permissions with the host-cluster RBAC a vcluster
+# workshop needs. session-manager creates per-session Roles + a ClusterRole
+# for the vcluster ServiceAccount (see
+# session-manager/handlers/application_vcluster.py), and Kubernetes
+# privilege-escalation prevention requires session-manager to already hold
+# every permission it grants. With clusterAdmin: false it no longer inherits
+# these from cluster-admin, so this role adds them via the documented
+# `rbac.educates.dev/extends-workshop-permissions` aggregation label (it
+# merges into the educates-session-manager ClusterRole — no separate binding).
+# Keep it a superset of the rules application_vcluster.py puts in the vcluster
+# Roles/ClusterRole — if a rule is added there, add it here too.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager:vcluster
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+    rbac.educates.dev/extends-workshop-permissions: "true"
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - pods
+      - pods/attach
+      - pods/ephemeralcontainers
+      - pods/exec
+      - pods/portforward
+      - pods/resize
+      - pods/status
+      - secrets
+      - serviceaccounts
+      - services
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [create, get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list, patch, update, watch]
+---
+# Extends session-manager's permissions so it can create the kapp-controller
+# App objects that workshops declare in their session.objects. session-manager
+# applies a workshop's session.objects as itself, and kapp-controller (Carvel)
+# is used by many existing workshops to deploy content — including into a
+# vcluster — so with clusterAdmin: false it must hold this explicitly. Added
+# via the documented `rbac.educates.dev/extends-workshop-permissions`
+# aggregation label (merges into educates-session-manager — no separate
+# binding). Add other Carvel kinds here if workshops need them (e.g.
+# packaging.carvel.dev PackageInstalls). Inert when kapp-controller (and its
+# CRD) isn't installed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: educates-session-manager:kapp-controller
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+    rbac.educates.dev/extends-workshop-permissions: "true"
+rules:
+  - apiGroups: [kappctrl.k14s.io]
+    resources: [apps]
+    verbs: ["*"]

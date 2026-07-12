@@ -1,0 +1,60 @@
+# Operator container image. All fields are overrides; in normal use
+# leave them empty and the chart resolves the image as
+# `{host}/{namespace}/educates-operator:{appVersion}` from the
+# Chart.yaml `educates.dev/image-registry-*` annotations (publish-time
+# defaults, rewritten per fork by the release workflow).
+#
+# - repository: full image repository (registry + path, no tag).
+#   Wins over both the annotations and development.imageRegistry.
+# - tag: defaults to Chart.appVersion.
+# - pullPolicy: empty auto-derives — Always for floating tags
+#   (latest/main/master/develop), IfNotPresent otherwise.
+#
+# Local development workflow:
+#   cd installer/operator
+#   make docker-build IMG=ghcr.io/educates/educates-operator:dev
+#   kind load docker-image ghcr.io/educates/educates-operator:dev
+#   helm install educates-installer installer/charts/educates-installer \
+#     --namespace educates-installer --create-namespace \
+#     --set image.repository=ghcr.io/educates/educates-operator \
+#     --set image.tag=dev
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: ""
+
+# Development override for the registry prefix only (image name and tag
+# still resolve normally): {host: ghcr.io, namespace: myfork}. Same
+# knob as the runtime subcharts' development.imageRegistry. Leave empty
+# in normal use.
+development:
+  imageRegistry: {}
+
+# Pull secrets for the operator pod itself. Distinct from
+# EducatesClusterConfig.spec.imageRegistry.pullSecrets, which apply to
+# bundled charts the operator installs.
+imagePullSecrets: []
+
+# Operator pod resources. Empty means no requests or limits set; tune
+# per cluster.
+resources: {}
+
+# Pod placement.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# When false, leader election is disabled — appropriate for the Phase 0
+# single-replica deployment. When the operator scales beyond one replica
+# (not in v4 plan), set to true.
+leaderElection:
+  enabled: false
+
+# Operator RBAC. In normal use the operator runs with a fine-grained,
+# generated ClusterRole (educates-installer-charts) covering the resources
+# the vendored charts install, plus its own educates-installer-manager
+# role. Set clusterAdmin to true only as a fallback if that derived role is
+# missing a permission on your cluster — and report the gap so the
+# generator (hack/generate-installer-rbac.sh) can be corrected.
+rbac:
+  clusterAdmin: false

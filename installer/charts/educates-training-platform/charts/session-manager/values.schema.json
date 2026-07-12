@@ -1,0 +1,416 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Educates session-manager subchart values",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["workshopSecurity"],
+    "description": "Cross-cutting blocks (clusterIngress, clusterSecurity) may come from the umbrella's `.global` instead of being set here. The `development.imageRegistry` block also has a global counterpart (`.global.development.imageRegistry`). Subchart-local values pass through when globals are unset; globals win when both are set. Helpers enforce non-empty resolved values at template time.",
+
+    "definitions": {
+
+      "imageRef": {
+        "description": "Image reference. Empty `repository` falls through to the imageRegistry-derived default; empty `tag` falls through to Chart.AppVersion.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "repository": { "type": "string" },
+          "tag":        { "type": "string" },
+          "pullPolicy": {
+            "type": "string",
+            "enum": ["", "Always", "IfNotPresent", "Never"]
+          }
+        }
+      },
+
+      "secretRef": {
+        "description": "Reference to a Kubernetes Secret. Empty `name` means the ref is unset.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name":      { "type": "string" },
+          "namespace": { "type": "string" }
+        }
+      },
+
+      "kyvernoPolicyMetadata": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      },
+
+      "kyvernoLegacyClusterPolicy": {
+        "description": "A legacy Kyverno ClusterPolicy resource (kyverno.io). Open shape; only top-level identity is validated.",
+        "type": "object",
+        "required": ["apiVersion", "kind", "metadata"],
+        "properties": {
+          "apiVersion": { "const": "kyverno.io/v1" },
+          "kind":       { "const": "ClusterPolicy" },
+          "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
+        }
+      },
+
+      "kyvernoValidatingPolicy": {
+        "description": "A Kyverno ValidatingPolicy resource (policies.kyverno.io). Open shape; only top-level identity is validated.",
+        "type": "object",
+        "required": ["apiVersion", "kind", "metadata"],
+        "properties": {
+          "apiVersion": { "type": "string", "pattern": "^policies\\.kyverno\\.io/" },
+          "kind":       { "const": "ValidatingPolicy" },
+          "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
+        }
+      },
+
+      "kyvernoNewPolicy": {
+        "description": "A Kyverno policy resource from the policies.kyverno.io group: ValidatingPolicy, MutatingPolicy, GeneratingPolicy or DeletingPolicy. Open shape; only top-level identity is validated.",
+        "type": "object",
+        "required": ["apiVersion", "kind", "metadata"],
+        "properties": {
+          "apiVersion": { "type": "string", "pattern": "^policies\\.kyverno\\.io/" },
+          "kind":       { "enum": ["ValidatingPolicy", "MutatingPolicy", "GeneratingPolicy", "DeletingPolicy"] },
+          "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
+        }
+      },
+
+      "kyvernoClusterAdditionalPolicy": {
+        "description": "A policy accepted by clusterSecurity.additionalKyvernoPolicies: a legacy ClusterPolicy (kyverno.io) or any policies.kyverno.io type (ValidatingPolicy, MutatingPolicy, GeneratingPolicy, DeletingPolicy). The chart applies these verbatim cluster-wide.",
+        "oneOf": [
+          { "$ref": "#/definitions/kyvernoLegacyClusterPolicy" },
+          { "$ref": "#/definitions/kyvernoNewPolicy" }
+        ]
+      },
+
+      "kyvernoWorkshopAdditionalPolicy": {
+        "description": "A policy accepted by workshopSecurity.additionalKyvernoPolicies: a legacy ClusterPolicy (kyverno.io) or a ValidatingPolicy (policies.kyverno.io). session-manager scopes these per workshop environment; only these two kinds are honoured by the runtime today.",
+        "oneOf": [
+          { "$ref": "#/definitions/kyvernoLegacyClusterPolicy" },
+          { "$ref": "#/definitions/kyvernoValidatingPolicy" }
+        ]
+      },
+
+      "trackingIdBlock": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "trackingId": { "type": "string" }
+        }
+      },
+
+      "stylingTriple": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "html":   { "type": "string" },
+          "script": { "type": "string" },
+          "style":  { "type": "string" }
+        }
+      },
+
+      "stylingHtmlOnly": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "html": { "type": "string" }
+        }
+      }
+    },
+
+    "properties": {
+
+      "clusterIngress": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "Wildcard subdomain. Required after merging with .global.clusterIngress; helper fails at template time if the resolved value is empty."
+          },
+          "class": { "type": "string" },
+          "protocol": {
+            "type": "string",
+            "enum": ["", "http", "https"],
+            "description": "Empty for auto-derive from tlsCertificateRef."
+          },
+          "tlsCertificateRef": { "$ref": "#/definitions/secretRef" },
+          "caCertificateRef":  { "$ref": "#/definitions/secretRef" }
+        }
+      },
+
+      "clusterSecurity": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "policyEngine": {
+            "type": "string",
+            "enum": ["Kyverno", "PodSecurityStandards", "OpenShiftSCC", "None"]
+          },
+          "additionalKyvernoPolicies": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/kyvernoClusterAdditionalPolicy" }
+          }
+        }
+      },
+
+      "workshopSecurity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rulesEngine"],
+        "properties": {
+          "rulesEngine": {
+            "type": "string",
+            "enum": ["Kyverno", "None"]
+          },
+          "additionalKyvernoPolicies": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/kyvernoWorkshopAdditionalPolicy" }
+          }
+        }
+      },
+
+      "development": {
+        "description": "Local-development overrides. Leave empty in normal use — Chart.yaml annotations (`educates.dev/image-registry-{host,namespace}`) provide the publish-time defaults for chart-rendered image refs, and the runtime falls back to `registry.default.svc.cluster.local` for `$(image_repository)` workshop-content placeholder resolution.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "imageRegistry": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "host":      { "type": "string" },
+              "namespace": { "type": "string" }
+            }
+          }
+        }
+      },
+
+      "imageVersions": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "image"],
+          "properties": {
+            "name":  { "type": "string", "minLength": 1 },
+            "image": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+
+      "image": { "$ref": "#/definitions/imageRef" },
+
+      "imagePullSecrets": {
+        "description": "Pod-spec imagePullSecrets attached to the session-manager pod itself. Standard Kubernetes [{name: ...}] shape.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+
+      "resources": {
+        "type": "object"
+      },
+
+      "clusterAdmin": { "type": "boolean" },
+
+      "trainingPortal": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "credentials": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "admin": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              },
+              "robot": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string" }
+                }
+              }
+            }
+          },
+          "clients": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "robot": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id":     { "type": "string" },
+                  "secret": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      },
+
+      "sessionCookies": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "domain": { "type": "string" }
+        }
+      },
+
+      "clusterStorage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "class": { "type": "string" },
+          "user":  { "type": ["integer", "null"] },
+          "group": { "type": "integer" }
+        }
+      },
+
+      "clusterRuntime": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "class": { "type": "string" }
+        }
+      },
+
+      "clusterNetwork": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "blockCIDRs": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+
+      "dockerDaemon": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "networkMTU": { "type": "integer", "minimum": 0 },
+          "proxyCache": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "remoteURL": { "type": "string" },
+              "username":  { "type": "string" },
+              "password":  { "type": "string" }
+            }
+          }
+        }
+      },
+
+      "workshopAnalytics": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "google":    { "$ref": "#/definitions/trackingIdBlock" },
+          "clarity":   { "$ref": "#/definitions/trackingIdBlock" },
+          "amplitude": { "$ref": "#/definitions/trackingIdBlock" },
+          "webhook": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": { "type": "string" }
+            }
+          }
+        }
+      },
+
+      "websiteStyling": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "inline": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Inline HTML/JS/CSS for the fallback default theme. Each populated leaf becomes a stringData entry in the `default-website-theme` Secret.",
+            "properties": {
+              "workshopDashboard":    { "$ref": "#/definitions/stylingTriple" },
+              "workshopInstructions": { "$ref": "#/definitions/stylingTriple" },
+              "workshopStarted":      { "$ref": "#/definitions/stylingHtmlOnly" },
+              "workshopFinished":     { "$ref": "#/definitions/stylingHtmlOnly" },
+              "trainingPortal":       { "$ref": "#/definitions/stylingTriple" }
+            }
+          },
+          "defaultTheme": { "type": "string" },
+          "themeDataRefs": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/secretRef" }
+          },
+          "frameAncestors": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+
+      "imagePrePuller": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled":    { "type": "boolean" },
+          "pauseImage": { "$ref": "#/definitions/imageRef" },
+          "images": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      },
+
+      "secretPropagation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "imagePullSecretNames": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "upstream": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "imagePullSecrets": {
+                "type": "array",
+                "items": { "$ref": "#/definitions/secretRef" }
+              },
+              "websiteThemes": {
+                "type": "array",
+                "items": { "$ref": "#/definitions/secretRef" }
+              }
+            }
+          }
+        }
+      },
+
+      "config": {
+        "type": "object",
+        "description": "Opaque escape hatch deep-merged on top of typed-derived runtime config."
+      },
+
+      "enabled": {
+        "type": "boolean",
+        "description": "Subchart enable toggle injected by the umbrella chart's dependency mechanism."
+      },
+
+      "global": {
+        "type": "object",
+        "description": "Helm-injected globals from the umbrella chart."
+      }
+    }
+  }

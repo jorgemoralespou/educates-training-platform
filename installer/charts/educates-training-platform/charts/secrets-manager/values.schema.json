@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Educates secrets-manager subchart values",
+  "type": "object",
+  "additionalProperties": false,
+
+  "definitions": {
+    "imageRef": {
+      "description": "Image reference. Empty `repository` falls through to the imageRegistry-derived default; empty `tag` falls through to Chart.AppVersion.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "tag":        { "type": "string" },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["", "Always", "IfNotPresent", "Never"]
+        }
+      }
+    }
+  },
+
+  "properties": {
+    "development": {
+      "description": "Local-development overrides. Leave empty in normal use — Chart.yaml annotations (`educates.dev/image-registry-{host,namespace}`) provide the publish-time defaults.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "imageRegistry": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host":      { "type": "string" },
+            "namespace": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "image": { "$ref": "#/definitions/imageRef" },
+
+    "imagePullSecrets": {
+      "description": "Pod-spec imagePullSecrets attached to the secrets-manager pod itself. Standard Kubernetes [{name: ...}] shape.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "resources": { "type": "object" },
+
+    "clusterSecurity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "policyEngine": {
+          "type": "string",
+          "enum": ["Kyverno", "PodSecurityStandards", "OpenShiftSCC", "None"]
+        }
+      }
+    },
+
+    "logLevel": { "type": "string" },
+
+    "enabled": { "type": "boolean" },
+    "global":  { "type": "object" }
+  }
+}

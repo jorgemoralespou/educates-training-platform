@@ -1,0 +1,28 @@
+Educates v4 installer is now deployed in namespace {{ .Release.Namespace }}.
+
+The four CRDs are installed cluster-wide:
+  - educatesclusterconfigs.config.educates.dev (singleton, named "cluster")
+  - secretsmanagers.platform.educates.dev      (singleton, named "cluster")
+  - lookupservices.platform.educates.dev       (singleton, named "cluster")
+  - sessionmanagers.platform.educates.dev      (singleton, named "cluster")
+
+Next, apply the platform custom resources for your scenario — the
+operator installs everything else once EducatesClusterConfig is
+applied. Worked examples live in installer/samples/ in the project
+repository; documentation at https://docs.educates.dev.
+
+  kubectl apply -f educates-cluster-config.yaml
+  kubectl wait --for=condition=Ready educatesclusterconfig/cluster --timeout=600s
+  kubectl apply -f educates-secrets-manager.yaml
+  kubectl apply -f educates-lookup-service.yaml    # optional
+  kubectl apply -f educates-session-manager.yaml
+
+Useful commands:
+
+  kubectl get pods -n {{ .Release.Namespace }} \
+    -l app.kubernetes.io/name=educates-installer
+  kubectl logs -n {{ .Release.Namespace }} \
+    -l app.kubernetes.io/name=educates-installer -f
+
+  kubectl explain educatesclusterconfig.spec
+  kubectl get crd | grep educates.dev

@@ -1,0 +1,42 @@
+apiVersion: cli.educates.dev/v1alpha1
+kind: EducatesGKEConfig
+
+gcp:
+  project: my-gcp-project
+  certManagerServiceAccount: custom-cert-manager@my-gcp-project.iam.gserviceaccount.com
+  externalDNSServiceAccount: custom-external-dns@my-gcp-project.iam.gserviceaccount.com
+
+domain: academy-01.google.educates.dev
+
+acme:
+  email: ops@example.com
+  server: https://acme-staging-v02.api.letsencrypt.org/directory
+
+externalTLSTermination: true
+
+clusterAdmin: true
+lookupService: false
+imagePrePuller: true
+
+websiteStyling:
+  defaultTheme: my-theme-data
+  themeDataRefs:
+    - namespace: educates
+      name: my-theme-data
+
+secretPropagation:
+  imagePullSecretNames:
+    - my-pull-secret
+
+imageVersions:
+  - name: base-environment
+    image: ghcr.io/educates/base-environment:4.0.0
+
+operator:
+  image:
+    repository: ghcr.io/educates/educates-operator
+    tag: 4.0.0
+    pullPolicy: IfNotPresent
+  imagePullSecrets:
+    - operator-pull-secret
+  logLevel: debug

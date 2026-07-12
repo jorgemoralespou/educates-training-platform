@@ -41,10 +41,14 @@ jobs:
           - image: assets-server
           - image: lookup-service
           - image: node-ca-injector
+          # The v4 operator lives outside the <image-name>/ convention,
+          # so it carries an explicit build context.
+          - image: operator
+            context: installer/operator
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate platforms
         shell: bash
@@ -71,14 +75,14 @@ jobs:
           echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Free Disk Space
         if: ${{ (matrix.image == 'secrets-manager') || (matrix.image == 'session-manager') || (matrix.image == 'training-portal') || (matrix.image == 'tunnel-manager') || (matrix.image == 'lookup-service') }}
-        uses: endersonmenezes/free-disk-space@v2
+        uses: endersonmenezes/free-disk-space@v3
         with:
           remove_android: true
           remove_dotnet: true
@@ -87,7 +91,7 @@ jobs:
 
       - name: Restore Docker cache
         if: ${{ (matrix.image == 'secrets-manager') || (matrix.image == 'session-manager') || (matrix.image == 'training-portal') || (matrix.image == 'tunnel-manager') || (matrix.image == 'lookup-service') }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: /tmp/.buildx-cache-amd64-new
           key: ${{runner.os}}-buildx-cache-${{matrix.image}}-${{github.sha}}
@@ -101,7 +105,7 @@ jobs:
 
       - name: Generate container image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/${{env.REPOSITORY_OWNER}}/educates-${{matrix.image}}
@@ -112,16 +116,24 @@ jobs:
             type=sha
 
       - name: Login to GitHub container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
+      # On release tags the operator image must embed the runtime
+      # subchart tarballs at the released version (versions are stamped
+      # in CI, not committed — see decisions.md).
+      - name: Stamp release version into operator chart embeds
+        if: matrix.image == 'operator' && startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${GITHUB_REF##*/}" ghcr.io "${{env.REPOSITORY_OWNER}}"
+
       - name: Build and push ${{matrix.image}} image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
-          context: ${{matrix.image}}
+          context: ${{matrix.context || matrix.image}}
           platforms: ${{env.TARGET_PLATFORMS}}
           tags: ${{steps.meta.outputs.tags}}
           cache-from: type=local,src=/tmp/.buildx-cache-old
@@ -139,7 +151,7 @@ jobs:
 
       - name: Save Docker cache
         if: ${{ (matrix.image == 'secrets-manager') || (matrix.image == 'session-manager') || (matrix.image == 'training-portal') || (matrix.image == 'tunnel-manager') || (matrix.image == 'lookup-service') }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-${{matrix.image}}-${{github.sha}}
@@ -155,7 +167,7 @@ jobs:
 
     steps:
       - name: Free Disk Space
-        uses: endersonmenezes/free-disk-space@v2
+        uses: endersonmenezes/free-disk-space@v3
         with:
           remove_android: true
           remove_dotnet: true
@@ -163,7 +175,7 @@ jobs:
           remove_tool_cache: true
 
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate platforms
         shell: bash
@@ -190,17 +202,17 @@ jobs:
           echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Verify docker daemon image contents
         run: |
           docker images
 
       - name: Restore Docker cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-base-environment-${{github.sha}}
@@ -215,7 +227,7 @@ jobs:
 
       - name: Generate container image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/${{env.REPOSITORY_OWNER}}/educates-base-environment
@@ -226,14 +238,14 @@ jobs:
             type=sha
 
       - name: Login to GitHub container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
       - name: Build and push base-environment image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: workshop-images/base-environment
           platforms: ${{env.TARGET_PLATFORMS}}
@@ -251,7 +263,7 @@ jobs:
           du -ks /tmp/.buildx-cache-* || true
 
       - name: Save Docker cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-base-environment-${{github.sha}}
@@ -280,7 +292,7 @@ jobs:
 
     steps:
       - name: Free Disk Space
-        uses: endersonmenezes/free-disk-space@v2
+        uses: endersonmenezes/free-disk-space@v3
         with:
           remove_android: true
           remove_dotnet: true
@@ -288,7 +300,7 @@ jobs:
           remove_tool_cache: true
 
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate platforms
         shell: bash
@@ -316,10 +328,10 @@ jobs:
           echo "REPOSITORY_SHA_TAG=sha-${GITHUB_SHA::7}" >>${GITHUB_ENV}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Verify docker daemon image contents
         run: |
@@ -327,7 +339,7 @@ jobs:
 
       - name: Restore Docker cache
         if: ${{ (matrix.image == 'conda-environment') }}
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: /tmp/.buildx-cache-amd64-new
           key: ${{runner.os}}-buildx-cache-${{matrix.image}}-${{github.sha}}
@@ -341,7 +353,7 @@ jobs:
 
       - name: Generate container image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/${{env.REPOSITORY_OWNER}}/educates-${{matrix.image}}
@@ -352,14 +364,14 @@ jobs:
             type=sha
 
       - name: Login to GitHub container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
       - name: Build and push ${{matrix.image}} image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: workshop-images/${{matrix.image}}
           platforms: ${{env.TARGET_PLATFORMS}}
@@ -381,130 +393,10 @@ jobs:
           du -ks /tmp/.buildx-cache-* || true
 
       - name: Save Docker cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-${{matrix.image}}-${{github.sha}}
-
-  publish-carvel-bundles:
-    name: Bundle
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    needs:
-      - publish-generic-images
-      - publish-workshop-images
-
-    steps:
-      - name: Check out the repository
-        uses: actions/checkout@v4
-
-      - name: Install Carvel tools
-        shell: bash
-        run: curl -L https://carvel.dev/install.sh | bash
-
-      - name: Calculate variables
-        shell: bash
-        run: |
-          REPOSITORY_OWNER=${{github.repository_owner}}
-          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
-          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
-          echo "REPOSITORY_SHA_TAG=sha-${GITHUB_SHA::7}" >>${GITHUB_ENV}
-
-      - name: Create publish values file
-        shell: bash
-        run: |
-          cat <<EOF > publish-values.yaml
-          clusterInfrastructure:
-            provider: "custom"
-          clusterPackages:
-            contour:
-              enabled: true
-              settings:
-                infraProvider: custom
-            cert-manager:
-              enabled: true
-              settings: {}
-            external-dns:
-              enabled: true
-              settings:
-                infraProvider: custom
-                deployment:
-                  args:
-                    - --provider=custom
-                    - --source=custom
-            certs:
-              enabled: true
-              settings:
-                certProvider: local
-                domains:
-                  - "example.com"
-                local:
-                  caCertificate:
-                    ca.crt: "AA"
-                    ca.key: "BB"
-            kyverno:
-              enabled: true
-              settings: {}
-            educates:
-              enabled: true
-              settings:
-                clusterIngress:
-                  domain: "educates.example.com"
-                imageRegistry:
-                  host: "ghcr.io"
-                  namespace: ${{env.REPOSITORY_OWNER}}
-                version: ${{env.REPOSITORY_TAG}}
-                lookupService:
-                  enabled: true
-          EOF
-
-      - name: Publish educates-installer bundle
-        shell: bash
-        run: |
-          # Create the kbld-images.yaml file with references to educates images
-          ytt -f carvel-packages/installer/config/images.yaml \
-              -f carvel-packages/installer/config/schema.yaml \
-              -v imageRegistry.host=ghcr.io \
-              -v imageRegistry.namespace=${{env.REPOSITORY_OWNER}} \
-              -v version=${{env.REPOSITORY_TAG}} > carvel-packages/installer/bundle/kbld/kbld-images.yaml
-          # Cat the generated file for debugging purposes
-          cat carvel-packages/installer/bundle/kbld/kbld-images.yaml
-          # Create images lock file. We use a sample values file to pass validations
-          # We properly rewrite references to images via kbld
-          ytt --data-values-file publish-values.yaml \
-              -f carvel-packages/installer/bundle/config | kbld -f - \
-              -f carvel-packages/installer/bundle/kbld/kbld-images.yaml \
-            --imgpkg-lock-output carvel-packages/installer/bundle/.imgpkg/images.yml
-          # Push the bundle to the registry
-          imgpkg push \
-            -b ghcr.io/${{env.REPOSITORY_OWNER}}/educates-installer:${{env.REPOSITORY_TAG}} \
-            -f carvel-packages/installer/bundle \
-            --registry-username=${{github.actor}} \
-            --registry-password=${{secrets.GITHUB_TOKEN}}
-          ytt -f carvel-packages/installer/config/app.yaml \
-            -f carvel-packages/installer/config/schema.yaml \
-            -v version=${{env.REPOSITORY_TAG}} \
-            -v imageRegistry.host=ghcr.io \
-            -v imageRegistry.namespace=${{env.REPOSITORY_OWNER}} > educates-installer-app.yaml
-          # Copy and rename rbac.yaml file
-          cp carvel-packages/installer/config/rbac.yaml educates-installer-app-rbac.yaml
-
-      - name: Save educates-installer-app.yaml
-        uses: actions/upload-artifact@v4
-        with:
-          name: educates-installer-app.yaml
-          path: educates-installer-app.yaml
-
-      - name: Save educates-installer-app-rbac.yaml
-        uses: actions/upload-artifact@v4
-        with:
-          name: educates-installer-app-rbac.yaml
-          path: educates-installer-app-rbac.yaml
 
   build-client-programs-linux-amd64:
     name: Build (clients) / amd64@linux
@@ -512,7 +404,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate variables
         shell: bash
@@ -528,6 +420,13 @@ jobs:
           cache-dependency-path: |
             client-programs/go.sum
 
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
+
       - name: Build educates client program
         shell: bash
         run: |
@@ -537,9 +436,11 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
-          go build -o educates-linux-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
+          go build -o educates-linux-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: educates-linux-amd64
           path: client-programs/educates-linux-amd64
@@ -550,7 +451,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate variables
         shell: bash
@@ -566,6 +467,13 @@ jobs:
           cache-dependency-path: |
             client-programs/go.sum
 
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
+
       - name: Build educates client program
         shell: bash
         run: |
@@ -575,9 +483,11 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
-          GOOS=linux GOARCH=arm64 go build -o educates-linux-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
+          GOOS=linux GOARCH=arm64 go build -o educates-linux-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: educates-linux-arm64
           path: client-programs/educates-linux-arm64
@@ -588,7 +498,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate variables
         shell: bash
@@ -604,6 +514,13 @@ jobs:
           cache-dependency-path: |
             client-programs/go.sum
 
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
+
       - name: Build educates client program
         shell: bash
         run: |
@@ -613,10 +530,12 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
           # Need to build for amd64 on darwin on an arm64 runner as they are deprecating amd64 runner.
-          GOOS=darwin GOARCH=amd64 go build -o educates-darwin-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GOOS=darwin GOARCH=amd64 go build -o educates-darwin-amd64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: educates-darwin-amd64
           path: client-programs/educates-darwin-amd64
@@ -627,7 +546,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate variables
         shell: bash
@@ -643,6 +562,13 @@ jobs:
           cache-dependency-path: |
             client-programs/go.sum
 
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
+
       - name: Build educates client program
         shell: bash
         run: |
@@ -652,73 +578,14 @@ jobs:
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
-          go build -o educates-darwin-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY'" cmd/educates/main.go
+          GIT_COMMIT=${GITHUB_SHA::7}
+          GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)
+          go build -o educates-darwin-arm64 -ldflags "-X 'main.projectVersion=$REPOSITORY_TAG' -X 'main.imageRepository=$IMAGE_REPOSITORY' -X 'main.gitCommit=$GIT_COMMIT' -X 'main.buildDate=$GIT_COMMIT_DATE'" cmd/educates/main.go
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: educates-darwin-arm64
           path: client-programs/educates-darwin-arm64
-
-  publish-client-programs:
-    name: Client Programs Imgpkg Bundle
-    runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    needs:
-      - build-client-programs-linux-amd64
-      - build-client-programs-linux-arm64
-      - build-client-programs-darwin-amd64
-      - build-client-programs-darwin-arm64
-
-    steps:
-      - name: Restore educates-linux-amd64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-linux-amd64
-          path: client-programs
-
-      - name: Restore educates-linux-arm64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-linux-arm64
-          path: client-programs
-
-      - name: Restore educates-darwin-amd64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-darwin-amd64
-          path: client-programs
-
-      - name: Restore educates-darwin-arm64
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-darwin-arm64
-          path: client-programs
-
-      - name: Install Carvel tools
-        shell: bash
-        run: curl -L https://carvel.dev/install.sh | bash
-
-      - name: Calculate variables
-        shell: bash
-        run: |
-          REPOSITORY_OWNER=${{github.repository_owner}}
-          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
-          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
-
-      - name: Publish client programs
-        shell: bash
-        run: |
-          chmod +x client-programs/*
-          imgpkg push \
-            -i ghcr.io/${{env.REPOSITORY_OWNER}}/educates-client-programs:${{env.REPOSITORY_TAG}} \
-            -f client-programs \
-            --registry-username=${{github.actor}} \
-            --registry-password=${{secrets.GITHUB_TOKEN}}
 
   publish-cli-image:
     name: Publish (cli) image
@@ -734,7 +601,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate variables
         shell: bash
@@ -742,6 +609,16 @@ jobs:
           REPOSITORY_OWNER=${{github.repository_owner}}
           echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
           echo "REPOSITORY_SHA_TAG=sha-${GITHUB_SHA::7}" >>${GITHUB_ENV}
+          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
+          echo "GIT_COMMIT=${GITHUB_SHA::7}" >>${GITHUB_ENV}
+          echo "GIT_COMMIT_DATE=$(git show -s --format=%cd --date=short)" >>${GITHUB_ENV}
+
+      # On release tags the chart embedded in the CLI must carry the
+      # released version and this fork's registry annotations.
+      - name: Stamp release version into embedded chart
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
 
       - name: Calculate platforms
         shell: bash
@@ -769,7 +646,7 @@ jobs:
 
       - name: Generate container image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/${{env.REPOSITORY_OWNER}}/educates-cli
@@ -780,20 +657,24 @@ jobs:
             type=sha
 
       - name: Login to GitHub container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
       - name: Build and push docker-cli image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: client-programs
           platforms: ${{env.TARGET_PLATFORMS}}
           build-args: |
             REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
             TAG=${{env.REPOSITORY_SHA_TAG}}
+            PROJECT_VERSION=${{env.REPOSITORY_TAG}}
+            IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
+            GIT_COMMIT=${{env.GIT_COMMIT}}
+            GIT_COMMIT_DATE=${{env.GIT_COMMIT_DATE}}
           tags: ${{steps.meta.outputs.tags}}
           push: true
 
@@ -811,7 +692,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Calculate variables
         shell: bash
@@ -839,14 +720,14 @@ jobs:
           echo "TARGET_PLATFORMS=${TARGET_PLATFORMS}" >>${GITHUB_ENV}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Generate container image metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             ghcr.io/${{env.REPOSITORY_OWNER}}/educates-docker-extension
@@ -857,14 +738,14 @@ jobs:
             type=sha
 
       - name: Login to GitHub container registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
       - name: Build and push docker-extension image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: docker-extension
           platforms: ${{env.TARGET_PLATFORMS}}
@@ -874,18 +755,175 @@ jobs:
           tags: ${{steps.meta.outputs.tags}}
           push: true
 
+  publish-charts:
+    name: Publish (helm charts)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: read
+      packages: write
+
+    # Charts reference the images this run publishes; don't push charts
+    # for a release whose images failed.
+    needs:
+      - publish-generic-images
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Calculate variables
+        shell: bash
+        run: |
+          REPOSITORY_OWNER=${{github.repository_owner}}
+          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
+          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
+
+      - name: Stamp release version
+        shell: bash
+        run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}"
+
+      - name: Package charts
+        shell: bash
+        run: |
+          mkdir -p dist
+          helm package installer/charts/educates-installer --destination dist
+          helm package installer/charts/educates-training-platform --destination dist
+
+      - name: Login to GitHub container registry
+        shell: bash
+        run: |
+          echo "${{secrets.GITHUB_TOKEN}}" | helm registry login ghcr.io \
+            --username ${{github.actor}} --password-stdin
+
+      - name: Push charts to OCI registry
+        shell: bash
+        run: |
+          helm push dist/educates-installer-${{env.REPOSITORY_TAG}}.tgz \
+            oci://ghcr.io/${{env.REPOSITORY_OWNER}}/charts
+          helm push dist/educates-training-platform-${{env.REPOSITORY_TAG}}.tgz \
+            oci://ghcr.io/${{env.REPOSITORY_OWNER}}/charts
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: helm-charts
+          path: dist/*.tgz
+
+  publish-schemas:
+    name: Publish (json schemas)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    # Deploys to this repository's GitHub Pages site (upstream maps it
+    # to schemas.educates.dev — see developer-docs/json-schemas.md).
+    # Forks without Pages enabled fail the deploy step; that must not
+    # gate the release.
+    continue-on-error: true
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{steps.deployment.outputs.page_url}}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      # Published filenames drop the .schema infix to match the $id
+      # baked into each schema (…/cli/v1alpha1/<Kind>.json).
+      - name: Stage schemas
+        shell: bash
+        run: |
+          mkdir -p site/cli/v1alpha1
+          for f in client-programs/pkg/config/v1alpha1/schemas/*.schema.json; do
+            name=$(basename "$f" .schema.json)
+            cp "$f" "site/cli/v1alpha1/$name.json"
+          done
+          {
+            echo '<!DOCTYPE html><html><head><title>Educates CLI JSON schemas</title></head><body>'
+            echo '<h1>Educates CLI JSON schemas (cli.educates.dev/v1alpha1)</h1><ul>'
+            for f in site/cli/v1alpha1/*.json; do
+              echo "<li><a href=\"cli/v1alpha1/$(basename "$f")\">$(basename "$f")</a></li>"
+            done
+            echo '</ul></body></html>'
+          } > site/index.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
+  publish-image-list:
+    name: Publish (image list)
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    permissions:
+      contents: read
+      packages: read
+
+    # Digest resolution needs every listed image already pushed. The
+    # list now includes the JDK/conda workshop environments, so the
+    # workshop-images job has to finish first too.
+    needs:
+      - publish-generic-images
+      - publish-workshop-base-image
+      - publish-workshop-images
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Calculate variables
+        shell: bash
+        run: |
+          REPOSITORY_OWNER=${{github.repository_owner}}
+          echo "REPOSITORY_OWNER=${REPOSITORY_OWNER,,}" >>${GITHUB_ENV}
+          echo "REPOSITORY_TAG=${GITHUB_REF##*/}" >>${GITHUB_ENV}
+
+      # Digest-pinned list of every image an air-gapped install can need
+      # (platform images + the full session-manager image inventory:
+      # base-environment, JDK/conda environments, and the vcluster
+      # application images + upstream cluster-service images from the
+      # vendored charts). Attached to the GitHub release for
+      # name-preserving mirroring with skopeo/crane.
+      - name: Generate image list
+        shell: bash
+        run: |
+          skopeo login ghcr.io --username ${{github.actor}} --password ${{secrets.GITHUB_TOKEN}}
+          ./hack/generate-image-list.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" \
+            > educates-images-${{env.REPOSITORY_TAG}}.txt
+          cat educates-images-${{env.REPOSITORY_TAG}}.txt
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-list
+          path: educates-images-*.txt
+
   release-artifacts:
     name: Release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     needs:
-      - publish-carvel-bundles
       - build-client-programs-linux-amd64
       - build-client-programs-linux-arm64
       - build-client-programs-darwin-amd64
       - build-client-programs-darwin-arm64
-      - publish-client-programs
+      - publish-cli-image
       - publish-docker-extension
+      - publish-charts
+      - publish-image-list
 
     steps:
       - name: Calculate variables
@@ -900,35 +938,35 @@ jobs:
           echo "REPOSITORY_TAG=${REPOSITORY_TAG}" >>${GITHUB_ENV}
           echo "PRERELEASE=${PRERELEASE}" >>${GITHUB_ENV}
 
-      - name: Restore educates-installer-app.yaml
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-installer-app.yaml
-
-      - name: Restore educates-installer-app-rbac.yaml
-        uses: actions/download-artifact@v4
-        with:
-          name: educates-installer-app-rbac.yaml
-
       - name: Restore educates-linux-amd64
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: educates-linux-amd64
 
       - name: Restore educates-linux-arm64
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: educates-linux-arm64
 
       - name: Restore educates-darwin-amd64
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: educates-darwin-amd64
 
       - name: Restore educates-darwin-arm64
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: educates-darwin-arm64
+
+      - name: Restore helm charts
+        uses: actions/download-artifact@v8
+        with:
+          name: helm-charts
+
+      - name: Restore image list
+        uses: actions/download-artifact@v8
+        with:
+          name: image-list
 
       - name: Generate file checksums for CLI binaries
         shell: bash
@@ -937,27 +975,28 @@ jobs:
           sha256sum educates-darwin-arm64 >> checksums.txt
           sha256sum educates-linux-amd64 >> checksums.txt
           sha256sum educates-linux-arm64 >> checksums.txt
-          sha256sum educates-installer-app.yaml >> checksums.txt
-          sha256sum educates-installer-app-rbac.yaml >> checksums.txt
+          sha256sum educates-installer-${{env.REPOSITORY_TAG}}.tgz >> checksums.txt
+          sha256sum educates-training-platform-${{env.REPOSITORY_TAG}}.tgz >> checksums.txt
+          sha256sum educates-images-${{env.REPOSITORY_TAG}}.txt >> checksums.txt
           echo 'File Checksums' >> release-notes.md
           echo '--------------' >> release-notes.md
           echo '```' >> release-notes.md
           cat checksums.txt >> release-notes.md
           echo '```' >> release-notes.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: checksums.txt
           path: checksums.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-notes.md
           path: release-notes.md
 
       - name: Create release
         id: create_release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
         with:
@@ -968,9 +1007,10 @@ jobs:
           body_path: release-notes.md
           files: |
             checksums.txt
-            educates-installer-app.yaml
-            educates-installer-app-rbac.yaml
             educates-linux-amd64
             educates-linux-arm64
             educates-darwin-amd64
             educates-darwin-arm64
+            educates-installer-*.tgz
+            educates-training-platform-*.tgz
+            educates-images-*.txt

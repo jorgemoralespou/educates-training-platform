@@ -1,0 +1,34 @@
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata:
+  name: restrict-ingress-paths
+  annotations:
+    policies.kyverno.io/title: Restrict NGINX Ingress path values in ValidatingPolicy
+    policies.kyverno.io/category: Security, NGINX Ingress in ValidatingPolicy
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Ingress
+    policies.kyverno.io/description: >-
+      This policy mitigates CVE-2021-25745 by restricting `spec.rules[].http.paths[].path` to safe values.
+      Additional paths can be added as required. This issue has been fixed in NGINX Ingress v1.2.0.
+      Please refer to the CVE for details.
+      Hand-ported to ValidatingPolicy from nginx-ingress-cel (no upstream -vpol variant exists).
+spec:
+  validationActions:
+    - Deny
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups:   ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["ingresses"]
+  validations:
+    - expression: >-
+        object.spec.?rules.orValue([]).all(rule,
+        rule.?http.?paths.orValue([]).all(p,
+        !p.path.contains('/etc') && !p.path.contains('/var/run/secrets') &&
+        !p.path.contains('/root') && !p.path.contains('/var/run/kubernetes/serviceaccount') &&
+        !p.path.contains('/etc/kubernetes/admin.conf')))
+      message: "spec.rules[].http.paths[].path value is not allowed"

@@ -1,0 +1,42 @@
+# Values for the secrets-manager subchart.
+#
+# In a v4 install the operator derives these values from the SecretsManager
+# CR (and EducatesClusterConfig.status). They can also be set directly when
+# installing the chart standalone.
+
+# Local-development override. Leave empty in normal use — image refs
+# resolve from Chart.yaml annotations (`educates.dev/image-registry-host`
+# / `-namespace`) which the chart's publish workflow updates per fork.
+# Override at the umbrella level under `global.development.imageRegistry`
+# to redirect every Educates-image reference (across all subcharts) in
+# one knob.
+development:
+  imageRegistry:
+    host: ""
+    namespace: ""
+
+image:
+  # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-secrets-manager`.
+  # Empty `tag` falls through to `Chart.AppVersion`.
+  repository: ""
+  tag: ""
+  pullPolicy: ""
+
+# Image pull secret references in the operator namespace. Each entry is a
+# Kubernetes LocalObjectReference: { name: <secret-name> }.
+imagePullSecrets: []
+
+# Pod-level resource requests and limits.
+resources: {}
+
+# Cluster-level security policy enforcement. Only `OpenShiftSCC` triggers
+# this subchart to render anything (a ClusterRoleBinding for the secrets-
+# manager ServiceAccount to the `educates-baseline-scc` ClusterRole).
+# Other values are no-ops here — full enforcement lives in the session-
+# manager subchart and the umbrella's `global.clusterSecurity`. This local
+# block exists for standalone installs.
+clusterSecurity:
+  policyEngine: Kyverno   # Kyverno | PodSecurityStandards | OpenShiftSCC | None
+
+# Operator log level.
+logLevel: info

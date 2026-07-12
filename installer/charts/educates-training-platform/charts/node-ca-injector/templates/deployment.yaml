@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-ca-injector-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "node-ca-injector.labels" . | nindent 4 }}
+    app.kubernetes.io/role: controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: node-ca-injector-controller
+  template:
+    metadata:
+      labels:
+        {{- include "node-ca-injector.labels" . | nindent 8 }}
+        app.kubernetes.io/role: controller
+        app: node-ca-injector-controller
+    spec:
+      serviceAccountName: node-ca-injector
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: controller
+          image: "{{ include "node-ca-injector.image.repository" . }}:{{ include "node-ca-injector.image.tag" . }}"
+          imagePullPolicy: {{ include "node-ca-injector.image.pullPolicy" . }}
+          args: ["controller"]
+          env:
+            - name: OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- with .Values.controller.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

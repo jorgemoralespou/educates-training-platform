@@ -1,0 +1,36 @@
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata:
+  name: require-ingress-session-name
+  annotations:
+    policies.kyverno.io/title: Require workshop session name in Ingress host
+    policies.kyverno.io/category: Educates
+    policies.kyverno.io/subject: Ingress
+    policies.kyverno.io/description: >-
+      Every Ingress created in a workshop session namespace must embed the session
+      name in each rule's host, so a session cannot publish ingresses for hostnames
+      belonging to other sessions. Educates-internal policy (no upstream variant);
+      rewritten from the legacy JMESPath ClusterPolicy to ValidatingPolicy CEL.
+      The session name is read from the request namespace's
+      `training.educates.dev/session.name` label via namespaceObject (replacing the
+      old apiCall). Fail-closed: when the label is absent the Ingress is denied,
+      preserving the original behaviour.
+spec:
+  validationActions:
+    - Deny
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups:   ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations:  ["CREATE", "UPDATE"]
+        resources:   ["ingresses"]
+  validations:
+    - expression: >-
+        has(namespaceObject.metadata.labels) &&
+        'training.educates.dev/session.name' in namespaceObject.metadata.labels &&
+        object.spec.?rules.orValue([]).all(rule,
+        rule.?host.orValue('').contains(namespaceObject.metadata.labels['training.educates.dev/session.name']))
+      message: "Ingress host name must embed the workshop session name."

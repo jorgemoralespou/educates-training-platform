@@ -1,0 +1,50 @@
+# Same as scenario 01 + session-manager pulls its image from a local,
+# auth'd registry that pre-install.sh stood up. The pull-secret is
+# pre-created in the operator namespace by pre-install.sh so the
+# Deployment can pull at first reconciliation, before secrets-manager
+# itself is up and processing the SecretCopier.
+
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+global:
+  clusterIngress:
+    domain: ${DOMAIN}
+
+session-manager:
+  # Override the repository to point at the auth'd local registry. Tag
+  # inherits the chart default (= Chart.AppVersion = 3.7.1) — same as the
+  # upstream image we mirrored in.
+  image:
+    repository: educates-test-pull-registry:5000/educates/educates-session-manager
+  # Wire the pull secret into the Deployment's PodSpec.
+  imagePullSecrets:
+    - name: test-pull-secret
+
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret
+
+  secretPropagation:
+    # Distribute this Secret name from operator NS to every portal /
+    # environment / session namespace, and inject it into the matching
+    # ServiceAccounts.
+    imagePullSecretNames:
+      - test-pull-secret
+    upstream:
+      # Keeps the operator-namespace copy of the Secret in sync with
+      # the source in `educates-secrets` after the initial bootstrap
+      # by pre-install.sh.
+      imagePullSecrets:
+        - { name: test-pull-secret, namespace: educates-secrets }

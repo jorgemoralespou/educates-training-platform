@@ -1,0 +1,32 @@
+# Values for `helm install -f <this-file>` against the v4 chart.
+#
+# Local HTTP scenario — see description.md for context.
+
+# Subchart toggles. lookup-service and remote-access are not needed for
+# a single-cluster local install.
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+# Cross-cutting globals propagate to every subchart. Defaults
+# (imageRegistry: ghcr.io/educates, clusterSecurity: Kyverno) come from
+# subchart-local values and don't need to be repeated here.
+global:
+  clusterIngress:
+    domain: ${DOMAIN}
+    # protocol auto-derives to "http" because tlsCertificateRef.name is empty.
+
+session-manager:
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret

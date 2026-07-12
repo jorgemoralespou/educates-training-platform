@@ -6,6 +6,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var adminDiagnosticsAnalyzeExample = `
+  # Analyze a previously collected diagnostics archive:
+  educates admin diagnostics analyze --file educates-diagnostics.tar.gz
+`
+
 type AdminDiagnosticsAnalyzeOptions struct {
 	File string
 	Dir  string
@@ -27,10 +32,11 @@ func (p *ProjectInfo) NewAdminDiagnosticsAnalyzeCmd() *cobra.Command {
 	var o AdminDiagnosticsAnalyzeOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "analyze",
-		Short: "Analyze diagnostic information for an Educates cluster",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "analyze",
+		Short:   "Analyze diagnostic information for an Educates cluster",
+		Example: adminDiagnosticsAnalyzeExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

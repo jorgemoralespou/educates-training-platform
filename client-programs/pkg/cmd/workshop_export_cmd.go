@@ -29,7 +29,7 @@ func (p *ProjectInfo) NewWorkshopExportCmd() *cobra.Command {
 	var o workshops.FilesExportOptions
 
 	var c = &cobra.Command{
-		Args:    cobra.MaximumNArgs(1),
+		Args:    maximumArgs(1, "expected at most one PATH argument", "[PATH]"),
 		Use:     "export [PATH]",
 		Short:   "Export workshop resource definition for distribution to stdout",
 		RunE:    func(cmd *cobra.Command, args []string) error { return o.Run(args) },

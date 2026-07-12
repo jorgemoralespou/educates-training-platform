@@ -1,0 +1,50 @@
+# Minimal SessionManager CR. Apply after both:
+#   - EducatesClusterConfig is Ready=True
+#   - SecretsManager is Ready=True
+#
+# The reconciler enforces both gates explicitly with
+# `ClusterConfigAvailable` and `SecretsManagerAvailable` conditions —
+# session-manager won't install until secrets-manager is reconciling
+# the cluster's pull secrets and TLS material.
+#
+# All fields below are optional. The reconciler derives ingress,
+# image registry, policy engine, and pull secrets from
+# EducatesClusterConfig.status.
+---
+apiVersion: platform.educates.dev/v1alpha1
+kind: SessionManager
+metadata:
+  name: cluster
+spec:
+  logLevel: info
+  # nodeCATrust controls the optional node-ca-injector subchart.
+  # Default mode is Auto: install when EducatesClusterConfig publishes
+  # a CA cert ref (status.ingress.caCertificateSecretRef), skip when not.
+  # nodeCATrust:
+  #   mode: Auto | Enabled | Disabled    # default Auto
+  #
+  # remoteAccess controls the optional remote-access subchart.
+  # Default mode is Auto: install when a LookupService CR exists in the
+  # cluster (the signal that cross-cluster federation is being used).
+  # remoteAccess:
+  #   mode: Auto | Enabled | Disabled    # default Auto
+  #
+  # workshopPolicyOverride:
+  #   engine: None
+  # network:
+  #   packetSize: 1400
+  #   blockedCidrs:
+  #     - "169.254.169.254/32"
+  #     - "fd00:ec2::254/128"
+  # storage:
+  #   storageClass: standard
+  #   storageGroup: 1
+  # tracking:
+  #   googleAnalytics:
+  #     trackingId: G-XXXXXXXXXX
+  # allowedEmbeddingHosts:
+  #   - https://my-portal.example.com
+  # images:
+  #   overrides:
+  #     - name: session-manager
+  #       image: ghcr.io/educates/educates-session-manager:3.7.1

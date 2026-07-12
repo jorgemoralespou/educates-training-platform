@@ -10,8 +10,10 @@ Creating the cluster
 To create a local Kubernetes cluster using Kind and deploy Educates, run the command:
 
 ```
-educates create-cluster
+educates local cluster create
 ```
+
+If no local configuration file exists yet, this command creates a default one for you, prints where it wrote it, and continues with the default settings, so this single command is all you need to get started. See [custom configuration](custom-configuration) below to view or change that configuration.
 
 Deleting the cluster
 --------------------
@@ -19,42 +21,49 @@ Deleting the cluster
 If you are done with the local environment and want to delete the Kubernetes cluster, run:
 
 ```
-educates delete-cluster
+educates local cluster delete
 ```
 
-You can then run `educates create-cluster` to recreate the Kubernetes cluster.
+You can then run `educates local cluster create` to recreate the Kubernetes cluster.
 
 If you know you do not intend to recreate the Kubernetes cluster, and so want everything deleted, you can run:
 
 ```
-educates delete-cluster --all
+educates local cluster delete --all
 ```
 
 This will also delete the local image registry and DNS resolver if deployed.
 
+(custom-configuration)=
 Custom configuration
 --------------------
 
-If you want to provide overrides to the automatically generated configuration for Educates you can provide a global set of defaults for the YAML data values by running:
+If you want to provide overrides to the automatically generated configuration for Educates you can edit the local configuration file (an `EducatesLocalConfig`, validated against its schema on save) by running:
 
 ```
 educates local config edit
 ```
 
-and entering the YAML data values. This configuration will be automatically used when running `educates create-cluster`.
+and entering the configuration. See [configuration settings](configuration-settings) for the available fields. This configuration will be automatically used when running `educates local cluster create`.
 
-You can view what actual YAML data values will be used for this configuration when doing a deployment of Educates by running:
+You can view the configuration (validating it against the schema) by running:
 
 ```
 educates local config view
 ```
 
-You can also supply a YAML data values file via the `--config` option when running the `educates create-cluster` command, however by doing so any secrets in the local secrets cache will not be automatically copied to the cluster.
+This prints the effective configuration with the CLI defaults filled in, so the values supplied on your behalf are explicit. This includes the `<host-IP>.nip.io` ingress domain and the `ingress.insecure` default it implies when you have not set a domain of your own. To see the configuration file exactly as you wrote it instead, add `--raw`.
+
+If you would rather have those defaults written into the file from the start, initialise it with `educates local config init --defaults`, which materialises the fully-defaulted configuration rather than the minimal file `educates local config init` writes by default.
+
+To look up what a field means while editing, use `educates local config explain`, which describes a field and its sub-fields from the schema in the style of `kubectl explain`, for example `educates local config explain ingress`. See [configuration settings](configuration-settings) for the available fields and the other configuration kinds.
+
+You can also supply a configuration file via the `--config` option when running the `educates local cluster create` command, however by doing so any secrets in the local secrets cache will not be automatically copied to the cluster.
 
 Local image registry
 --------------------
 
-When you run the `educates create-cluster` command to create the local Kubernetes cluster, it will also deploy an image registry to your local docker environment. This is used for storing workshop content files and custom workshop base images. The Educates command line tool can be used to publish the workshop content files to this image registry.
+When you run the `educates local cluster create` command to create the local Kubernetes cluster, it will also deploy an image registry to your local docker environment. This is used for storing workshop content files and custom workshop base images. The Educates command line tool can be used to publish the workshop content files to this image registry.
 
 If you want to use the registry to store other images, you should tag your images with the registry host/port of `localhost:5001`, then push the image to the registry.
 
@@ -82,12 +91,13 @@ If you have successively pushed new builds of images to the local image registry
 educates local registry prune
 ```
 
+(custom-ingress-domain)=
 Custom ingress domain
 ---------------------
 
-By default when deployed to the Kubernetes cluster of the local environment, Educates will be configured to use a `nip.io` address for the ingress domain, as a wildcard domain.
+By default, when deployed to the Kubernetes cluster of the local environment, Educates uses a `nip.io` address for the ingress domain, as a wildcard domain, and serves the cluster over plain HTTP. Because it is not possible to obtain an official trusted TLS certificate for a `nip.io` address, the default install sets `ingress.insecure` automatically, so no certificate authority is needed and the `educates local secrets add ca` step is skipped.
 
-This works but because it is not possible to obtain an official trusted TLS certificate for a `nip.io` address, and as such it is not possible to use secure ingresses, some features of the workshop environment may not work. This includes the inability to use a per session image registry, which requires a secure ingress to be trusted by the Kubernetes cluster and other tools which work with registries.
+Serving over plain HTTP is convenient for trying Educates out, but because the ingress is not secured, some features of the workshop environment do not work. This includes the inability to use a per session image registry, which requires a secure ingress to be trusted by the Kubernetes cluster and other tools which work with registries.
 
 Instead of relying on a `nip.io` address you can use your own domain that you control and for which you can generate yourself a wildcard TLS certificate. For example, you might own the domain `educates-local-dev.test`, in which case you could use a wildcard TLS certificate for `*.educates-local-dev.test`. You will also need to be able to configure DNS for the domain, or be able to set up a local DNS resolver on your local machine.
 
@@ -95,46 +105,51 @@ In using your own custom domain name, you could do it with a wildcard TLS certif
 
 If you are using a self signed CA, you could technically still use the `nip.io` domain, which would avoid needing to be able to configure DNS, but the domain name will be bound to the IP address of your machine, which can be an issue for laptops that are moved between networks as the IP address will change.
 
-To use a custom ingress domain, when running `educates create-cluster` you can supply the `--domain` option to pass the domain name.
+To use a custom ingress domain, set it in the local configuration before creating the cluster:
 
 ```
-educates create-cluster --domain educates-local-dev.test
+educates local config set ingress.domain educates-local-dev.test
 ```
 
 Alternatively, you can run `educates local config edit` and add the configuration for the ingress domain as part of the global defaults.
 
 ```yaml
-clusterIngress:
+ingress:
   domain: educates-local-dev.test
 ```
 
-This will still only allow HTTP as is and will not use a secure ingress. If you want to use secure ingress you need to provide the corresponding wildcard TLS certificate.
-
-If you had used certbot and Lets Encrypt to create a wildcard TLS certificate using a DNS challenge, you could then configure Educates to know about it and use it by running:
+When you set a custom ingress domain, the install serves workshop sessions over HTTPS: it configures cert-manager with a certificate authority (CA) you supply, and the wildcard TLS certificate for the ingress domain is issued from that CA inside the cluster. Setting a custom domain turns off the insecure default, so you provide the CA for your domain with:
 
 ```
-educates local secrets add tls ${INGRESS_DOMAIN}-tls \
- --cert $HOME/.letsencrypt/config/live/${INGRESS_DOMAIN}/fullchain.pem \
- --key $HOME/.letsencrypt/config/live/${INGRESS_DOMAIN}/privkey.pem \
- --domain ${INGRESS_DOMAIN}
+educates local secrets add ca ${INGRESS_DOMAIN}-ca --domain ${INGRESS_DOMAIN}
 ```
 
-The `--domain` option must be used to indicate the domain the wildcard TLS certificate is for, as the name of the secret is not significant. You can if necessary add multiple wildcard TLS certificates for different domains under different names. The TLS certificate annotated with the domain name which matches the `clusterIngress.domain` setting will be used.
-
-If the wildcard TLS certificate is self signed using your own certificate authority (CA) certificate, you would still use the above command to add the TLS certificate for Educates to use, but supply the location of where you had saved the corresponding files. You can then provide the CA certificate for Educates to use by running:
+With no `--cert`/`--key` arguments a self-signed CA is generated for you. If you already have a CA — for example one created with ``mkcert`` — supply its certificate and key instead:
 
 ```
 educates local secrets add ca ${INGRESS_DOMAIN}-ca \
  --cert "`mkcert -CAROOT`/rootCA.pem" \
+ --key "`mkcert -CAROOT`/rootCA-key.pem" \
  --domain ${INGRESS_DOMAIN}
 ```
 
-In this example, it was assumed that ``mkcert`` had been used to create the CA certificate and wildcard TLS certificate and thus we run ``mkcert`` to determine where the CA certificate was stored.
+The `--domain` option indicates which ingress domain the CA is for, as the name of the secret is not significant; the CA annotated with the domain matching `ingress.domain` is used. To have your browser and operating system trust workshop URLs without warnings, configure them to trust this CA certificate.
 
-These secrets will be automatically copied to the local Kubernetes cluster when running `educates create-cluster` provided that the `--config` is not being used.
+If you would rather not manage a CA, you can run the local cluster over plain HTTP by setting `ingress.insecure` in the configuration:
+
+```yaml
+ingress:
+  domain: educates-local-dev.test
+  insecure: true
+```
+
+With `ingress.insecure` set, no certificate authority is needed, the `educates local secrets add ca` step is skipped, and `educates local cluster create` serves workshop sessions over HTTP. Because the ingress is not secured, some features that require a trusted secure ingress do not work, including the per session image registry, so an insecure cluster is best suited to trying Educates out rather than developing workshops that rely on those features.
+
+Cached secrets (the CA, and any docker-registry secrets referenced from `secretPropagation.imagePullSecretNames`) are automatically copied to the local Kubernetes cluster when running `educates local cluster create`, provided the `--config` option is not being used.
 
 Note that DNS still needs to be configured to map using a CNAME the wildcard domain to the IP address of your local host machine where the Kubernetes cluster is running. This could be done by modifying your actual DNS registry, or you can run a local DNS resolver. If doing this in your global DNS registry, it doesn't matter that the IP address is a local network address which is not accessible to the internet, although depending on what internet router you use for a home network, you may need to disable DNS rebinding protection in your router for the domain.
 
+(local-dns-resolver)=
 Local DNS resolver
 ------------------
 
@@ -202,14 +217,14 @@ $ curl -v www.educates-local-dev.test
 The IP address used as the target for addresses resolved by the local DNS resolver will be the IP address of the primary active network interface for the local host. If you want to override the IP address and change it to use an alternate IP, such as that used by an alias applied to a network interface using the ``ifconfig INTERFACE alias`` command, you can edit the local Educates config using the command ``educates local config edit`` and add configuration in the following form before deploying the local DNS resolver.
 
 ```yaml
-localDNSResolver:
+resolver:
   targetAddress: 192.168.168.1
 ```
 
 By default the local DNS resolver will only resolve the domain for the Educates ingress domain. If you want it to resolve other domains and also have them directed to the IP address used for accessing the local Educates cluster, you can also add them in the local Educates config.
 
 ```yaml
-localDNSResolver:
+resolver:
   extraDomains:
   - example.com
 ```
@@ -244,7 +259,7 @@ Using mirrors when creating a cluster
 You can specify registry mirrors in your cluster configuration YAML. When you create a cluster with mirrors configured, Educates will automatically deploy and link the mirrors to your local cluster. This ensures that all image pulls for the mirrored registries are routed through your local mirror, improving speed and reliability.
 
 ```yaml
-localKindCluster:
+cluster:
   listenAddress: 0.0.0.0
   registryMirrors:
     - mirror: ghcr.io
@@ -256,7 +271,7 @@ In this example, we're mirroring GitHub Container Registry as well as Docker Hub
 url for the remote registry mirror. We could have provided credentials for Docker Hub to prevent image pull throttling.
 
 ```
-educates create-cluster
+educates local cluster create
 ```
 
 This will deploy the cluster and all defined mirrors automatically.
@@ -298,9 +313,9 @@ Customize local pod and service CIDRs
 If you need to modify the pod and service CIDRs for the local Kind cluster, you can do so by editing the local cluster configuration using the command `educates local config edit` and adding the following configuration:
 
 ```yaml
-localKindCluster:
+cluster:
   networking:
-    podCIDR: 10.244.0.0/16
-    serviceCIDR: 10.96.0.0/12
+    podSubnet: 10.244.0.0/16
+    serviceSubnet: 10.96.0.0/12
 ```
 

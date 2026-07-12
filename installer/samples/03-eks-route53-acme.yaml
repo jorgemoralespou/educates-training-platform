@@ -1,0 +1,59 @@
+# EKS production scenario: BundledCertManager + ACME-DNS01 (Route53)
+# + BundledContour + BundledExternalDNS + Bundled Kyverno.
+#
+# Authentication is IRSA (IAM Roles for Service Accounts) — no static
+# credentials. Two IAM roles are needed: one for cert-manager DNS01
+# challenges, one for external-dns record management. Each role's
+# trust policy lets the EKS cluster's OIDC provider assume it; each
+# role grants the appropriate Route53 permissions:
+#
+#   - cert-manager: route53:GetChange, route53:ChangeResourceRecordSets,
+#     route53:ListResourceRecordSets on the hosted zone.
+#   - external-dns: same set plus route53:ListHostedZones.
+#
+# Reference: https://docs.aws.amazon.com/eks/latest/userguide/iam-roles-for-service-accounts.html
+---
+apiVersion: config.educates.dev/v1alpha1
+kind: EducatesClusterConfig
+metadata:
+  name: cluster
+spec:
+  mode: Managed
+  ingress:
+    domain: academy-01.workshops.example.com
+    ingressClassName: contour
+    controller:
+      provider: BundledContour
+      bundledContour:
+        envoyServiceType: LoadBalancer
+    certificates:
+      provider: BundledCertManager
+      bundledCertManager:
+        issuerType: ACME
+        acme:
+          email: ops@example.com
+          # server: https://acme-staging-v02.api.letsencrypt.org/directory
+          solvers:
+            dns01:
+              provider: Route53
+              route53:
+                hostedZoneID: Z0123456789ABCDEF
+                region: us-east-1
+                iamRoleARN: arn:aws:iam::123456789012:role/educates-cert-manager
+  dns:
+    provider: BundledExternalDNS
+    bundledExternalDNS:
+      provider: Route53
+      sources:
+        - service
+      route53:
+        hostedZoneID: Z0123456789ABCDEF
+        region: us-east-1
+        iamRoleARN: arn:aws:iam::123456789012:role/educates-external-dns
+  policyEnforcement:
+    clusterPolicy:
+      engine: Kyverno
+    workshopPolicy:
+      engine: Kyverno
+    kyverno:
+      provider: Bundled

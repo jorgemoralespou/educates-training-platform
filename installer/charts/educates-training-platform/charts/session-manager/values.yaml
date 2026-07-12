@@ -1,0 +1,371 @@
+# Values for the session-manager subchart.
+#
+# In a v4 install, the operator derives these values from the SessionManager CR
+# plus EducatesClusterConfig.status. They can also be set directly when
+# installing the chart standalone.
+
+# =============================================================================
+# Cluster-wide ingress identity
+# =============================================================================
+
+# `domain` is required. Chart fails at template time if empty.
+# `protocol` is auto-derived from tlsCertificateRef when empty: "http" if no
+# ref is set, "https" otherwise. Override only for external TLS termination
+# (router terminates TLS and proxies plain HTTP into the cluster).
+clusterIngress:
+  domain: ""
+  class: ""
+  protocol: ""
+
+  # Reference to a kubernetes.io/tls Secret holding the wildcard cert for
+  # *.<domain>. Required keys: tls.crt, tls.key. When `namespace` is empty
+  # the Secret is assumed to live in the release namespace. When set to a
+  # different namespace, the chart auto-creates a SecretCopier so the runtime
+  # finds the Secret locally.
+  tlsCertificateRef:
+    name: ""
+    namespace: ""
+
+  # Reference to a Secret holding the CA certificate used to verify the
+  # wildcard. Required key: ca.crt. Same namespace semantics as the TLS ref.
+  caCertificateRef:
+    name: ""
+    namespace: ""
+
+# =============================================================================
+# Security policy enforcement
+# =============================================================================
+
+# Cluster-level security policy enforcement.
+#
+# - Kyverno: installs the bundled cluster ValidatingPolicies (PSS baseline +
+#   restricted profiles), scoped to the namespaces Educates manages.
+#   `additionalKyvernoPolicies` are installed alongside, verbatim, cluster-wide.
+# - OpenShiftSCC: installs ClusterRoleBindings binding the session-manager and
+#   image-puller ServiceAccounts to the `educates-baseline-scc` ClusterRole.
+#   Implies you're on OpenShift; SCC enforcement comes from the platform.
+# - PodSecurityStandards: chart installs nothing at this level; PSS is enforced
+#   by Kubernetes via namespace labels managed by the runtime.
+# - None: no cluster-level policy enforcement. User accepts responsibility.
+#
+# `additionalKyvernoPolicies` is silently ignored when policyEngine is not
+# Kyverno. Each entry may be a legacy `ClusterPolicy` (kyverno.io) or any of the
+# new `policies.kyverno.io` types — `ValidatingPolicy`, `MutatingPolicy`,
+# `GeneratingPolicy` or `DeletingPolicy` — and is applied to the cluster exactly
+# as written (no namespace scoping is added).
+clusterSecurity:
+  policyEngine: Kyverno   # Kyverno | PodSecurityStandards | OpenShiftSCC | None
+  additionalKyvernoPolicies: []
+    # - apiVersion: policies.kyverno.io/v1alpha1
+    #   kind: ValidatingPolicy
+    #   metadata:
+    #     name: my-cluster-wide-extra
+    #   spec:
+    #     validationActions: [Audit]
+    #     matchConstraints:
+    #       resourceRules:
+    #         - ...
+
+# Per-workshop policy enforcement. The chart concatenates a curated bundle
+# (operational best-practices + Educates-internal `require-ingress-session-name`)
+# into the `kyverno-policies.yaml` key of the `educates-config` Secret;
+# session-manager clones each rule per workshop environment with a namespace
+# selector added.
+#
+# `additionalKyvernoPolicies` is appended to the same feed and is silently
+# ignored when rulesEngine is not Kyverno. Entries must be a legacy
+# `ClusterPolicy` (kyverno.io) or a `ValidatingPolicy` (policies.kyverno.io);
+# these are the only kinds the runtime scopes per workshop environment today.
+workshopSecurity:
+  rulesEngine: Kyverno    # Kyverno | None
+  additionalKyvernoPolicies: []
+    # - apiVersion: policies.kyverno.io/v1alpha1
+    #   kind: ValidatingPolicy
+    #   metadata:
+    #     name: my-per-workshop-extra
+    #   spec:
+    #     validationActions: [Audit]
+    #     matchConstraints:
+    #       resourceRules:
+    #         - ...
+
+# =============================================================================
+# Development overrides
+# =============================================================================
+#
+# These knobs target the local-development workflow only. In NORMAL USE
+# leave the entire `development:` block empty:
+#
+#   - Chart-rendered + runtime-spawned Educates image refs (chart pod,
+#     pause container, training-portal, base-environment, etc.) are
+#     composed from Chart.yaml annotations
+#     (`educates.dev/image-registry-host` / `-namespace`), which the chart's
+#     publish workflow updates per fork at release time.
+#   - The runtime config blob's `imageRegistry` field is emitted EMPTY,
+#     so the runtime falls back to `registry.default.svc.cluster.local`
+#     when resolving `$(image_repository)` workshop-content placeholders.
+#     Released workshops have fully-qualified refs in their YAMLs anyway,
+#     so this fallback is irrelevant outside the dev workflow.
+#
+# When set, `development.imageRegistry` has TWO simultaneous effects:
+#
+#   1. Replaces the Chart.yaml annotation defaults. Chart pod, pause
+#      image, and the Educates-published entries in the `imageVersions`
+#      helper resolve against `{host}/{namespace}` instead.
+#   2. Emits the same `{host}/{namespace}` into the runtime config so
+#      workshop sessions get `IMAGE_REPOSITORY={host}/{namespace}`.
+#      Workshops authored against `$(image_repository)/<name>` placeholders
+#      then resolve there — the typical local-dev flow where you
+#      `educates publish-workshop` to localhost:5001 and want session-
+#      spawned workshops to pull from the same place.
+#
+# Mirrors v3's `imageRegistry` schema knob, which the v3 schema comment
+# explicitly described as "for development, experimentation and when
+# working on workshop content in a local Educates environment, and should
+# not be overridden through a values file in normal use."
+development:
+  imageRegistry:
+    host: ""
+    namespace: ""
+
+# Per-image overrides, merged BY NAME on top of the chart-shipped default
+# `imageVersions` list. The default list is built in
+# `templates/_helpers.tpl` (`session-manager.imageVersions`) and mirrors
+# v3's carvel-installer `images.yaml`:
+#   - Educates-published images, tag = `Chart.AppVersion`.
+#   - Upstream pins (docker-in-docker, loftsh-*, debian-base), specific tags.
+# An override matching a default by `name` replaces just that entry; other
+# defaults pass through. Names not in the default list are appended.
+# Use for airgap relocation, JDK/k8s variant pinning, or to mirror images
+# under a different registry without forking the helper.
+imageVersions: []
+  # - name: base-environment
+  #   image: my-registry.example.com/educates/base-environment@sha256:...
+
+# =============================================================================
+# Session-manager pod
+# =============================================================================
+
+image:
+  # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-session-manager`.
+  # Override only when the chart-pod image is hosted somewhere different from
+  # the rest of the runtime (e.g., a single fork registry exposes everything
+  # via imageRegistry, but the session-manager image happens to live at a
+  # custom path).
+  repository: ""
+  # Empty tag falls through to `Chart.AppVersion` (the bundled Educates
+  # runtime version). Override only when pinning a specific runtime
+  # build, e.g., a development image.
+  tag: ""
+  pullPolicy: ""
+
+# Image-pull Secrets attached to the session-manager pod's own PodSpec. These
+# are the Secrets needed to pull the session-manager image itself. For Secrets
+# that should propagate into workshop namespaces, see `secretPropagation` below.
+imagePullSecrets: []
+
+resources: {}
+
+# Grant the session-manager ServiceAccount the built-in `cluster-admin`
+# ClusterRole. Off by default; enable only when workshops need to manage
+# cluster-scoped resources beyond what the aggregated `educates-session-manager`
+# ClusterRole grants. Note: changed from v3 default of `true`.
+clusterAdmin: false
+
+# =============================================================================
+# Training portal defaults
+# =============================================================================
+
+# Empty values cause the runtime to generate them on first reconciliation.
+# The chart deliberately does NOT use `randAlphaNum` defaults here because that
+# would rotate values on every `helm upgrade` and break in-flight workshops.
+trainingPortal:
+  credentials:
+    admin:
+      username: ""
+      password: ""
+    robot:
+      username: ""
+      password: ""
+  clients:
+    robot:
+      id: ""
+      secret: ""
+
+# Optional override for the cookie domain used by training portal and
+# workshop sessions. Empty means "use the ingress domain."
+sessionCookies:
+  domain: ""
+
+# =============================================================================
+# Storage
+# =============================================================================
+
+# `class` empty uses the cluster default StorageClass.
+# `user` is null by default (filesystem chown unset). Set to a numeric UID
+# only when the storage class maps to NFS and the server requires a specific
+# user. Cannot be combined with PodSecurityStandards/Policies enforcement.
+# `group` defaults to 1, suitable for clusters with pod security policies.
+clusterStorage:
+  class: ""
+  user: null
+  group: 1
+
+# =============================================================================
+# Container runtime
+# =============================================================================
+
+# Optional runtimeClass applied to workshop containers (e.g., "kata" for
+# VM-isolated workshops). Empty leaves the cluster default.
+clusterRuntime:
+  class: ""
+
+# =============================================================================
+# Cluster network policy
+# =============================================================================
+
+# CIDRs that workshops are blocked from reaching. Default blocks the AWS EC2
+# instance metadata endpoint (IPv4 and IPv6). Set to [] to remove all blocks.
+clusterNetwork:
+  blockCIDRs:
+    - "169.254.169.254/32"
+    - "fd00:ec2::254/128"
+
+# =============================================================================
+# Docker daemon (only used when workshops build images)
+# =============================================================================
+
+dockerDaemon:
+  networkMTU: 1400
+  # Mirror cache to mitigate Docker Hub pull limits. Set remoteURL to e.g.
+  # "https://registry-1.docker.io" to enable.
+  proxyCache:
+    remoteURL: ""
+    username: ""
+    password: ""
+
+# =============================================================================
+# Analytics
+# =============================================================================
+
+workshopAnalytics:
+  google:
+    trackingId: ""
+  clarity:
+    trackingId: ""
+  amplitude:
+    trackingId: ""
+  webhook:
+    url: ""
+
+# =============================================================================
+# Website styling and theming
+# =============================================================================
+
+# Two ways to supply themes:
+#
+#   `inline` — HTML/JS/CSS authored directly in values. Each populated leaf
+#     becomes a stringData entry in the `default-website-theme` Secret, which
+#     the runtime uses as the fallback theme. Convenient for small tweaks
+#     without managing a separate Secret.
+#
+#   `themeDataRefs` — references to external theme Secrets that already hold
+#     the assets. The chart makes them available to the runtime and auto-
+#     creates a SecretCopier when a ref's namespace differs from the release
+#     namespace.
+websiteStyling:
+  inline:
+    workshopDashboard:
+      html: ""
+      script: ""
+      style: ""
+    workshopInstructions:
+      html: ""
+      script: ""
+      style: ""
+    workshopStarted:
+      html: ""
+    workshopFinished:
+      html: ""
+    trainingPortal:
+      html: ""
+      script: ""
+      style: ""
+
+  # Name of the theme to use as default. Must match a key in `themeDataRefs`.
+  # Empty means "use the inline default theme (above)."
+  defaultTheme: ""
+
+  # External theme Secrets to make available. Each ref points at a Secret
+  # holding theme assets. When `namespace` differs from the release namespace
+  # the chart auto-creates a SecretCopier.
+  themeDataRefs: []
+    # - name: my-theme
+    #   namespace: themes-source
+
+  # Allowed parent frames for embedding workshop sessions (CSP
+  # frame-ancestors directive).
+  frameAncestors: []
+
+# =============================================================================
+# Image pre-puller DaemonSet
+# =============================================================================
+
+# When enabled, runs an init-container per image in `images` (each running
+# `/bin/true`) so the kubelet pre-pulls and caches them on every node ahead of
+# time, plus a long-lived pause container to keep the DS alive. Useful for
+# clusters where workshop session start time is dominated by image pull.
+imagePrePuller:
+  enabled: false
+  # Pause image used as the long-lived "keepalive" container in the DaemonSet.
+  # Empty `repository` derives `{imageRegistry.host}/{imageRegistry.namespace}/educates-pause-container`.
+  # Empty `tag` falls through to `Chart.AppVersion`.
+  pauseImage:
+    repository: ""
+    tag: ""
+    pullPolicy: ""
+  # Full image references to pre-pull. Empty defaults to the v3-equivalent
+  # set -- training-portal + base-environment -- resolved through the
+  # imageVersions inventory, so registry relocation and per-name overrides
+  # are honoured. A non-empty list replaces the default verbatim (fully
+  # qualified refs only; short names are not resolved here).
+  images: []
+    # - ghcr.io/educates/training-portal:4.0.0-alpha.1
+
+# =============================================================================
+# Secret propagation
+# =============================================================================
+#
+# The session-manager runtime distributes pull secrets and website themes
+# across workshop namespaces using SecretCopier and SecretInjector resources
+# from secrets.educates.dev.
+#
+# Note: ingress TLS and CA propagation is auto-derived from
+# `clusterIngress.tlsCertificateRef` and `clusterIngress.caCertificateRef`
+# when those refs target a namespace other than the release namespace. There
+# is no longer an explicit knob for it.
+
+secretPropagation:
+  # Names of image-pull Secrets that already exist in the release namespace
+  # and should be (a) propagated into every workshop-portal and
+  # workshop-environment namespace, and (b) injected into ServiceAccounts
+  # in those namespaces.
+  imagePullSecretNames: []
+    # - my-registry-pull-secret
+
+  upstream:
+    # External Secrets to copy INTO the release namespace before propagation.
+    imagePullSecrets: []
+      # - { name: my-pull-secret, namespace: source-ns }
+    websiteThemes: []
+      # - { name: my-theme, namespace: source-ns }
+
+# =============================================================================
+# Escape hatch
+# =============================================================================
+#
+# Opaque map deep-merged on top of the typed-values-derived
+# `educates-operator-config.yaml` Secret content. Use only for runtime fields
+# not yet promoted to typed values. Newly added fields should land here first
+# and be promoted in a subsequent chart release.
+config: {}

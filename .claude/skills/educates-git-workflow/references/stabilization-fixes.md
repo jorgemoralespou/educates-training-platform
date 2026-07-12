@@ -10,6 +10,32 @@ After the universal pre-flight:
 
 - The `release/X.Y.Z` branch exists on the authority and the local copy is up to date.
 
+## The version bump
+
+The committed tree tracks the last released version, so each release needs one commit
+that stamps it to the target version. Do this on the `release/*` branch, early in
+stabilization (so rc builds carry the right version), with the repository's wrapper —
+do not hand-edit the many `Chart.yaml` / `embed.go` / tarball locations:
+
+```
+git switch release/4.1.0
+make release-prep VERSION=4.1.0
+# review: git diff   (Chart.yaml versions + appVersion, vendored-charts/*.tgz,
+#                     embed.go, SHA256SUMS, the CLI's embedded chart copy)
+git commit -am "Stamp release version 4.1.0"
+```
+
+`make release-prep` needs `helm` on PATH. It is idempotent — re-run and re-commit if
+anything it touches changes later in stabilization. It reaches `develop` through the
+back-merge when the release is finished, leaving `develop` on `4.1.0` until the next
+release is prepared. For a fork release, pass `REGISTRY_NAMESPACE=<user>` (and
+`REGISTRY_HOST` if not `ghcr.io`); never commit a fork-specific annotation rewrite to
+a branch headed for the canonical repo.
+
+Then, gated:
+
+1. [confirm] `git push origin release/4.1.0`
+
 ## A small fix found during stabilization
 
 Commit directly to the release branch:

@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Educates training-platform umbrella chart values",
+  "description": "Validates the umbrella chart's own values: subchart toggles and the cross-cutting `global:` block. Each subchart's `.Values.<subchart>` is validated independently by that subchart's own values.schema.json — this schema treats subchart blocks as opaque objects to avoid duplication.",
+  "type": "object",
+  "additionalProperties": false,
+
+  "definitions": {
+    "secretRef": {
+      "description": "Reference to a Kubernetes Secret. Empty `name` means the ref is unset.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name":      { "type": "string" },
+        "namespace": { "type": "string" }
+      }
+    },
+
+    "kyvernoPolicyMetadata": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "kyvernoLegacyClusterPolicy": {
+      "description": "A legacy Kyverno ClusterPolicy resource (kyverno.io). Open shape; only top-level identity is validated.",
+      "type": "object",
+      "required": ["apiVersion", "kind", "metadata"],
+      "properties": {
+        "apiVersion": { "const": "kyverno.io/v1" },
+        "kind":       { "const": "ClusterPolicy" },
+        "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
+      }
+    },
+
+    "kyvernoNewPolicy": {
+      "description": "A Kyverno policy resource from the policies.kyverno.io group: ValidatingPolicy, MutatingPolicy, GeneratingPolicy or DeletingPolicy. Open shape; only top-level identity is validated.",
+      "type": "object",
+      "required": ["apiVersion", "kind", "metadata"],
+      "properties": {
+        "apiVersion": { "type": "string", "pattern": "^policies\\.kyverno\\.io/" },
+        "kind":       { "enum": ["ValidatingPolicy", "MutatingPolicy", "GeneratingPolicy", "DeletingPolicy"] },
+        "metadata":   { "$ref": "#/definitions/kyvernoPolicyMetadata" }
+      }
+    },
+
+    "kyvernoClusterAdditionalPolicy": {
+      "description": "A policy accepted by clusterSecurity.additionalKyvernoPolicies: a legacy ClusterPolicy (kyverno.io) or any policies.kyverno.io type (ValidatingPolicy, MutatingPolicy, GeneratingPolicy, DeletingPolicy). Applied verbatim by the chart.",
+      "oneOf": [
+        { "$ref": "#/definitions/kyvernoLegacyClusterPolicy" },
+        { "$ref": "#/definitions/kyvernoNewPolicy" }
+      ]
+    }
+  },
+
+  "properties": {
+    "global": {
+      "description": "Cross-cutting values that propagate to every subchart as `.Values.global.<key>`. Subcharts deep-merge their local block under the matching `global.<key>`, with globals winning per-leaf where set.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "development": {
+          "description": "Local-development overrides. Leave empty in normal use — Chart.yaml annotations on each subchart provide the publish-time defaults for image refs.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "imageRegistry": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "host":      { "type": "string" },
+                "namespace": { "type": "string" }
+              }
+            }
+          }
+        },
+
+        "clusterIngress": {
+          "description": "Cluster-wide ingress identity. Consumed by session-manager (operator config + auto-derived SecretCopier + ca-trust init container), lookup-service (Ingress TLS + ca-trust init container + SecretCopier), and node-ca-injector (CA Secret mount + SecretCopier).",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "domain": { "type": "string" },
+            "class":  { "type": "string" },
+            "protocol": {
+              "type": "string",
+              "enum": ["", "http", "https"],
+              "description": "Empty for auto-derive from tlsCertificateRef."
+            },
+            "tlsCertificateRef": { "$ref": "#/definitions/secretRef" },
+            "caCertificateRef":  { "$ref": "#/definitions/secretRef" }
+          }
+        },
+
+        "clusterSecurity": {
+          "description": "Cluster-level security policy enforcement. Drives Kyverno cluster-policy rendering in session-manager, the Kyverno workshop-policy feed, and SCC ClusterRoleBindings in session-manager and secrets-manager.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "policyEngine": {
+              "type": "string",
+              "enum": ["Kyverno", "PodSecurityStandards", "OpenShiftSCC", "None"]
+            },
+            "additionalKyvernoPolicies": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/kyvernoClusterAdditionalPolicy" }
+            }
+          }
+        }
+      }
+    },
+
+    "secrets-manager":  { "type": "object", "description": "secrets-manager subchart values. Validated by charts/secrets-manager/values.schema.json." },
+    "lookup-service":   { "type": "object", "description": "lookup-service subchart values. Validated by charts/lookup-service/values.schema.json." },
+    "remote-access":    { "type": "object", "description": "remote-access subchart values. Validated by charts/remote-access/values.schema.json." },
+    "session-manager":  { "type": "object", "description": "session-manager subchart values. Validated by charts/session-manager/values.schema.json." },
+    "node-ca-injector": { "type": "object", "description": "node-ca-injector subchart values. Validated by charts/node-ca-injector/values.schema.json." }
+  }
+}

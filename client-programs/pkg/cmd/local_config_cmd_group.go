@@ -23,9 +23,12 @@ func (p *ProjectInfo) NewLocalConfigCmdGroup() *cobra.Command {
 		{
 			Message: "Available Commands:",
 			Commands: []*cobra.Command{
+				p.NewLocalConfigInitCmd(),
+				p.NewLocalConfigGetCmd(),
+				p.NewLocalConfigSetCmd(),
 				p.NewLocalConfigEditCmd(),
 				p.NewLocalConfigViewCmd(),
-				p.NewLocalConfigResetCmd(),
+				p.NewLocalConfigExplainCmd(),
 			},
 		},
 	}

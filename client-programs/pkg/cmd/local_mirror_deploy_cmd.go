@@ -4,7 +4,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"github.com/educates/educates-training-platform/client-programs/pkg/config"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/registry"
 )
 
@@ -29,17 +29,20 @@ type LocalMirrorDeployOptions struct {
 	MirrorURL  string
 	Username   string
 	Password   string
+	Verbose    bool
 }
 
 func (o *LocalMirrorDeployOptions) Run() error {
-	mirrorConfig := &config.RegistryMirrorConfig{
+	mirrorConfig := &registry.MirrorConfig{
 		Mirror:   o.MirrorName,
 		URL:      o.MirrorURL,
 		Username: o.Username,
 		Password: o.Password,
 	}
 
-	err := registry.DeployMirrorAndLinkToCluster(mirrorConfig)
+	err := stepOnStdout(o.Verbose, "registry mirror "+o.MirrorName, "ready", func(s progress.Step) error {
+		return registry.DeployMirrorAndLinkToCluster(mirrorConfig, s)
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "failed to deploy registry mirror")
@@ -52,7 +55,7 @@ func (p *ProjectInfo) NewLocalMirrorDeployCmd() *cobra.Command {
 	var o LocalMirrorDeployOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.ExactArgs(1),
+		Args:  exactArgs(1, "mirror name is required", "NAME"),
 		Use:   "deploy NAME",
 		Short: "Deploys a local image registry mirror",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -81,6 +84,13 @@ func (p *ProjectInfo) NewLocalMirrorDeployCmd() *cobra.Command {
 		"password",
 		"",
 		"Password for the registry mirror",
+	)
+
+	c.Flags().BoolVar(
+		&o.Verbose,
+		"verbose",
+		false,
+		"show per-step detail instead of a single collapsed line",
 	)
 
 	return c

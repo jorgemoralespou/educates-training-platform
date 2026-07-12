@@ -1,0 +1,6 @@
+# Values for the remote-access subchart.
+#
+# This subchart has no configurable knobs in v0.1.0 — it produces a fixed
+# set of resources (ServiceAccount, long-lived token Secret, ClusterRole,
+# ClusterRoleBinding). Enable/disable is controlled by the umbrella's
+# `remote-access.enabled` value.

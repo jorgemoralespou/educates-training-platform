@@ -84,13 +84,13 @@ In the context of Educates, where it is necessary to control access for differen
 
 If Kyverno is not installed or enabled, enforcement of any security policies to workshops cannot be done for any extra restrictions which are required. If deploying Educates where there is no workshop security policy enforcement being performed, you should never allow access to workshops to untrusted users.
 
-Carvel package installation
+Installing cluster services
 ---------------------------
 
-The installation method for Educates relies on the [Carvel](https://carvel.dev/) packaging system. You have two options for installing Educates into an existing Kubernetes cluster.
+The services discussed above — an ingress controller, certificate management, a policy engine — can either be installed for you or supplied by you, depending on the mode of the installation.
 
-The first option is to use the `educates` CLI to deploy Educates and any required services to the Kubernetes cluster. In this case, although Educates uses the Carvel packaging system, you do not need the Carvel tools installed on your local host computer, nor do you need to have the Carvel [kapp-controller](https://carvel.dev/kapp-controller/) operator pre-installed into the Kubernetes cluster.
+In **Managed mode**, the Educates operator installs and manages cert-manager, Contour, external-dns and Kyverno itself, from charts bundled with the operator. This is the right choice for a fresh, dedicated cluster and is what the `EducatesLocalConfig`, `EducatesGKEConfig` and `EducatesEKSConfig` configuration kinds use.
 
-The second option, and one which may be more suitable if setting up clusters to run Educates as part of a GitOps or CI/CD based installation process, is to have `kapp-controller` pre-installed into the Kubernetes cluster and use it to install Educates and any required services.
+In **Inline mode**, you declare the pre-existing equivalents (your IngressClass, your wildcard TLS certificate Secret, your policy engine) and the operator validates and consumes them without installing anything at cluster scope. This is the right choice for OpenShift or any cluster whose ingress and certificates are managed centrally, and is what the `EducatesInlineConfig` configuration kind uses.
 
-If using Tanzu Kubernetes Grid (TKG) or Tanzu Mission Control (TMC), `kapp-controller` will already exist upon the Kubernetes cluster being created, however, for other Kubernetes distributions you will need to install `kapp-controller` yourself if wanting to use it to install Educates.
+See [installation instructions](installation-instructions) for how the two modes fit into the overall install, and [configuration settings](configuration-settings) for the configuration reference.

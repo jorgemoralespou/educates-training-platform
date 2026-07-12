@@ -6,20 +6,44 @@ from .helpers import xget
 
 from .operator_config import (
     LOFTSH_VCLUSTER_IMAGE,
-    LOFTSH_KUBERNETES_V1_31_IMAGE,
-    LOFTSH_KUBERNETES_V1_32_IMAGE,
     LOFTSH_KUBERNETES_V1_33_IMAGE,
     LOFTSH_KUBERNETES_V1_34_IMAGE,
+    LOFTSH_KUBERNETES_V1_35_IMAGE,
+    LOFTSH_KUBERNETES_V1_36_IMAGE,
+    VCLUSTER_INTERNAL_CONTOUR_IMAGE,
+    VCLUSTER_INTERNAL_ENVOY_IMAGE,
     CLUSTER_STORAGE_GROUP,
 )
 
-K8S_DEFAULT_VERSION = "1.33"
+# The Contour manifests in packages/contour/upstream pin specific upstream
+# image refs. Rewrite them to the refs from the imageVersions inventory so
+# the inventory entry — and any air-gap relocation override of it — is what
+# actually gets deployed into the vcluster, mirroring how the loft-sh
+# images are sourced.
+CONTOUR_IMAGE_REPOSITORIES = {
+    "ghcr.io/projectcontour/contour": VCLUSTER_INTERNAL_CONTOUR_IMAGE,
+    "docker.io/envoyproxy/envoy": VCLUSTER_INTERNAL_ENVOY_IMAGE,
+}
+
+
+def relocate_contour_images(objects):
+    for obj in objects:
+        pod_spec = xget(obj, "spec.template.spec", {})
+        for key in ("initContainers", "containers"):
+            for container in pod_spec.get(key, []):
+                image = container.get("image")
+                if image is None:
+                    continue
+                repository = image.rsplit(":", 1)[0]
+                container["image"] = CONTOUR_IMAGE_REPOSITORIES.get(repository, image)
+
+K8S_DEFAULT_VERSION = "1.36"
 
 K8S_VERSIONS = {
-    "1.31": LOFTSH_KUBERNETES_V1_31_IMAGE,
-    "1.32": LOFTSH_KUBERNETES_V1_32_IMAGE,
     "1.33": LOFTSH_KUBERNETES_V1_33_IMAGE,
     "1.34": LOFTSH_KUBERNETES_V1_34_IMAGE,
+    "1.35": LOFTSH_KUBERNETES_V1_35_IMAGE,
+    "1.36": LOFTSH_KUBERNETES_V1_36_IMAGE,
 }
 
 # Scenarios
@@ -171,6 +195,8 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                             port.pop("hostPort", None)
 
                 contour_objects.append(obj)
+
+        relocate_contour_images(contour_objects)
 
         vcluster_objects.extend(contour_objects)
 
@@ -358,6 +384,17 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                 "config.yaml": yaml.dump(vcluster_config),
             },
         },
+        # The ClusterRole/Role objects below grant the vcluster
+        # ServiceAccount the host-cluster access vcluster needs.
+        # session-manager can only CREATE them if it already HOLDS every
+        # permission they grant (Kubernetes privilege-escalation
+        # prevention). Those held permissions come from the
+        # `educates-session-manager:vcluster` ClusterRole in the chart
+        # (installer/charts/educates-training-platform/charts/session-manager/
+        # templates/clusterroles.yaml). If you add or change a rule here,
+        # mirror it there, or vcluster session creation fails with a 403
+        # "attempting to grant RBAC permissions not currently held"
+        # (unless session-manager runs with clusterAdmin: true).
         {
             "apiVersion": "rbac.authorization.k8s.io/v1",
             "kind": "ClusterRole",
@@ -416,14 +453,39 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                     ],
                 },
                 {
+                    # patch/update-only pod subresources the vcluster 0.35.2
+                    # syncer needs (in-place resize + ephemeral containers).
                     "apiGroups": [""],
-                    "resources": ["events", "pods/log"],
+                    "resources": ["pods/ephemeralcontainers", "pods/resize"],
+                    "verbs": ["patch", "update"],
+                },
+                {
+                    "apiGroups": [""],
+                    "resources": ["events"],
+                    "verbs": ["create", "get", "list", "watch"],
+                },
+                {
+                    "apiGroups": ["events.k8s.io"],
+                    "resources": ["events"],
+                    "verbs": ["create", "get", "list", "watch"],
+                },
+                {
+                    "apiGroups": [""],
+                    "resources": ["pods/log"],
                     "verbs": ["get", "list", "watch"],
                 },
                 {
                     "apiGroups": ["discovery.k8s.io"],
                     "resources": ["endpointslices"],
-                    "verbs": ["get", "list", "watch", "update"],
+                    "verbs": [
+                        "create",
+                        "delete",
+                        "get",
+                        "list",
+                        "patch",
+                        "update",
+                        "watch",
+                    ],
                 },
                 {
                     "apiGroups": ["networking.k8s.io"],
@@ -441,7 +503,7 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                 {
                     "apiGroups": ["apps"],
                     "resources": ["statefulsets", "replicasets", "deployments"],
-                    "verbs": ["get", "list", "watch"],
+                    "verbs": ["get", "list", "watch", "patch", "update"],
                 },
             ],
         },
@@ -472,6 +534,12 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                 "name": "my-vcluster",
                 "namespace": "$(session_namespace)",
             },
+            # This Role is deliberately narrower than the one in the "-vc"
+            # namespace: it has no pods/status, so it is not the vcluster
+            # syncer's pod sync-target and does not carry the syncer's
+            # host-side sync permissions (pod subresources, endpointslices).
+            # If a vcluster upgrade makes the syncer manage pods here, mirror
+            # the "-vc" Role's rules (see the educates-upgrade-vcluster skill).
             "rules": [
                 {
                     "apiGroups": [""],
@@ -566,6 +634,9 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
             "metadata": {
                 "name": "my-vcluster",
                 "namespace": "$(session_namespace)-vc",
+                # vcluster looks its own Service up by this label to resolve the
+                # in-cluster kubernetes Service ClusterIP.
+                "labels": {"vcluster.loft.sh/service": "true"},
             },
             "spec": {
                 "type": "ClusterIP",
@@ -594,6 +665,7 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                 "namespace": "$(session_namespace)-vc",
             },
             "spec": {
+                "publishNotReadyAddresses": True,
                 "ports": [
                     {
                         "name": "https",
@@ -615,6 +687,8 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
             },
             "spec": {
                 "serviceName": "my-vcluster-headless",
+                "podManagementPolicy": "Parallel",
+                "persistentVolumeClaimRetentionPolicy": {"whenDeleted": "Retain"},
                 "replicas": 1,
                 "selector": {
                     "matchLabels": {"app": "vcluster", "release": "my-vcluster"}
@@ -634,7 +708,8 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                         "labels": {"app": "vcluster", "release": "my-vcluster"}
                     },
                     "spec": {
-                        "terminationGracePeriodSeconds": 10,
+                        "terminationGracePeriodSeconds": 15,
+                        "enableServiceLinks": True,
                         "nodeSelector": {},
                         "affinity": {},
                         "tolerations": [],
@@ -704,6 +779,13 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                                     "timeoutSeconds": 3,
                                     "failureThreshold": 300,
                                 },
+                                # Educates runs the vcluster control plane as a
+                                # non-root user. vcluster's own Helm chart renders
+                                # this container as root (runAsUser 0); we keep the
+                                # hardened non-root settings. If the control plane
+                                # misbehaves after a vcluster version bump, revisit
+                                # whether running non-root is still supported
+                                # upstream (see the educates-upgrade-vcluster skill).
                                 "securityContext": {
                                     "allowPrivilegeEscalation": False,
                                     "runAsNonRoot": True,
@@ -723,6 +805,7 @@ def vcluster_session_objects_list(workshop_spec, application_properties):
                                 },
                                 "env": [
                                     {"name": "VCLUSTER_NAME", "value": "my-vcluster"},
+                                    {"name": "LOFT_LOG_ENCODING", "value": "console"},
                                     {
                                         "name": "POD_NAME",
                                         "valueFrom": {

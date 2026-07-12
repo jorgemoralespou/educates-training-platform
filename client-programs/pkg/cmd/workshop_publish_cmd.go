@@ -36,7 +36,7 @@ func (p *ProjectInfo) NewWorkshopPublishCmd() *cobra.Command {
 	var o workshops.FilesPublishOptions
 
 	var c = &cobra.Command{
-		Args:    cobra.MaximumNArgs(1),
+		Args:    maximumArgs(1, "expected at most one PATH argument", "[PATH]"),
 		Use:     "publish [PATH]",
 		Short:   "Publish workshop files to repository",
 		RunE:    func(cmd *cobra.Command, args []string) error { return o.Run(args) },

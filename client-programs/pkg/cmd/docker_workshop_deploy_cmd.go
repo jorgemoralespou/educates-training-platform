@@ -29,6 +29,14 @@ import (
 	"sigs.k8s.io/kind/pkg/cmd"
 )
 
+var dockerWorkshopDeployExample = `
+  # Deploy the workshop in the current directory to Docker:
+  educates docker workshop deploy
+
+  # Deploy a workshop from a path on a specific host and port:
+  educates docker workshop deploy --file ./my-workshop --host localhost --port 10081
+`
+
 type DockerWorkshopDeployOptions struct {
 	Path               string
 	Host               string
@@ -456,10 +464,11 @@ func (p *ProjectInfo) NewDockerWorkshopDeployCmd() *cobra.Command {
 	var o DockerWorkshopDeployOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "deploy",
-		Short: "Deploy workshop to Docker",
-		RunE:  func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
+		Args:    cobra.NoArgs,
+		Use:     "deploy",
+		Short:   "Deploy workshop to Docker",
+		Example: dockerWorkshopDeployExample,
+		RunE:    func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
 	}
 
 	c.Flags().StringVarP(

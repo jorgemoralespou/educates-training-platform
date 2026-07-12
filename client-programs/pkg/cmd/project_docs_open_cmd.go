@@ -8,14 +8,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var projectDocsOpenExample = `
+  # Open the Educates documentation in a browser:
+  educates project docs open
+`
+
 /*
 Create Cobra command object for opening hosted docs in browser.
 */
 func (p *ProjectInfo) NewProjectDocsOpenCmd() *cobra.Command {
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "open",
-		Short: "Open browser on project documentation",
+		Args:    cobra.NoArgs,
+		Use:     "open",
+		Short:   "Open browser on project documentation",
+		Example: projectDocsOpenExample,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			var err error
 

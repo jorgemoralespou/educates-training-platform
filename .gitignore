@@ -3,9 +3,6 @@ __pycache__
 *.swp
 *.vsix
 .netlify
-/carvel-packages/installer/test-*.yaml
-/carvel-packages/installer/bundle/.imgpkg/images.yml
-/carvel-packages/installer/bundle/kbld/kbld-images.yaml
 /client-programs/bin
 /client-programs/pkg/renderer/files
 /developer-testing
@@ -34,3 +31,7 @@ vendor
 
 # AI Assistant specific files
 .cursor
+
+# Local-only agent working context (paired with committed AGENTS.md)
+CLAUDE.local.md
+

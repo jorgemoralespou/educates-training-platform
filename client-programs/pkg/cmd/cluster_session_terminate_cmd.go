@@ -3,11 +3,16 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/educatesrestapi"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
 )
+
+var clusterSessionTerminateExample = `
+  # Terminate a running workshop session:
+  educates cluster session delete my-session-name
+`
 
 type ClusterSessionTerminateOptions struct {
 	KubeconfigOptions
@@ -35,12 +40,7 @@ func (o *ClusterSessionTerminateOptions) Run() error {
 		return err
 	}
 
-	fmt.Println("Started:", details.Started)
-	fmt.Println("Expires:", details.Expires)
-	fmt.Println("Expiring:", details.Expiring)
-	fmt.Println("Countdown:", details.Countdown)
-	fmt.Println("Extendable:", details.Extendable)
-	fmt.Println("Status:", details.Status)
+	fmt.Println(printSessionDetails(details))
 
 	return nil
 }
@@ -49,10 +49,11 @@ func (p *ProjectInfo) NewClusterSessionTerminateCmd() *cobra.Command {
 	var o ClusterSessionTerminateOptions
 
 	var c = &cobra.Command{
-		Args:    cobra.ExactArgs(1),
+		Args:    exactArgs(1, "session name is required", "NAME"),
 		Use:     "delete NAME",
 		Aliases: []string{"terminate"},
 		Short:   "Terminate running session in Kubernetes",
+		Example: clusterSessionTerminateExample,
 		RunE:    func(_ *cobra.Command, args []string) error { o.Name = args[0]; return o.Run() },
 	}
 

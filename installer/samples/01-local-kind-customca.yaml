@@ -1,0 +1,37 @@
+# Local kind scenario: BundledCertManager + CustomCA + BundledContour.
+# No external DNS; no policy enforcement. The shortest path to a working
+# Managed-mode install — useful for smoke tests on a developer machine.
+#
+# Prerequisite: a TLS Secret in the operator namespace whose tls.crt and
+# tls.key form a CA the workshop client trusts (self-signed is fine for
+# local development). The operator copies it into cert-manager's
+# namespace and the wildcard ClusterIssuer signs from it.
+#
+#   kubectl -n educates-installer create secret tls educates-custom-ca \
+#     --cert=ca.crt --key=ca.key
+---
+apiVersion: config.educates.dev/v1alpha1
+kind: EducatesClusterConfig
+metadata:
+  name: cluster
+spec:
+  mode: Managed
+  ingress:
+    domain: educates.test
+    ingressClassName: contour
+    controller:
+      provider: BundledContour
+    certificates:
+      provider: BundledCertManager
+      bundledCertManager:
+        issuerType: CustomCA
+        customCA:
+          caCertificateRef:
+            name: educates-custom-ca
+  policyEnforcement:
+    clusterPolicy:
+      engine: Kyverno
+    workshopPolicy:
+      engine: Kyverno
+    kyverno:
+      provider: Bundled

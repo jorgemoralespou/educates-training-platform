@@ -1,1 +1,0 @@
-kind with imagePuller enabled

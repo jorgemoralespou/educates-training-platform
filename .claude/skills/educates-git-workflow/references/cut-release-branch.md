@@ -50,4 +50,6 @@ Then, gated:
 
 From this point alpha/beta tags stop (those belong to `develop` before the freeze) and
 rc tags happen here. Remind the user that fixes to this release now follow the
-stabilization-fix workflow.
+stabilization-fix workflow, and that the version bump (`make release-prep
+VERSION=X.Y.Z`, committed on this branch) is an early stabilization step — see the
+stabilization-fix reference.

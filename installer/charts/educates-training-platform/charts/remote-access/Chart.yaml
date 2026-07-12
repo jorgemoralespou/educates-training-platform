@@ -1,0 +1,13 @@
+apiVersion: v2
+name: remote-access
+description: |
+  Read-only ServiceAccount, ClusterRole, and long-lived
+  service-account-token Secret used by external clients (e.g., the
+  `educates` CLI used against a remote cluster) to discover
+  training.educates.dev resources. Independently toggleable so that
+  installs which need cross-cluster CLI access can opt in without
+  pulling in the lookup-service component.
+type: application
+version: 4.0.0-alpha.1
+appVersion: "3.7.1"
+kubeVersion: ">=1.31.0-0"

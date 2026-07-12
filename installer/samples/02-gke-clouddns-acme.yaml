@@ -1,0 +1,59 @@
+# GKE production scenario: BundledCertManager + ACME-DNS01 (CloudDNS)
+# + BundledContour + BundledExternalDNS + Bundled Kyverno.
+#
+# Authentication is Workload Identity throughout — no static credentials.
+# Two GCP service accounts are needed: one bound to the cert-manager K8s
+# SA for ACME DNS01 challenges, one bound to the external-dns K8s SA
+# for record management. Bind each with:
+#
+#   gcloud iam service-accounts add-iam-policy-binding \
+#     <gcp-sa-email> --role roles/iam.workloadIdentityUser \
+#     --member "serviceAccount:<project>.svc.id.goog[<ns>/<k8s-sa>]"
+#
+# Grant each the `roles/dns.admin` role at the project (or per-zone) level.
+#
+# For testing without hitting Let's Encrypt production rate limits,
+# uncomment the staging server line below.
+---
+apiVersion: config.educates.dev/v1alpha1
+kind: EducatesClusterConfig
+metadata:
+  name: cluster
+spec:
+  mode: Managed
+  ingress:
+    domain: academy-01.google.educates.dev
+    ingressClassName: contour
+    controller:
+      provider: BundledContour
+      bundledContour:
+        envoyServiceType: LoadBalancer
+    certificates:
+      provider: BundledCertManager
+      bundledCertManager:
+        issuerType: ACME
+        acme:
+          email: ops@example.com
+          # server: https://acme-staging-v02.api.letsencrypt.org/directory
+          solvers:
+            dns01:
+              provider: CloudDNS
+              cloudDNS:
+                project: my-gcp-project
+                workloadIdentityServiceAccount: cert-manager@my-gcp-project.iam.gserviceaccount.com
+  dns:
+    provider: BundledExternalDNS
+    bundledExternalDNS:
+      provider: CloudDNS
+      sources:
+        - service
+      cloudDNS:
+        project: my-gcp-project
+        workloadIdentityServiceAccount: external-dns@my-gcp-project.iam.gserviceaccount.com
+  policyEnforcement:
+    clusterPolicy:
+      engine: Kyverno
+    workshopPolicy:
+      engine: Kyverno
+    kyverno:
+      provider: Bundled

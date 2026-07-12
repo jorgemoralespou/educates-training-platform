@@ -1,0 +1,41 @@
+name: Client Programs CI
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'client-programs/**'
+      - 'installer/charts/educates-installer/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/client-programs-ci.yaml'
+  pull_request:
+    paths:
+      - 'client-programs/**'
+      - 'installer/charts/educates-installer/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/client-programs-ci.yaml'
+
+jobs:
+  ci:
+    name: Build, vet, test, drift checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: client-programs/go.mod
+          cache-dependency-path: |
+            go.work.sum
+            client-programs/go.sum
+
+      # Single source of truth: `make ci-cli` runs exactly the checks
+      # this job gates — theme-file staging, go vet/build/test, and the
+      # embedded-chart + CLI-schema drift checks. Edit the Makefile, not
+      # this list, so local `make ci` and CI never drift apart. See
+      # developer-docs/build-instructions.md.
+      - name: make ci-cli
+        run: make ci-cli

@@ -1,0 +1,36 @@
+# Values for `helm install -f <this>` against the v4 chart.
+#
+# The wildcard TLS Secret was issued by cert-manager via the certs
+# package and lands at `educates-secrets/educateswildcard`. The CA is
+# at `educates-secrets/local-root-ca`. Cross-namespace ingress refs
+# auto-derive the SecretCopier rules pulling both into the operator
+# namespace.
+
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+global:
+  clusterIngress:
+    domain: ${DOMAIN}
+    tlsCertificateRef:
+      name: educateswildcard
+      namespace: educates-secrets
+    caCertificateRef:
+      name: local-root-ca
+      namespace: educates-secrets
+
+session-manager:
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret

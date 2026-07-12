@@ -1,0 +1,40 @@
+apiVersion: training.educates.dev/v1beta1
+kind: Workshop
+metadata:
+  name: lab-node-ca-pull
+spec:
+  title: Node CA injection — image pull
+  description: Verify the cluster's containerd trusts the workshop wildcard CA by building, pushing, and deploying an image through the per-session registry.
+  duration: 10m
+  difficulty: beginner
+  publish:
+    image: "$(image_repository)/lab-node-ca-pull-files:$(workshop_version)"
+    files:
+      - directory:
+          path: .
+        includePaths:
+          - /workshop/**
+          - /exercises/**
+          - /README.md
+  workshop:
+    files:
+      - image:
+          url: "$(image_repository)/lab-node-ca-pull-files:$(workshop_version)"
+  session:
+    namespaces:
+      budget: medium
+      security:
+        # Workshop uses kubectl to create the Deployment that pulls from the
+        # per-session registry — Kubernetes access is the whole test surface.
+        token:
+          enabled: true
+    applications:
+      terminal:
+        enabled: true
+        layout: split
+      editor:
+        enabled: true
+      docker:
+        enabled: true
+      registry:
+        enabled: true

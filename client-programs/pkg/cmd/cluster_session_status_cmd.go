@@ -3,11 +3,31 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/pkg/errors"
-	"github.com/spf13/cobra"
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/educatesrestapi"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+	"github.com/pkg/errors"
+	"github.com/spf13/cobra"
 )
+
+// printSessionDetails renders a workshop session's details as an aligned
+// "Key: value" table. Shared by the session status, extend, and terminate
+// commands, which all report the same fields.
+func printSessionDetails(details *educatesrestapi.WorkshopSessionDetails) string {
+	return utils.PrintKeyValuesTable([][]string{
+		{"Started", details.Started},
+		{"Expires", details.Expires},
+		{"Expiring", fmt.Sprintf("%t", details.Expiring)},
+		{"Countdown", fmt.Sprintf("%d", details.Countdown)},
+		{"Extendable", fmt.Sprintf("%t", details.Extendable)},
+		{"Status", details.Status},
+	})
+}
+
+var clusterSessionStatusExample = `
+  # Show the status of a workshop session:
+  educates cluster session status my-session-name
+`
 
 type ClusterSessionStatusOptions struct {
 	KubeconfigOptions
@@ -35,12 +55,7 @@ func (o *ClusterSessionStatusOptions) Run() error {
 		return err
 	}
 
-	fmt.Println("Started:", details.Started)
-	fmt.Println("Expires:", details.Expires)
-	fmt.Println("Expiring:", details.Expiring)
-	fmt.Println("Countdown:", details.Countdown)
-	fmt.Println("Extendable:", details.Extendable)
-	fmt.Println("Status:", details.Status)
+	fmt.Println(printSessionDetails(details))
 
 	return nil
 }
@@ -49,10 +64,11 @@ func (p *ProjectInfo) NewClusterSessionStatusCmd() *cobra.Command {
 	var o ClusterSessionStatusOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.ExactArgs(1),
-		Use:   "status NAME",
-		Short: "Output status of session in Kubernetes",
-		RunE:  func(_ *cobra.Command, args []string) error { o.Name = args[0]; return o.Run() },
+		Args:    exactArgs(1, "session name is required", "NAME"),
+		Use:     "status NAME",
+		Short:   "Output status of session in Kubernetes",
+		Example: clusterSessionStatusExample,
+		RunE:    func(_ *cobra.Command, args []string) error { o.Name = args[0]; return o.Run() },
 	}
 
 	c.Flags().StringVar(

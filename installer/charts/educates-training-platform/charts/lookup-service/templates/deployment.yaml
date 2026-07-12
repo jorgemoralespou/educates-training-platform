@@ -1,0 +1,85 @@
+{{- $ci := include "lookup-service.resolvedClusterIngress" . | fromYaml -}}
+{{- $caRef := default dict $ci.caCertificateRef -}}
+{{- $caEnabled := and $caRef.name true -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lookup-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "lookup-service.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lookup-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lookup-service.labels" . | nindent 8 }}
+        {{- include "lookup-service.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: lookup-service
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $caEnabled }}
+      # ca-trust-store init container reuses the main lookup-service image
+      # (Fedora-based: has `update-ca-trust` and `tar`). Mirrors v3's
+      # overlay-ca-injector.yaml mechanism with no extra image pull.
+      initContainers:
+        - name: ca-trust-store-initialization
+          image: "{{ include "lookup-service.image.repository" . }}:{{ include "lookup-service.image.tag" . }}"
+          imagePullPolicy: {{ include "lookup-service.image.pullPolicy" . }}
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+          command: ["/bin/bash", "-c"]
+          args:
+            - "update-ca-trust && tar -C /etc/pki/ca-trust -cf - . | tar -C /mnt -xf -"
+          volumeMounts:
+            - name: cluster-ca
+              mountPath: /etc/pki/ca-trust/source/anchors/Cluster_Ingress_CA.pem
+              subPath: ca.crt
+            - name: cluster-ca-trust
+              mountPath: /mnt
+      {{- end }}
+      containers:
+        - name: lookup-service
+          image: "{{ include "lookup-service.image.repository" . }}:{{ include "lookup-service.image.tag" . }}"
+          imagePullPolicy: {{ include "lookup-service.image.pullPolicy" . }}
+          ports:
+            - containerPort: 8080
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.remoteAccessTokenMount.enabled $caEnabled }}
+          volumeMounts:
+            {{- if .Values.remoteAccessTokenMount.enabled }}
+            - name: cluster-access-token
+              mountPath: /opt/cluster-access-token
+            {{- end }}
+            {{- if $caEnabled }}
+            - name: cluster-ca-trust
+              mountPath: /etc/pki/ca-trust
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.remoteAccessTokenMount.enabled $caEnabled }}
+      volumes:
+        {{- if .Values.remoteAccessTokenMount.enabled }}
+        - name: cluster-access-token
+          secret:
+            secretName: remote-access-token
+        {{- end }}
+        {{- if $caEnabled }}
+        - name: cluster-ca
+          secret:
+            secretName: {{ $caRef.name | quote }}
+        - name: cluster-ca-trust
+          emptyDir: {}
+        {{- end }}
+      {{- end }}

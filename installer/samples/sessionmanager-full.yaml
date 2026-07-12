@@ -1,0 +1,128 @@
+# SessionManager with every *supported* spec field populated. See
+# sessionmanager.yaml for the minimal form and the apply-order
+# prerequisites (EducatesClusterConfig AND SecretsManager must be Ready
+# first).
+#
+# Reserved-but-rejected surface (present in the CRD schema, refused by
+# the reconciler with "not yet supported in v1alpha1"):
+#
+#   - spec.defaultAccessCredentials
+#   - spec.registryMirrors
+#   - spec.themes[].source.type: ConfigMap | URL (Secret only for now)
+#
+# Prerequisites for the references used below (besides the two Ready
+# gates): the override TLS/CA Secrets must exist in the operator
+# namespace, and each theme Secret must exist in its stated namespace
+# (the runtime chart auto-creates a SecretCopier when that namespace
+# differs from the release namespace).
+---
+apiVersion: platform.educates.dev/v1alpha1
+kind: SessionManager
+metadata:
+  name: cluster
+spec:
+  # Overrides of the cluster-wide ingress contract for the bare-domain
+  # hostnames session-manager serves directly. protocol: https asserts
+  # external TLS termination (load balancer or proxy forwarding plain
+  # HTTP inward) so generated portal/workshop URLs stay https.
+  ingressOverrides:
+    tlsSecretRef:
+      name: sessions-wildcard-tls
+    caCertificateSecretRef:
+      name: sessions-wildcard-ca
+    protocol: https
+
+  # Local override of
+  # EducatesClusterConfig.status.policyEnforcement.workshopPolicyEngine.
+  # Kyverno | None
+  workshopPolicyOverride:
+    engine: Kyverno
+
+  # Per-image overrides merged BY NAME on top of the chart's default
+  # image inventory. Registry prefix and pull secrets are inherited
+  # from EducatesClusterConfig.status.imageRegistry.
+  images:
+    overrides:
+      - name: training-portal
+        image: ghcr.io/educates/educates-training-portal:4.0.0
+      - name: base-environment
+        image: registry.internal.example.com/educates/base-environment@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+  # Named themes available to TrainingPortals. Secret is the only
+  # supported source type in v1alpha1.
+  themes:
+    - name: corporate
+      source:
+        type: Secret
+        secretRef:
+          name: corporate-theme
+          namespace: themes-source
+    - name: conference
+      source:
+        type: Secret
+        secretRef:
+          name: conference-theme
+          namespace: themes-source
+  # Must match a themes[].name entry.
+  defaultTheme: corporate
+
+  tracking:
+    googleAnalytics:
+      trackingId: G-XXXXXXXXXX
+    amplitude:
+      trackingId: amp-0123456789
+    clarity:
+      trackingId: clarity-012345
+    webhook:
+      url: https://analytics.example.com/educates/events
+
+  # Cookie domain for cross-subdomain authentication. Empty means "use
+  # the ingress domain".
+  sessionCookieDomain: workshops.example.com
+
+  # CSP frame-ancestors — hosts allowed to embed workshop frames.
+  allowedEmbeddingHosts:
+    - https://portal.example.com
+    - https://lms.example.com
+
+  storage:
+    storageClass: standard
+    storageGroup: 1
+    storageUser: 1001
+
+  network:
+    # MTU for workshop session networking (minimum 576).
+    packetSize: 1400
+    # CIDRs workshop sessions are denied access to (cloud metadata
+    # endpoints by default).
+    blockedCidrs:
+      - "169.254.169.254/32"
+      - "fd00:ec2::254/128"
+
+  # Pre-pull workshop images on every node. Toggle only — the image
+  # list is chart-derived (training-portal + base-environment).
+  imagePrePuller:
+    enabled: true
+
+  # debug | info | warn | error (default info)
+  logLevel: debug
+
+  # node-ca-injector subchart. Auto (default) installs only when the
+  # cluster config publishes a CA Secret ref; Enabled forces it
+  # (refusing if no CA is configured); Disabled keeps it uninstalled.
+  nodeCATrust:
+    mode: Enabled
+
+  # remote-access subchart. Auto (default) installs only when a
+  # LookupService CR exists; Enabled/Disabled override that signal.
+  remoteAccess:
+    mode: Enabled
+
+  # Rejected in v1alpha1 — kept here for shape reference only:
+  # defaultAccessCredentials:
+  #   username: educates
+  #   passwordSecretRef:
+  #     name: default-access-password
+  # registryMirrors:
+  #   - mirror: docker.io
+  #     url: https://mirror.internal.example.com

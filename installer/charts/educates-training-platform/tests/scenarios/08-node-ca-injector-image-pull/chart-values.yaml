@@ -1,0 +1,43 @@
+# Scenario 08 — node-ca-injector image-pull validation.
+#
+# Same TLS+CA setup as scenario 02 (wildcard cert + CA in `educates-secrets`,
+# auto-derived SecretCopier + ca-trust-store init container in chart pods),
+# plus the `node-ca-injector` subchart enabled. The scenario-local workshop
+# under `./workshop/` exercises the per-session registry: build a tiny
+# image, push to the registry (HTTPS via the wildcard cert), then create a
+# Deployment that pulls from that registry. The deployment's rollout
+# completes only if containerd on the kind node trusts the wildcard CA —
+# i.e., node-ca-injector wired things up.
+
+lookup-service:
+  enabled: false
+remote-access:
+  enabled: false
+
+global:
+  clusterIngress:
+    domain: ${DOMAIN}
+    tlsCertificateRef:
+      name: wildcard-tls
+      namespace: educates-secrets
+    caCertificateRef:
+      name: wildcard-ca
+      namespace: educates-secrets
+
+# Subject under test.
+node-ca-injector:
+  enabled: true
+
+session-manager:
+  trainingPortal:
+    credentials:
+      admin:
+        username: educates
+        password: educates
+      robot:
+        username: robot@educates
+        password: robot
+    clients:
+      robot:
+        id: robot-client-id
+        secret: robot-client-secret

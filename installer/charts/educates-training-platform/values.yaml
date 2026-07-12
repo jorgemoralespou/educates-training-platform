@@ -1,0 +1,82 @@
+# Top-level values for the educates-training-platform umbrella chart.
+#
+# Each subchart can be toggled independently. When disabled, the subchart's
+# resources are not rendered.
+#
+# Subchart-specific configuration goes under the subchart's key. The shape
+# of those subkeys is defined by each subchart's own values.yaml.
+
+# =============================================================================
+# Cross-cutting globals (Helm `global:` propagation)
+# =============================================================================
+#
+# Every subchart sees these as `.Values.global.<key>`. Use these for values
+# that should be consistent across all enabled subcharts:
+#
+#   - `clusterIngress` — domain, ingress class, protocol, and TLS / CA
+#     references. Subcharts that render Pods which need TLS-verify the
+#     cluster's ingress (session-manager, lookup-service) consume the CA
+#     ref to inject a CA trust store. Subcharts that render Ingress
+#     resources (lookup-service) consume the TLS ref + class.
+#   - `clusterSecurity.policyEngine` — `Kyverno`, `PodSecurityStandards`,
+#     `OpenShiftSCC`, or `None`. Drives the Kyverno cluster-policy install
+#     in session-manager AND the SCC ClusterRoleBindings in session-manager
+#     and secrets-manager.
+#   - `development.imageRegistry` — local-development override; leave empty
+#     in normal use. Each subchart's image refs default to the publish-time
+#     values baked into Chart.yaml annotations
+#     (`educates.dev/image-registry-host` / `-namespace`). Set this only
+#     when working against a non-default registry (local builds at
+#     localhost:5001, a personal mirror, etc.). Same setting also drives
+#     the `IMAGE_REPOSITORY` env var workshop sessions see for resolving
+#     `$(image_repository)` content placeholders.
+#
+# Each entry is empty by default — subchart-local defaults apply when a
+# global key is unset. Globals win when set (deep-merged on top of subchart
+# locals; per-leaf override).
+global:
+  development: {}
+    # imageRegistry:
+    #   host: "localhost:5001"
+    #   namespace: "educates"
+
+  clusterIngress: {}
+    # domain: "workshops.example.com"
+    # class: ""
+    # protocol: ""    # auto-derived from tlsCertificateRef when empty
+    # tlsCertificateRef:
+    #   name: ""
+    #   namespace: ""
+    # caCertificateRef:
+    #   name: ""
+    #   namespace: ""
+
+  clusterSecurity: {}
+    # policyEngine: Kyverno
+
+secrets-manager:
+  enabled: true
+
+lookup-service:
+  enabled: true
+
+# `remote-access` provides read-only RBAC for external CLI clients
+# (e.g., `educates` CLI) against training.educates.dev resources.
+# lookup-service references the remote-access-token Secret when serving
+# the local cluster as a ClusterConfig target; disable only if neither
+# need applies.
+remote-access:
+  enabled: true
+
+session-manager:
+  enabled: true
+
+# `node-ca-injector` renders a privileged per-node DaemonSet that writes
+# containerd registry-CA configuration into /etc/containerd/certs.d on
+# every node. Off by default; opt in only when a private/self-signed CA is
+# in use AND containerd-level trust is required (e.g., image pulls from a
+# private registry behind that CA). Per-pod CA trust is handled separately
+# by the ca-trust-store init container in session-manager and lookup-
+# service.
+node-ca-injector:
+  enabled: false

@@ -1,0 +1,73 @@
+# Inline-mode scenario (BYO cluster services).
+#
+# Inline mode is for clusters where the cluster operator has already
+# installed and operates cert-manager / an ingress controller / a policy
+# engine, and Educates should consume those rather than installing its
+# own. The CRD draft calls this Scenario E. OpenShift is the canonical
+# example — the cluster ships with Routes/Contour, an OpenShift-native
+# cert workflow, and OpenShift Security Context Constraints — so this
+# sample uses an OpenShift-flavoured set of values.
+#
+# Differences vs Managed mode:
+#
+# - `spec.mode: Inline` — switches the entire resolution model.
+# - The top-level Managed fields (`infrastructure`, `ingress`, `dns`,
+#   `policyEnforcement`, `imageRegistry`) are forbidden by CEL.
+# - Everything lives under `spec.inline`: the user *asserts* that
+#   the referenced TLS Secret, IngressClass, and policy engines
+#   already exist. The operator validates the references and
+#   publishes them in status; it does not create anything in this
+#   mode.
+#
+# Prerequisites (must exist before applying this CR):
+#
+#   1. A kubernetes.io/tls Secret in the operator namespace whose
+#      cert is valid for `*.<domain>`:
+#
+#        kubectl -n educates-installer create secret tls \
+#          educates-wildcard-tls --cert=tls.crt --key=tls.key
+#
+#   2. Optional: a Secret with the issuing CA chain. Only needed
+#      when workshops need to trust the CA for outbound calls
+#      (private registry, internal APIs):
+#
+#        kubectl -n educates-installer create secret generic \
+#          educates-wildcard-ca --from-file=ca.crt=ca.pem
+#
+#   3. The named IngressClass must exist and route to a healthy
+#      controller. On OpenShift the typical name is `openshift-default`
+#      backed by the cluster Router (which fronts Routes; Educates
+#      uses Ingress with the same hostname routing semantics).
+#
+#   4. The cluster must already enforce the named policy engines.
+#      Educates does not install them in Inline mode.
+---
+apiVersion: config.educates.dev/v1alpha1
+kind: EducatesClusterConfig
+metadata:
+  name: cluster
+spec:
+  mode: Inline
+  inline:
+    ingress:
+      domain: workshops.example.com
+      ingressClassName: openshift-default
+      wildcardCertificateSecretRef:
+        name: educates-wildcard-tls
+      # Uncomment when workshops need to verify TLS against a private CA.
+      # caCertificateSecretRef:
+      #   name: educates-wildcard-ca
+      # Optional: name the ClusterIssuer that signed the wildcard cert
+      # (purely informational — components display it in status).
+      # clusterIssuerRef:
+      #   name: my-ca-issuer
+    policyEnforcement:
+      clusterPolicyEngine: OpenShiftSCC
+      workshopPolicyEngine: None
+    # Optional: declare an external image registry the cluster pulls
+    # workshop images from. Each pull secret listed must already exist
+    # in the operator namespace.
+    # imageRegistry:
+    #   prefix: registry.internal.example.com/educates
+    #   pullSecrets:
+    #     - name: internal-registry-pull

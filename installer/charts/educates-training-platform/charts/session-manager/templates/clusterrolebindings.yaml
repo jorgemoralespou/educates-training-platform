@@ -1,0 +1,123 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: educates-session-manager
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: educates-session-manager
+subjects:
+  - kind: ServiceAccount
+    name: session-manager
+    namespace: {{ .Release.Namespace }}
+---
+# Built-in `admin` ClusterRole binding. Preserved unchanged from v3 —
+# the runtime relies on this level of access in the spawned namespaces
+# the operator manages.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: educates-session-manager:admin
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: session-manager
+    namespace: {{ .Release.Namespace }}
+---
+# Kyverno policy management. The Kyverno-shipped
+# `kyverno:rbac:admin:policies` ClusterRole exists when Kyverno is
+# installed (the v4 default policy engine). Without Kyverno this binding
+# resolves to a non-existent role and grants nothing — harmless. It
+# covers the legacy kyverno.io ClusterPolicy group, used by the
+# deprecated workshop-provided ClusterPolicy path.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: educates-session-manager:kyverno-policies
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kyverno:rbac:admin:policies
+subjects:
+  - kind: ServiceAccount
+    name: session-manager
+    namespace: {{ .Release.Namespace }}
+---
+# Lets session-manager manage the per-environment ValidatingPolicy
+# objects in the new policies.kyverno.io group (the bundled workshop
+# rules are now ValidatingPolicy). Educates-owned role, so the binding is
+# always valid; inert without the Kyverno CRD.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: educates-session-manager:kyverno-validatingpolicies
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: educates-session-manager:kyverno-validatingpolicies
+subjects:
+  - kind: ServiceAccount
+    name: session-manager
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.clusterAdmin }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: educates-session-manager:cluster-admin
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: session-manager
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- $cs := include "session-manager.resolvedClusterSecurity" . | fromYaml }}
+{{- if eq $cs.policyEngine "OpenShiftSCC" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: educates-session-manager-scc
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: educates-baseline-scc
+subjects:
+  - kind: ServiceAccount
+    name: session-manager
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: educates-image-puller-scc
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+    app.kubernetes.io/component: image-puller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: educates-baseline-scc
+subjects:
+  - kind: ServiceAccount
+    name: image-puller
+    namespace: {{ .Release.Namespace }}
+{{- end }}

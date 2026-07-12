@@ -1,0 +1,429 @@
+package config
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
+)
+
+func TestLoad_EmptyLocalConfig_AppliesDefaults(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "local-empty.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	local, ok := cfg.(*v1alpha1.EducatesLocalConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesLocalConfig, got %T", cfg)
+	}
+
+	if got, want := local.Cluster.ListenAddress, "127.0.0.1"; got != want {
+		t.Errorf("ListenAddress = %q, want %q", got, want)
+	}
+	if local.ClusterAdmin == nil || *local.ClusterAdmin != true {
+		t.Errorf("ClusterAdmin = %v, want true", local.ClusterAdmin)
+	}
+	if local.LookupService == nil || *local.LookupService != true {
+		t.Errorf("LookupService = %v, want true", local.LookupService)
+	}
+	if local.ImagePrePuller == nil || *local.ImagePrePuller != true {
+		t.Errorf("ImagePrePuller = %v, want true", local.ImagePrePuller)
+	}
+	if got, want := local.Operator.LogLevel, "info"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
+	}
+}
+
+func TestLoad_FullLocalConfig_RoundTripsAllFields(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "local-full.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	local := cfg.(*v1alpha1.EducatesLocalConfig)
+
+	if got, want := local.Cluster.ListenAddress, "192.168.1.10"; got != want {
+		t.Errorf("ListenAddress = %q, want %q", got, want)
+	}
+	if got, want := local.Cluster.ApiServer.Port, 6443; got != want {
+		t.Errorf("ApiServer.Port = %d, want %d", got, want)
+	}
+	if got, want := len(local.Cluster.VolumeMounts), 1; got != want {
+		t.Fatalf("VolumeMounts len = %d, want %d", got, want)
+	}
+	if got, want := local.Cluster.VolumeMounts[0].HostPath, "/tmp/data"; got != want {
+		t.Errorf("VolumeMounts[0].HostPath = %q, want %q", got, want)
+	}
+	if local.ClusterAdmin == nil || *local.ClusterAdmin != false {
+		t.Errorf("ClusterAdmin = %v, want false (explicit override)", local.ClusterAdmin)
+	}
+	if got, want := local.Operator.LogLevel, "debug"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
+	}
+	if got, want := local.Ingress.Domain, "workshop.test"; got != want {
+		t.Errorf("Ingress.Domain = %q, want %q", got, want)
+	}
+	if got, want := len(local.Resolver.ExtraDomains), 2; got != want {
+		t.Errorf("ExtraDomains len = %d, want %d", got, want)
+	}
+	if got, want := local.WebsiteStyling.DefaultTheme, "my-theme-data"; got != want {
+		t.Errorf("WebsiteStyling.DefaultTheme = %q, want %q", got, want)
+	}
+}
+
+func TestLoad_LocalMultinodeConfig_ParsesNodes(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "local-multinode.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	local := cfg.(*v1alpha1.EducatesLocalConfig)
+
+	nodes := local.Cluster.Nodes
+	if got, want := len(nodes), 3; got != want {
+		t.Fatalf("Cluster.Nodes len = %d, want %d", got, want)
+	}
+
+	if got, want := nodes[0].Role, "control-plane"; got != want {
+		t.Errorf("nodes[0].Role = %q, want %q", got, want)
+	}
+	if got, want := nodes[0].Labels["tier"], "control"; got != want {
+		t.Errorf("nodes[0].Labels[tier] = %q, want %q", got, want)
+	}
+
+	if got, want := nodes[1].Role, "worker"; got != want {
+		t.Errorf("nodes[1].Role = %q, want %q", got, want)
+	}
+	if got, want := nodes[1].Labels["disktype"], "ssd"; got != want {
+		t.Errorf("nodes[1].Labels[disktype] = %q, want %q", got, want)
+	}
+
+	if got, want := len(nodes[2].Taints), 1; got != want {
+		t.Fatalf("nodes[2].Taints len = %d, want %d", got, want)
+	}
+	if taint := nodes[2].Taints[0]; taint.Key != "dedicated" || taint.Value != "gpu" || taint.Effect != "NoSchedule" {
+		t.Errorf("nodes[2].Taints[0] = %+v, want {dedicated gpu NoSchedule}", taint)
+	}
+}
+
+func TestLoad_FullGKEConfig_RoundTripsAllFields(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "gke-full.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	gke, ok := cfg.(*v1alpha1.EducatesGKEConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesGKEConfig, got %T", cfg)
+	}
+
+	if got, want := gke.GCP.Project, "my-gcp-project"; got != want {
+		t.Errorf("GCP.Project = %q, want %q", got, want)
+	}
+	// Explicit service accounts must survive WithDefaults (no
+	// project-derived overwrite).
+	if got, want := gke.GCP.CertManagerServiceAccount, "custom-cert-manager@my-gcp-project.iam.gserviceaccount.com"; got != want {
+		t.Errorf("GCP.CertManagerServiceAccount = %q, want %q", got, want)
+	}
+	if got, want := gke.GCP.ExternalDNSServiceAccount, "custom-external-dns@my-gcp-project.iam.gserviceaccount.com"; got != want {
+		t.Errorf("GCP.ExternalDNSServiceAccount = %q, want %q", got, want)
+	}
+	if got, want := gke.Domain, "academy-01.google.educates.dev"; got != want {
+		t.Errorf("Domain = %q, want %q", got, want)
+	}
+	if got, want := gke.ACME.Email, "ops@example.com"; got != want {
+		t.Errorf("ACME.Email = %q, want %q", got, want)
+	}
+	if got, want := gke.ACME.Server, "https://acme-staging-v02.api.letsencrypt.org/directory"; got != want {
+		t.Errorf("ACME.Server = %q, want %q", got, want)
+	}
+	if !gke.ExternalTLSTermination {
+		t.Errorf("ExternalTLSTermination = false, want true")
+	}
+	// Explicit toggles must override the kind defaults
+	// (clusterAdmin=false, lookupService=true, imagePrePuller=true).
+	if gke.ClusterAdmin == nil || *gke.ClusterAdmin != true {
+		t.Errorf("ClusterAdmin = %v, want true (explicit override)", gke.ClusterAdmin)
+	}
+	if gke.LookupService == nil || *gke.LookupService != false {
+		t.Errorf("LookupService = %v, want false (explicit override)", gke.LookupService)
+	}
+	if gke.ImagePrePuller == nil || *gke.ImagePrePuller != true {
+		t.Errorf("ImagePrePuller = %v, want true (explicit override)", gke.ImagePrePuller)
+	}
+	if got, want := gke.WebsiteStyling.DefaultTheme, "my-theme-data"; got != want {
+		t.Errorf("WebsiteStyling.DefaultTheme = %q, want %q", got, want)
+	}
+	if got, want := len(gke.WebsiteStyling.ThemeDataRefs), 1; got != want {
+		t.Fatalf("ThemeDataRefs len = %d, want %d", got, want)
+	}
+	if got, want := gke.WebsiteStyling.ThemeDataRefs[0].Namespace, "educates"; got != want {
+		t.Errorf("ThemeDataRefs[0].Namespace = %q, want %q", got, want)
+	}
+	if got, want := len(gke.SecretPropagation.ImagePullSecretNames), 1; got != want {
+		t.Errorf("ImagePullSecretNames len = %d, want %d", got, want)
+	}
+	if got, want := len(gke.ImageVersions), 1; got != want {
+		t.Fatalf("ImageVersions len = %d, want %d", got, want)
+	}
+	if got, want := gke.ImageVersions[0].Image, "ghcr.io/educates/base-environment:4.0.0"; got != want {
+		t.Errorf("ImageVersions[0].Image = %q, want %q", got, want)
+	}
+	if got, want := gke.Operator.Image.PullPolicy, "IfNotPresent"; got != want {
+		t.Errorf("Operator.Image.PullPolicy = %q, want %q", got, want)
+	}
+	if got, want := len(gke.Operator.ImagePullSecrets), 1; got != want {
+		t.Errorf("Operator.ImagePullSecrets len = %d, want %d", got, want)
+	}
+	if got, want := gke.Operator.LogLevel, "debug"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
+	}
+}
+
+func TestLoad_FullEKSConfig_RoundTripsAllFields(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "eks-full.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	eks, ok := cfg.(*v1alpha1.EducatesEKSConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesEKSConfig, got %T", cfg)
+	}
+
+	if got, want := eks.AWS.AccountId, "123456789012"; got != want {
+		t.Errorf("AWS.AccountId = %q, want %q", got, want)
+	}
+	if got, want := eks.AWS.Region, "us-east-1"; got != want {
+		t.Errorf("AWS.Region = %q, want %q", got, want)
+	}
+	if got, want := eks.AWS.Route53HostedZoneId, "Z0123456789ABCDEF"; got != want {
+		t.Errorf("AWS.Route53HostedZoneId = %q, want %q", got, want)
+	}
+	// Explicit role ARNs must survive WithDefaults (no account-derived
+	// overwrite).
+	if got, want := eks.AWS.CertManagerRoleARN, "arn:aws:iam::123456789012:role/custom-cert-manager"; got != want {
+		t.Errorf("AWS.CertManagerRoleARN = %q, want %q", got, want)
+	}
+	if got, want := eks.AWS.ExternalDNSRoleARN, "arn:aws:iam::123456789012:role/custom-external-dns"; got != want {
+		t.Errorf("AWS.ExternalDNSRoleARN = %q, want %q", got, want)
+	}
+	if got, want := eks.Domain, "academy-01.workshops.example.com"; got != want {
+		t.Errorf("Domain = %q, want %q", got, want)
+	}
+	if got, want := eks.ACME.Server, "https://acme-staging-v02.api.letsencrypt.org/directory"; got != want {
+		t.Errorf("ACME.Server = %q, want %q", got, want)
+	}
+	if !eks.ExternalTLSTermination {
+		t.Errorf("ExternalTLSTermination = false, want true")
+	}
+	if eks.ClusterAdmin == nil || *eks.ClusterAdmin != true {
+		t.Errorf("ClusterAdmin = %v, want true (explicit override)", eks.ClusterAdmin)
+	}
+	if eks.LookupService == nil || *eks.LookupService != false {
+		t.Errorf("LookupService = %v, want false (explicit override)", eks.LookupService)
+	}
+	if eks.ImagePrePuller == nil || *eks.ImagePrePuller != true {
+		t.Errorf("ImagePrePuller = %v, want true (explicit override)", eks.ImagePrePuller)
+	}
+	if got, want := eks.WebsiteStyling.DefaultTheme, "my-theme-data"; got != want {
+		t.Errorf("WebsiteStyling.DefaultTheme = %q, want %q", got, want)
+	}
+	if got, want := len(eks.SecretPropagation.ImagePullSecretNames), 1; got != want {
+		t.Errorf("ImagePullSecretNames len = %d, want %d", got, want)
+	}
+	if got, want := len(eks.ImageVersions), 1; got != want {
+		t.Errorf("ImageVersions len = %d, want %d", got, want)
+	}
+	if got, want := eks.Operator.Image.PullPolicy, "IfNotPresent"; got != want {
+		t.Errorf("Operator.Image.PullPolicy = %q, want %q", got, want)
+	}
+	if got, want := eks.Operator.LogLevel, "debug"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
+	}
+}
+
+func TestLoad_FullInlineConfig_RoundTripsAllFields(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "inline-full.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	inline, ok := cfg.(*v1alpha1.EducatesInlineConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesInlineConfig, got %T", cfg)
+	}
+
+	if got, want := inline.Domain, "workshops.example.com"; got != want {
+		t.Errorf("Domain = %q, want %q", got, want)
+	}
+	if got, want := inline.IngressClassName, "openshift-default"; got != want {
+		t.Errorf("IngressClassName = %q, want %q", got, want)
+	}
+	if got, want := inline.WildcardCertificateSecret, "educates-wildcard-tls"; got != want {
+		t.Errorf("WildcardCertificateSecret = %q, want %q", got, want)
+	}
+	if got, want := inline.CACertificateSecret, "educates-wildcard-ca"; got != want {
+		t.Errorf("CACertificateSecret = %q, want %q", got, want)
+	}
+	if got, want := inline.ClusterIssuerName, "corp-ca-issuer"; got != want {
+		t.Errorf("ClusterIssuerName = %q, want %q", got, want)
+	}
+	if got, want := inline.ImageRegistry.Prefix, "registry.internal.example.com/educates"; got != want {
+		t.Errorf("ImageRegistry.Prefix = %q, want %q", got, want)
+	}
+	if got, want := len(inline.ImageRegistry.PullSecrets), 1; got != want {
+		t.Errorf("ImageRegistry.PullSecrets len = %d, want %d", got, want)
+	}
+	// Explicit engines must override the Kyverno/Kyverno defaults.
+	if got, want := inline.PolicyEnforcement.ClusterEngine, "PodSecurityStandards"; got != want {
+		t.Errorf("PolicyEnforcement.ClusterEngine = %q, want %q", got, want)
+	}
+	if got, want := inline.PolicyEnforcement.WorkshopEngine, "None"; got != want {
+		t.Errorf("PolicyEnforcement.WorkshopEngine = %q, want %q", got, want)
+	}
+	if !inline.ExternalTLSTermination {
+		t.Errorf("ExternalTLSTermination = false, want true")
+	}
+	if inline.ClusterAdmin == nil || *inline.ClusterAdmin != true {
+		t.Errorf("ClusterAdmin = %v, want true (explicit override)", inline.ClusterAdmin)
+	}
+	if inline.LookupService == nil || *inline.LookupService != false {
+		t.Errorf("LookupService = %v, want false (explicit override)", inline.LookupService)
+	}
+	if inline.ImagePrePuller == nil || *inline.ImagePrePuller != true {
+		t.Errorf("ImagePrePuller = %v, want true (explicit override)", inline.ImagePrePuller)
+	}
+	if got, want := inline.WebsiteStyling.DefaultTheme, "my-theme-data"; got != want {
+		t.Errorf("WebsiteStyling.DefaultTheme = %q, want %q", got, want)
+	}
+	if got, want := len(inline.SecretPropagation.ImagePullSecretNames), 1; got != want {
+		t.Errorf("ImagePullSecretNames len = %d, want %d", got, want)
+	}
+	if got, want := len(inline.ImageVersions), 1; got != want {
+		t.Errorf("ImageVersions len = %d, want %d", got, want)
+	}
+	if got, want := inline.Operator.Image.PullPolicy, "IfNotPresent"; got != want {
+		t.Errorf("Operator.Image.PullPolicy = %q, want %q", got, want)
+	}
+	if got, want := inline.Operator.LogLevel, "debug"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
+	}
+}
+
+func TestLoad_Errors(t *testing.T) {
+	cases := []struct {
+		name     string
+		file     string
+		contains string
+	}{
+		{"unknown-field",   "local-unknown-field.yaml",  "bogusField"},
+		{"bad-enum",        "local-bad-loglevel.yaml",   "logLevel"},
+		{"wrong-apiVersion","wrong-apiversion.yaml",     "unsupported apiVersion"},
+		{"unknown-kind",    "unknown-kind.yaml",         "unknown kind"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(filepath.Join("testdata", tc.file))
+			if err == nil {
+				t.Fatalf("Load: expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.contains) {
+				t.Errorf("error %q does not contain %q", err.Error(), tc.contains)
+			}
+		})
+	}
+}
+
+func TestLoad_MissingFile(t *testing.T) {
+	_, err := Load(filepath.Join("testdata", "does-not-exist.yaml"))
+	if err == nil {
+		t.Fatal("Load: expected error for missing file")
+	}
+}
+
+func TestLoadLocal_RejectsNonLocalKind(t *testing.T) {
+	_, err := LoadLocal(filepath.Join("testdata", "escape-minimal.yaml"))
+	if err == nil {
+		t.Fatal("LoadLocal: expected error for EducatesConfig kind")
+	}
+	if !strings.Contains(err.Error(), "expected kind") {
+		t.Errorf("error %q does not mention expected kind", err.Error())
+	}
+}
+
+func TestLoad_EducatesConfig_Minimal(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "escape-minimal.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	esc, ok := cfg.(*v1alpha1.EducatesConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesConfig, got %T", cfg)
+	}
+	if esc.Target != nil {
+		t.Errorf("Target = %+v, want nil", esc.Target)
+	}
+}
+
+func TestLoad_EducatesConfig_WithTarget(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "escape-with-target.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	esc := cfg.(*v1alpha1.EducatesConfig)
+	if esc.Target == nil {
+		t.Fatal("Target = nil, want populated")
+	}
+	if got, want := esc.Target.Provider, "kind"; got != want {
+		t.Errorf("Target.Provider = %q, want %q", got, want)
+	}
+	if got, want := esc.Operator.LogLevel, "debug"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q (no defaulting for escape kind)", got, want)
+	}
+	if esc.SecretsManager == nil {
+		t.Errorf("SecretsManager = nil, want empty map")
+	}
+}
+
+func TestLoad_EducatesInlineConfig_Minimal(t *testing.T) {
+	cfg, err := Load(filepath.Join("testdata", "inline-minimal.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	inline, ok := cfg.(*v1alpha1.EducatesInlineConfig)
+	if !ok {
+		t.Fatalf("expected *EducatesInlineConfig, got %T", cfg)
+	}
+	if got, want := inline.Domain, "workshop.test"; got != want {
+		t.Errorf("Domain = %q, want %q", got, want)
+	}
+	// Defaults applied.
+	if got, want := inline.Operator.LogLevel, "info"; got != want {
+		t.Errorf("Operator.LogLevel = %q, want %q", got, want)
+	}
+	if got, want := inline.PolicyEnforcement.ClusterEngine, "Kyverno"; got != want {
+		t.Errorf("PolicyEnforcement.ClusterEngine default = %q, want %q", got, want)
+	}
+}
+
+func TestLoad_EducatesInlineConfig_MissingRequired(t *testing.T) {
+	cfg := []byte("apiVersion: cli.educates.dev/v1alpha1\nkind: EducatesInlineConfig\n")
+	_, err := LoadBytes(cfg, "test")
+	if err == nil {
+		t.Fatal("expected error for missing required fields")
+	}
+	// Schema should call out one of the required fields.
+	for _, want := range []string{"domain", "ingressClassName", "wildcardCertificateSecret"} {
+		if strings.Contains(err.Error(), want) {
+			return
+		}
+	}
+	t.Errorf("error %q does not mention any required Inline field", err)
+}
+
+func TestLoad_EducatesConfig_BogusEnvelopeField(t *testing.T) {
+	_, err := Load(filepath.Join("testdata", "escape-bogus-envelope-field.yaml"))
+	if err == nil {
+		t.Fatal("Load: expected error for unknown envelope field")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("error %q does not mention bogus field", err.Error())
+	}
+}

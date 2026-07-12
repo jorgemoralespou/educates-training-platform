@@ -9,6 +9,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+var dockerWorkshopLogsExample = `
+  # Show logs for the workshop in the current directory:
+  educates docker workshop logs
+
+  # Follow logs for a workshop by name:
+  educates docker workshop logs --name my-workshop --follow
+`
+
 type DockerWorkshopLogsOptions struct {
 	Name            string
 	Path            string
@@ -76,10 +84,11 @@ func (p *ProjectInfo) NewDockerWorkshopLogsCmd() *cobra.Command {
 	var o DockerWorkshopLogsOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "logs",
-		Short: "Display logs for workshop",
-		RunE:  func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
+		Args:    cobra.NoArgs,
+		Use:     "logs",
+		Short:   "Display logs for workshop",
+		Example: dockerWorkshopLogsExample,
+		RunE:    func(cmd *cobra.Command, _ []string) error { return o.Run(cmd) },
 	}
 
 	c.Flags().StringVarP(

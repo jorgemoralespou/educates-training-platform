@@ -1,0 +1,65 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package platform
+
+import (
+	"context"
+	"fmt"
+
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+// ensurePlatformNamespace creates the shared platform namespace
+// (`educates`) if absent and stamps the operator's managed-by label.
+// Idempotent and ownerless on purpose: three platform CRs share the
+// namespace, so setting any one of them as the owner would let a CR
+// delete cascade-drop the namespace and break its siblings. Cleanup
+// of the namespace itself is left to operator uninstall or a future
+// once-everything-is-gone sweeper.
+//
+// The helm SDK's `CreateNamespace: true` install flag would handle
+// the create-on-install case, but only on first install; concurrent
+// reconciles racing to install three platform components in the same
+// namespace can still produce a "namespace not found" if Helm checks
+// existence before its own create-namespace handler fires. Doing the
+// create ourselves before each install removes the race.
+func ensurePlatformNamespace(ctx context.Context, c client.Client) error {
+	ns := &corev1.Namespace{}
+	err := c.Get(ctx, types.NamespacedName{Name: platformNamespace}, ns)
+	if apierrors.IsNotFound(err) {
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: platformNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": managedByLabelValue,
+				},
+			},
+		}
+		if createErr := c.Create(ctx, ns); createErr != nil && !apierrors.IsAlreadyExists(createErr) {
+			return fmt.Errorf("create Namespace %q: %w", platformNamespace, createErr)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get Namespace %q: %w", platformNamespace, err)
+	}
+	return nil
+}

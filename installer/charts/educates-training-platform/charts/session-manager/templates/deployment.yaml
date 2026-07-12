@@ -1,0 +1,116 @@
+{{- $ci := include "session-manager.resolvedClusterIngress" . | fromYaml -}}
+{{- $caRef := default dict $ci.caCertificateRef -}}
+{{- $caEnabled := and $caRef.name true -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "session-manager.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "session-manager.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "session-manager.labels" . | nindent 8 }}
+        {{- include "session-manager.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the Deployment whenever the operator config changes so
+        # session-manager picks up the new YAML without a manual restart.
+        checksum/config: {{ include (print $.Template.BasePath "/secret-config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: session-manager
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      {{- if $caEnabled }}
+      # ca-trust-store init container reuses the main session-manager image
+      # (Fedora-based: has `update-ca-trust` and `tar`). Mirrors v3's
+      # overlay-ca-injector.yaml mechanism with no extra image pull.
+      # Required when session-manager calls TLS endpoints fronted by a
+      # private/self-signed CA. Runs as root to write to /etc/pki/ca-trust;
+      # explicitly relaxes the pod-level `runAsNonRoot: true`.
+      initContainers:
+        - name: ca-trust-store-initialization
+          image: "{{ include "session-manager.image.repository" . }}:{{ include "session-manager.image.tag" . }}"
+          imagePullPolicy: {{ include "session-manager.image.pullPolicy" . }}
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+          command: ["/bin/bash", "-c"]
+          args:
+            - "update-ca-trust && tar -C /etc/pki/ca-trust -cf - . | tar -C /mnt -xf -"
+          volumeMounts:
+            - name: cluster-ca
+              mountPath: /etc/pki/ca-trust/source/anchors/Cluster_Ingress_CA.pem
+              subPath: ca.crt
+            - name: cluster-ca-trust
+              mountPath: /mnt
+      {{- end }}
+      containers:
+        - name: operator
+          image: "{{ include "session-manager.image.repository" . }}:{{ include "session-manager.image.tag" . }}"
+          imagePullPolicy: {{ include "session-manager.image.pullPolicy" . }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          startupProbe:
+            httpGet:
+              path: /healthz?probe=startup
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 4
+          livenessProbe:
+            httpGet:
+              path: /healthz?probe=liveness
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/app-root/config/
+            - name: token
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+            {{- if $caEnabled }}
+            - name: cluster-ca-trust
+              mountPath: /etc/pki/ca-trust
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          secret:
+            secretName: educates-config
+        - name: token
+          secret:
+            secretName: session-manager-token
+        {{- if $caEnabled }}
+        - name: cluster-ca
+          secret:
+            secretName: {{ $caRef.name | quote }}
+        - name: cluster-ca-trust
+          emptyDir: {}
+        {{- end }}

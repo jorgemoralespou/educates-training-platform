@@ -25,6 +25,14 @@ import (
 	"k8s.io/client-go/dynamic"
 )
 
+var clusterWorkshopDeployExample = `
+  # Deploy the workshop in the current directory to the default portal:
+  educates cluster workshop deploy
+
+  # Deploy a workshop from a path to a named portal with a capacity:
+  educates cluster workshop deploy --file ./my-workshop --portal my-portal --capacity 10
+`
+
 type ClusterWorkshopDeployOptions struct {
 	KubeconfigOptions
 	Name            string
@@ -115,10 +123,11 @@ func (p *ProjectInfo) NewClusterWorkshopDeployCmd() *cobra.Command {
 	var o ClusterWorkshopDeployOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "deploy",
-		Short: "Deploy workshop to Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "deploy",
+		Short:   "Deploy workshop to Kubernetes",
+		Example: clusterWorkshopDeployExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVarP(

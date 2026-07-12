@@ -3,17 +3,24 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
-	"text/tabwriter"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+var clusterSessionListExample = `
+  # List active sessions on the default portal:
+  educates cluster session list
+
+  # List sessions for a specific workshop environment:
+  educates cluster session list --environment my-workshop-w01
+`
 
 type ClusterSessionListOptions struct {
 	KubeconfigOptions
@@ -73,12 +80,7 @@ func (o *ClusterSessionListOptions) Run() error {
 		return nil
 	}
 
-	w := new(tabwriter.Writer)
-	w.Init(os.Stdout, 8, 8, 3, ' ', 0)
-
-	defer w.Flush()
-
-	fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", "NAME", "PORTAL", "ENVIRONMENT", "STATUS")
+	rows := make([][]string, 0, len(sessions))
 
 	for _, item := range sessions {
 		name := item.GetName()
@@ -89,8 +91,10 @@ func (o *ClusterSessionListOptions) Run() error {
 
 		status, _, _ := unstructured.NestedString(item.Object, "status", "educates", "phase")
 
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", name, portal, environment, status)
+		rows = append(rows, []string{name, portal, environment, status})
 	}
+
+	fmt.Println(utils.PrintTable([]string{"NAME", "PORTAL", "ENVIRONMENT", "STATUS"}, rows))
 
 	return nil
 }
@@ -99,10 +103,11 @@ func (p *ProjectInfo) NewClusterSessionListCmd() *cobra.Command {
 	var o ClusterSessionListOptions
 
 	var c = &cobra.Command{
-		Args:  cobra.NoArgs,
-		Use:   "list",
-		Short: "List active sessions in Kubernetes",
-		RunE:  func(_ *cobra.Command, _ []string) error { return o.Run() },
+		Args:    cobra.NoArgs,
+		Use:     "list",
+		Short:   "List active sessions in Kubernetes",
+		Example: clusterSessionListExample,
+		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 
 	c.Flags().StringVar(

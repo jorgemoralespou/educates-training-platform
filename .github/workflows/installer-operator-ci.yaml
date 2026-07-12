@@ -1,0 +1,44 @@
+name: Installer Operator CI
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'installer/operator/**'
+      - 'installer/charts/**'
+      - 'hack/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/installer-operator-ci.yaml'
+  pull_request:
+    paths:
+      - 'installer/operator/**'
+      - 'installer/charts/**'
+      - 'hack/**'
+      - 'go.work'
+      - 'go.work.sum'
+      - '.github/workflows/installer-operator-ci.yaml'
+
+jobs:
+  ci:
+    name: Chart-sync, build, vet, drift, envtest, lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: installer/operator/go.mod
+          cache-dependency-path: |
+            go.work.sum
+            installer/operator/go.sum
+
+      # Single source of truth: `make ci-operator` runs exactly the
+      # checks this job gates — chart-version/annotation lint, go
+      # vet/build, CRD/RBAC + DeepCopy drift checks, envtest, and
+      # golangci-lint. Edit the Makefile, not this list, so local
+      # `make ci` and CI never drift apart. See
+      # developer-docs/build-instructions.md.
+      - name: make ci-operator
+        run: make ci-operator

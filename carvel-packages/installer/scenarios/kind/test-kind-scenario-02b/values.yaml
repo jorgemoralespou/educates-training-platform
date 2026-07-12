@@ -1,9 +1,0 @@
-clusterPackages:
-  kyverno:
-    enabled: false
-clusterInfrastructure:
-  provider: "kind"
-clusterSecurity:
-  policyEngine: "pod-security-policies"
-clusterIngress:
-  domain: "educates.example.com"

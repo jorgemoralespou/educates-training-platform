@@ -1,0 +1,1204 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: educatesclusterconfigs.config.educates.dev
+spec:
+  group: config.educates.dev
+  names:
+    kind: EducatesClusterConfig
+    listKind: EducatesClusterConfigList
+    plural: educatesclusterconfigs
+    shortNames:
+    - ecc
+    singular: educatesclusterconfig
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          EducatesClusterConfig is the singleton resource describing the
+          cluster-wide configuration of an Educates installation.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              EducatesClusterConfigSpec defines the desired state of
+              EducatesClusterConfig.
+
+              CEL invariants (structural):
+                - spec.mode is immutable; switching modes requires delete + recreate.
+                - When mode is Inline, the Managed-mode top-level fields
+                  (infrastructure, ingress, dns, policyEnforcement, imageRegistry)
+                  are forbidden.
+                - When mode is Managed, spec.inline is forbidden.
+            properties:
+              dns:
+                description: |-
+                  dns configures DNS management in Managed mode; ignored in Inline
+                  mode.
+                properties:
+                  bundledExternalDNS:
+                    description: |-
+                      BundledExternalDNSConfig configures the operator-installed
+                      external-dns chart. v1alpha1 supports Route53 and CloudDNS; other
+                      providers (Cloudflare, AzureDNS, etc.) surface "not yet supported"
+                      validation errors.
+
+                      CEL invariants:
+                        - provider==Route53 requires route53 to be set and forbids cloudDNS.
+                        - provider==CloudDNS requires cloudDNS to be set and forbids route53.
+                    properties:
+                      cloudDNS:
+                        description: |-
+                          ExternalDNSCloudDNSConfig configures the GCP CloudDNS provider for
+                          the operator-installed external-dns.
+
+                          Credentials are supplied via *exactly one* of:
+                            - CredentialsSecretRef: a Secret in the operator namespace with
+                              key `credentials.json` containing the GCP service-account
+                              JSON key.
+                            - WorkloadIdentityServiceAccount: a GCP service-account email
+                              bound to the external-dns ServiceAccount via the
+                              `iam.gke.io/gcp-service-account` annotation. Preferred on GKE.
+                        properties:
+                          credentialsSecretRef:
+                            description: |-
+                              LocalObjectReference is a reference to a Kubernetes object by name in
+                              the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                              IngressClass) also use this shape.
+                            properties:
+                              name:
+                                description: name of the referent.
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          project:
+                            type: string
+                          workloadIdentityServiceAccount:
+                            type: string
+                        required:
+                        - project
+                        type: object
+                      provider:
+                        allOf:
+                        - enum:
+                          - Route53
+                          - CloudDNS
+                          - Cloudflare
+                          - AzureDNS
+                        - enum:
+                          - Route53
+                          - CloudDNS
+                        description: |-
+                          provider selects which DNS provider external-dns publishes
+                          records to. Reuses the DNS01Provider enum for vocabulary
+                          consistency with cert-manager's solver config; validation
+                          rejects Cloudflare/AzureDNS for now.
+                        type: string
+                      route53:
+                        description: |-
+                          ExternalDNSRoute53Config configures the AWS Route53 provider for
+                          the operator-installed external-dns. HostedZoneID is required to
+                          scope external-dns to a specific zone — running unscoped is a
+                          production footgun (a broad IAM role plus no zone filter can
+                          silently rewrite records across the entire account).
+
+                          Credentials are supplied via *exactly one* of:
+                            - CredentialsSecretRef: a Secret in the operator namespace with
+                              keys `aws_access_key_id` and `aws_secret_access_key`.
+                            - IAMRoleARN: an IRSA / Pod Identity role assumed via the
+                              external-dns ServiceAccount's `eks.amazonaws.com/role-arn`
+                              annotation. Preferred on EKS.
+
+                          CEL elsewhere enforces the exactly-one rule; the operator
+                          validator backs it up with a friendlier error message.
+                        properties:
+                          credentialsSecretRef:
+                            description: |-
+                              LocalObjectReference is a reference to a Kubernetes object by name in
+                              the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                              IngressClass) also use this shape.
+                            properties:
+                              name:
+                                description: name of the referent.
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          hostedZoneID:
+                            type: string
+                          iamRoleARN:
+                            type: string
+                          region:
+                            description: |-
+                              region defaults to the AWS SDK's default detection (pod IMDS
+                              / env vars). Set explicitly when running outside AWS or in
+                              air-gapped environments.
+                            type: string
+                        required:
+                        - hostedZoneID
+                        type: object
+                      sources:
+                        default:
+                        - service
+                        description: |-
+                          sources controls which Kubernetes kinds external-dns watches
+                          for hostname records. Defaults to ["service"] because Educates
+                          publishes the wildcard via an annotation on the Envoy Service.
+                          Users can broaden to ["service","ingress"] (or any
+                          chart-accepted source) when they want per-workshop Ingress
+                          records published as well.
+                        items:
+                          type: string
+                        type: array
+                    required:
+                    - provider
+                    type: object
+                    x-kubernetes-validations:
+                    - message: provider Route53 requires spec.dns.bundledExternalDNS.route53
+                        and forbids cloudDNS
+                      rule: self.provider != 'Route53' || (has(self.route53) && !has(self.cloudDNS))
+                    - message: provider CloudDNS requires spec.dns.bundledExternalDNS.cloudDNS
+                        and forbids route53
+                      rule: self.provider != 'CloudDNS' || (has(self.cloudDNS) &&
+                        !has(self.route53))
+                  provider:
+                    default: None
+                    description: |-
+                      provider defaults to None — appropriate for local clusters using
+                      nip.io or hosts-file resolution. Cloud installs must set this
+                      explicitly.
+                    enum:
+                    - BundledExternalDNS
+                    - Manual
+                    - None
+                    type: string
+                type: object
+              imageRegistry:
+                description: |-
+                  imageRegistry rewrites bundled chart image refs and supplies pull
+                  credentials. Applies in Managed mode (Inline mode has its own
+                  equivalent under spec.inline.imageRegistry).
+                properties:
+                  prefix:
+                    description: |-
+                      prefix rewrites every bundled image reference to live under this
+                      prefix, e.g., "internal-registry.corp.local/educates". Pre-relocated
+                      bundles (via helm dt wrap/unwrap) do not need this set.
+                    type: string
+                  pullSecrets:
+                    description: |-
+                      pullSecrets references kubernetes.io/dockerconfigjson Secrets in
+                      the operator namespace.
+                    items:
+                      description: |-
+                        LocalObjectReference is a reference to a Kubernetes object by name in
+                        the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                        IngressClass) also use this shape.
+                      properties:
+                        name:
+                          description: name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
+              infrastructure:
+                description: |-
+                  infrastructure describes the cluster substrate. Used in Managed
+                  mode; ignored in Inline mode.
+                properties:
+                  cloud:
+                    description: |-
+                      cloud carries provider-specific configuration. Required for cloud
+                      providers (EKS, GKE) when bundled cert-manager or external-dns is
+                      enabled.
+                    properties:
+                      project:
+                        description: |-
+                          project / account identifier, e.g., GCP project ID or AWS account
+                          alias.
+                        type: string
+                      region:
+                        type: string
+                      serviceAccounts:
+                        description: |-
+                          CloudServiceAccounts maps Educates' bundled cluster services to
+                          provider-native workload identities.
+                        properties:
+                          certManager:
+                            description: |-
+                              certManager identity used by cert-manager when requesting
+                              DNS01-validated certificates.
+                            type: string
+                          externalDNS:
+                            description: |-
+                              externalDNS identity used by external-dns when managing DNS
+                              records.
+                            type: string
+                        type: object
+                    type: object
+                  provider:
+                    description: |-
+                      InfrastructureProvider identifies the underlying cluster substrate.
+                      Used by the operator to compute provider-specific defaults and to
+                      validate cloud-related fields.
+                    enum:
+                    - Kind
+                    - Minikube
+                    - EKS
+                    - GKE
+                    - OpenShift
+                    - VCluster
+                    - Generic
+                    type: string
+                required:
+                - provider
+                type: object
+              ingress:
+                description: |-
+                  ingress configures the Educates ingress in Managed mode; ignored
+                  in Inline mode.
+                properties:
+                  certificates:
+                    description: Certificates groups certificate-provider configuration.
+                    properties:
+                      bundledCertManager:
+                        description: |-
+                          BundledCertManagerConfig configures the operator-installed cert-manager
+                          chart and the ClusterIssuer it provides.
+                        properties:
+                          acme:
+                            description: ACMEConfig configures the cert-manager ACME
+                              ClusterIssuer.
+                            properties:
+                              email:
+                                type: string
+                              server:
+                                description: |-
+                                  server is the ACME directory URL. Defaults to Let's Encrypt
+                                  production. Override for Let's Encrypt staging or another CA.
+                                type: string
+                              solvers:
+                                description: |-
+                                  ACMESolvers groups the cert-manager solvers used to satisfy the ACME
+                                  challenge.
+                                properties:
+                                  dns01:
+                                    description: dns01 is required for wildcard issuance.
+                                    properties:
+                                      azureDNS:
+                                        description: AzureDNSConfig configures the
+                                          Azure DNS DNS01 solver.
+                                        properties:
+                                          resourceGroup:
+                                            type: string
+                                          subscriptionID:
+                                            type: string
+                                        required:
+                                        - resourceGroup
+                                        - subscriptionID
+                                        type: object
+                                      cloudDNS:
+                                        description: |-
+                                          CloudDNSConfig configures the cert-manager GCP CloudDNS DNS01
+                                          solver and the GCP-side credentials.
+
+                                          Credentials must be supplied via *exactly one* mechanism:
+                                            - WorkloadIdentityServiceAccount: a GCP service-account email
+                                              bound to cert-manager's K8s ServiceAccount via the
+                                              `iam.gke.io/gcp-service-account` annotation. Recommended on
+                                              GKE.
+                                            - CredentialsSecretRef: a Secret in the operator namespace
+                                              with key `credentials.json` containing a GCP service-account
+                                              JSON key. v1alpha1 reserves the field but rejects it as
+                                              "not yet supported"; static-creds support is a follow-up.
+                                        properties:
+                                          credentialsSecretRef:
+                                            description: |-
+                                              LocalObjectReference is a reference to a Kubernetes object by name in
+                                              the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                                              IngressClass) also use this shape.
+                                            properties:
+                                              name:
+                                                description: name of the referent.
+                                                type: string
+                                            required:
+                                            - name
+                                            type: object
+                                          project:
+                                            type: string
+                                          workloadIdentityServiceAccount:
+                                            type: string
+                                          zone:
+                                            type: string
+                                        required:
+                                        - project
+                                        type: object
+                                      cloudflare:
+                                        description: CloudflareConfig configures the
+                                          Cloudflare DNS01 solver.
+                                        properties:
+                                          apiTokenSecretRef:
+                                            description: |-
+                                              apiTokenSecretRef references a Secret holding the Cloudflare API
+                                              token. The default key is "api-token".
+                                            properties:
+                                              key:
+                                                description: key within the Secret.
+                                                  Defaults vary by use site.
+                                                type: string
+                                              name:
+                                                description: name of the Secret.
+                                                type: string
+                                            required:
+                                            - name
+                                            type: object
+                                        required:
+                                        - apiTokenSecretRef
+                                        type: object
+                                      provider:
+                                        description: |-
+                                          DNS01Provider names a cert-manager DNS01 solver. Required for wildcard
+                                          certificate issuance via ACME.
+                                        enum:
+                                        - Route53
+                                        - CloudDNS
+                                        - Cloudflare
+                                        - AzureDNS
+                                        type: string
+                                      route53:
+                                        description: |-
+                                          Route53Config configures the cert-manager Route53 DNS01 solver
+                                          and the AWS-side credentials it needs to write TXT records during
+                                          ACME challenges.
+
+                                          Credentials must be supplied via *exactly one* mechanism:
+                                            - IAMRoleARN: marks cert-manager's ServiceAccount with an
+                                              `eks.amazonaws.com/role-arn` annotation; cert-manager assumes
+                                              the role via IRSA / Pod Identity. Recommended on EKS.
+                                            - CredentialsSecretRef: a Secret in the operator namespace
+                                              with keys `aws_access_key_id` + `aws_secret_access_key`.
+                                              v1alpha1 reserves the field but rejects it as "not yet
+                                              supported"; static-creds support is a follow-up.
+
+                                          CEL elsewhere enforces the mutual-exclusivity rule; the
+                                          operator validator backs it up with a friendlier message.
+                                        properties:
+                                          credentialsSecretRef:
+                                            description: |-
+                                              LocalObjectReference is a reference to a Kubernetes object by name in
+                                              the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                                              IngressClass) also use this shape.
+                                            properties:
+                                              name:
+                                                description: name of the referent.
+                                                type: string
+                                            required:
+                                            - name
+                                            type: object
+                                          hostedZoneID:
+                                            type: string
+                                          iamRoleARN:
+                                            type: string
+                                          region:
+                                            type: string
+                                        required:
+                                        - hostedZoneID
+                                        type: object
+                                    required:
+                                    - provider
+                                    type: object
+                                  http01:
+                                    description: |-
+                                      ACMEHTTP01Solver configures the optional HTTP01 solver. Rarely needed
+                                      because DNS01 is required for wildcards.
+                                    properties:
+                                      ingressClassName:
+                                        description: |-
+                                          ingressClassName defaults to spec.ingress.ingressClassName when
+                                          unset.
+                                        type: string
+                                    type: object
+                                required:
+                                - dns01
+                                type: object
+                            required:
+                            - email
+                            - solvers
+                            type: object
+                          customCA:
+                            description: CustomCAConfig configures a self-signed/custom
+                              CA-backed ClusterIssuer.
+                            properties:
+                              caCertificateRef:
+                                description: |-
+                                  caCertificateRef references a Secret holding the CA's own cert and
+                                  key (keys: tls.crt, tls.key). Namespace defaults to the operator
+                                  namespace when empty.
+                                properties:
+                                  name:
+                                    description: name of the referent.
+                                    type: string
+                                  namespace:
+                                    description: namespace of the referent. Empty
+                                      means the operator namespace.
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                            required:
+                            - caCertificateRef
+                            type: object
+                          issuerType:
+                            description: |-
+                              IssuerType selects the cert-manager ClusterIssuer flavour for the
+                              BundledCertManager provider.
+                            enum:
+                            - ACME
+                            - CustomCA
+                            type: string
+                        required:
+                        - issuerType
+                        type: object
+                      externalCertManager:
+                        description: |-
+                          ExternalCertManagerConfig assumes cert-manager is already installed
+                          and references an existing ClusterIssuer; the operator only creates
+                          the wildcard Certificate.
+                        properties:
+                          clusterIssuerRef:
+                            description: |-
+                              LocalObjectReference is a reference to a Kubernetes object by name in
+                              the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                              IngressClass) also use this shape.
+                            properties:
+                              name:
+                                description: name of the referent.
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        required:
+                        - clusterIssuerRef
+                        type: object
+                      provider:
+                        description: |-
+                          CertificatesProvider selects how the wildcard TLS certificate is
+                          provisioned. None disables in-cluster TLS entirely: the operator
+                          installs no cert-manager, creates no ClusterIssuer and no wildcard
+                          Certificate, and Educates serves plain HTTP unless TLS is terminated
+                          outside the cluster (see ingress.protocol).
+                        enum:
+                        - BundledCertManager
+                        - ExternalCertManager
+                        - StaticCertificate
+                        - None
+                        type: string
+                      staticCertificate:
+                        description: |-
+                          StaticCertificateConfig declares a pre-provisioned wildcard TLS
+                          certificate; no cert-manager is involved.
+                        properties:
+                          caCertificateRef:
+                            description: |-
+                              caCertificateRef optionally references a Secret with the ca.crt
+                              key for the issuing CA chain.
+                            properties:
+                              name:
+                                description: name of the referent.
+                                type: string
+                            required:
+                            - name
+                            type: object
+                          tlsSecretRef:
+                            description: |-
+                              tlsSecretRef references a kubernetes.io/tls Secret with keys
+                              tls.crt and tls.key.
+                            properties:
+                              name:
+                                description: name of the referent.
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        required:
+                        - tlsSecretRef
+                        type: object
+                    required:
+                    - provider
+                    type: object
+                  controller:
+                    description: IngressController groups ingress-controller configuration.
+                    properties:
+                      bundledContour:
+                        description: |-
+                          BundledContourConfig configures the operator-installed Contour ingress
+                          controller.
+                        properties:
+                          envoyServiceType:
+                            default: LoadBalancer
+                            description: |-
+                              envoyServiceType selects the Kubernetes Service type for the
+                              Envoy DaemonSet. Defaults to LoadBalancer so cloud-provider
+                              installs (EKS, GKE, AKS, OpenShift) work out of the box;
+                              set explicitly to NodePort on kind / minikube / vCluster
+                              installs where no in-cluster LoadBalancer controller exists.
+                            enum:
+                            - LoadBalancer
+                            - NodePort
+                            - ClusterIP
+                            type: string
+                          operational:
+                            description: |-
+                              OperationalBlock collects the per-Deployment operational knobs of a
+                              Bundled cluster service. In v1alpha1 only BundledContour carries it:
+                              the cert-manager / external-dns / kyverno blocks were dropped
+                              (2026-06-11) because their semantics didn't hold against the
+                              upstream charts — external-dns 1.21.1 hardcodes replicas to 1 and
+                              exposes no replica value, Kyverno fanning one count across its four
+                              controllers conflicts with upstream HA guidance (3+ for the
+                              admission controller only), and cert-manager never consumed it.
+                              They return when per-service shapes are validated against each
+                              chart's real values surface. Of the knobs below, the reconciler
+                              currently applies replicas; the rest are accepted but not yet
+                              wired into chart values.
+                            properties:
+                              nodeSelector:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                              podAnnotations:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                              podLabels:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                              priorityClassName:
+                                type: string
+                              replicas:
+                                description: |-
+                                  replicas overrides the operator-computed default. The default
+                                  varies by infrastructure provider (typically 1 for Kind/Minikube,
+                                  2+ otherwise).
+                                format: int32
+                                minimum: 0
+                                type: integer
+                              resources:
+                                description: ResourceRequirements describes the compute
+                                  resource requirements.
+                                properties:
+                                  claims:
+                                    description: |-
+                                      Claims lists the names of resources, defined in spec.resourceClaims,
+                                      that are used by this container.
+
+                                      This field depends on the
+                                      DynamicResourceAllocation feature gate.
+
+                                      This field is immutable. It can only be set for containers.
+                                    items:
+                                      description: ResourceClaim references one entry
+                                        in PodSpec.ResourceClaims.
+                                      properties:
+                                        name:
+                                          description: |-
+                                            Name must match the name of one entry in pod.spec.resourceClaims of
+                                            the Pod where this field is used. It makes that resource available
+                                            inside a container.
+                                          type: string
+                                        request:
+                                          description: |-
+                                            Request is the name chosen for a request in the referenced claim.
+                                            If empty, everything from the claim is made available, otherwise
+                                            only the result of this request.
+                                          type: string
+                                      required:
+                                      - name
+                                      type: object
+                                    type: array
+                                    x-kubernetes-list-map-keys:
+                                    - name
+                                    x-kubernetes-list-type: map
+                                  limits:
+                                    additionalProperties:
+                                      anyOf:
+                                      - type: integer
+                                      - type: string
+                                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                      x-kubernetes-int-or-string: true
+                                    description: |-
+                                      Limits describes the maximum amount of compute resources allowed.
+                                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                    type: object
+                                  requests:
+                                    additionalProperties:
+                                      anyOf:
+                                      - type: integer
+                                      - type: string
+                                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                      x-kubernetes-int-or-string: true
+                                    description: |-
+                                      Requests describes the minimum amount of compute resources required.
+                                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                                    type: object
+                                type: object
+                              tolerations:
+                                items:
+                                  description: |-
+                                    The pod this Toleration is attached to tolerates any taint that matches
+                                    the triple <key,value,effect> using the matching operator <operator>.
+                                  properties:
+                                    effect:
+                                      description: |-
+                                        Effect indicates the taint effect to match. Empty means match all taint effects.
+                                        When specified, allowed values are NoSchedule, PreferNoSchedule and NoExecute.
+                                      type: string
+                                    key:
+                                      description: |-
+                                        Key is the taint key that the toleration applies to. Empty means match all taint keys.
+                                        If the key is empty, operator must be Exists; this combination means to match all values and all keys.
+                                      type: string
+                                    operator:
+                                      description: |-
+                                        Operator represents a key's relationship to the value.
+                                        Valid operators are Exists, Equal, Lt, and Gt. Defaults to Equal.
+                                        Exists is equivalent to wildcard for value, so that a pod can
+                                        tolerate all taints of a particular category.
+                                        Lt and Gt perform numeric comparisons (requires feature gate TaintTolerationComparisonOperators).
+                                      type: string
+                                    tolerationSeconds:
+                                      description: |-
+                                        TolerationSeconds represents the period of time the toleration (which must be
+                                        of effect NoExecute, otherwise this field is ignored) tolerates the taint. By default,
+                                        it is not set, which means tolerate the taint forever (do not evict). Zero and
+                                        negative values will be treated as 0 (evict immediately) by the system.
+                                      format: int64
+                                      type: integer
+                                    value:
+                                      description: |-
+                                        Value is the taint value the toleration matches to.
+                                        If the operator is Exists, the value should be empty, otherwise just a regular string.
+                                      type: string
+                                  type: object
+                                type: array
+                            type: object
+                        type: object
+                      provider:
+                        description: |-
+                          IngressControllerProvider selects how the cluster's ingress controller
+                          is provided.
+                        enum:
+                        - BundledContour
+                        - ExternalIngressController
+                        type: string
+                    required:
+                    - provider
+                    type: object
+                  domain:
+                    description: |-
+                      domain is the wildcard subdomain under which Educates serves
+                      workshops, e.g., "educates.example.com".
+                    type: string
+                  ingressClassName:
+                    description: |-
+                      ingressClassName names the IngressClass used by Educates. In
+                      BundledContour mode the operator creates an IngressClass with
+                      this name; in External mode it must already exist.
+                    type: string
+                  protocol:
+                    description: |-
+                      protocol asserts the scheme of the public-facing URLs Educates
+                      generates. Leave it empty to derive the scheme from the
+                      certificates provider: https when a certificate is provisioned,
+                      http when the provider is None. Set it to https with a None
+                      provider when TLS is terminated outside the cluster.
+                    enum:
+                    - http
+                    - https
+                    type: string
+                required:
+                - certificates
+                - controller
+                - domain
+                - ingressClassName
+                type: object
+                x-kubernetes-validations:
+                - message: ingress.protocol http is only valid when ingress.certificates.provider
+                    is None
+                  rule: '!has(self.protocol) || self.protocol != ''http'' || self.certificates.provider
+                    == ''None'''
+              inline:
+                description: |-
+                  inline declares pre-existing cluster resources. Used in Inline
+                  mode; ignored in Managed mode.
+                properties:
+                  imageRegistry:
+                    description: |-
+                      ImageRegistry configures registry rewriting and pull credentials.
+                      Applies to all bundled charts in Managed mode and to the runtime in
+                      both modes.
+                    properties:
+                      prefix:
+                        description: |-
+                          prefix rewrites every bundled image reference to live under this
+                          prefix, e.g., "internal-registry.corp.local/educates". Pre-relocated
+                          bundles (via helm dt wrap/unwrap) do not need this set.
+                        type: string
+                      pullSecrets:
+                        description: |-
+                          pullSecrets references kubernetes.io/dockerconfigjson Secrets in
+                          the operator namespace.
+                        items:
+                          description: |-
+                            LocalObjectReference is a reference to a Kubernetes object by name in
+                            the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                            IngressClass) also use this shape.
+                          properties:
+                            name:
+                              description: name of the referent.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                    type: object
+                  ingress:
+                    description: |-
+                      InlineIngress declares pre-existing ingress resources for Inline
+                      mode. The operator validates these and republishes them in status.
+                    properties:
+                      caCertificateSecretRef:
+                        description: |-
+                          caCertificateSecretRef references a Secret with the ca.crt key
+                          for the issuing CA chain. Optional.
+                        properties:
+                          name:
+                            description: name of the referent.
+                            type: string
+                          namespace:
+                            description: namespace of the referent. Empty means the
+                              operator namespace.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      clusterIssuerRef:
+                        description: |-
+                          clusterIssuerRef references an existing ClusterIssuer that must be
+                          Ready. Optional; informational for components.
+                        properties:
+                          name:
+                            description: name of the referent.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      domain:
+                        type: string
+                      ingressClassName:
+                        type: string
+                      protocol:
+                        description: |-
+                          protocol asserts the scheme of the public-facing URLs. Leave it
+                          empty to derive the scheme from wildcardCertificateSecretRef:
+                          https when a wildcard certificate is declared, http otherwise. Set
+                          it to https with no wildcard certificate when TLS is terminated
+                          outside the cluster.
+                        enum:
+                        - http
+                        - https
+                        type: string
+                      wildcardCertificateSecretRef:
+                        description: |-
+                          wildcardCertificateSecretRef references a kubernetes.io/tls Secret
+                          with keys tls.crt and tls.key, valid for *.<domain>. Omit it when
+                          the cluster serves plain HTTP or terminates TLS outside the
+                          cluster.
+                        properties:
+                          name:
+                            description: name of the referent.
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    required:
+                    - domain
+                    - ingressClassName
+                    type: object
+                    x-kubernetes-validations:
+                    - message: ingress.protocol http is only valid when no wildcardCertificateSecretRef
+                        is set
+                      rule: '!has(self.protocol) || self.protocol != ''http'' || !has(self.wildcardCertificateSecretRef)'
+                  policyEnforcement:
+                    description: |-
+                      InlinePolicyEnforcement declares the policy engines already in place
+                      for Inline mode. Enforced engines are identified, not installed.
+                    properties:
+                      clusterPolicyEngine:
+                        description: ClusterPolicyEngine names the cluster-wide policy
+                          enforcement engine.
+                        enum:
+                        - Kyverno
+                        - PodSecurityStandards
+                        - OpenShiftSCC
+                        - None
+                        type: string
+                      workshopPolicyEngine:
+                        description: |-
+                          WorkshopPolicyEngine names the engine enforcing per-workshop isolation
+                          rules. Setting to None disables workshop isolation.
+                        enum:
+                        - Kyverno
+                        - None
+                        type: string
+                    required:
+                    - clusterPolicyEngine
+                    - workshopPolicyEngine
+                    type: object
+                required:
+                - ingress
+                - policyEnforcement
+                type: object
+              mode:
+                description: |-
+                  ClusterConfigMode selects between operator-managed and user-declared
+                  cluster infrastructure. Immutable once set; switching modes requires
+                  deleting and recreating the resource.
+                enum:
+                - Managed
+                - Inline
+                type: string
+              policyEnforcement:
+                description: |-
+                  policyEnforcement configures the cluster and workshop policy
+                  engines in Managed mode; ignored in Inline mode.
+                properties:
+                  clusterPolicy:
+                    description: ClusterPolicyConfig configures the cluster-wide policy
+                      engine.
+                    properties:
+                      engine:
+                        default: Kyverno
+                        description: engine defaults to Kyverno.
+                        enum:
+                        - Kyverno
+                        - PodSecurityStandards
+                        - OpenShiftSCC
+                        - None
+                        type: string
+                    type: object
+                  kyverno:
+                    description: kyverno is required when either engine above resolves
+                      to Kyverno.
+                    properties:
+                      provider:
+                        default: Bundled
+                        description: provider defaults to Bundled.
+                        enum:
+                        - Bundled
+                        - External
+                        type: string
+                    type: object
+                  workshopPolicy:
+                    description: WorkshopPolicyConfig configures the per-workshop
+                      isolation engine.
+                    properties:
+                      engine:
+                        default: Kyverno
+                        description: |-
+                          engine defaults to Kyverno. Setting to None disables workshop
+                          isolation; the cluster operator takes responsibility for
+                          containment.
+                        enum:
+                        - Kyverno
+                        - None
+                        type: string
+                    type: object
+                required:
+                - clusterPolicy
+                - workshopPolicy
+                type: object
+            required:
+            - mode
+            type: object
+            x-kubernetes-validations:
+            - message: spec.mode is immutable; delete and recreate the resource to
+                switch modes
+              rule: self.mode == oldSelf.mode
+            - message: spec.{infrastructure,ingress,dns,policyEnforcement,imageRegistry}
+                are forbidden when mode is Inline
+              rule: self.mode != 'Inline' || (!has(self.infrastructure) && !has(self.ingress)
+                && !has(self.dns) && !has(self.policyEnforcement) && !has(self.imageRegistry))
+            - message: spec.inline is forbidden when mode is Managed
+              rule: self.mode != 'Managed' || !has(self.inline)
+          status:
+            description: |-
+              EducatesClusterConfigStatus is the public interface that component CRs
+              (SecretsManager, LookupService, SessionManager) consume. It carries
+              the inter-CR contract fields (mode, ingress, policyEnforcement,
+              imageRegistry); the bundledChartVersions field is populated as
+              Managed-mode cluster services install.
+            properties:
+              bundledChartVersions:
+                additionalProperties:
+                  type: string
+                description: |-
+                  bundledChartVersions records the version of each upstream Helm
+                  chart the operator has installed in Managed mode. Keys are the
+                  upstream chart names (e.g., "cert-manager", "contour"); values are
+                  the chart's appVersion. Populated as charts are installed; absent
+                  in Inline mode.
+                type: object
+              conditions:
+                description: |-
+                  conditions report the resource's state:
+                    - Ready                (aggregate)
+                    - ValidationSucceeded  (Inline mode: refs validated)
+                  Managed-mode conditions (IngressReady, CertificatesReady,
+                  DNSReady, PolicyEnforcementReady, InfrastructureConfigured) are
+                  published by their producing reconcilers.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              imageRegistry:
+                description: |-
+                  imageRegistry publishes the rewriting prefix and pull secrets, if
+                  configured. Always populated when reconciliation succeeds; an
+                  empty prefix and empty pullSecrets means no rewriting is in effect.
+                properties:
+                  prefix:
+                    description: |-
+                      prefix rewrites every bundled image reference to live under this
+                      prefix, e.g., "internal-registry.corp.local/educates". Pre-relocated
+                      bundles (via helm dt wrap/unwrap) do not need this set.
+                    type: string
+                  pullSecrets:
+                    description: |-
+                      pullSecrets references kubernetes.io/dockerconfigjson Secrets in
+                      the operator namespace.
+                    items:
+                      description: |-
+                        LocalObjectReference is a reference to a Kubernetes object by name in
+                        the operator namespace. Cluster-scoped references (e.g., ClusterIssuer,
+                        IngressClass) also use this shape.
+                      properties:
+                        name:
+                          description: name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                type: object
+              ingress:
+                description: |-
+                  ingress publishes the validated ingress contract for components to
+                  consume. Populated once validation succeeds.
+                properties:
+                  caCertificateSecretRef:
+                    description: caCertificateSecretRef is set when a CA Secret is
+                      configured.
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
+                  clusterIssuerRef:
+                    description: |-
+                      clusterIssuerRef names a cluster-wide ClusterIssuer when one was
+                      configured. Components use this informationally; nothing in the
+                      status pipeline depends on it.
+                    properties:
+                      name:
+                        description: name of the referent.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  domain:
+                    type: string
+                  ingressClassName:
+                    type: string
+                  protocol:
+                    description: |-
+                      protocol is the resolved scheme (http or https) of the
+                      public-facing URLs. Components read it to generate links and to
+                      decide whether to attach a TLS block to the ingresses they create.
+                    enum:
+                    - http
+                    - https
+                    type: string
+                  wildcardCertificateSecretRef:
+                    description: |-
+                      wildcardCertificateSecretRef points at the operator-namespace
+                      Secret holding the wildcard cert+key. Unset when the certificates
+                      provider is None, in which case there is no in-cluster TLS.
+                    properties:
+                      name:
+                        type: string
+                      namespace:
+                        type: string
+                    required:
+                    - name
+                    - namespace
+                    type: object
+                required:
+                - domain
+                - ingressClassName
+                - protocol
+                type: object
+              mode:
+                description: |-
+                  mode echoes spec.mode at the time of last successful reconcile.
+                  Components can branch on this without reading spec.
+                enum:
+                - Managed
+                - Inline
+                type: string
+              observedGeneration:
+                description: observedGeneration tracks the spec generation last reconciled.
+                format: int64
+                type: integer
+              phase:
+                description: |-
+                  phase is an advisory summary of the operator's current activity on
+                  this resource; conditions carry the authoritative state.
+                enum:
+                - Pending
+                - Installing
+                - Validating
+                - Ready
+                - Degraded
+                - Uninstalling
+                type: string
+              policyEnforcement:
+                description: policyEnforcement publishes the resolved policy engines.
+                properties:
+                  clusterPolicyEngine:
+                    description: ClusterPolicyEngine names the cluster-wide policy
+                      enforcement engine.
+                    enum:
+                    - Kyverno
+                    - PodSecurityStandards
+                    - OpenShiftSCC
+                    - None
+                    type: string
+                  workshopPolicyEngine:
+                    description: |-
+                      WorkshopPolicyEngine names the engine enforcing per-workshop isolation
+                      rules. Setting to None disables workshop isolation.
+                    enum:
+                    - Kyverno
+                    - None
+                    type: string
+                required:
+                - clusterPolicyEngine
+                - workshopPolicyEngine
+                type: object
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: EducatesClusterConfig must be named 'cluster' (singleton per cluster)
+          rule: self.metadata.name == 'cluster'
+    served: true
+    storage: true
+    subresources:
+      status: {}
