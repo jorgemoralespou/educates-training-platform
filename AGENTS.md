@@ -42,24 +42,41 @@ it installs the runtime but does not reimplement it.
 
 ## Repository scope: what's safe to change vs not
 
-**Safe to create/modify:**
-- Installer code (operator, CRDs, Helm charts). Charts live in
-  `installer/charts`, operator code in `installer/operator`, vendored
-  upstream Helm charts in `installer/operator/vendored-charts`.
-- The CLI in `client-programs/` — new commands wrap the Helm-chart +
-  CR-apply workflow; the workshop tooling lives here too.
-- Documentation in `project-docs/` for installation flows.
+**Principle: stay inside the boundary of the feature you are working on.**
+Every task is scoped to a feature or component, and that scope defines your
+boundary. Inside the boundary you may create and modify freely: the files
+the feature declares plus the files you were explicitly asked to change.
+Outside the boundary, ask for explicit permission before changing anything.
+Cross-boundary edits have wider implications (other owners, other release
+cadences, extra coordination), so they are never made silently.
 
-**Don't touch unless explicitly asked:**
-- `session-manager/`, `secrets-manager/`, `training-portal/`,
-  `lookup-service/`, `tunnel-manager/`, `node-ca-injector/`,
-  `assets-server/`, `image-cache/` — runtime components.
-- `workshop-images/` — workshop runtime, orthogonal to installer work.
+The boundary is whichever part of the project the feature lives in, not a
+fixed "installer vs runtime" split. For example:
 
-**Special case:** if an installer task needs a runtime component change
-(very rare — e.g., a config flag the runtime needs to consume
-differently), flag it explicitly before changing the runtime. These
-changes have wider implications.
+- **CLI work:** the boundary is `client-programs/`. Anything outside it (the
+  installer, any runtime component, other tooling) needs explicit sign-off
+  first.
+- **Installer work:** the boundary is `installer/` plus `client-programs/`,
+  because the CLI drives the install path and embeds the operator chart.
+  Anything outside those two needs sign-off.
+- **A runtime component** (for example `session-manager/`): the boundary is
+  that component's directory plus the artifacts it directly owns and couples
+  to. For `session-manager` that also includes `workshop-images/` (the base
+  environment it spawns sessions from) and its own subchart under
+  `installer/charts/educates-training-platform/charts/session-manager/`.
+  Anything else needs sign-off. The same shape applies to `secrets-manager/`,
+  `lookup-service/`, `training-portal/`, `tunnel-manager/`,
+  `node-ca-injector/`, `assets-server/`, and `image-cache/`.
+
+Documentation is governed by the release-notes and documentation-review
+norms below, not by this boundary: update `project-docs/` (user-facing) and
+`developer-docs/` for the feature you are working on as part of completing
+it. You do not need separate permission to document your own change.
+
+When a task genuinely needs a change outside its boundary (rare, for
+example a runtime component that must consume a new installer config flag),
+flag it explicitly and get agreement before touching the other area. A
+clarifying question is cheaper than an unwanted cross-boundary edit.
 
 ---
 
@@ -95,7 +112,11 @@ How I expect to collaborate:
   Bugs Fixed). Purely internal changes — refactors, CI, tests, developer docs —
   are exempt. Match the file's prose style: full sentences, double-backtick
   literals, wrapped lines.
-
+- **Every user-facing change needs a documentation review for completeness.** Before
+  considering a change done, review the user facing documentation
+  `project-docs`. Purely internal changes — refactors, CI, tests —
+  are exempt. Match the documentations's prose style: full sentences, double-backtick
+  literals, wrapped lines, **NEVER USE** emdashes.
 ---
 
 ## Build and run commands
