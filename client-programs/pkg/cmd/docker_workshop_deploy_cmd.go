@@ -20,6 +20,7 @@ import (
 	composetypes "github.com/compose-spec/compose-go/types"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/exp/slices"
@@ -139,7 +140,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		return name, errors.Wrap(err, "unable to create docker client")
 	}
 
-	_, err = cli.ContainerInspect(ctx, name)
+	_, err = cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 
 	if err == nil {
 		return name, errors.New("this workshop is already running")
@@ -153,17 +154,20 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 
 	var registryIP string
 
-	registryInfo, err := cli.ContainerInspect(ctx, "educates-registry")
+	registryInfo, err := cli.ContainerInspect(ctx, "educates-registry", client.ContainerInspectOptions{})
 
 	if err == nil {
-		educatesNetwork, exists := registryInfo.NetworkSettings.Networks["educates"]
+		educatesNetwork, exists := registryInfo.Container.NetworkSettings.Networks["educates"]
 
 		if !exists {
 			return name, errors.New("registry is not attached to educates network")
 		}
 
 		registryNetwork = true
-		registryIP = educatesNetwork.IPAddress
+
+		if educatesNetwork.IPAddress.IsValid() {
+			registryIP = educatesNetwork.IPAddress.String()
+		}
 	} else {
 		o.LocalRepository = ""
 	}

@@ -3,7 +3,7 @@ package utils
 import (
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/api/types/container"
 )
 
 // GetContainerName returns a container's primary name with the leading

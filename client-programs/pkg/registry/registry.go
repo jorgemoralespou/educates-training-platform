@@ -8,15 +8,14 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"net/netip"
 	"path"
 	"sort"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/constants"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
@@ -119,7 +118,7 @@ func createRegistryContainer(bindIP string, p Progress) error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	_, err = cli.ContainerInspect(ctx, EducatesRegistryContainer)
+	_, err = cli.ContainerInspect(ctx, EducatesRegistryContainer, client.ContainerInspectOptions{})
 
 	if err == nil {
 		// If we can retrieve a container of required name we assume it is
@@ -132,7 +131,7 @@ func createRegistryContainer(bindIP string, p Progress) error {
 
 	report(p, "pulling registry image")
 
-	reader, err := cli.ImagePull(ctx, RegistryImageV3, image.PullOptions{})
+	reader, err := cli.ImagePull(ctx, RegistryImageV3, client.ImagePullOptions{})
 	if err != nil {
 		return errors.Wrap(err, "cannot pull registry image")
 	}
@@ -144,21 +143,34 @@ func createRegistryContainer(bindIP string, p Progress) error {
 	// under --verbose is a follow-up.
 	io.Copy(io.Discard, reader)
 
-	_, err = cli.NetworkInspect(ctx, EducatesNetworkName, network.InspectOptions{})
+	_, err = cli.NetworkInspect(ctx, EducatesNetworkName, client.NetworkInspectOptions{})
 
 	if err != nil {
-		_, err = cli.NetworkCreate(ctx, EducatesNetworkName, network.CreateOptions{})
+		_, err = cli.NetworkCreate(ctx, EducatesNetworkName, client.NetworkCreateOptions{})
 
 		if err != nil {
 			return errors.Wrap(err, "cannot create educates network")
 		}
 	}
 
+	// An empty bind address keeps the zero netip.Addr, which the daemon
+	// treats as binding to all interfaces, matching the previous string
+	// based behaviour.
+	var hostIP netip.Addr
+
+	if bindIP != "" {
+		hostIP, err = netip.ParseAddr(bindIP)
+
+		if err != nil {
+			return errors.Wrapf(err, "invalid registry bind address %q", bindIP)
+		}
+	}
+
 	hostConfig := &container.HostConfig{
-		PortBindings: nat.PortMap{
-			"5000/tcp": []nat.PortBinding{
+		PortBindings: network.PortMap{
+			network.MustParsePort("5000/tcp"): []network.PortBinding{
 				{
-					HostIP:   bindIP,
+					HostIP:   hostIP,
 					HostPort: "5001",
 				},
 			},
@@ -173,26 +185,33 @@ func createRegistryContainer(bindIP string, p Progress) error {
 		constants.EducatesContainersRoleLabelKey: constants.EducatesContainersRegistryRoleLabel,
 	}
 
-	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: RegistryImageV3,
-		Tty:   false,
-		ExposedPorts: nat.PortSet{
-			"5000/tcp": struct{}{},
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: RegistryImageV3,
+			Tty:   false,
+			ExposedPorts: network.PortSet{
+				network.MustParsePort("5000/tcp"): struct{}{},
+			},
+			Labels: labels,
 		},
-		Labels: labels,
-	}, hostConfig, nil, nil, EducatesRegistryContainer)
+		HostConfig: hostConfig,
+		Name:       EducatesRegistryContainer,
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "cannot create registry container")
 	}
 
-	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return errors.Wrap(err, "unable to start registry")
 	}
 
-	cli.NetworkDisconnect(ctx, EducatesNetworkName, EducatesRegistryContainer, false)
+	cli.NetworkDisconnect(ctx, EducatesNetworkName, client.NetworkDisconnectOptions{Container: EducatesRegistryContainer})
 
-	err = cli.NetworkConnect(ctx, EducatesNetworkName, EducatesRegistryContainer, &network.EndpointSettings{})
+	_, err = cli.NetworkConnect(ctx, EducatesNetworkName, client.NetworkConnectOptions{
+		Container:      EducatesRegistryContainer,
+		EndpointConfig: &network.EndpointSettings{},
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "unable to connect registry to educates network")
@@ -241,7 +260,7 @@ func createMirrorContainer(mirrorConfig *MirrorConfig, p Progress) error {
 	}
 
 	mirrorContainerName := registryMirrorContainerName(mirrorConfig)
-	_, err = cli.ContainerInspect(ctx, mirrorContainerName)
+	_, err = cli.ContainerInspect(ctx, mirrorContainerName, client.ContainerInspectOptions{})
 
 	if err == nil {
 		// If we can retrieve a container of required name we assume it is
@@ -267,10 +286,10 @@ func createMirrorContainer(mirrorConfig *MirrorConfig, p Progress) error {
 		envs = append(envs, fmt.Sprintf("REGISTRY_PROXY_PASSWORD=%s", mirrorConfig.Password))
 	}
 
-	_, err = cli.NetworkInspect(ctx, EducatesNetworkName, network.InspectOptions{})
+	_, err = cli.NetworkInspect(ctx, EducatesNetworkName, client.NetworkInspectOptions{})
 
 	if err != nil {
-		_, err = cli.NetworkCreate(ctx, EducatesNetworkName, network.CreateOptions{})
+		_, err = cli.NetworkCreate(ctx, EducatesNetworkName, client.NetworkCreateOptions{})
 
 		if err != nil {
 			return errors.Wrap(err, "cannot create educates network")
@@ -278,10 +297,10 @@ func createMirrorContainer(mirrorConfig *MirrorConfig, p Progress) error {
 	}
 
 	hostConfig := &container.HostConfig{
-		PortBindings: nat.PortMap{
-			"5000/tcp": []nat.PortBinding{
+		PortBindings: network.PortMap{
+			network.MustParsePort("5000/tcp"): []network.PortBinding{
 				{
-					HostIP: "127.0.0.1",
+					HostIP: netip.MustParseAddr("127.0.0.1"),
 					// HostPort: mirrorConfig.Port,
 				},
 			},
@@ -299,27 +318,34 @@ func createMirrorContainer(mirrorConfig *MirrorConfig, p Progress) error {
 		constants.EducatesContainersUsernameLabelKey: mirrorConfig.Username,
 	}
 
-	resp, err := cli.ContainerCreate(ctx, &container.Config{
-		Image: RegistryImageV3,
-		Tty:   false,
-		Env:   envs,
-		ExposedPorts: nat.PortSet{
-			"5000/tcp": struct{}{},
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
+			Image: RegistryImageV3,
+			Tty:   false,
+			Env:   envs,
+			ExposedPorts: network.PortSet{
+				network.MustParsePort("5000/tcp"): struct{}{},
+			},
+			Labels: labels,
 		},
-		Labels: labels,
-	}, hostConfig, nil, nil, mirrorContainerName)
+		HostConfig: hostConfig,
+		Name:       mirrorContainerName,
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "cannot create local registry mirror container")
 	}
 
-	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return errors.Wrap(err, "unable to start local registry mirror")
 	}
 
-	cli.NetworkDisconnect(ctx, EducatesNetworkName, mirrorContainerName, false)
+	cli.NetworkDisconnect(ctx, EducatesNetworkName, client.NetworkDisconnectOptions{Container: mirrorContainerName})
 
-	err = cli.NetworkConnect(ctx, EducatesNetworkName, mirrorContainerName, &network.EndpointSettings{})
+	_, err = cli.NetworkConnect(ctx, EducatesNetworkName, client.NetworkConnectOptions{
+		Container:      mirrorContainerName,
+		EndpointConfig: &network.EndpointSettings{},
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "unable to connect local registry mirror to educates network")
@@ -353,17 +379,17 @@ func addRegistryConfigToKindNodes(repositoryName string, content string, p Progr
 
 	cmdStatement := []string{"mkdir", "-p", registryDir}
 
-	optionsCreateExecuteScript := container.ExecOptions{
+	optionsCreateExecuteScript := client.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmdStatement,
 	}
 
-	response, err := cli.ContainerExecCreate(ctx, containerID, optionsCreateExecuteScript)
+	response, err := cli.ExecCreate(ctx, containerID, optionsCreateExecuteScript)
 	if err != nil {
 		return errors.Wrap(err, "unable to create exec command")
 	}
-	hijackedResponse, err := cli.ContainerExecAttach(ctx, response.ID, container.ExecAttachOptions{})
+	hijackedResponse, err := cli.ExecAttach(ctx, response.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return errors.Wrap(err, "unable to attach exec command")
 	}
@@ -374,10 +400,11 @@ func addRegistryConfigToKindNodes(repositoryName string, content string, p Progr
 	if err != nil {
 		return err
 	}
-	err = cli.CopyToContainer(context.Background(),
-		containerID, "/",
-		buffer,
-		container.CopyToContainerOptions{
+	_, err = cli.CopyToContainer(context.Background(),
+		containerID,
+		client.CopyToContainerOptions{
+			DestinationPath:           "/",
+			Content:                   buffer,
 			AllowOverwriteDirWithFile: true,
 		})
 	if err != nil {
@@ -412,18 +439,18 @@ func removeRegistryConfigFromKindNodes(repositoryName string, p Progress) error 
 
 	cmdStatement := []string{"rm", "-rf", registryDir}
 
-	optionsCreateExecuteScript := container.ExecOptions{
+	optionsCreateExecuteScript := client.ExecCreateOptions{
 		AttachStdout: true,
 		AttachStderr: true,
 		Cmd:          cmdStatement,
 	}
 
-	response, err := cli.ContainerExecCreate(ctx, containerID, optionsCreateExecuteScript)
+	response, err := cli.ExecCreate(ctx, containerID, optionsCreateExecuteScript)
 	if err != nil {
 		return errors.Wrap(err, "unable to create exec command")
 	}
 
-	hijackedResponse, err := cli.ContainerExecAttach(ctx, response.ID, container.ExecAttachOptions{})
+	hijackedResponse, err := cli.ExecAttach(ctx, response.ID, client.ExecAttachOptions{})
 	if err != nil {
 		return errors.Wrap(err, "unable to attach exec command")
 	}
@@ -483,9 +510,12 @@ func linkRegistryToClusterNetwork(containerName string, p Progress) error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	cli.NetworkDisconnect(ctx, "kind", containerName, false)
+	cli.NetworkDisconnect(ctx, "kind", client.NetworkDisconnectOptions{Container: containerName})
 
-	err = cli.NetworkConnect(ctx, "kind", containerName, &network.EndpointSettings{})
+	_, err = cli.NetworkConnect(ctx, "kind", client.NetworkConnectOptions{
+		Container:      containerName,
+		EndpointConfig: &network.EndpointSettings{},
+	})
 
 	if err != nil {
 		return errors.Wrap(err, "unable to connect registry to cluster network")
@@ -509,7 +539,7 @@ func DeleteRegistry(p Progress) error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	_, err = cli.ContainerInspect(ctx, EducatesRegistryContainer)
+	_, err = cli.ContainerInspect(ctx, EducatesRegistryContainer, client.ContainerInspectOptions{})
 
 	if err != nil {
 		// If we can't retrieve a container of required name we assume it does
@@ -520,7 +550,7 @@ func DeleteRegistry(p Progress) error {
 
 	timeout := 30
 
-	err = cli.ContainerStop(ctx, EducatesRegistryContainer, container.StopOptions{Timeout: &timeout})
+	_, err = cli.ContainerStop(ctx, EducatesRegistryContainer, client.ContainerStopOptions{Timeout: &timeout})
 
 	// timeout := time.Duration(30) * time.Second
 
@@ -530,7 +560,7 @@ func DeleteRegistry(p Progress) error {
 		return errors.Wrap(err, "unable to stop registry container")
 	}
 
-	err = cli.ContainerRemove(ctx, EducatesRegistryContainer, container.RemoveOptions{})
+	_, err = cli.ContainerRemove(ctx, EducatesRegistryContainer, client.ContainerRemoveOptions{})
 
 	if err != nil {
 		return errors.Wrap(err, "unable to delete registry container")
@@ -555,7 +585,7 @@ func DeleteMirrorAndUnlinkFromCluster(mirrorConfig *MirrorConfig, p Progress) er
 	}
 
 	containerName := registryMirrorContainerName(mirrorConfig)
-	_, err = cli.ContainerInspect(ctx, containerName)
+	_, err = cli.ContainerInspect(ctx, containerName, client.ContainerInspectOptions{})
 
 	if err != nil {
 		// If we can't retrieve a container of required name we assume it does
@@ -567,13 +597,13 @@ func DeleteMirrorAndUnlinkFromCluster(mirrorConfig *MirrorConfig, p Progress) er
 
 	timeout := 30
 
-	err = cli.ContainerStop(ctx, containerName, container.StopOptions{Timeout: &timeout})
+	_, err = cli.ContainerStop(ctx, containerName, client.ContainerStopOptions{Timeout: &timeout})
 
 	if err != nil {
 		return errors.Wrap(err, "unable to stop registry mirror container "+containerName)
 	}
 
-	err = cli.ContainerRemove(ctx, containerName, container.RemoveOptions{})
+	_, err = cli.ContainerRemove(ctx, containerName, client.ContainerRemoveOptions{})
 
 	if err != nil {
 		return errors.Wrap(err, "unable to delete registry mirror container "+containerName)
@@ -600,7 +630,7 @@ func DeleteRegistryMirrors(p Progress) error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	mirrors, err := cli.ContainerList(ctx, container.ListOptions{
+	mirrors, err := cli.ContainerList(ctx, client.ContainerListOptions{
 		All:     true,
 		Filters: registryMirrorLabelFilters(),
 	})
@@ -609,17 +639,17 @@ func DeleteRegistryMirrors(p Progress) error {
 		return errors.Wrap(err, "unable to list registry mirrors")
 	}
 
-	for _, mirror := range mirrors {
+	for _, mirror := range mirrors.Items {
 
 		timeout := 30
 
-		err = cli.ContainerStop(ctx, mirror.ID, container.StopOptions{Timeout: &timeout})
+		_, err = cli.ContainerStop(ctx, mirror.ID, client.ContainerStopOptions{Timeout: &timeout})
 
 		if err != nil {
 			return errors.Wrap(err, "unable to stop registry mirror container "+mirror.ID)
 		}
 
-		err = cli.ContainerRemove(ctx, mirror.ID, container.RemoveOptions{})
+		_, err = cli.ContainerRemove(ctx, mirror.ID, client.ContainerRemoveOptions{})
 
 		if err != nil {
 			return errors.Wrap(err, "unable to delete registry mirror container "+mirror.ID)
@@ -643,11 +673,10 @@ type RegistryMirror struct {
 // registryMirrorLabelFilters is the label selector identifying registry
 // mirror containers. Shared by the list and bulk-delete paths so both
 // discover exactly the same set.
-func registryMirrorLabelFilters() filters.Args {
-	return filters.NewArgs(
-		filters.Arg("label", constants.EducatesContainersRoleLabelKey+"="+constants.EducatesContainersMirrorRoleLabel),
-		filters.Arg("label", constants.EducatesContainersAppLabelKey+"="+constants.EducatesContainersAppLabel),
-	)
+func registryMirrorLabelFilters() client.Filters {
+	return client.Filters{}.
+		Add("label", constants.EducatesContainersRoleLabelKey+"="+constants.EducatesContainersMirrorRoleLabel).
+		Add("label", constants.EducatesContainersAppLabelKey+"="+constants.EducatesContainersAppLabel)
 }
 
 // ListRegistryMirrors returns the deployed local registry mirrors, sorted
@@ -661,7 +690,7 @@ func ListRegistryMirrors() ([]RegistryMirror, error) {
 		return nil, errors.Wrap(err, "unable to create docker client")
 	}
 
-	mirrors, err := cli.ContainerList(ctx, container.ListOptions{
+	mirrors, err := cli.ContainerList(ctx, client.ContainerListOptions{
 		All:     true,
 		Filters: registryMirrorLabelFilters(),
 	})
@@ -669,8 +698,8 @@ func ListRegistryMirrors() ([]RegistryMirror, error) {
 		return nil, errors.Wrap(err, "unable to list registry mirrors")
 	}
 
-	result := make([]RegistryMirror, 0, len(mirrors))
-	for _, item := range mirrors {
+	result := make([]RegistryMirror, 0, len(mirrors.Items))
+	for _, item := range mirrors.Items {
 		name := item.Labels[constants.EducatesContainersMirrorLabelKey]
 
 		url := item.Labels[constants.EducatesContainersURLLabelKey]
@@ -726,19 +755,19 @@ func UpdateRegistryK8SService(k8sclient *kubernetes.Clientset) error {
 	endpointAppProtocol := "http"
 	endpointProtocol := v1.ProtocolTCP
 
-	registryInfo, err := cli.ContainerInspect(ctx, EducatesRegistryContainer)
+	registryInfo, err := cli.ContainerInspect(ctx, EducatesRegistryContainer, client.ContainerInspectOptions{})
 
 	if err != nil {
 		return errors.Wrapf(err, "unable to inspect container for registry")
 	}
 
-	kindNetwork, exists := registryInfo.NetworkSettings.Networks["kind"]
+	kindNetwork, exists := registryInfo.Container.NetworkSettings.Networks["kind"]
 
 	if !exists {
 		return errors.New("registry is not attached to kind network")
 	}
 
-	endpointAddresses := []string{kindNetwork.IPAddress}
+	endpointAddresses := []string{kindNetwork.IPAddress.String()}
 
 	endpointSlice := discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
@@ -801,17 +830,17 @@ func PruneRegistry(p Progress) error {
 
 	cmdStatement := []string{"registry", "garbage-collect", RegistryConfigTargetPath, "--delete-untagged=true"}
 
-	optionsCreateExecuteScript := container.ExecOptions{
+	optionsCreateExecuteScript := client.ExecCreateOptions{
 		AttachStdout: false,
 		AttachStderr: false,
 		Cmd:          cmdStatement,
 	}
 
-	response, err := cli.ContainerExecCreate(ctx, containerID, optionsCreateExecuteScript)
+	response, err := cli.ExecCreate(ctx, containerID, optionsCreateExecuteScript)
 	if err != nil {
 		return errors.Wrap(err, "unable to create exec command")
 	}
-	err = cli.ContainerExecStart(ctx, response.ID, container.ExecStartOptions{})
+	_, err = cli.ExecStart(ctx, response.ID, client.ExecStartOptions{})
 	if err != nil {
 		return errors.Wrap(err, "unable to exec command")
 	}
@@ -840,19 +869,16 @@ func getContainerInfo(containerName string) (containerID string, status string) 
 		panic(err)
 	}
 
-	filters := filters.NewArgs()
-	filters.Add(
-		"name", containerName,
-	)
+	nameFilters := client.Filters{}.Add("name", containerName)
 
-	resp, err := cli.ContainerList(ctx, container.ListOptions{Filters: filters})
+	resp, err := cli.ContainerList(ctx, client.ContainerListOptions{Filters: nameFilters})
 	if err != nil {
 		panic(err)
 	}
 
-	if len(resp) > 0 {
-		containerID = resp[0].ID
-		containerStatus := strings.Split(resp[0].Status, " ")
+	if len(resp.Items) > 0 {
+		containerID = resp.Items[0].ID
+		containerStatus := strings.Split(resp.Items[0].Status, " ")
 		status = containerStatus[0]
 	}
 

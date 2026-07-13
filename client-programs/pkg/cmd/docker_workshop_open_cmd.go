@@ -11,6 +11,7 @@ import (
 
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -71,13 +72,13 @@ func (o *DockerWorkshopOpenOptions) Run() error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	container, err := cli.ContainerInspect(ctx, name)
+	container, err := cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 
 	if err != nil {
 		return errors.New("unable to find workshop")
 	}
 
-	url, found := container.Config.Labels["training.educates.dev/url"]
+	url, found := container.Container.Config.Labels["training.educates.dev/url"]
 
 	if !found || url == "" {
 		return errors.New("can't determine URL for workshop")

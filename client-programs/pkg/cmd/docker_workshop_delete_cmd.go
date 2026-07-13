@@ -11,6 +11,7 @@ import (
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -65,7 +66,7 @@ func (m *DockerWorkshopsManager) DeleteWorkshop(name string, stdout io.Writer, s
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	err = cli.VolumeRemove(ctx, fmt.Sprintf("%s_workshop", name), false)
+	_, err = cli.VolumeRemove(ctx, fmt.Sprintf("%s_workshop", name), client.VolumeRemoveOptions{})
 
 	if err != nil {
 		return errors.Wrap(err, "unable to delete workshop volume")

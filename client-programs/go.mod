@@ -6,8 +6,6 @@ go 1.26.0
 
 // replace github.com/google/cel-go => github.com/google/cel-go v0.22.1
 
-// replace github.com/docker/docker => github.com/docker/docker v27.5.1+incompatible
-
 require (
 	carvel.dev/imgpkg v0.46.1
 	carvel.dev/kapp v0.64.2
@@ -16,15 +14,17 @@ require (
 	github.com/adrg/xdg v0.5.3
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/cppforlife/go-cli-ui v0.0.0-20250603184554-47874c9078ad
-	// Every time we update below version, we need to update Docker Desktop client to match the required version
-	// or else downgrade CLI support via export DOCKER_API_VERSION=1.xx
-	// Version compabitility: https://github.com/moby/moby/blob/master/docs/api/version-history.md
-	github.com/docker/docker v28.5.2+incompatible
-	github.com/docker/go-connections v0.6.0
+	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/go-logr/logr v1.4.3
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/joho/godotenv v1.5.1
 	github.com/mitchellh/go-homedir v1.1.0
+	// The moby client negotiates the daemon API version at connect time
+	// (this release supports 1.40-1.55), so no Docker Desktop lockstep is
+	// required. Version compatibility:
+	// https://github.com/moby/moby/blob/master/docs/api/version-history.md
+	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/client v0.5.0
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
@@ -173,7 +173,6 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
-	github.com/moby/sys/sequential v0.6.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
