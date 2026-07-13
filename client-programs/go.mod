@@ -1,16 +1,16 @@
 module github.com/educates/educates-training-platform/client-programs
 
-go 1.26.0
+go 1.26.3
 
 // replace cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.2.3
 
 // replace github.com/google/cel-go => github.com/google/cel-go v0.22.1
 
 require (
-	carvel.dev/imgpkg v0.46.1
-	carvel.dev/kapp v0.64.2
-	carvel.dev/vendir v0.44.0
-	carvel.dev/ytt v0.52.1
+	carvel.dev/imgpkg v0.48.1
+	carvel.dev/kapp v0.66.0
+	carvel.dev/vendir v0.46.0
+	carvel.dev/ytt v0.55.1
 	github.com/adrg/xdg v0.5.3
 	github.com/compose-spec/compose-go/v2 v2.13.0
 	github.com/cppforlife/go-cli-ui v0.0.0-20250603184554-47874c9078ad
@@ -33,7 +33,6 @@ require (
 	k8s.io/apimachinery v0.36.0
 	k8s.io/cli-runtime v0.36.0
 	k8s.io/client-go v0.36.0
-	k8s.io/controller-manager v0.33.5 // indirect
 	k8s.io/klog/v2 v2.140.0
 	k8s.io/kubectl v0.36.0
 	sigs.k8s.io/controller-runtime v0.24.0
@@ -71,26 +70,28 @@ require (
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.39.6 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.31.19 // indirect
-	github.com/aws/aws-sdk-go-v2/credentials v1.18.23 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.13 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.13 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.13 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
+	github.com/aws/aws-sdk-go-v2/config v1.32.10 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.10 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.18 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.18 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.18 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ecr v1.51.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.38.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.3 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.13 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.2 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.6 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.40.1 // indirect
-	github.com/aws/smithy-go v1.23.2 // indirect
-	github.com/awslabs/amazon-ecr-credential-helper/ecr-login v0.11.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ecr v1.55.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ecrpublic v1.38.10 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.18 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.0.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.11 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.15 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.41.7 // indirect
+	github.com/aws/smithy-go v1.24.1 // indirect
+	github.com/awslabs/amazon-ecr-credential-helper/ecr-login v0.12.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/bmatcuk/doublestar v1.3.4 // indirect
-	github.com/carvel-dev/semver/v4 v4.0.1-0.20240402203627-beb83fbf25e4 // indirect
+	github.com/carvel-dev/difflib v0.0.0-20240118055029-596a7a5585c3 // indirect
+	github.com/carvel-dev/semver/v4 v4.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chai2010/gettext-go v1.0.2 // indirect
 	github.com/cheggaaa/pb/v3 v3.1.7 // indirect
@@ -158,7 +159,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/k14s/difflib v0.0.0-20240118055029-596a7a5585c3 // indirect
 	github.com/k14s/starlark-go v0.0.0-20200720175618-3a5c849cc368 // indirect
-	github.com/k14s/ytt v0.39.0 // indirect
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
@@ -232,7 +232,7 @@ require (
 	k8s.io/component-base v0.36.0 // indirect
 	k8s.io/component-helpers v0.36.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260317180543-43fb72c5454a // indirect
-	k8s.io/kubernetes v1.34.2 // indirect
+	k8s.io/kubernetes v1.35.0 // indirect
 	k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 // indirect
 	oras.land/oras-go/v2 v2.6.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
