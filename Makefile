@@ -302,14 +302,18 @@ release-prep: ## Stamp the committed tree to VERSION (release/* branch step; com
 # Docker Desktop extension
 # =============================================================================
 
+# The extension Makefile shares the root knob names; TARGET_PLATFORMS
+# and PUSH_IMAGES flow through automatically when set on the command
+# line or in the environment, so the extension is always built for the
+# same platforms as the educates-cli image it builds FROM.
 build-docker-extension: image-cli ## Build the Docker Desktop extension
-	$(MAKE) -C docker-extension build-extension REPOSITORY=$(IMAGE_REPOSITORY) TAG=$(PACKAGE_VERSION)
+	$(MAKE) -C docker-extension build-extension IMAGE_REPOSITORY=$(IMAGE_REPOSITORY) PACKAGE_VERSION=$(PACKAGE_VERSION)
 
 install-docker-extension: build-docker-extension
-	$(MAKE) -C docker-extension install-extension REPOSITORY=$(IMAGE_REPOSITORY) TAG=$(PACKAGE_VERSION)
+	$(MAKE) -C docker-extension install-extension IMAGE_REPOSITORY=$(IMAGE_REPOSITORY) PACKAGE_VERSION=$(PACKAGE_VERSION)
 
 update-docker-extension: build-docker-extension
-	$(MAKE) -C docker-extension update-extension REPOSITORY=$(IMAGE_REPOSITORY) TAG=$(PACKAGE_VERSION)
+	$(MAKE) -C docker-extension update-extension IMAGE_REPOSITORY=$(IMAGE_REPOSITORY) PACKAGE_VERSION=$(PACKAGE_VERSION)
 
 # =============================================================================
 # Cluster conveniences
