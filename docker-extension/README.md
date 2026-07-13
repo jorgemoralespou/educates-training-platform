@@ -29,6 +29,8 @@ You can use `docker` to build, install and push your extension. Also, we provide
 
 The Makefile uses the same knobs as the root project Makefile: `IMAGE_REPOSITORY` (default `localhost:5001`), `PACKAGE_VERSION` (default `latest`), `TARGET_PLATFORMS` (defaults to the current host architecture only; multi-arch is explicit opt-in, for example `TARGET_PLATFORMS=linux/amd64,linux/arm64`) and `PUSH_IMAGES` (`false` loads the image into the Docker daemon instead of pushing it to the registry). The extension image builds `FROM` the `educates-cli` image at `IMAGE_REPOSITORY/educates-cli:PACKAGE_VERSION`, which must exist for every platform being built. The root `make build-docker-extension` target takes care of building it first with the same knobs.
 
+Docker Desktop derives a Docker Compose project name from the image reference an extension is installed under and rejects names carrying characters like the colon of a registry port. The `install-extension`, `update-extension` and development targets therefore retag the built image under a sanitized alias (for example `localhost_5001/educates-docker-extension:latest`) and operate on that alias.
+
 To build the extension, use `make build-extension` **or**:
 
 ```shell
