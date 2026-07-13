@@ -41,7 +41,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/marked": "^4.3.2",
     "@types/morgan": "^1.9.9",
-    "@types/node": "^16.11.7",
+    "@types/node": "^24.0.0",
     "@types/underscore.string": "^0.0.41",
     "esbuild": "^0.28.1",
     "typescript": "^5.2.2"
