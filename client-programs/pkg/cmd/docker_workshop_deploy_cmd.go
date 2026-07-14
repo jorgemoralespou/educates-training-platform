@@ -16,10 +16,11 @@ import (
 	"time"
 
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
-	composeloader "github.com/compose-spec/compose-go/loader"
-	composetypes "github.com/compose-spec/compose-go/types"
+	composeloader "github.com/compose-spec/compose-go/v2/loader"
+	composetypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/exp/slices"
@@ -139,7 +140,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		return name, errors.Wrap(err, "unable to create docker client")
 	}
 
-	_, err = cli.ContainerInspect(ctx, name)
+	_, err = cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 
 	if err == nil {
 		return name, errors.New("this workshop is already running")
@@ -153,17 +154,20 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 
 	var registryIP string
 
-	registryInfo, err := cli.ContainerInspect(ctx, "educates-registry")
+	registryInfo, err := cli.ContainerInspect(ctx, "educates-registry", client.ContainerInspectOptions{})
 
 	if err == nil {
-		educatesNetwork, exists := registryInfo.NetworkSettings.Networks["educates"]
+		educatesNetwork, exists := registryInfo.Container.NetworkSettings.Networks["educates"]
 
 		if !exists {
 			return name, errors.New("registry is not attached to educates network")
 		}
 
 		registryNetwork = true
-		registryIP = educatesNetwork.IPAddress
+
+		if educatesNetwork.IPAddress.IsValid() {
+			registryIP = educatesNetwork.IPAddress.String()
+		}
 	} else {
 		o.LocalRepository = ""
 	}
@@ -288,8 +292,15 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		networks["educates"] = &composetypes.ServiceNetworkConfig{}
 	}
 
+	// In compose-go v2 a service's name comes from its key in the project
+	// services map, and HostsList maps each host to a list of addresses.
+	workshopExtraHostsConfig := composetypes.HostsList{}
+
+	for host, address := range workshopExtraHosts {
+		workshopExtraHostsConfig[host] = []string{address}
+	}
+
 	workshopServiceConfig := composetypes.ServiceConfig{
-		Name:        "workshop",
 		Image:       workshopImageName,
 		Command:     composetypes.ShellCommand([]string{"bash", "-c", containerScriptData.String()}),
 		User:        "1001:0",
@@ -297,7 +308,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		Volumes:     workshopVolumesConfig,
 		Environment: composetypes.NewMappingWithEquals(workshopEnvironment),
 		Labels:      composetypes.Labels(workshopLabels),
-		ExtraHosts:  composetypes.HostsList(workshopExtraHosts),
+		ExtraHosts:  workshopExtraHostsConfig,
 		DependsOn:   composetypes.DependsOnConfig{},
 		Networks:    networks,
 	}
@@ -328,13 +339,13 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		}
 	}
 
-	workshopServices := []composetypes.ServiceConfig{workshopServiceConfig}
-
 	composeConfig := composetypes.Project{
-		Name:     originalName,
-		Services: workshopServices,
+		Name: originalName,
+		Services: composetypes.Services{
+			"workshop": workshopServiceConfig,
+		},
 		Networks: composetypes.Networks{
-			"educates": {External: composetypes.External{External: true}},
+			"educates": {External: composetypes.External(true)},
 		},
 		Volumes: composetypes.Volumes{
 			"workshop": composetypes.VolumeConfig{},
@@ -342,13 +353,17 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 	}
 
 	if workshopComposeProject != nil {
-		for _, extraService := range workshopComposeProject.Services {
+		for extraServiceName, extraService := range workshopComposeProject.Services {
+			extraService.Name = ""
 			extraService.Ports = []composetypes.ServicePortConfig{}
 
-			composeConfig.Services = append(composeConfig.Services, extraService)
+			composeConfig.Services[extraServiceName] = extraService
 
-			workshopServiceConfig.DependsOn[extraService.Name] = composetypes.ServiceDependency{
+			// Required is explicit as compose-go v2 always marshals the
+			// field, and the compose default for a dependency is required.
+			workshopServiceConfig.DependsOn[extraServiceName] = composetypes.ServiceDependency{
 				Condition: composetypes.ServiceConditionStarted,
+				Required:  true,
 			}
 		}
 
@@ -360,10 +375,10 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 	}
 
 	if o.Cluster != "" {
-		composeConfig.Networks["kind"] = composetypes.NetworkConfig{External: composetypes.External{External: true}}
+		composeConfig.Networks["kind"] = composetypes.NetworkConfig{External: composetypes.External(true)}
 	}
 
-	composeConfigBytes, err := yaml.Marshal(&composeConfig)
+	composeConfigBytes, err := composeConfig.MarshalYAML()
 
 	if err != nil {
 		return name, errors.Wrap(err, "failed to generate compose config")
@@ -913,10 +928,13 @@ func extractWorkshopComposeConfig(workshop *unstructured.Unstructured) (*compose
 			ConfigFiles: []composetypes.ConfigFile{configFiles},
 		}
 
-		return composeloader.Load(composeConfigDetails, func(options *composeloader.Options) {
+		return composeloader.LoadWithContext(context.Background(), composeConfigDetails, func(options *composeloader.Options) {
 			options.SkipConsistencyCheck = true
 			options.SkipNormalization = true
 			options.ResolvePaths = false
+			// compose-go v2 requires a project name; this project is only a
+			// vehicle for extracting the extra services and volumes.
+			options.SetProjectName("workshop-extras", true)
 		})
 	}
 

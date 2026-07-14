@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 )
 
 var (
@@ -17,7 +17,7 @@ var (
 
 func NewDockerClient() (*client.Client, error) {
 	once.Do(func() {
-		dockerClient, initErr = client.NewClientWithOpts(
+		dockerClient, initErr = client.New(
 			client.FromEnv,
 			client.WithAPIVersionNegotiation(), // <-- This is the fix
 		)
@@ -40,7 +40,7 @@ func CheckDaemonRunning() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := cli.Ping(ctx); err != nil {
+	if _, err := cli.Ping(ctx, client.PingOptions{}); err != nil {
 		return fmt.Errorf("cannot connect to the Docker daemon — is Docker running?\n\nStart Docker (or your Docker daemon) and try again.\n\nunderlying error: %w", err)
 	}
 

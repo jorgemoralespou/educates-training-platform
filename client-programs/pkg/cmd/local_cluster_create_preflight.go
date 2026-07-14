@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/image"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 )
@@ -34,13 +35,13 @@ func checkHostPortsAvailable(ctx context.Context, listenAddress string, verbose 
 
 	const probeContainer = "educates-port-availability-check"
 	// Remove any leftover probe container from a previous interrupted run.
-	_ = cli.ContainerRemove(ctx, probeContainer, container.RemoveOptions{Force: true})
+	_, _ = cli.ContainerRemove(ctx, probeContainer, client.ContainerRemoveOptions{Force: true})
 
 	// Pull busybox only when it isn't already present locally, so repeat
 	// runs — and air-gapped hosts where it's already cached — don't need
 	// registry access just to probe the ports.
 	if _, err := cli.ImageInspect(ctx, busyboxImage); err != nil {
-		reader, err := cli.ImagePull(ctx, busyboxImage, image.PullOptions{})
+		reader, err := cli.ImagePull(ctx, busyboxImage, client.ImagePullOptions{})
 		if err != nil {
 			return fmt.Errorf("port-availability check: pull busybox: %w", err)
 		}
@@ -52,39 +53,45 @@ func checkHostPortsAvailable(ctx context.Context, listenAddress string, verbose 
 		}
 	}
 
-	exposed := nat.PortSet{}
-	bindings := nat.PortMap{}
-	for _, port := range []uint{80, 443} {
-		key := nat.Port(fmt.Sprintf("%d/tcp", port))
-		exposed[key] = struct{}{}
-		bindings[key] = []nat.PortBinding{{HostIP: listenAddress, HostPort: fmt.Sprintf("%d", port)}}
+	listenAddr, err := netip.ParseAddr(listenAddress)
+	if err != nil {
+		return fmt.Errorf("port-availability check: invalid listen address %q: %w", listenAddress, err)
 	}
 
-	resp, err := cli.ContainerCreate(ctx,
-		&container.Config{
+	exposed := network.PortSet{}
+	bindings := network.PortMap{}
+	for _, port := range []uint{80, 443} {
+		key := network.MustParsePort(fmt.Sprintf("%d/tcp", port))
+		exposed[key] = struct{}{}
+		bindings[key] = []network.PortBinding{{HostIP: listenAddr, HostPort: fmt.Sprintf("%d", port)}}
+	}
+
+	resp, err := cli.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Config: &container.Config{
 			Image:        busyboxImage,
 			Cmd:          []string{"/bin/true"},
 			Tty:          false,
 			ExposedPorts: exposed,
 		},
-		&container.HostConfig{PortBindings: bindings},
-		nil, nil, probeContainer)
+		HostConfig: &container.HostConfig{PortBindings: bindings},
+		Name:       probeContainer,
+	})
 	if err != nil {
 		return fmt.Errorf("port-availability check: create probe: %w", err)
 	}
-	defer cli.ContainerRemove(ctx, probeContainer, container.RemoveOptions{Force: true})
+	defer cli.ContainerRemove(ctx, probeContainer, client.ContainerRemoveOptions{Force: true})
 
-	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+	if _, err := cli.ContainerStart(ctx, resp.ID, client.ContainerStartOptions{}); err != nil {
 		return fmt.Errorf("ports 80/443 not available on %s — another process (an ingress controller, a dev server, Docker Desktop port forwards) is holding them: %w", listenAddress, err)
 	}
 
-	statusCh, errCh := cli.ContainerWait(ctx, probeContainer, container.WaitConditionNotRunning)
+	waitResult := cli.ContainerWait(ctx, probeContainer, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
 	select {
-	case err := <-errCh:
+	case err := <-waitResult.Error:
 		if err != nil {
 			return fmt.Errorf("port-availability check: wait for probe: %w", err)
 		}
-	case <-statusCh:
+	case <-waitResult.Result:
 	case <-ctx.Done():
 		return ctx.Err()
 	}

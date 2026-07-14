@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/docker/docker/api/types/container"
 	"github.com/educates/educates-training-platform/client-programs/pkg/docker"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 )
@@ -114,7 +114,7 @@ func (m *DockerWorkshopsManager) ListWorkhops() ([]DockerWorkshopDetails, error)
 		return nil, errors.Wrap(err, "unable to create docker client")
 	}
 
-	containers, err := cli.ContainerList(ctx, container.ListOptions{})
+	containers, err := cli.ContainerList(ctx, client.ContainerListOptions{})
 
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to list containers")
@@ -130,7 +130,7 @@ func (m *DockerWorkshopsManager) ListWorkhops() ([]DockerWorkshopDetails, error)
 
 	defer m.StatusesMutex.Unlock()
 
-	for _, container := range containers {
+	for _, container := range containers.Items {
 		url, found := container.Labels["training.educates.dev/url"]
 		source := container.Labels["training.educates.dev/source"]
 		instance := container.Labels["training.educates.dev/session"]

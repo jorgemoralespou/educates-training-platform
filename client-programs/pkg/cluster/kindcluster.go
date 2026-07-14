@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
+	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 	"golang.org/x/exp/slices"
 	"k8s.io/client-go/tools/clientcmd"
@@ -217,7 +217,7 @@ func (o *KindClusterConfig) StopCluster() error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	_, err = cli.ContainerInspect(ctx, "educates-control-plane")
+	_, err = cli.ContainerInspect(ctx, "educates-control-plane", client.ContainerInspectOptions{})
 
 	if err != nil {
 		return errors.Wrap(err, "no container for Educates cluster")
@@ -227,7 +227,7 @@ func (o *KindClusterConfig) StopCluster() error {
 
 	timeout := 30
 
-	if err := cli.ContainerStop(ctx, "educates-control-plane", container.StopOptions{Timeout: &timeout}); err != nil {
+	if _, err := cli.ContainerStop(ctx, "educates-control-plane", client.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		return errors.Wrapf(err, "failed to stop cluster")
 	}
 
@@ -256,7 +256,7 @@ func (o *KindClusterConfig) StartCluster() error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	_, err = cli.ContainerInspect(ctx, "educates-control-plane")
+	_, err = cli.ContainerInspect(ctx, "educates-control-plane", client.ContainerInspectOptions{})
 
 	if err != nil {
 		return errors.Wrap(err, "no container for Educates cluster")
@@ -264,7 +264,7 @@ func (o *KindClusterConfig) StartCluster() error {
 
 	fmt.Println("Starting cluster educates ...")
 
-	if err := cli.ContainerStart(ctx, "educates-control-plane", container.StartOptions{}); err != nil {
+	if _, err := cli.ContainerStart(ctx, "educates-control-plane", client.ContainerStartOptions{}); err != nil {
 		return errors.Wrapf(err, "failed to start cluster")
 	}
 
@@ -287,13 +287,13 @@ func (o *KindClusterConfig) ClusterStatus() error {
 		return errors.Wrap(err, "unable to create docker client")
 	}
 
-	containerJSON, err := cli.ContainerInspect(ctx, "educates-control-plane")
+	containerJSON, err := cli.ContainerInspect(ctx, "educates-control-plane", client.ContainerInspectOptions{})
 
 	if err != nil {
 		return errors.Wrap(err, "no container for Educates cluster")
 	}
 
-	if containerJSON.State.Running {
+	if containerJSON.Container.State.Running {
 		fmt.Println("Educates cluster is Running")
 		// if ip, err := config.HostIP(); err == nil {
 		// 	fmt.Println("  Cluster IP: ", ip)
