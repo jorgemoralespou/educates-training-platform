@@ -15,25 +15,25 @@ RUN <<EOF
     ARCHNAME_amd64=x64
     ARCHNAME_arm64=aarch64
     ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="f2dc5418092c43003db8f9005c4a286e1c0104fea96ccdd49e8ebd037cac9219"
-    CHECKSUM_arm64="e5c41a1ab0865ea5de9b4529bf8526005f1d4593090845387d14fe450ce39c33"
+    CHECKSUM_amd64="4b2220e232a97997b436ca6ab15cbf70171ecff52958a46159dfa5a8c44ca4de"
+    CHECKSUM_arm64="8d498ec88e1c1989fab95c6784240ab92d011e29c54d20a3f9c324b13476f9ad"
     CHECKSUM=CHECKSUM_${TARGETARCH}
-    curl --fail -sL -o /tmp/jdk21.tar.gz https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.8%2B9/OpenJDK21U-jdk_${!ARCHNAME}_linux_hotspot_21.0.8_9.tar.gz
+    curl --fail -sL -o /tmp/jdk21.tar.gz https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jdk_${!ARCHNAME}_linux_hotspot_21.0.11_10.tar.gz
     echo "${!CHECKSUM} /tmp/jdk21.tar.gz" | sha256sum --check --status
     tar -C /opt/java --strip-components 1 -zxf /tmp/jdk21.tar.gz
     rm /tmp/jdk21.tar.gz
 EOF
 
-RUN curl --fail -sL -o /tmp/maven.tar.gz https://archive.apache.org/dist/maven/maven-3/3.9.11/binaries/apache-maven-3.9.11-bin.tar.gz && \
-    echo "bcfe4fe305c962ace56ac7b5fc7a08b87d5abd8b7e89027ab251069faebee516b0ded8961445d6d91ec1985dfe30f8153268843c89aa392733d1a3ec956c9978 /tmp/maven.tar.gz" | sha512sum --check --status && \
+RUN curl --fail -sL -o /tmp/maven.tar.gz https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz && \
+    echo "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6 /tmp/maven.tar.gz" | sha512sum --check --status && \
     tar -C /opt/maven --strip-components 1 -zxf /tmp/maven.tar.gz && \
     rm /tmp/maven.tar.gz
 
-    RUN curl --fail -sL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-8.8-bin.zip && \
-    echo "a4b4158601f8636cdeeab09bd76afb640030bb5b144aafe261a5e8af027dc612 /tmp/gradle.zip" | sha256sum --check --status && \
+RUN curl --fail -sL -o /tmp/gradle.zip https://services.gradle.org/distributions/gradle-9.6.1-bin.zip && \
+    echo "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14 /tmp/gradle.zip" | sha256sum --check --status && \
     unzip -d /opt/gradle /tmp/gradle.zip && \
-    mv /opt/gradle/gradle-8.8/* /opt/gradle/ && \
-    rm -rf /opt/gradle/gradle-8.8 && \
+    mv /opt/gradle/gradle-9.6.1/* /opt/gradle/ && \
+    rm -rf /opt/gradle/gradle-9.6.1 && \
     rm /tmp/gradle.zip
 
 ENV PATH=/opt/java/bin:/opt/gradle/bin:/opt/maven/bin:$PATH \
@@ -58,8 +58,8 @@ RUN if [ "${TARGETARCH}" = "arm64" ]; then \
         export JAVA_OPTS="-XX:UseSVE=0"; \
         mv gradle.properties-arm64 gradle.properties; \
     fi && \
-    gradle init && \
-    gradle wrapper --gradle-version=8.8 --distribution-type=bin && \
+    gradle init --overwrite && \
+    gradle wrapper --gradle-version=9.6.1 --distribution-type=bin && \
     ./gradlew build
 
 FROM ${IMAGE_REPOSITORY}/${BASE_IMAGE_NAME}:${PACKAGE_VERSION}
