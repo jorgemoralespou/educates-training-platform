@@ -331,6 +331,27 @@ Deprecations
   therefore see a larger client/server version skew and should be verified
   against a supported cluster version.
 
+* The JDK versions included in the ``jdk8-environment``, ``jdk11-environment``,
+  ``jdk17-environment`` and ``jdk21-environment`` workshop base images have
+  been updated to the latest Eclipse Temurin patch releases, being 8u492-b09,
+  11.0.31+11, 17.0.19+10 and 21.0.11+10 respectively. The bundled Maven and
+  Gradle versions have also been updated. All four images now include Maven
+  3.9.16. The ``jdk8-environment`` and ``jdk11-environment`` images include
+  Gradle 8.14.5, the latest version able to run on those JDK versions, while
+  the ``jdk17-environment`` and ``jdk21-environment`` images include Gradle
+  9.6.1. Gradle 9 is a new major release which introduces breaking changes
+  relative to Gradle 8, so any workshops which use Gradle in the JDK 17 or
+  JDK 21 images should be verified against the newer Gradle version to ensure
+  they still behave as expected. One behaviour change affects all four
+  images: ``gradle init`` now aborts if the target directory already
+  contains any files, including hidden files, where previously it would
+  generate the new project alongside them. Since the home directory of a
+  workshop session is never empty, any workshop which has users run
+  ``gradle init`` directly in the home directory, or any other non-empty
+  directory, will need its instructions updated to either pass the
+  ``--overwrite`` option to ``gradle init`` or create the project in a new
+  empty subdirectory.
+
 * The ``vcluster`` software used by the ``vcluster`` workshop application has
   been updated from 0.30.2 to 0.35.2, and the set of Kubernetes versions the
   virtual cluster can provision has been aligned with the versions supported
