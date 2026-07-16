@@ -41,24 +41,13 @@ ENV PATH=/opt/java/bin:/opt/gradle/bin:/opt/maven/bin:$PATH \
     M2_HOME=/opt/maven \
     GRADLE_HOME=/opt/gradle
 
-COPY gradle.properties-arm64 .
-
-RUN if [ "${TARGETARCH}" = "arm64" ]; then \
-        export MAVEN_OPTS="-XX:UseSVE=0"; \
-        export JAVA_OPTS="-XX:UseSVE=0"; \
-    fi && \
-    mvn archetype:generate -DgroupId=com.mycompany.app -DartifactId=my-app \
+RUN mvn archetype:generate -DgroupId=com.mycompany.app -DartifactId=my-app \
         -DarchetypeArtifactId=maven-archetype-quickstart \
         -DarchetypeVersion=1.4 -DinteractiveMode=false && \
     cd my-app && \
     mvn wrapper:wrapper
 
-RUN if [ "${TARGETARCH}" = "arm64" ]; then \
-        export MAVEN_OPTS="-XX:UseSVE=0"; \
-        export JAVA_OPTS="-XX:UseSVE=0"; \
-        mv gradle.properties-arm64 gradle.properties; \
-    fi && \
-    gradle init --overwrite && \
+RUN gradle init --overwrite && \
     gradle wrapper --gradle-version=9.6.1 --distribution-type=bin && \
     ./gradlew build
 
