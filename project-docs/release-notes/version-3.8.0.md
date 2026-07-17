@@ -102,3 +102,12 @@ Features Changed
   permitted. The ``sshd`` log level has also been reduced from debug level,
   which the OpenSSH documentation notes violates user privacy, to the
   standard informational level.
+
+* If a user ends a workshop session, or attempts to return to one, after their
+  training portal login session has already expired, for example after leaving
+  the browser window open for a long period after the workshop session had
+  finished, they are now shown the workshop session finished page rather than
+  being redirected to the portal login page. Previously an expired login in
+  this situation could result in the portal login page being displayed, which
+  was undesirable when workshop sessions are coordinated by a custom front end
+  through the training portal REST API.
