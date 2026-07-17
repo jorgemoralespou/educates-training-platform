@@ -373,6 +373,7 @@ prune-builds:
 	rm -rf training-portal/venv
 	rm -rf client-programs/bin
 	rm -rf client-programs/pkg/renderer/files
+	rm -rf installer/operator/bin
 	rm -rf project-docs/venv
 	rm -rf project-docs/_build
 
