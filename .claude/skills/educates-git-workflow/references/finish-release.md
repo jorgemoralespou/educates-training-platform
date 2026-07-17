@@ -81,12 +81,19 @@ automatic. Then, gated:
 
 Stop. Human reviews and merges in the UI.
 
-## Stage 4: delete the finished release branch
+## Stage 4: delete the finished release and back-merge branches
 
-Only after the back-merge PR is merged, so nothing is lost. The release branch is
+Only after the back-merge PR is merged, so nothing is lost. Both branches are
 ephemeral; the permanent record is the tag plus the merge commits.
 
 5. [confirm] `git push origin --delete release/4.1.0`
+6. [confirm] `git push origin --delete merge/4.1.0-to-develop`
+
+The remote `merge/4.1.0-to-develop` branch may already be gone if the reviewer
+deleted it from the PR page when merging the back-merge PR, or if the repository
+auto-deletes head branches; check with `git ls-remote --heads origin
+merge/4.1.0-to-develop` and skip the deletion if so. Do not rely on that having
+happened: an undeleted back-merge branch lingers silently otherwise.
 
 Also delete the local `release/4.1.0` and `merge/4.1.0-to-develop` branches (low
 risk, but mention it).
