@@ -1,6 +1,10 @@
 Version 3.7.3
 =============
 
+This version is a patch release of the 3.7 support line. The changes in this
+release were developed on the main development branch for the upcoming 4.0
+release and have been back ported to the 3.7 support line.
+
 Features Changed
 ----------------
 
