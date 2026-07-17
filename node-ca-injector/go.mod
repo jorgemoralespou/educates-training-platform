@@ -1,6 +1,6 @@
 module github.com/educates/educates-training-platform/node-ca-injector
 
-go 1.24.10
+go 1.26.3
 
 require (
 	k8s.io/api v0.34.2
@@ -61,7 +61,7 @@ require (
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/term v0.38.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
