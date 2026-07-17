@@ -184,13 +184,14 @@ git push -u origin merge/4.0.0-to-develop
 gh pr create --base develop --head merge/4.0.0-to-develop --title "Back-merge 4.0.0 into develop"
 #    (or open in the UI) - review and merge the PR.
 
-# 4. Delete the finished release branch
+# 4. Delete the finished release and back-merge branches
 git push origin --delete release/4.0.0
+git push origin --delete merge/4.0.0-to-develop
 ```
 
 The format of the tag for a final release is `X.Y.Z`, with no suffix. `main` only ever carries final release tags. Pushing the tag triggers the GitHub actions workflow, which produces the full set of release artifacts described above, and a GitHub release not marked as pre-release.
 
-The back-merge in step 3 ensures the release's stabilization fixes, and the release/version-bump commits, are not lost, and that `develop` reflects exactly what shipped. The release branch is ephemeral: once merged and tagged it has done its job, and the permanent record is the tag plus the merge commits, not the branch. Deleting it (step 4) is a deliberate, explicit step; keep it on the release checklist so stale `release/*` branches don't accumulate.
+The back-merge in step 3 ensures the release's stabilization fixes, and the release/version-bump commits, are not lost, and that `develop` reflects exactly what shipped. The release branch and the `merge/X.Y.Z-to-develop` branch are both ephemeral: once merged and tagged they have done their job, and the permanent record is the tag plus the merge commits, not the branches. Deleting them (step 4) is a deliberate, explicit step; keep it on the release checklist so stale `release/*` and `merge/*` branches don't accumulate. The remote `merge/*` branch may already have been deleted from the PR page when the back-merge PR was merged, in which case the second delete in step 4 simply fails with "remote ref does not exist" and can be ignored, but do not rely on that having happened: an undeleted back-merge branch lingers silently otherwise.
 
 Once the workflow completes, verify the release is installable from the published artifacts alone:
 
