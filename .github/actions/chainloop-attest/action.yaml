@@ -1,0 +1,121 @@
+name: Chainloop attest
+description: >-
+  Sign a published container image with cosign, generate SBOM and
+  vulnerability evidence, and record everything as a Chainloop attestation.
+  Expects the calling job to have id-token write permission and to already
+  be logged in to the target registry.
+
+inputs:
+  image:
+    description: Full image reference without tag or digest (e.g. ghcr.io/owner/educates-foo)
+    required: true
+  digest:
+    description: Image digest as reported by docker/build-push-action (sha256:...)
+    required: true
+  version:
+    description: Primary image tag for this build (docker/metadata-action version output)
+    required: true
+  chainloop-workflow:
+    description: Chainloop workflow name to record the attestation under
+    required: true
+  chainloop-project:
+    description: Chainloop project name
+    required: false
+    default: jorgemoralespou-educates-training-platform
+  chainloop-version:
+    description: Chainloop CLI version to install
+    required: false
+    default: v1.104.6
+
+runs:
+  using: composite
+  steps:
+    - name: Install Cosign
+      # Pinned to v2.x: cosign v3 defaults (new bundle format + TUF signing
+      # config) write signatures as OCI 1.1 referrers, which GHCR does not
+      # support and Chainloop's artifact-signed policy does not read. v3's
+      # --new-bundle-format=false is incompatible with the v3 signing-config
+      # default, so stay on v2 where the legacy sha256-<digest>.sig tag is
+      # the default.
+      uses: sigstore/cosign-installer@v4.1.2
+      with:
+        cosign-release: v2.6.1
+
+    - name: Sign container image
+      shell: bash
+      run: |
+        cosign sign --yes \
+          "${{inputs.image}}@${{inputs.digest}}"
+
+    - name: Verify signature is discoverable in registry
+      # Catches regressions: if the .sig tag is missing in the registry
+      # this step fails before Chainloop ever sees the image.
+      shell: bash
+      run: |
+        cosign verify \
+          --certificate-identity-regexp "^https://github\.com/${{github.repository}}/" \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          "${{inputs.image}}@${{inputs.digest}}"
+
+    - name: Generate SBOM with Syft
+      uses: anchore/sbom-action@v0
+      with:
+        image: ${{inputs.image}}@${{inputs.digest}}
+        format: cyclonedx-json
+        output-file: ${{runner.temp}}/sbom.cyclonedx.json
+
+    - name: Scan for vulnerabilities with Trivy
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        image-ref: ${{inputs.image}}@${{inputs.digest}}
+        format: sarif
+        output: ${{runner.temp}}/trivy-results.sarif
+
+    - name: Install Chainloop CLI
+      shell: bash
+      run: |
+        curl -sfL https://dl.chainloop.dev/cli/install.sh | \
+          bash -s -- --version ${{inputs.chainloop-version}}
+
+    - name: Initialize Chainloop attestation
+      shell: bash
+      run: |
+        chainloop attestation init \
+          --workflow "${{inputs.chainloop-workflow}}" \
+          --project "${{inputs.chainloop-project}}"
+
+    - name: Add attestation materials
+      shell: bash
+      run: |
+        chainloop attestation add \
+          --name image \
+          --value "${{inputs.image}}@${{inputs.digest}}"
+
+        chainloop attestation add \
+          --name image-digest \
+          --value "${{inputs.digest}}"
+
+        chainloop attestation add \
+          --name image-tag \
+          --value "${{inputs.version}}"
+
+        chainloop attestation add \
+          --name sbom \
+          --value "${{runner.temp}}/sbom.cyclonedx.json"
+
+        chainloop attestation add \
+          --name vulnerability-report \
+          --value "${{runner.temp}}/trivy-results.sarif"
+
+    - name: Push attestation
+      id: attestation-push
+      continue-on-error: true
+      shell: bash
+      run: chainloop attestation push
+
+    - name: Enforce policy gate result
+      if: steps.attestation-push.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "::error::Chainloop attestation push failed due to policy gate violations"
+        exit 1

@@ -131,6 +131,7 @@ jobs:
         run: ./hack/stamp-release-version.sh "${GITHUB_REF##*/}" ghcr.io "${{env.REPOSITORY_OWNER}}"
 
       - name: Build and push ${{matrix.image}} image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{matrix.context || matrix.image}}
@@ -155,6 +156,23 @@ jobs:
         with:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-${{matrix.image}}-${{github.sha}}
+
+      - name: Sign, scan and attest ${{matrix.image}} image
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        uses: ./.github/actions/chainloop-attest
+        with:
+          image: ghcr.io/${{env.REPOSITORY_OWNER}}/educates-${{matrix.image}}
+          digest: ${{steps.build.outputs.digest}}
+          version: ${{steps.meta.outputs.version}}
+          chainloop-workflow: educates-${{matrix.image}}
+
+      - name: Mark attestation as failed
+        if: vars.CHAINLOOP_ENABLED == 'true' && failure()
+        run: chainloop attestation reset || true
+
+      - name: Mark attestation as cancelled
+        if: vars.CHAINLOOP_ENABLED == 'true' && cancelled()
+        run: chainloop attestation reset --trigger cancellation || true
 
   publish-workshop-base-image:
     name: Publish (base-environment)
@@ -245,6 +263,7 @@ jobs:
           registry: ghcr.io
 
       - name: Build and push base-environment image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: workshop-images/base-environment
@@ -267,6 +286,29 @@ jobs:
         with:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-base-environment-${{github.sha}}
+
+      # The cache is already saved; reclaim the space before Syft and
+      # Trivy pull this large image again for scanning.
+      - name: Prune buildx cache directories
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        run: rm -rf /tmp/.buildx-cache-* || true
+
+      - name: Sign, scan and attest base-environment image
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        uses: ./.github/actions/chainloop-attest
+        with:
+          image: ghcr.io/${{env.REPOSITORY_OWNER}}/educates-base-environment
+          digest: ${{steps.build.outputs.digest}}
+          version: ${{steps.meta.outputs.version}}
+          chainloop-workflow: educates-base-environment
+
+      - name: Mark attestation as failed
+        if: vars.CHAINLOOP_ENABLED == 'true' && failure()
+        run: chainloop attestation reset || true
+
+      - name: Mark attestation as cancelled
+        if: vars.CHAINLOOP_ENABLED == 'true' && cancelled()
+        run: chainloop attestation reset --trigger cancellation || true
 
   publish-workshop-images:
     name: Publish
@@ -371,6 +413,7 @@ jobs:
           registry: ghcr.io
 
       - name: Build and push ${{matrix.image}} image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: workshop-images/${{matrix.image}}
@@ -397,6 +440,23 @@ jobs:
         with:
           path: /tmp/.buildx-cache-new
           key: ${{runner.os}}-buildx-cache-${{matrix.image}}-${{github.sha}}
+
+      - name: Sign, scan and attest ${{matrix.image}} image
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        uses: ./.github/actions/chainloop-attest
+        with:
+          image: ghcr.io/${{env.REPOSITORY_OWNER}}/educates-${{matrix.image}}
+          digest: ${{steps.build.outputs.digest}}
+          version: ${{steps.meta.outputs.version}}
+          chainloop-workflow: educates-${{matrix.image}}
+
+      - name: Mark attestation as failed
+        if: vars.CHAINLOOP_ENABLED == 'true' && failure()
+        run: chainloop attestation reset || true
+
+      - name: Mark attestation as cancelled
+        if: vars.CHAINLOOP_ENABLED == 'true' && cancelled()
+        run: chainloop attestation reset --trigger cancellation || true
 
   build-client-programs-linux-amd64:
     name: Build (clients) / amd64@linux
@@ -664,6 +724,7 @@ jobs:
           registry: ghcr.io
 
       - name: Build and push docker-cli image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: client-programs
@@ -677,6 +738,23 @@ jobs:
             GIT_COMMIT_DATE=${{env.GIT_COMMIT_DATE}}
           tags: ${{steps.meta.outputs.tags}}
           push: true
+
+      - name: Sign, scan and attest cli image
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        uses: ./.github/actions/chainloop-attest
+        with:
+          image: ghcr.io/${{env.REPOSITORY_OWNER}}/educates-cli
+          digest: ${{steps.build.outputs.digest}}
+          version: ${{steps.meta.outputs.version}}
+          chainloop-workflow: educates-cli
+
+      - name: Mark attestation as failed
+        if: vars.CHAINLOOP_ENABLED == 'true' && failure()
+        run: chainloop attestation reset || true
+
+      - name: Mark attestation as cancelled
+        if: vars.CHAINLOOP_ENABLED == 'true' && cancelled()
+        run: chainloop attestation reset --trigger cancellation || true
 
   publish-docker-extension:
     name: Extension
@@ -745,6 +823,7 @@ jobs:
           registry: ghcr.io
 
       - name: Build and push docker-extension image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: docker-extension
@@ -754,6 +833,105 @@ jobs:
             TAG=${{env.REPOSITORY_SHA_TAG}}
           tags: ${{steps.meta.outputs.tags}}
           push: true
+
+      - name: Sign, scan and attest docker-extension image
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        uses: ./.github/actions/chainloop-attest
+        with:
+          image: ghcr.io/${{env.REPOSITORY_OWNER}}/educates-docker-extension
+          digest: ${{steps.build.outputs.digest}}
+          version: ${{steps.meta.outputs.version}}
+          chainloop-workflow: educates-docker-extension
+
+      - name: Mark attestation as failed
+        if: vars.CHAINLOOP_ENABLED == 'true' && failure()
+        run: chainloop attestation reset || true
+
+      - name: Mark attestation as cancelled
+        if: vars.CHAINLOOP_ENABLED == 'true' && cancelled()
+        run: chainloop attestation reset --trigger cancellation || true
+
+  attest-security-reports:
+    name: Attest (security reports)
+    runs-on: ubuntu-latest
+    if: vars.CHAINLOOP_ENABLED == 'true'
+
+    permissions:
+      contents: read
+      id-token: write
+
+    # A failed platform build must not produce a green repo-level
+    # security attestation.
+    needs:
+      - publish-generic-images
+
+    steps:
+      - name: Export GHAS dependency scan
+        env:
+          GITHUB_TOKEN: ${{secrets.GH_SECURITY_PAT}}
+        run: |
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{github.repository}}/dependabot/alerts?per_page=100&state=open" \
+            > ghas-dep-scan.json
+
+      - name: Export GHAS code scan
+        env:
+          GITHUB_TOKEN: ${{secrets.GH_SECURITY_PAT}}
+        run: |
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${{github.repository}}/code-scanning/alerts?per_page=100&state=open" \
+            > ghas-code-scan.json || {
+              echo "::warning::code scanning is not enabled on ${{github.repository}}; recording an empty report"
+              echo "[]" > ghas-code-scan.json
+            }
+
+      - name: Install Chainloop CLI
+        run: |
+          curl -sfL https://dl.chainloop.dev/cli/install.sh | \
+            bash -s -- --version v1.104.6
+
+      - name: Initialize Chainloop attestation
+        run: |
+          chainloop attestation init \
+            --workflow educates-repo-security \
+            --project jorgemoralespou-educates-training-platform
+
+      - name: Add attestation materials
+        run: |
+          chainloop attestation add \
+            --name ghas-dep-scan \
+            --value ghas-dep-scan.json \
+            --kind GHAS_DEPENDENCY_SCAN
+
+          chainloop attestation add \
+            --name ghas-code-scan \
+            --value ghas-code-scan.json \
+            --kind GHAS_CODE_SCAN
+
+          chainloop attestation add \
+            --name git-sha \
+            --value ${GITHUB_SHA}
+
+      - name: Push attestation
+        id: attestation-push
+        continue-on-error: true
+        run: chainloop attestation push
+
+      - name: Enforce policy gate result
+        if: steps.attestation-push.outcome == 'failure'
+        run: |
+          echo "::error::Chainloop attestation push failed due to policy gate violations"
+          exit 1
+
+      - name: Mark attestation as failed
+        if: failure() && steps.attestation-push.outcome == ''
+        run: chainloop attestation reset || true
+
+      - name: Mark attestation as cancelled
+        if: cancelled() && steps.attestation-push.outcome == ''
+        run: chainloop attestation reset --trigger cancellation || true
 
   publish-charts:
     name: Publish (helm charts)
@@ -915,6 +1093,13 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+
+    # Creating the GitHub release needs contents write; the Chainloop
+    # attestation needs id-token write for federated OIDC auth.
+    permissions:
+      contents: write
+      id-token: write
+
     needs:
       - build-client-programs-linux-amd64
       - build-client-programs-linux-arm64
@@ -994,6 +1179,79 @@ jobs:
           name: release-notes.md
           path: release-notes.md
 
+      - name: Install Chainloop CLI
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        run: |
+          curl -sfL https://dl.chainloop.dev/cli/install.sh | \
+            bash -s -- --version v1.104.6
+
+      - name: Initialize Chainloop attestation
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        run: |
+          chainloop attestation init \
+            --workflow educates-release \
+            --project jorgemoralespou-educates-training-platform
+
+      - name: Add attestation materials
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        run: |
+          chainloop attestation add \
+            --name installer-chart \
+            --value educates-installer-${{env.REPOSITORY_TAG}}.tgz \
+            --kind HELM_CHART
+
+          chainloop attestation add \
+            --name training-platform-chart \
+            --value educates-training-platform-${{env.REPOSITORY_TAG}}.tgz \
+            --kind HELM_CHART
+
+          chainloop attestation add \
+            --name educates-linux-amd64 \
+            --value educates-linux-amd64 \
+            --kind ARTIFACT
+
+          chainloop attestation add \
+            --name educates-linux-arm64 \
+            --value educates-linux-arm64 \
+            --kind ARTIFACT
+
+          chainloop attestation add \
+            --name educates-darwin-amd64 \
+            --value educates-darwin-amd64 \
+            --kind ARTIFACT
+
+          chainloop attestation add \
+            --name educates-darwin-arm64 \
+            --value educates-darwin-arm64 \
+            --kind ARTIFACT
+
+          chainloop attestation add \
+            --name checksums \
+            --value checksums.txt \
+            --kind ARTIFACT
+
+          chainloop attestation add \
+            --name image-list \
+            --value educates-images-${{env.REPOSITORY_TAG}}.txt \
+            --kind ARTIFACT
+
+          chainloop attestation add \
+            --name release-tag \
+            --value ${{env.REPOSITORY_TAG}}
+
+      - name: Push attestation
+        if: vars.CHAINLOOP_ENABLED == 'true'
+        id: attestation-push
+        continue-on-error: true
+        run: chainloop attestation push
+
+      # A policy-gate violation must block the GitHub release below.
+      - name: Enforce policy gate result
+        if: steps.attestation-push.outcome == 'failure'
+        run: |
+          echo "::error::Chainloop attestation push failed due to policy gate violations"
+          exit 1
+
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v3
@@ -1014,3 +1272,11 @@ jobs:
             educates-installer-*.tgz
             educates-training-platform-*.tgz
             educates-images-*.txt
+
+      - name: Mark attestation as failed
+        if: vars.CHAINLOOP_ENABLED == 'true' && failure() && steps.attestation-push.outcome == ''
+        run: chainloop attestation reset || true
+
+      - name: Mark attestation as cancelled
+        if: vars.CHAINLOOP_ENABLED == 'true' && cancelled() && steps.attestation-push.outcome == ''
+        run: chainloop attestation reset --trigger cancellation || true
