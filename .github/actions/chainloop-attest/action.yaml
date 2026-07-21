@@ -23,9 +23,11 @@ inputs:
     required: false
     default: jorgemoralespou-educates-training-platform
   chainloop-version:
-    description: Chainloop CLI version to install
+    description: >-
+      Chainloop EE CLI version to install. The EE CLI has its own version
+      stream, distinct from the chainloop-dev/chainloop OSS release tags.
     required: false
-    default: v1.104.6
+    default: v1.95.11
 
 runs:
   using: composite

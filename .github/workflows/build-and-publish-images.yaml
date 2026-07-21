@@ -887,10 +887,12 @@ jobs:
               echo "[]" > ghas-code-scan.json
             }
 
+      # The version is an EE CLI version, a stream distinct from the
+      # chainloop-dev/chainloop OSS release tags.
       - name: Install Chainloop CLI
         run: |
           curl -sfL https://dl.chainloop.dev/cli/install.sh | \
-            bash -s -- --version v1.104.6
+            bash -s -- --version v1.95.11
 
       - name: Initialize Chainloop attestation
         run: |
@@ -1179,11 +1181,13 @@ jobs:
           name: release-notes.md
           path: release-notes.md
 
+      # The version is an EE CLI version, a stream distinct from the
+      # chainloop-dev/chainloop OSS release tags.
       - name: Install Chainloop CLI
         if: vars.CHAINLOOP_ENABLED == 'true'
         run: |
           curl -sfL https://dl.chainloop.dev/cli/install.sh | \
-            bash -s -- --version v1.104.6
+            bash -s -- --version v1.95.11
 
       - name: Initialize Chainloop attestation
         if: vars.CHAINLOOP_ENABLED == 'true'
