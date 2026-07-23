@@ -283,11 +283,18 @@ endif
 #
 # The SARIF pass records all severities with no --ignore-unfixed, matching
 # the CI scan; SCAN_SEVERITY only filters the human summary table.
+#
+# Scans pin --platform to the host architecture (SCAN_PLATFORM) because
+# local builds are host-arch only: when an image exists only in the local
+# registry and not in the Docker daemon, Trivy's registry fallback would
+# otherwise default to linux/amd64 and fail with "no child with platform"
+# on arm64 hosts.
 
 TRIVY ?= trivy
 SCAN_REPORTS_DIR ?= scan-reports
 SCAN_SEVERITY ?= CRITICAL,HIGH
 SCAN_EXIT_CODE ?= 0
+SCAN_PLATFORM ?= linux/$(TARGET_MACHINE)
 TRIVY_EXTRA_ARGS ?=
 VEX_DOCUMENTS = $(wildcard vex/*.openvex.json)
 TRIVY_VEX_FLAGS = $(foreach f,$(VEX_DOCUMENTS),--vex $(f))
@@ -305,10 +312,10 @@ check-trivy:
 # cheap). Accepts the same names as image-%.
 scan-image-%: check-trivy
 	@mkdir -p $(SCAN_REPORTS_DIR)
-	$(TRIVY) image $(TRIVY_VEX_FLAGS) $(TRIVY_EXTRA_ARGS) \
+	$(TRIVY) image --platform $(SCAN_PLATFORM) $(TRIVY_VEX_FLAGS) $(TRIVY_EXTRA_ARGS) \
 		--format sarif --output $(SCAN_REPORTS_DIR)/educates-$*.sarif \
 		$(IMAGE_REPOSITORY)/educates-$*:$(PACKAGE_VERSION)
-	$(TRIVY) image $(TRIVY_VEX_FLAGS) $(TRIVY_EXTRA_ARGS) \
+	$(TRIVY) image --platform $(SCAN_PLATFORM) $(TRIVY_VEX_FLAGS) $(TRIVY_EXTRA_ARGS) \
 		--format table --severity $(SCAN_SEVERITY) --exit-code $(SCAN_EXIT_CODE) \
 		$(IMAGE_REPOSITORY)/educates-$*:$(PACKAGE_VERSION)
 
