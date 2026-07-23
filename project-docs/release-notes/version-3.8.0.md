@@ -17,6 +17,14 @@ possible.
 Features Changed
 ----------------
 
+* The Zot Registry used by the OCI image cache for workshop environments has
+  been updated from version 1.4.3 to 2.1.18, resolving a large number of
+  critical and high severity vulnerabilities reported against the old
+  version. The format of the synchronization rules able to be supplied under
+  ``environment.images.registries`` in the workshop definition is unchanged.
+  Any image cache contents from an existing deployment are re-indexed or
+  re-synchronized on demand, so no action is required when upgrading.
+
 * The container base images used for the training portal, session manager,
   secrets manager, lookup service, tunnel manager, image cache and workshop
   base environment have been updated from Fedora 42 to Fedora 44, eliminating
