@@ -17,6 +17,14 @@ possible.
 Features Changed
 ----------------
 
+* The Kubernetes dashboard backend used for the workshop console is now
+  rebuilt from the upstream 2.7.0 sources with a current Go toolchain and
+  patched dependency versions, rather than being copied as a prebuilt binary
+  from the upstream container image. This resolves all critical and the
+  majority of high severity vulnerabilities reported against the previously
+  bundled binary. The dashboard version and its behavior within workshop
+  sessions are unchanged.
+
 * The container base images used for the training portal, session manager,
   secrets manager, lookup service, tunnel manager, image cache and workshop
   base environment have been updated from Fedora 42 to Fedora 44, eliminating
