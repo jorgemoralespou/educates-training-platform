@@ -111,3 +111,18 @@ Features Changed
   this situation could result in the portal login page being displayed, which
   was undesirable when workshop sessions are coordinated by a custom front end
   through the training portal REST API.
+
+* The training portal has reduced the number of requests it makes against the
+  Kubernetes REST API when checking for workshop sessions which were deleted
+  out of band, such as when a ``WorkshopSession`` resource is deleted
+  manually. A single query is now used to retrieve the set of deployed
+  workshop sessions belonging to the training portal, rather than a separate
+  query being made for each individual workshop session, and the check now
+  runs once a minute instead of every fifteen seconds. On training portals
+  hosting a large number of workshop sessions the previous behaviour could
+  overload the Kubernetes REST API, resulting in errors when accessing the
+  Kubernetes cluster. In addition, a workshop session database record which
+  never had a corresponding deployment created, for example because the
+  training portal was restarted at the wrong time, is now cleaned up after a
+  grace period rather than indefinitely counting against the capacity of the
+  workshop environment.
