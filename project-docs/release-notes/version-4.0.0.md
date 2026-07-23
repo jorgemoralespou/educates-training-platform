@@ -185,6 +185,16 @@ New Features
   yet ``Ready``), or a fully installed and ready cluster — making it easy to
   tell a working install from a partial or broken one.
 
+* Published container images are now signed with cosign using keyless
+  (Sigstore) signing, and carry a CycloneDX SBOM and a Trivy vulnerability
+  report recorded as supply chain attestations for every release. Signatures
+  can be verified with ``cosign verify`` against the GitHub Actions OIDC
+  identity of the release workflow. In addition, CVEs which have been
+  assessed as not affecting Educates are published as OpenVEX statements
+  attached to each image as a cosign attestation, so downstream scanners can
+  automatically suppress those findings, for example by running
+  ``trivy image --vex oci`` against the published image.
+
 Features Changed
 ----------------
 

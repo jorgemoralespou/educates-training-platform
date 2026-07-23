@@ -59,12 +59,43 @@ runs:
           --certificate-oidc-issuer https://token.actions.githubusercontent.com \
           "${{inputs.image}}@${{inputs.digest}}"
 
+    - name: Attach OpenVEX attestation to image
+      # Merge all VEX documents into one and attach it to the image so
+      # downstream scanners pick the statements up via `trivy image --vex
+      # oci`. Uses the pinned cosign v2 install above (see its comment for
+      # why v3 is unsuitable with GHCR).
+      if: hashFiles('vex/*.openvex.json') != ''
+      shell: bash
+      run: |
+        jq -s '{
+            "@context": "https://openvex.dev/ns/v0.2.0",
+            "@id": "https://github.com/${{github.repository}}/vex/${{github.run_id}}",
+            "author": .[0].author,
+            "timestamp": (now | todate),
+            "version": 1,
+            "statements": map(.statements) | add
+          }' vex/*.openvex.json > "${{runner.temp}}/merged.openvex.json"
+        cosign attest --yes --type openvex \
+          --predicate "${{runner.temp}}/merged.openvex.json" \
+          "${{inputs.image}}@${{inputs.digest}}"
+
     - name: Generate SBOM with Syft
       uses: anchore/sbom-action@v0
       with:
         image: ${{inputs.image}}@${{inputs.digest}}
         format: cyclonedx-json
         output-file: ${{runner.temp}}/sbom.cyclonedx.json
+
+    - name: Collect VEX documents
+      # Expose the repository's OpenVEX documents to the Trivy scan below
+      # via the TRIVY_VEX env var (trivy-action has no vex input; Trivy
+      # reads any flag from a TRIVY_* variable). not_affected/fixed
+      # statements then drop those findings from the SARIF report, so the
+      # Chainloop policy gate no longer fails on them. See vex/README.md.
+      if: hashFiles('vex/*.openvex.json') != ''
+      shell: bash
+      run: |
+        echo "TRIVY_VEX=$(ls vex/*.openvex.json | paste -sd, -)" >> "$GITHUB_ENV"
 
     - name: Scan for vulnerabilities with Trivy
       uses: aquasecurity/trivy-action@v0.36.0
