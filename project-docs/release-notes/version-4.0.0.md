@@ -335,6 +335,14 @@ Deprecations
   bundled binary. The dashboard version and its behavior within workshop
   sessions are unchanged.
 
+* The Zot Registry used by the OCI image cache for workshop environments has
+  been updated from version 1.4.3 to 2.1.18, resolving a large number of
+  critical and high severity vulnerabilities reported against the old
+  version. The format of the synchronization rules able to be supplied under
+  ``environment.images.registries`` in the workshop definition is unchanged.
+  Any image cache contents from an existing deployment are re-indexed or
+  re-synchronized on demand, so no action is required when upgrading.
+
 * The set of ``kubectl`` versions bundled in the workshop base environment
   image has changed. The 1.31 and 1.32 versions have been dropped and 1.35 and
   1.36 have been added, so the supported range is now 1.33 to 1.36. The
