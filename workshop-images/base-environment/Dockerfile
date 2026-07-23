@@ -2,6 +2,36 @@
 
 FROM kubernetesui/dashboard:v2.7.0 AS k8s-console
 
+# The Kubernetes dashboard 2.7.0 image ships a backend binary built with
+# Go 1.19 and vulnerable module versions, and the 2.x series is no longer
+# maintained upstream (3.x/7.x is a multi-container architecture which
+# cannot run as a single process inside the workshop container). Rebuild
+# the same backend from source with a current Go toolchain and patched
+# module versions; the frontend assets are unchanged and still come from
+# the upstream image.
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26 AS k8s-console-build
+
+ARG TARGETARCH
+
+RUN <<EOF
+    set -eo pipefail
+    DASHBOARD_VERSION=2.7.0
+    DASHBOARD_COMMIT=42deb6b32a27296ac47d1f9839a68fab6053e5fc
+    git clone --depth 1 --branch v${DASHBOARD_VERSION} https://github.com/kubernetes/dashboard /dashboard
+    cd /dashboard
+    test "$(git rev-parse HEAD)" = "${DASHBOARD_COMMIT}"
+    go get \
+        github.com/docker/distribution@v2.8.2+incompatible \
+        github.com/moby/spdystream@v0.5.1 \
+        golang.org/x/crypto@v0.54.0 \
+        golang.org/x/net@v0.57.0 \
+        golang.org/x/oauth2@v0.36.0 \
+        golang.org/x/text@v0.40.0
+    go mod tidy
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+        go build -trimpath -ldflags "-s -w" -o /dashboard-backend ./src/app/backend/
+EOF
+
 FROM fedora:44 AS system-base
 
 RUN HOME=/root && \
@@ -100,9 +130,12 @@ FROM system-base AS scratch-image
 
 ARG TARGETARCH
 
-# Kubernetes web console.
+# Kubernetes web console. Frontend assets come from the upstream image;
+# the backend binary is the patched rebuild from the k8s-console-build
+# stage.
 
 COPY --from=k8s-console / /opt/console/
+COPY --from=k8s-console-build /dashboard-backend /opt/console/dashboard
 
 # Miscellaneous tools.
 
@@ -129,9 +162,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    HUGO_VERSION=0.163.3
-    CHECKSUM_amd64="ec422258f9a4ffc241de8707297e32311cd86fcc9b2813632617ff4d44935d91"
-    CHECKSUM_arm64="a4185cf0308ff3a61a2828563f70f476fcef30d02e9b00fb562eb1bd085195a5"
+    HUGO_VERSION=0.164.0
+    CHECKSUM_amd64="d9c8b17285ea4ec004d9f814273ea910f2051ce02c284993fd1f91ba455ae50d"
+    CHECKSUM_arm64="948ee5f0ed30175f31937d592d63a2712f0761a69f1cbe812f780eb918a08b8e"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_linux-${TARGETARCH}.tar.gz
@@ -188,10 +221,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.34.9
+    KUBECTL_VERSION=1.34.10
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="2900328c7a2f60c512a18bba05a14b2db208611bbf5b173a6e8f231079d1dcdf29febcab86dbef89396f3f3493af59eacd1f3eff4ccd32828b64d56e161599f2"
-    CHECKSUM_arm64="0221cf4859f756849e10429280e3fdb9f803d67fedfe752c662522847f28004c010487a1e0323acc3fe29efc47de49c0cf5d87e2366a325dda559699c2ea249d"
+    CHECKSUM_amd64="1e7b5bdbb9eb767fbb4568a2dcb4ae08b8485886b657199c6943fe6449b00d8122a84c339296c3b4c132cd0c9b2c08642d925c8dacda0f53045d9df35860a1ba"
+    CHECKSUM_arm64="71045eb5d452b97555fc5d4cbcbeba0654eda28883631a7f57b0212ee0b4cdfb79897f3ec3b329b60a2c07374f5996a2e447e33218ab6792dd6e71668f72ae56"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -203,10 +236,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.35.6
+    KUBECTL_VERSION=1.35.7
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="4fea6a8b5711b439585cca7972aa5032dd631d10ff5c5c68c8335d6bf592e1d1e2a3b3fb560f0db38656e9c7233965e7f80bbf9eeeb2b3ed91040f22260bacc7"
-    CHECKSUM_arm64="d045aa8a79997a42f6e97f6d7fa7bdf493dd7693e0ac64d79800ad1674a6b4e7e3606179e63d3e3a5661d5e8de4f0acb7fef69f5c47561c1be65c577f7b11a98"
+    CHECKSUM_amd64="923f50fd1fd1b959d7c609732db59523281c10fe3c4f2ff2c677163e7403fcf0c78c9e1fc06b6b60fad4a76647c3a92be8d6e08514d1e5a6459c74757b2a1082"
+    CHECKSUM_arm64="218770474da60916a1485e48c649898618e9a4fe9ad91e5557a6862035fbbccedabe6d9330aa8e2e8fb649a39b2ba2df15c0bdcb8f6287775ed746e46f04bcb6"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -218,10 +251,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.36.2
+    KUBECTL_VERSION=1.36.3
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="bf3fa2fe065af663b944acdef42ab61a0062e01d325d60d756aaab22bb412addc2ffa77fdcb39de47560c5613a9bcd68e67ea83417626aefbe52db9cc76fde7d"
-    CHECKSUM_arm64="ef798cdab3538164ecd6b3c1987c69e4094c14d3e88a31811964cd0b57536a4b488b0b9f37a4ad7139d25f1b73c019d2791f9e58017cce929bc0e8262484496d"
+    CHECKSUM_amd64="f68e81568b0356e81d27073876356f5516b84f3bc55ddfd7ebab199045b82a720e2adbac7124e800b8b705d1647721b1a529ba524b982d4ff433f62f26f5cdc9"
+    CHECKSUM_arm64="81c427328605de156d45c0378ef6949c74255b34a22c370f11d16ded14202be463968e17be5334327df600fa40c1f42d6d27766968d8a57f85c0d25f240695b5"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -312,9 +345,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KCTRL_VERSION=0.60.2
-    CHECKSUM_amd64="f1d493bf05c771cb691f120ec7dc4f44fa4ffc8c211a57b3b8293a9131382402"
-    CHECKSUM_arm64="438416f26db347bcdab57d3d62de8c9fcd82250d1340ed1fa8a70072fa294b6d"
+    KCTRL_VERSION=0.60.4
+    CHECKSUM_amd64="7b88d7bbdd0059175e7608284b291a935555abc71575b951063a3ce2bdc408ad"
+    CHECKSUM_arm64="f9f7ef17c8447523aa7f239168fae2933bdf8ca849c48ec4385806047647a26a"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/kctrl https://github.com/carvel-dev/kapp-controller/releases/download/v${KCTRL_VERSION}/kctrl-linux-${TARGETARCH}
@@ -354,9 +387,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    HELM_VERSION=4.2.2
-    CHECKSUM_amd64="9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6"
-    CHECKSUM_arm64="78803142087a0069fa4b50d3f32a84d3ef25c14d1ee8a40fbccf86a6216d2f36"
+    HELM_VERSION=4.2.3
+    CHECKSUM_amd64="e9b88b4ee95b18c706839c28d3a0220e5bc470e9cd9262410c90793c45ff8b7c"
+    CHECKSUM_arm64="21abd9354d39b2cd79a8d76be6912cd137a983cbf997193503fb8a6a6e2f2785"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/helm.tar.gz https://get.helm.sh/helm-v${HELM_VERSION}-linux-${TARGETARCH}.tar.gz
@@ -366,9 +399,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    SKAFFOLD_VERSION=2.22.0
-    CHECKSUM_amd64="a6a4b9c58344da4b41af762ae220e45ea96ffc4664ee4b1f65cdcc8a0b693608"
-    CHECKSUM_arm64="80392587938e303d19c00c2600e3945fc9b6436a3bc4cb37130bbb98576c04e0"
+    SKAFFOLD_VERSION=2.23.0
+    CHECKSUM_amd64="c44fb83ec88a9ed2945f3326a6d6b78bb957354535f0efcf653413bcd0e9510d"
+    CHECKSUM_arm64="d7905e255319c250302cf52285abe68e59699a91534a5e2be06613186d1916dd"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/skaffold https://github.com/GoogleContainerTools/skaffold/releases/download/v${SKAFFOLD_VERSION}/skaffold-linux-${TARGETARCH}

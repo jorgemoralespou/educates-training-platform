@@ -330,6 +330,29 @@ Deprecations
   the ``helm`` CLI should be verified against the newer Helm version to ensure
   they still behave as expected.
 
+* A number of the command line tools bundled in the workshop base environment
+  image have been updated to their latest upstream releases, being ``helm``
+  4.2.3, ``hugo`` 0.164.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
+  updates pick up releases built with a patched Go toolchain and updated
+  dependencies which resolve critical vulnerabilities reported against the
+  previously bundled versions.
+
+* The Kubernetes dashboard backend used for the workshop console is now
+  rebuilt from the upstream 2.7.0 sources with a current Go toolchain and
+  patched dependency versions, rather than being copied as a prebuilt binary
+  from the upstream container image. This resolves all critical and the
+  majority of high severity vulnerabilities reported against the previously
+  bundled binary. The dashboard version and its behavior within workshop
+  sessions are unchanged.
+
+* The Zot Registry used by the OCI image cache for workshop environments has
+  been updated from version 1.4.3 to 2.1.18, resolving a large number of
+  critical and high severity vulnerabilities reported against the old
+  version. The format of the synchronization rules able to be supplied under
+  ``environment.images.registries`` in the workshop definition is unchanged.
+  Any image cache contents from an existing deployment are re-indexed or
+  re-synchronized on demand, so no action is required when upgrading.
+
 * The set of ``kubectl`` versions bundled in the workshop base environment
   image has changed. The 1.31 and 1.32 versions have been dropped and 1.35 and
   1.36 have been added, so the supported range is now 1.33 to 1.36. The
