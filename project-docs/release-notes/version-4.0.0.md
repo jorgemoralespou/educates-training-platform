@@ -320,6 +320,13 @@ Deprecations
   the ``helm`` CLI should be verified against the newer Helm version to ensure
   they still behave as expected.
 
+* A number of the command line tools bundled in the workshop base environment
+  image have been updated to their latest upstream releases, being ``helm``
+  4.2.3, ``hugo`` 0.164.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
+  updates pick up releases built with a patched Go toolchain and updated
+  dependencies which resolve critical vulnerabilities reported against the
+  previously bundled versions.
+
 * The set of ``kubectl`` versions bundled in the workshop base environment
   image has changed. The 1.31 and 1.32 versions have been dropped and 1.35 and
   1.36 have been added, so the supported range is now 1.33 to 1.36. The
