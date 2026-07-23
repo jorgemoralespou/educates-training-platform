@@ -2,6 +2,36 @@
 
 FROM kubernetesui/dashboard:v2.7.0 AS k8s-console
 
+# The Kubernetes dashboard 2.7.0 image ships a backend binary built with
+# Go 1.19 and vulnerable module versions, and the 2.x series is no longer
+# maintained upstream (3.x/7.x is a multi-container architecture which
+# cannot run as a single process inside the workshop container). Rebuild
+# the same backend from source with a current Go toolchain and patched
+# module versions; the frontend assets are unchanged and still come from
+# the upstream image.
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26 AS k8s-console-build
+
+ARG TARGETARCH
+
+RUN <<EOF
+    set -eo pipefail
+    DASHBOARD_VERSION=2.7.0
+    DASHBOARD_COMMIT=42deb6b32a27296ac47d1f9839a68fab6053e5fc
+    git clone --depth 1 --branch v${DASHBOARD_VERSION} https://github.com/kubernetes/dashboard /dashboard
+    cd /dashboard
+    test "$(git rev-parse HEAD)" = "${DASHBOARD_COMMIT}"
+    go get \
+        github.com/docker/distribution@v2.8.2+incompatible \
+        github.com/moby/spdystream@v0.5.1 \
+        golang.org/x/crypto@v0.54.0 \
+        golang.org/x/net@v0.57.0 \
+        golang.org/x/oauth2@v0.36.0 \
+        golang.org/x/text@v0.40.0
+    go mod tidy
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+        go build -trimpath -ldflags "-s -w" -o /dashboard-backend ./src/app/backend/
+EOF
+
 FROM fedora:44 AS system-base
 
 RUN HOME=/root && \
@@ -100,9 +130,12 @@ FROM system-base AS scratch-image
 
 ARG TARGETARCH
 
-# Kubernetes web console.
+# Kubernetes web console. Frontend assets come from the upstream image;
+# the backend binary is the patched rebuild from the k8s-console-build
+# stage.
 
 COPY --from=k8s-console / /opt/console/
+COPY --from=k8s-console-build /dashboard-backend /opt/console/dashboard
 
 # Miscellaneous tools.
 

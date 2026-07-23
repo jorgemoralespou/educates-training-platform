@@ -327,6 +327,14 @@ Deprecations
   dependencies which resolve critical vulnerabilities reported against the
   previously bundled versions.
 
+* The Kubernetes dashboard backend used for the workshop console is now
+  rebuilt from the upstream 2.7.0 sources with a current Go toolchain and
+  patched dependency versions, rather than being copied as a prebuilt binary
+  from the upstream container image. This resolves all critical and the
+  majority of high severity vulnerabilities reported against the previously
+  bundled binary. The dashboard version and its behavior within workshop
+  sessions are unchanged.
+
 * The set of ``kubectl`` versions bundled in the workshop base environment
   image has changed. The 1.31 and 1.32 versions have been dropped and 1.35 and
   1.36 have been added, so the supported range is now 1.33 to 1.36. The
