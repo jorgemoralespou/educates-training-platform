@@ -343,6 +343,17 @@ Deprecations
   Any image cache contents from an existing deployment are re-indexed or
   re-synchronized on demand, so no action is required when upgrading.
 
+* The image registry deployed for workshop sessions and for workshop
+  environment image mirrors has been updated from the CNCF Distribution
+  registry version 2.8.3 to 3.1.1, with the registry binary additionally
+  rebuilt against a patched Go toolchain and updated dependencies so that no
+  known critical or high severity vulnerabilities remain. The registry
+  continues to be configured through the same environment variables, so
+  workshop definitions which enable a session image registry or an image
+  mirror require no changes. Note that registry 3.x no longer serves
+  manifests in the legacy Docker schema 1 format, which has been deprecated
+  since Docker 1.10 and does not affect images pushed by current tooling.
+
 * The set of ``kubectl`` versions bundled in the workshop base environment
   image has changed. The 1.31 and 1.32 versions have been dropped and 1.35 and
   1.36 have been added, so the supported range is now 1.33 to 1.36. The
