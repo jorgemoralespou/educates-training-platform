@@ -1,3 +1,5 @@
+#syntax=docker/dockerfile:1
+
 ARG REPOSITORY=localhost:5001
 ARG CLI_IMAGE_NAME=educates-cli
 ARG TAG=latest

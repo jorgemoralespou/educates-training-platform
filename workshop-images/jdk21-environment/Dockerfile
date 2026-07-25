@@ -1,4 +1,4 @@
-#syntax=docker/dockerfile:1.3-labs
+#syntax=docker/dockerfile:1
 
 ARG IMAGE_REPOSITORY=localhost:5001
 ARG BASE_IMAGE_NAME=educates-base-environment
