@@ -228,6 +228,17 @@ Features Changed
   console used by default, including for workshops which enable a virtual
   cluster, so workshops which did not request it explicitly are unaffected.
 
+* The ``bombardier``, ``dive``, ``kwt`` and ``kctrl`` command line tools are no
+  longer included in the workshop base image. None of them were used by
+  Educates itself. ``kwt`` was archived by its authors in 2023, and ``kctrl``
+  is the ``kapp-controller`` command line tool, which is not needed now that
+  Educates is installed by its own operator rather than through Carvel
+  packaging. Each of the four was already pinned at the most recent release its
+  authors have published, and each still carried vulnerabilities with no fixed
+  version available, so there was nothing to upgrade to. Workshops which run
+  any of these commands from workshop instructions or setup scripts need to
+  install them in a custom workshop image, or use an alternative tool.
+
 Deprecations
 ------------
 
