@@ -1,0 +1,21 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/educates/educates-training-platform/vex/GHSA-r277-6w6q-xmqw",
+  "author": "Educates maintainers",
+  "timestamp": "2026-07-25T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "GHSA-r277-6w6q-xmqw",
+        "description": "kin-openapi: ValidationHandler.Load() replaces a nil AuthenticationFunc with NoopAuthenticationFunc, so every OpenAPI security requirement is satisfied for unauthenticated requests (fail-open authentication bypass)."
+      },
+      "products": [
+        {"@id": "pkg:golang/github.com/getkin/kin-openapi@v0.140.0"}
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "This statement is pinned to kin-openapi v0.140.0, which in the Educates workshop images is vendored by exactly one binary: the Hugo static site generator (usr/local/bin/hugo, Hugo 0.164.0, the latest upstream release), used to render workshop instructions. The vulnerable code is ValidationHandler, an HTTP middleware that kin-openapi exports for services that enforce OpenAPI security requirements on incoming requests. Hugo links kin-openapi only for its openapi3 template functions, which parse and unmarshal OpenAPI specifications as build-time data; it never constructs a ValidationHandler and performs no request authentication, so no code path reaches the fail-open substitution. Hugo also renders workshop content offline during the session, and does not front any authenticated Educates API. This statement is to be retired once an upstream Hugo release bumps kin-openapi to 0.144.0 or later."
+    }
+  ]
+}

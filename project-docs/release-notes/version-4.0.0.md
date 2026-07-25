@@ -418,6 +418,17 @@ Deprecations
   binaries continue to report their release version and additionally show the
   commit they were built from.
 
+* Four tools that were previously bundled in the workshop base environment
+  image have been removed: ``bombardier``, ``dive``, ``kwt`` and ``kctrl``.
+  None of them are used by Educates itself. ``kwt`` and ``kctrl`` are Carvel
+  tools tied to a ``kapp-controller`` based installation, which version 4.0 no
+  longer uses, and ``kwt`` has been archived upstream since 2023. Each of the
+  four is already pinned at its latest upstream release and still carries
+  unpatched vulnerabilities, including critical ones, so there was no version
+  to upgrade to. Workshops that invoke any of these commands from workshop
+  instructions or setup scripts need to install them in a custom workshop
+  image, or use an alternative tool.
+
 Bugs Fixed
 ----------
 
