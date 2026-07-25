@@ -1,4 +1,4 @@
-#syntax=docker/dockerfile:1.3-labs
+#syntax=docker/dockerfile:1
 
 FROM kubernetesui/dashboard:v2.7.0 AS k8s-console
 
@@ -112,7 +112,7 @@ RUN npm install && \
 # git-serve to the target platform via GOOS/GOARCH below, instead of
 # running the toolchain under QEMU emulation for non-native target
 # architectures during a multiarch build.
-FROM --platform=$BUILDPLATFORM golang:1.26 as builder-image
+FROM --platform=$BUILDPLATFORM golang:1.26 AS builder-image
 
 ARG TARGETOS
 ARG TARGETARCH

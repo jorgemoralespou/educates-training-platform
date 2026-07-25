@@ -1,4 +1,4 @@
-#syntax=docker/dockerfile:1.3-labs
+#syntax=docker/dockerfile:1
 
 # The upstream registry image ships a binary built with an older Go
 # toolchain and dependency set than the current security fixes require.
