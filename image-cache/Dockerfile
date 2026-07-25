@@ -1,4 +1,4 @@
-#syntax=docker/dockerfile:1.3-labs
+#syntax=docker/dockerfile:1
 
 FROM fedora:44
 
