@@ -17,6 +17,17 @@ possible.
 Features Changed
 ----------------
 
+* The ``bombardier``, ``dive``, ``kwt`` and ``kctrl`` command line tools are
+  no longer included in the workshop base image. None of them are used by
+  Educates itself. ``kwt`` was archived by its authors in 2023, and each of
+  the four was already pinned at the most recent release its authors have
+  published while still carrying vulnerabilities with no fixed version
+  available, so there was nothing to upgrade to. Workshops which run any of
+  these commands from workshop instructions or setup scripts need to install
+  them in a custom workshop image, or use an alternative tool. Note that
+  ``kctrl`` here refers only to the copy bundled inside workshop sessions;
+  the Carvel based installation of Educates itself is unaffected.
+
 * The container base images used for the training portal, session manager,
   secrets manager, lookup service, tunnel manager, image cache and workshop
   base environment have been updated from Fedora 42 to Fedora 44, eliminating

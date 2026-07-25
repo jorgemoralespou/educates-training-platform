@@ -100,17 +100,6 @@ COPY --from=k8s-console / /opt/console/
 # Miscellaneous tools.
 
 RUN <<EOF
-    BOMBARDIER_VERSION=2.0.2
-    CHECKSUM_amd64="d3dc4a9ecec3f8bd43f8c196ad533cb4b79ca55b11fc74c3184231e00a95bc0b"
-    CHECKSUM_arm64="258025ea4dc183bbe3f4ccc7772de1faf2c73700e9f81aa5b84e0c1799d7323c"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /usr/local/bin/bombardier https://github.com/codesenberg/bombardier/releases/download/v${BOMBARDIER_VERSION}/bombardier-linux-${TARGETARCH}
-    echo "${!CHECKSUM}  /usr/local/bin/bombardier" | sha256sum --check --status
-    chmod +x /usr/local/bin/bombardier
-EOF
-
-RUN <<EOF
     YQ_VERSION=4.53.3
     CHECKSUM_amd64="fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4"
     CHECKSUM_arm64="578648e463a11c1b6db6010cbf41eafed6bee79466fcffa1bb446672cf7945ea"
@@ -132,18 +121,6 @@ RUN <<EOF
     cd /usr/local/bin
     tar -zxf /tmp/hugo.tar.gz hugo
     rm /tmp/hugo.tar.gz
-EOF
-
-RUN <<EOF
-    DIVE_VERSION=0.13.1
-    CHECKSUM_amd64="0970549eb4a306f8825a84145a2534153badb4d7dcf3febd1967c706367c3d0e"
-    CHECKSUM_arm64="2fcd2cf20f634ccdb41efac44048b204bfc867c115641f37a7420693ed480a18"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /tmp/dive.tar.gz https://github.com/wagoodman/dive/releases/download/v${DIVE_VERSION}/dive_${DIVE_VERSION}_linux_${TARGETARCH}.tar.gz
-    echo "${!CHECKSUM} /tmp/dive.tar.gz" | sha256sum --check --status
-    tar -C /usr/local/bin -zxvf /tmp/dive.tar.gz dive
-    rm /tmp/dive.tar.gz
 EOF
 
 RUN <<EOF
@@ -283,17 +260,6 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KWT_VERSION=0.0.8
-    CHECKSUM_amd64="1022483a8b59fe238e782a9138f1fee6ca61ecf7ccd1e5f0d98e95c56df94d87"
-    CHECKSUM_arm64="7b94a134cbde5ff2e245d102f54b9ac9f81b3fcc5e54a5cefecc1e5845b8a65f"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /opt/kubernetes/bin/kwt https://github.com/carvel-dev/kwt/releases/download/v${KWT_VERSION}/kwt-linux-${TARGETARCH}
-    echo "${!CHECKSUM} /opt/kubernetes/bin/kwt" | sha256sum --check --status
-    chmod +x /opt/kubernetes/bin/kwt
-EOF
-
-RUN <<EOF
     VENDIR_VERSION=0.46.0
     CHECKSUM_amd64="878f3c77cae21b9b63d0ea6c11454c0008d41652d2eb3d1844fdcf69cca6ae9e"
     CHECKSUM_arm64="f80a27f1247ad4353b6054ca9d7e13e2511bf70c0e28d85bc314d2177ec2b0d2"
@@ -302,17 +268,6 @@ RUN <<EOF
     curl --silent --fail -L -o /opt/kubernetes/bin/vendir https://github.com/carvel-dev/vendir/releases/download/v${VENDIR_VERSION}/vendir-linux-${TARGETARCH}
     echo "${!CHECKSUM} /opt/kubernetes/bin/vendir" | sha256sum --check --status
     chmod +x /opt/kubernetes/bin/vendir
-EOF
-
-RUN <<EOF
-    KCTRL_VERSION=0.60.4
-    CHECKSUM_amd64="7b88d7bbdd0059175e7608284b291a935555abc71575b951063a3ce2bdc408ad"
-    CHECKSUM_arm64="f9f7ef17c8447523aa7f239168fae2933bdf8ca849c48ec4385806047647a26a"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /opt/kubernetes/bin/kctrl https://github.com/carvel-dev/kapp-controller/releases/download/v${KCTRL_VERSION}/kctrl-linux-${TARGETARCH}
-    echo "${!CHECKSUM} /opt/kubernetes/bin/kctrl" | sha256sum --check --status
-    chmod +x /opt/kubernetes/bin/kctrl
 EOF
 
 RUN <<EOF
