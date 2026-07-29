@@ -83,11 +83,19 @@ runs:
           "${{inputs.image}}@${{inputs.digest}}"
 
     - name: Generate SBOM with Syft
+      # upload-release-assets defaults to true, which on a tag build makes
+      # the action attach the SBOM to the GitHub release for that tag. That
+      # needs `contents: write`, while the publish jobs deliberately run with
+      # `contents: read`, so the attach fails with "Resource not accessible
+      # by integration". The SBOM is recorded twice already, as a workflow
+      # artifact and as a Chainloop attestation material on the image, so
+      # the release asset is dropped rather than widening the token.
       uses: anchore/sbom-action@v0
       with:
         image: ${{inputs.image}}@${{inputs.digest}}
         format: cyclonedx-json
         output-file: ${{runner.temp}}/sbom.cyclonedx.json
+        upload-release-assets: false
 
     - name: Collect VEX documents
       # Expose the repository's OpenVEX documents to the Trivy scan below
