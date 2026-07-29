@@ -226,8 +226,38 @@ Features Changed
   ``educates`` command now also includes usage examples in its ``--help``
   output.
 
+* Octant is no longer available as the web console for a workshop session and
+  the Octant binaries are no longer included in the workshop base image. Octant
+  was archived by its authors, with no release since ``0.25.1`` and no fixes
+  available for the vulnerabilities reported against the versions which were
+  bundled. Workshops which set ``session.applications.console.vendor`` to
+  ``octant`` will now be given the Kubernetes dashboard instead, with a warning
+  logged against the workshop session. The
+  ``session.applications.console.octant`` property has been removed from the
+  ``Workshop`` custom resource definition. Note that Octant was never the
+  console used by default, including for workshops which enable a virtual
+  cluster, so workshops which did not request it explicitly are unaffected.
+
+* The ``bombardier``, ``dive``, ``kwt`` and ``kctrl`` command line tools are no
+  longer included in the workshop base image. None of them were used by
+  Educates itself. ``kwt`` was archived by its authors in 2023, and ``kctrl``
+  is the ``kapp-controller`` command line tool, which is not needed now that
+  Educates is installed by its own operator rather than through Carvel
+  packaging. Each of the four was already pinned at the most recent release its
+  authors have published, and each still carried vulnerabilities with no fixed
+  version available, so there was nothing to upgrade to. Workshops which run
+  any of these commands from workshop instructions or setup scripts need to
+  install them in a custom workshop image, or use an alternative tool.
+
 Deprecations
 ------------
+
+* The ``session.applications.console.vendor`` property of the ``Workshop``
+  custom resource is deprecated. With the removal of Octant, the Kubernetes
+  dashboard is the only console which is available, so the only value the
+  property can be given is ``kubernetes``. The property is still accepted so
+  existing workshop definitions remain valid, but it will be removed in a
+  future version.
 
 * Following Kyverno's own deprecation of the ``ClusterPolicy`` resource
   (``kyverno.io``) — deprecated in Kyverno 1.18 and scheduled for removal in
