@@ -13,7 +13,10 @@ inputs:
     description: Image digest as reported by docker/build-push-action (sha256:...)
     required: true
   version:
-    description: Primary image tag for this build (docker/metadata-action version output)
+    description: >-
+      Primary image tag for this build (docker/metadata-action version
+      output). Also recorded as the Chainloop project version so all
+      attestations from one build aggregate under the version being built.
     required: true
   chainloop-workflow:
     description: Chainloop workflow name to record the attestation under
@@ -115,7 +118,8 @@ runs:
       run: |
         chainloop attestation init \
           --workflow "${{inputs.chainloop-workflow}}" \
-          --project "${{inputs.chainloop-project}}"
+          --project "${{inputs.chainloop-project}}" \
+          --version "${{inputs.version}}"
 
     - name: Add attestation materials
       shell: bash

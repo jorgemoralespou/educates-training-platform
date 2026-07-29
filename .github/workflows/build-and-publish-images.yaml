@@ -894,11 +894,16 @@ jobs:
           curl -sfL https://dl.chainloop.dev/cli/install.sh | \
             bash -s -- --version v1.95.11
 
+      # The project version mirrors docker/metadata-action's version output
+      # for the image jobs (tag name as-is, branch name with slashes
+      # dashed), so every attestation from one run lands under the same
+      # Chainloop project version.
       - name: Initialize Chainloop attestation
         run: |
           chainloop attestation init \
             --workflow educates-repo-security \
-            --project jorgemoralespou-educates-training-platform
+            --project jorgemoralespou-educates-training-platform \
+            --version "${GITHUB_REF_NAME//\//-}"
 
       - name: Add attestation materials
         run: |
@@ -1192,9 +1197,16 @@ jobs:
       - name: Initialize Chainloop attestation
         if: vars.CHAINLOOP_ENABLED == 'true'
         run: |
+          # Final tags promote the Chainloop project version to a release;
+          # alpha/beta/rc tags record their attestations without promoting.
+          if [ "${PRERELEASE}" = "false" ]; then
+            RELEASE_FLAG="--release"
+          fi
           chainloop attestation init \
             --workflow educates-release \
-            --project jorgemoralespou-educates-training-platform
+            --project jorgemoralespou-educates-training-platform \
+            --version "${{env.REPOSITORY_TAG}}" \
+            ${RELEASE_FLAG:-}
 
       - name: Add attestation materials
         if: vars.CHAINLOOP_ENABLED == 'true'
