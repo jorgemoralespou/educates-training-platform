@@ -348,9 +348,9 @@ EOF
 # VS Code editor and dashboard extension.
 # Make sure when updating that AI features are disabled and working https://github.com/coder/code-server/issues/7540
 RUN <<EOF
-    CODE_VERSION=4.125.0
-    CHECKSUM_amd64="779f75ae6d5c670fdb710bbdc7bbf66474c37757ac21c14c0f979d9f99c88864"
-    CHECKSUM_arm64="b6e8511a3b82bc8c6d9a01d6cc1c5062ce42268c75f45fba6a89b7bf57849d2c"
+    CODE_VERSION=4.130.0
+    CHECKSUM_amd64="3de23052e34fa705b3817efa66201cbc8d8ba6615b4cd03120c39bfc0ae1b7ab"
+    CHECKSUM_arm64="795366c40d0b32bc6fbbedf8dc992f9767a6125cc6dce965766c5f79e06bb725"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     mkdir /opt/editor
