@@ -7,8 +7,9 @@ document states, for one CVE, whether Educates is actually affected and why.
 
 Every file matching `vex/*.openvex.json` is picked up automatically:
 
-* Locally, the `make scan-image-<name>` / `make scan-images` targets pass
-  each document to Trivy via `--vex`, so a `not_affected` or `fixed`
+* Locally, the scan script
+  (`.claude/skills/educates-vulnerability-triage/scripts/scan-images.sh`)
+  passes each document to Trivy via `--vex`, so a `not_affected` or `fixed`
   statement removes the finding from the SARIF report and summary table.
 * In CI, `.github/actions/chainloop-attest` passes the same documents to
   the Trivy scan whose SARIF report feeds the Chainloop policy gate, so a
@@ -90,11 +91,11 @@ Trivy filters findings for statements with status `not_affected` or
 Verifying a statement works
 ---------------------------
 
-Re-run the scan target for an affected image and confirm the finding is
-gone from the summary table:
+Re-scan an affected image and confirm the finding is gone from the summary
+table:
 
 ```bash
-make scan-image-session-manager
+bash .claude/skills/educates-vulnerability-triage/scripts/scan-images.sh session-manager
 ```
 
 Then confirm Trivy filtered it for the stated reason rather than the CVE

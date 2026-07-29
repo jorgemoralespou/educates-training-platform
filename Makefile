@@ -272,58 +272,15 @@ else
 endif
 
 # =============================================================================
-# Vulnerability scanning
+# Image inventory
 # =============================================================================
-# Scan locally built images with Trivy, producing the same SARIF reports the
-# publish workflow hands to Chainloop (.github/actions/chainloop-attest), so
-# findings can be triaged and fixed before pushing. Report-only by default;
-# set SCAN_EXIT_CODE=1 for CI-gate parity (fail on findings). OpenVEX
-# documents under vex/ (see vex/README.md) are applied automatically, both
-# here and in CI, so a not-affected statement silences a finding everywhere.
-#
-# The SARIF pass records all severities with no --ignore-unfixed, matching
-# the CI scan; SCAN_SEVERITY only filters the human summary table.
-#
-# Scans pin --platform to the host architecture (SCAN_PLATFORM) because
-# local builds are host-arch only: when an image exists only in the local
-# registry and not in the Docker daemon, Trivy's registry fallback would
-# otherwise default to linux/amd64 and fail with "no child with platform"
-# on arm64 hosts.
+# The canonical list of images this repository builds, one per line. Tooling
+# that needs to act on every image (vulnerability scanning, mirroring, digest
+# audits) reads it from here rather than hardcoding names, so an image added
+# above is picked up automatically.
 
-TRIVY ?= trivy
-SCAN_REPORTS_DIR ?= scan-reports
-SCAN_SEVERITY ?= CRITICAL,HIGH
-SCAN_EXIT_CODE ?= 0
-SCAN_PLATFORM ?= linux/$(TARGET_MACHINE)
-TRIVY_EXTRA_ARGS ?=
-VEX_DOCUMENTS = $(wildcard vex/*.openvex.json)
-TRIVY_VEX_FLAGS = $(foreach f,$(VEX_DOCUMENTS),--vex $(f))
-
-check-trivy:
-	@command -v $(TRIVY) >/dev/null 2>&1 || { \
-		echo "ERROR: trivy not found. Install it first, e.g.:" >&2; \
-		echo "  brew install trivy" >&2; \
-		echo "  https://trivy.dev/latest/getting-started/installation/" >&2; \
-		exit 1; }
-
-# Generic per-image rule: `make scan-image-<name>` scans one image, writing
-# the full SARIF report then printing a summary table of what still needs
-# fixing (the second pass reuses Trivy's cached layer analysis, so it is
-# cheap). Accepts the same names as image-%.
-scan-image-%: check-trivy
-	@mkdir -p $(SCAN_REPORTS_DIR)
-	$(TRIVY) image --platform $(SCAN_PLATFORM) $(TRIVY_VEX_FLAGS) $(TRIVY_EXTRA_ARGS) \
-		--format sarif --output $(SCAN_REPORTS_DIR)/educates-$*.sarif \
-		$(IMAGE_REPOSITORY)/educates-$*:$(PACKAGE_VERSION)
-	$(TRIVY) image --platform $(SCAN_PLATFORM) $(TRIVY_VEX_FLAGS) $(TRIVY_EXTRA_ARGS) \
-		--format table --severity $(SCAN_SEVERITY) --exit-code $(SCAN_EXIT_CODE) \
-		$(IMAGE_REPOSITORY)/educates-$*:$(PACKAGE_VERSION)
-
-scan-images: $(addprefix scan-image-,$(CORE_IMAGES)) scan-image-operator ## Scan core platform images + operator (what local-build produces)
-
-scan-workshop-images: $(addprefix scan-image-,$(WORKSHOP_IMAGES)) ## Scan the optional workshop language images (jdk*, conda)
-
-scan-all-images: scan-images scan-workshop-images scan-image-cli ## Scan everything: core + operator + workshop images + CLI image
+list-images: ## Print every image this repository builds, one per line
+	@printf '%s\n' $(CORE_IMAGES) operator $(WORKSHOP_IMAGES) cli
 
 # =============================================================================
 # Release preparation
@@ -458,7 +415,7 @@ help: ## Show available targets
   generate-cli-schemas verify-cli-schemas embed-installer-chart verify-installer-chart \
   build-cli build-client-programs client-programs-educates ensure-local-registry \
   stage-renderer-files ci ci-cli ci-operator release-prep \
-  check-trivy scan-images scan-workshop-images scan-all-images \
+  list-images \
   build-docker-extension install-docker-extension update-docker-extension \
   restart-training-platform deploy-workshop delete-workshop open-workshop \
   build-project-docs open-project-docs clean-project-docs \

@@ -5,7 +5,7 @@ __pycache__
 .netlify
 /client-programs/bin
 /client-programs/pkg/renderer/files
-/scan-reports
+/.scratch
 /developer-testing
 /lookup-service/venv
 /project-docs/venv
