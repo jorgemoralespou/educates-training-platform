@@ -20,6 +20,7 @@ RUN <<EOF
     go get \
         golang.org/x/crypto@v0.52.0 \
         golang.org/x/net@v0.55.0 \
+        golang.org/x/text@v0.39.0 \
         google.golang.org/grpc@v1.82.1
     go mod tidy
     go mod vendor
