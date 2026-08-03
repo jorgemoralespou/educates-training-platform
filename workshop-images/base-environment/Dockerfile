@@ -119,11 +119,20 @@ ARG TARGETARCH
 
 WORKDIR /app
 
+# git-serve 0.0.5 is the last release its author published, in 2021, so its
+# dependencies are pinned at versions with known vulnerabilities and no newer
+# release will pick up fixes. Bump the flagged modules before building, the
+# same approach the Kubernetes dashboard backend above uses. The release
+# tarball is still checksum pinned, so only the dependency graph moves.
 RUN curl --silent --fail -L -o /tmp/git-serve.tar.gz https://github.com/cirocosta/git-serve/archive/refs/tags/v0.0.5.tar.gz && \
 echo "09cd14a34f17d88cd4f0d2b73e0bbd0bf56984be21bc947f416a7824a709011e /tmp/git-serve.tar.gz" | sha256sum --check --status && \
     tar xvf /tmp/git-serve.tar.gz && \
     cd git-serve-0.0.5 && \
-    go mod download && \
+    go get \
+        github.com/sirupsen/logrus@v1.9.4 \
+        golang.org/x/crypto@v0.54.0 \
+        golang.org/x/net@v0.57.0 && \
+    go mod tidy && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o git-serve cmd/git-serve/main.go
 
 FROM system-base AS scratch-image
