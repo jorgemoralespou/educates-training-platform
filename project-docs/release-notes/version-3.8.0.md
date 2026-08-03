@@ -17,6 +17,14 @@ possible.
 Features Changed
 ----------------
 
+* The ``git-serve`` program bundled in the workshop base image, which
+  provides the per-session Git server, is now built with patched versions of
+  its Go module dependencies. The 0.0.5 release it is built from is the last
+  its author published, so the dependency versions it pins carry known
+  vulnerabilities and no newer release exists to pick up fixes. The flagged
+  modules are raised to fixed versions at build time; the behavior of the
+  per-session Git server is unchanged.
+
 * The container base images used for the training portal, session manager,
   secrets manager, lookup service, tunnel manager, image cache and workshop
   base environment have been updated from Fedora 42 to Fedora 44, eliminating
