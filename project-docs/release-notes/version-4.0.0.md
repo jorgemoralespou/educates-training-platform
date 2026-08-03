@@ -368,9 +368,10 @@ Deprecations
   previously bundled versions.
 
 * The ``code-server`` release which provides the workshop editor has been
-  updated from 4.125.0 to 4.130.0, bringing the embedded VS Code version from
-  1.125.0 to 1.130.0. The update resolves a number of high severity
-  vulnerabilities reported against packages bundled with the editor.
+  updated from 4.125.0 to 4.131.0, bringing the embedded VS Code version from
+  1.125.0 to 1.131.0. The update resolves a critical vulnerability and a number
+  of high severity vulnerabilities reported against packages bundled with the
+  editor.
 
 * The Kubernetes dashboard backend used for the workshop console is now
   rebuilt from the upstream 2.7.0 sources with a current Go toolchain and
