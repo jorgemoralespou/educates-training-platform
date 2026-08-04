@@ -17,6 +17,11 @@ dependencies = [
     "kopf[full-auth]>=1.44.6",
     "pykube-ng>=23.6.0",
     "rstr>=3.2.2",
+    # Not imported directly; constrained here to control CVE exposure via kopf.
+    "aiohttp>=3.14.3",
+    # Not imported directly; constrained here to control CVE exposure via
+    # jwcrypto (django-oauth-toolkit).
+    "cryptography>=50.0.0",
 ]
 
 [dependency-groups]
