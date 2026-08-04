@@ -126,3 +126,17 @@ Features Changed
   training portal was restarted at the wrong time, is now cleaned up after a
   grace period rather than indefinitely counting against the capacity of the
   workshop environment.
+
+Bugs Fixed
+----------
+
+* When reserved workshop sessions were enabled for a workshop environment
+  along with a timeout for deleting orphaned workshop sessions, a workshop
+  session which had sat in reserve for longer than the orphaned timeout could
+  be deleted moments after being allocated to a user. This was because the
+  idle time reported by a workshop session is measured from when the workshop
+  session was created, so the whole period a workshop session spent in
+  reserve was counted as idle time. The reported idle time is now capped at
+  the time which has elapsed since the workshop session was allocated to the
+  user when checking whether a workshop session should be deleted due to
+  being orphaned or inactive.
