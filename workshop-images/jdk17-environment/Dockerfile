@@ -15,10 +15,10 @@ RUN <<EOF
     ARCHNAME_amd64=x64
     ARCHNAME_arm64=aarch64
     ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="d8afc263758141a66e0e3aafc321e783f7016696f4eaea067d340a269037d331"
-    CHECKSUM_arm64="83a52172678ec8975164648654869cb2e71d7c748b47aca94b29bbfa10c18e81"
+    CHECKSUM_amd64="be7668bc030d578b83d6d5ef9221d6d6729bbbca8cf94a7d52e16ac68b5a5a35"
+    CHECKSUM_arm64="d143936f473a4cb24e3b0e247d6d0775769d55ec9775c339540e753059a8d77a"
     CHECKSUM=CHECKSUM_${TARGETARCH}
-    curl --fail -sL -o /tmp/jdk17.tar.gz https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.19%2B10/OpenJDK17U-jdk_${!ARCHNAME}_linux_hotspot_17.0.19_10.tar.gz
+    curl --fail -sL -o /tmp/jdk17.tar.gz https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20%2B8/OpenJDK17U-jdk_${!ARCHNAME}_linux_hotspot_17.0.20_8.tar.gz
     echo "${!CHECKSUM} /tmp/jdk17.tar.gz" | sha256sum --check --status
     tar -C /opt/java --strip-components 1 -zxf /tmp/jdk17.tar.gz
     rm /tmp/jdk17.tar.gz

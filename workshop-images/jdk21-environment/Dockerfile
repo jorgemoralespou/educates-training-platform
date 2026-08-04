@@ -15,10 +15,10 @@ RUN <<EOF
     ARCHNAME_amd64=x64
     ARCHNAME_arm64=aarch64
     ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="4b2220e232a97997b436ca6ab15cbf70171ecff52958a46159dfa5a8c44ca4de"
-    CHECKSUM_arm64="8d498ec88e1c1989fab95c6784240ab92d011e29c54d20a3f9c324b13476f9ad"
+    CHECKSUM_amd64="e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370"
+    CHECKSUM_arm64="eba38e871b02d407897bfe017ea35352dfc1420ef6d2112425b0c67325ca509d"
     CHECKSUM=CHECKSUM_${TARGETARCH}
-    curl --fail -sL -o /tmp/jdk21.tar.gz https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.11%2B10/OpenJDK21U-jdk_${!ARCHNAME}_linux_hotspot_21.0.11_10.tar.gz
+    curl --fail -sL -o /tmp/jdk21.tar.gz https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_${!ARCHNAME}_linux_hotspot_21.0.12_8.tar.gz
     echo "${!CHECKSUM} /tmp/jdk21.tar.gz" | sha256sum --check --status
     tar -C /opt/java --strip-components 1 -zxf /tmp/jdk21.tar.gz
     rm /tmp/jdk21.tar.gz
