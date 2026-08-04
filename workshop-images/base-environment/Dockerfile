@@ -368,6 +368,8 @@ RUN <<EOF
     cd /opt/editor
     tar -zxf /tmp/code-server.tar.gz --strip-components=1
     rm /tmp/code-server.tar.gz
+    # Delete server.key from editor test fixtures
+    find /opt/editor/node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
 EOF
 
 COPY --from=vscode-helper --chown=1001:0 /opt/helper/educates-0.0.1.vsix /opt/eduk8s/educates-0.0.1.vsix
@@ -382,12 +384,7 @@ COPY --from=builder-image /app/git-serve-0.0.5/git-serve /opt/git/bin/git-serve
 
 COPY opt/. /opt/
 
-RUN mkdir -p /opt/slides/reveal.js/3.9.2 && \
-    cd /opt/slides/reveal.js/3.9.2 && \
-    curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/3.9.2.tar.gz && \
-    tar --strip-components 1 -xf src.tar.gz && \
-    rm src.tar.gz && \
-    mkdir -p /opt/slides/reveal.js/4.6.1 && \
+RUN mkdir -p /opt/slides/reveal.js/4.6.1 && \
     cd /opt/slides/reveal.js/4.6.1 && \
     curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/4.6.1.tar.gz && \
     tar --strip-components 1 -xf src.tar.gz && \
@@ -395,6 +392,11 @@ RUN mkdir -p /opt/slides/reveal.js/3.9.2 && \
     mkdir -p /opt/slides/reveal.js/5.2.1 && \
     cd /opt/slides/reveal.js/5.2.1 && \
     curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/5.2.1.tar.gz && \
+    tar --strip-components 1 -xf src.tar.gz && \
+    rm src.tar.gz && \
+    mkdir -p /opt/slides/reveal.js/6.0.1 && \
+    cd /opt/slides/reveal.js/6.0.1 && \
+    curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/6.0.1.tar.gz && \
     tar --strip-components 1 -xf src.tar.gz && \
     rm src.tar.gz && \
     mkdir -p /opt/slides/impress.js/1.1.0 && \
@@ -417,13 +419,15 @@ RUN cd /opt/gateway && \
     npm install && \
     npm run compile && \
     npm prune --production && \
-    npm cache clean --force
+    npm cache clean --force && \
+    find node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
 
 RUN cd /opt/renderer && \
     npm install && \
     npm run compile && \
     npm prune --production && \
-    npm cache clean --force
+    npm cache clean --force && \
+    find node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
 
 FROM system-base
 

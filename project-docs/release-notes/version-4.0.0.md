@@ -249,6 +249,17 @@ Features Changed
   any of these commands from workshop instructions or setup scripts need to
   install them in a custom workshop image, or use an alternative tool.
 
+* The bundled versions of [reveal.js](https://revealjs.com/) used for workshop
+  slides have changed. Version ``6.0.1`` is now bundled alongside ``4.6.1``
+  and ``5.2.1``, and version ``3.9.2`` is no longer included. Workshops which
+  select the reveal.js version through the
+  ``session.applications.slides.reveal.js`` property of the ``Workshop``
+  custom resource using a ``3.X`` selector need to move to ``4.X``, ``5.X``
+  or ``6.X``, and should review their slide decks against the upstream
+  reveal.js upgrade guidance since the markup and plugin APIs changed after
+  the 3.x series. If the requested version cannot be matched against a
+  bundled version the slides are not served for the workshop session.
+
 Deprecations
 ------------
 
@@ -476,13 +487,6 @@ Bugs Fixed
   first-class entries in the ``imageVersions`` inventory, so they are
   relocatable through the same per-name override mechanism as the other
   platform images and are included in the air-gap image list.
-
-* In Inline mode the ``EducatesClusterConfig`` status could remain ``Ready``
-  after a referenced ``ClusterIssuer`` was deleted, if the deletion event from
-  the cert-manager watch was missed or observed against a momentarily stale
-  cache. The reconciler now periodically re-validates referenced resources, so
-  the status reliably transitions to ``Degraded`` when a referenced
-  ``ClusterIssuer`` disappears.
 
 * When reserved workshop sessions were enabled for a workshop environment
   along with a timeout for deleting orphaned workshop sessions, a workshop
