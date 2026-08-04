@@ -205,6 +205,23 @@ def purge_expired_workshop_sessions():
                         idle_time = timedelta(seconds=response.json()["idle-time"])
                         last_view = timedelta(seconds=response.json()["last-view"])
 
+                        # The workshop session gateway measures idle time from
+                        # when its process started, not from when the session
+                        # was allocated to a user, and only a browser poll
+                        # resets it. A reserved session therefore reports the
+                        # whole time it sat unallocated in reserve as idle
+                        # time, which for a long enough reserved period would
+                        # exceed the inactivity timeout the moment the session
+                        # is activated, before the user's browser has had a
+                        # chance to poll. Clamp both reported values to the
+                        # time the user has actually held the session.
+
+                        if session.started:
+                            allocated_time = now - session.started
+
+                            idle_time = min(idle_time, allocated_time)
+                            last_view = min(last_view, allocated_time)
+
                         if idle_time >= session.environment.orphaned:
                             logger.info(
                                 "Schedule deletion of orphaned workshop session %s after period of %s seconds.",

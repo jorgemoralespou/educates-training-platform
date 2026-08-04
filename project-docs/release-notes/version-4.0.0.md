@@ -413,8 +413,8 @@ Deprecations
 
 * The JDK versions included in the ``jdk8-environment``, ``jdk11-environment``,
   ``jdk17-environment`` and ``jdk21-environment`` workshop base images have
-  been updated to the latest Eclipse Temurin patch releases, being 8u492-b09,
-  11.0.31+11, 17.0.19+10 and 21.0.11+10 respectively. The bundled Maven and
+  been updated to the latest Eclipse Temurin patch releases, being 8u502-b07,
+  11.0.32+9, 17.0.20+8 and 21.0.12+8 respectively. The bundled Maven and
   Gradle versions have also been updated. All four images now include Maven
   3.9.16. The ``jdk8-environment`` and ``jdk11-environment`` images include
   Gradle 8.14.5, the latest version able to run on those JDK versions, while
@@ -483,3 +483,14 @@ Bugs Fixed
   cache. The reconciler now periodically re-validates referenced resources, so
   the status reliably transitions to ``Degraded`` when a referenced
   ``ClusterIssuer`` disappears.
+
+* When reserved workshop sessions were enabled for a workshop environment
+  along with a timeout for deleting orphaned workshop sessions, a workshop
+  session which had sat in reserve for longer than the orphaned timeout could
+  be deleted moments after being allocated to a user. This was because the
+  idle time reported by a workshop session is measured from when the workshop
+  session was created, so the whole period a workshop session spent in
+  reserve was counted as idle time. The reported idle time is now capped at
+  the time which has elapsed since the workshop session was allocated to the
+  user when checking whether a workshop session should be deleted due to
+  being orphaned or inactive.
