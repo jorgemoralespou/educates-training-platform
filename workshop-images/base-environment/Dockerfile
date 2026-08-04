@@ -395,6 +395,8 @@ RUN <<EOF
     cd /opt/editor
     tar -zxf /tmp/code-server.tar.gz --strip-components=1
     rm /tmp/code-server.tar.gz
+    # Delete server.key from editor test fixtures
+    find /opt/editor/node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
 EOF
 
 COPY --from=vscode-helper --chown=1001:0 /opt/helper/educates-0.0.1.vsix /opt/eduk8s/educates-0.0.1.vsix
@@ -444,13 +446,15 @@ RUN cd /opt/gateway && \
     npm install && \
     npm run compile && \
     npm prune --production && \
-    npm cache clean --force
+    npm cache clean --force && \
+    find node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
 
 RUN cd /opt/renderer && \
     npm install && \
     npm run compile && \
     npm prune --production && \
-    npm cache clean --force
+    npm cache clean --force && \
+    find node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
 
 FROM system-base
 
