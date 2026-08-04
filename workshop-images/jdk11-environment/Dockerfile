@@ -15,10 +15,10 @@ RUN <<EOF
     ARCHNAME_amd64=x64
     ARCHNAME_arm64=aarch64
     ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="1e9de64586b519c0a981319489257cabedd9457599f3823424a87c3158fbe939"
-    CHECKSUM_arm64="257f4d39e060658fc2eb89a803ca43b3f337e64e253f2d94ebae1d85c9ef5f69"
+    CHECKSUM_amd64="5906e0339e9322a688b2375eaf40666e00a16e008b0067b0a9f9e4b6c5033720"
+    CHECKSUM_arm64="66a7d4af3572d920b0f1b01710ffa79888d4ddd1b784632e33a3d711aa7d1e63"
     CHECKSUM=CHECKSUM_${TARGETARCH}
-    curl --fail -sL -o /tmp/jdk11.tar.gz https://github.com/adoptium/temurin11-binaries/releases/download/jdk-11.0.31%2B11/OpenJDK11U-jdk_${!ARCHNAME}_linux_hotspot_11.0.31_11.tar.gz
+    curl --fail -sL -o /tmp/jdk11.tar.gz https://github.com/adoptium/temurin11-binaries/releases/download/jdk-11.0.32%2B9/OpenJDK11U-jdk_${!ARCHNAME}_linux_hotspot_11.0.32_9.tar.gz
     echo "${!CHECKSUM} /tmp/jdk11.tar.gz" | sha256sum --check --status
     tar -C /opt/java --strip-components 1 -zxf /tmp/jdk11.tar.gz
     rm /tmp/jdk11.tar.gz

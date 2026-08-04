@@ -15,10 +15,10 @@ RUN <<EOF
     ARCHNAME_amd64=x64
     ARCHNAME_arm64=aarch64
     ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="da257f161d7f8c6ca5b0e5d9e4090f65ac28c5e398072e68b8ae87988b1d1a2e"
-    CHECKSUM_arm64="3c2253b986909c20f79d6de7a0cb957f89c243df57615897836046e24d2e5257"
+    CHECKSUM_amd64="b8f5440f64f50193c01f67dacba55c9660caffe13b908baf6bd1955f4dd4c3ea"
+    CHECKSUM_arm64="34912db17786f7144dab274f040a42028e25da6e7a6a09780d7013339a56bdb2"
     CHECKSUM=CHECKSUM_${TARGETARCH}
-    curl --fail -sL -o /tmp/jdk8.tar.gz https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u492-b09/OpenJDK8U-jdk_${!ARCHNAME}_linux_hotspot_8u492b09.tar.gz
+    curl --fail -sL -o /tmp/jdk8.tar.gz https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u502-b07/OpenJDK8U-jdk_${!ARCHNAME}_linux_hotspot_8u502b07.tar.gz
     echo "${!CHECKSUM} /tmp/jdk8.tar.gz" | sha256sum --check --status
     tar -C /opt/java --strip-components 1 -zxf /tmp/jdk8.tar.gz
     rm /tmp/jdk8.tar.gz
