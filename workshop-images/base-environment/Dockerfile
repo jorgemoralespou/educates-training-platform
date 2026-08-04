@@ -122,9 +122,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    HUGO_VERSION=0.163.3
-    CHECKSUM_amd64="ec422258f9a4ffc241de8707297e32311cd86fcc9b2813632617ff4d44935d91"
-    CHECKSUM_arm64="a4185cf0308ff3a61a2828563f70f476fcef30d02e9b00fb562eb1bd085195a5"
+    HUGO_VERSION=0.164.0
+    CHECKSUM_amd64="d9c8b17285ea4ec004d9f814273ea910f2051ce02c284993fd1f91ba455ae50d"
+    CHECKSUM_arm64="948ee5f0ed30175f31937d592d63a2712f0761a69f1cbe812f780eb918a08b8e"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_linux-${TARGETARCH}.tar.gz
@@ -305,9 +305,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KCTRL_VERSION=0.60.2
-    CHECKSUM_amd64="f1d493bf05c771cb691f120ec7dc4f44fa4ffc8c211a57b3b8293a9131382402"
-    CHECKSUM_arm64="438416f26db347bcdab57d3d62de8c9fcd82250d1340ed1fa8a70072fa294b6d"
+    KCTRL_VERSION=0.60.4
+    CHECKSUM_amd64="7b88d7bbdd0059175e7608284b291a935555abc71575b951063a3ce2bdc408ad"
+    CHECKSUM_arm64="f9f7ef17c8447523aa7f239168fae2933bdf8ca849c48ec4385806047647a26a"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/kctrl https://github.com/carvel-dev/kapp-controller/releases/download/v${KCTRL_VERSION}/kctrl-linux-${TARGETARCH}
@@ -347,9 +347,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    HELM_VERSION=4.2.2
-    CHECKSUM_amd64="9adafecab4d406853bba163a70e9f104f47dbbf65ce24b7653bae7e36150bcb6"
-    CHECKSUM_arm64="78803142087a0069fa4b50d3f32a84d3ef25c14d1ee8a40fbccf86a6216d2f36"
+    HELM_VERSION=4.2.3
+    CHECKSUM_amd64="e9b88b4ee95b18c706839c28d3a0220e5bc470e9cd9262410c90793c45ff8b7c"
+    CHECKSUM_arm64="21abd9354d39b2cd79a8d76be6912cd137a983cbf997193503fb8a6a6e2f2785"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/helm.tar.gz https://get.helm.sh/helm-v${HELM_VERSION}-linux-${TARGETARCH}.tar.gz
@@ -359,9 +359,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    SKAFFOLD_VERSION=2.22.0
-    CHECKSUM_amd64="a6a4b9c58344da4b41af762ae220e45ea96ffc4664ee4b1f65cdcc8a0b693608"
-    CHECKSUM_arm64="80392587938e303d19c00c2600e3945fc9b6436a3bc4cb37130bbb98576c04e0"
+    SKAFFOLD_VERSION=2.23.0
+    CHECKSUM_amd64="c44fb83ec88a9ed2945f3326a6d6b78bb957354535f0efcf653413bcd0e9510d"
+    CHECKSUM_arm64="d7905e255319c250302cf52285abe68e59699a91534a5e2be06613186d1916dd"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/skaffold https://github.com/GoogleContainerTools/skaffold/releases/download/v${SKAFFOLD_VERSION}/skaffold-linux-${TARGETARCH}
