@@ -447,6 +447,18 @@ Deprecations
 Bugs Fixed
 ----------
 
+* The workshop base environment image shipped test fixtures belonging to npm
+  packages bundled for the workshop dashboard gateway and renderer, and to
+  the code editor. One of these fixtures, a ``package.json`` declaring the
+  package ``monorepo-symlink-test`` inside the published tests of the
+  ``resolve`` package, matches a known malicious npm package and is flagged
+  as ``MAL-2022-4691`` by scanners which consult the OpenSSF
+  malicious-packages database, and an editor test fixture carried a private
+  key which is flagged by secret scanners. The test fixture directories are
+  now stripped from the image build, so scans of the published images no
+  longer report these findings. The fixtures were inert test data and were
+  never executed as part of Educates.
+
 * The Contour ingress controller deployed inside a vcluster workshop session
   (when the ``vcluster`` application enables ingress) used hardcoded upstream
   Contour and Envoy image references that were not subject to image relocation
