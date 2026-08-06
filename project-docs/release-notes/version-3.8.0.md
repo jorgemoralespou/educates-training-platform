@@ -28,6 +28,21 @@ Features Changed
   manifests in the legacy Docker schema 1 format, which has been deprecated
   since Docker 1.10 and does not affect images pushed by current tooling.
 
+* The bundled versions of [reveal.js](https://revealjs.com/) used for workshop
+  slides have changed. Version ``6.0.1`` is now bundled alongside ``4.6.1``
+  and ``5.2.1``, and version ``3.9.2`` is no longer included. The 3.9.2 copy
+  bundled a ``reveal-js-multiplex`` plugin package which is flagged as
+  malicious (``MAL-2022-5772``) by scanners which consult the OpenSSF
+  malicious-packages database, and the 3.x series of reveal.js has been
+  unmaintained for years. Workshops which select the reveal.js version
+  through the ``session.applications.slides.reveal.js`` property of the
+  ``Workshop`` custom resource using a ``3.X`` selector need to move to
+  ``4.X``, ``5.X`` or ``6.X``, and should review their slide decks against
+  the upstream reveal.js upgrade guidance since the markup and plugin APIs
+  changed after the 3.x series. If the requested version cannot be matched
+  against a bundled version the slides are not served for the workshop
+  session.
+
 * The container base images used for the training portal, session manager,
   secrets manager, lookup service, tunnel manager, image cache and workshop
   base environment have been updated from Fedora 42 to Fedora 44, eliminating
