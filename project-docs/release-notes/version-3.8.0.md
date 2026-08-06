@@ -17,6 +17,17 @@ possible.
 Features Changed
 ----------------
 
+* The image registry deployed for workshop sessions and for workshop
+  environment image mirrors has been updated from the CNCF Distribution
+  registry version 2.8.3 to 3.1.1, with the registry binary additionally
+  rebuilt against a patched Go toolchain and updated dependencies so that no
+  known critical or high severity vulnerabilities remain. The registry
+  continues to be configured through the same environment variables, so
+  workshop definitions which enable a session image registry or an image
+  mirror require no changes. Note that registry 3.x no longer serves
+  manifests in the legacy Docker schema 1 format, which has been deprecated
+  since Docker 1.10 and does not affect images pushed by current tooling.
+
 * The bundled versions of [reveal.js](https://revealjs.com/) used for workshop
   slides have changed. Version ``6.0.1`` is now bundled alongside ``4.6.1``
   and ``5.2.1``, and version ``3.9.2`` is no longer included. The 3.9.2 copy
