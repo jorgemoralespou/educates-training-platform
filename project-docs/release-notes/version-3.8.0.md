@@ -17,6 +17,14 @@ possible.
 Features Changed
 ----------------
 
+* The Kubernetes dashboard backend used for the workshop console is now
+  rebuilt from the upstream 2.7.0 sources with a current Go toolchain and
+  patched dependency versions, rather than being copied as a prebuilt binary
+  from the upstream container image. This resolves all critical and the
+  majority of high severity vulnerabilities reported against the previously
+  bundled binary. The dashboard version and its behavior within workshop
+  sessions are unchanged.
+
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image.
   Octant was archived by its authors, with no release since ``0.25.1`` and no
