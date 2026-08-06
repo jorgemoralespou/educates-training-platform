@@ -1377,7 +1377,7 @@ spec:
       memory: 512Mi
 ```
 
-For more details on configuring the synchronization rules for registries see the Zot Registry documentation on [mirroring](https://zotregistry.dev/v1.4.3/articles/mirroring/). Only details under ``registries`` can be supplied, with the exception that providing certificates via ``certDir`` is not supported.
+For more details on configuring the synchronization rules for registries see the Zot Registry documentation on [mirroring](https://zotregistry.dev/v2.1.18/articles/mirroring/). Only details under ``registries`` can be supplied, with the exception that providing certificates via ``certDir`` is not supported.
 
 (injecting-workshop-secrets)=
 Injecting workshop secrets
