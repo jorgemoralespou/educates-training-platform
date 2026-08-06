@@ -1997,18 +1997,9 @@ spec:
         enabled: true
 ```
 
-The Kubernetes dashboard provided by the Kubernetes project will be used. If you would rather use Octant as the console, you can set the ``vendor`` property to ``octant``.
+The Kubernetes dashboard provided by the Kubernetes project will be used. It is the only console which is available.
 
-```yaml
-spec:
-  session:
-    applications:
-      console:
-        enabled: true
-        vendor: octant
-```
-
-When ``vendor`` is not set, ``kubernetes`` is assumed.
+The ``vendor`` property is deprecated. It is still accepted so that existing workshop definitions remain valid, but the only value it can be given is ``kubernetes``. Any other value, including the ``octant`` value which was accepted in prior versions, is ignored and the Kubernetes dashboard is used in its place, with a warning being logged against the workshop session. The ``vendor`` property will be removed in a future version.
 
 Enabling the integrated editor
 ------------------------------

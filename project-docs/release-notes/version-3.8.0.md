@@ -17,6 +17,19 @@ possible.
 Features Changed
 ----------------
 
+* Octant is no longer available as the web console for a workshop session and
+  the Octant binaries are no longer included in the workshop base image.
+  Octant was archived by its authors, with no release since ``0.25.1`` and no
+  fixes available for the many vulnerabilities reported against the versions
+  which were bundled. Workshops which set
+  ``session.applications.console.vendor`` to ``octant`` will now be given the
+  Kubernetes dashboard instead, with a warning logged against the workshop
+  session. The ``session.applications.console.octant`` property has been
+  removed from the ``Workshop`` custom resource definition. Note that Octant
+  was never the console used by default, including for workshops which enable
+  a virtual cluster, so workshops which did not request it explicitly are
+  unaffected.
+
 * The ``git-serve`` program bundled in the workshop base image, which
   provides the per-session Git server, is now built with patched versions of
   its Go module dependencies. The 0.0.5 release it is built from is the last
