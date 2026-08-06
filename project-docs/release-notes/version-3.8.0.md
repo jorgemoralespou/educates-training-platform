@@ -17,6 +17,17 @@ possible.
 Features Changed
 ----------------
 
+* The ``bombardier``, ``dive``, ``kwt`` and ``kctrl`` command line tools are
+  no longer included in the workshop base image. None of them are used by
+  Educates itself. ``kwt`` was archived by its authors in 2023, and each of
+  the four was already pinned at the most recent release its authors have
+  published while still carrying vulnerabilities with no fixed version
+  available, so there was nothing to upgrade to. Workshops which run any of
+  these commands from workshop instructions or setup scripts need to install
+  them in a custom workshop image, or use an alternative tool. Note that
+  ``kctrl`` here refers only to the copy bundled inside workshop sessions;
+  the Carvel based installation of Educates itself is unaffected.
+
 * The Kubernetes dashboard backend used for the workshop console is now
   rebuilt from the upstream 2.7.0 sources with a current Go toolchain and
   patched dependency versions, rather than being copied as a prebuilt binary
