@@ -112,11 +112,20 @@ FROM golang:1.26 as builder-image
 
 WORKDIR /app
 
+# git-serve 0.0.5 is the last release its author published, in 2021, so its
+# dependencies are pinned at versions with known vulnerabilities and no newer
+# release will pick up fixes. Bump the flagged modules before building. The
+# release tarball is still checksum pinned, so only the dependency graph
+# moves.
 RUN curl --silent --fail -L -o /tmp/git-serve.tar.gz https://github.com/cirocosta/git-serve/archive/refs/tags/v0.0.5.tar.gz && \
 echo "09cd14a34f17d88cd4f0d2b73e0bbd0bf56984be21bc947f416a7824a709011e /tmp/git-serve.tar.gz" | sha256sum --check --status && \
     tar xvf /tmp/git-serve.tar.gz && \
     cd git-serve-0.0.5 && \
-    go mod download && \
+    go get \
+        github.com/sirupsen/logrus@v1.9.4 \
+        golang.org/x/crypto@v0.54.0 \
+        golang.org/x/net@v0.57.0 && \
+    go mod tidy && \
     go build -o git-serve cmd/git-serve/main.go
 
 FROM system-base AS scratch-image
@@ -349,37 +358,6 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    OCTANT_VERSION=0.12.1
-    ARCHNAME_amd64=64bit
-    ARCHNAME_arm64=arm64
-    ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="b56ca09fb92314eb6a7b1a0ddcc65b582990e3fdef6e2a996cacd4a24b4e54bf"
-    CHECKSUM_arm64="2808448a78d7c55e40ed34bcd3cd4db04b5cf847884938af047b73eb7a40bcd5"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /tmp/octant.tar.gz https://github.com/vmware-tanzu/octant/releases/download/v${OCTANT_VERSION}/octant_${OCTANT_VERSION}_Linux-${!ARCHNAME}.tar.gz
-    tar -C /opt/kubernetes/bin --strip-components 1 -xf /tmp/octant.tar.gz octant_${OCTANT_VERSION}_Linux-${!ARCHNAME}/octant
-    mv /opt/kubernetes/bin/octant /opt/kubernetes/bin/octant@${OCTANT_VERSION}
-    rm -f /tmp/octant.tar.gz
-EOF
-
-RUN <<EOF
-    OCTANT_VERSION=0.25.1
-    ARCHNAME_amd64=64bit
-    ARCHNAME_arm64=arm64
-    ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="b12bb6752e43f4e0fe54278df8e98dee3439c4066f66cdb7a0ca4a1c7d8eaa1e"
-    CHECKSUM_arm64="a3eb4973a0c869267e3916bd43e0b41b2bbc73b898376b795a617299c7b2a623"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    set -eo pipefail
-    curl --silent --fail -L -o /tmp/octant.tar.gz https://github.com/vmware-tanzu/octant/releases/download/v${OCTANT_VERSION}/octant_${OCTANT_VERSION}_Linux-${!ARCHNAME}.tar.gz
-    tar -C /opt/kubernetes/bin --strip-components 1 -xf /tmp/octant.tar.gz octant_${OCTANT_VERSION}_Linux-${!ARCHNAME}/octant
-    mv /opt/kubernetes/bin/octant /opt/kubernetes/bin/octant@${OCTANT_VERSION}
-    ln -s octant@${OCTANT_VERSION} /opt/kubernetes/bin/octant@latest
-    rm -f /tmp/octant.tar.gz
-EOF
-
-RUN <<EOF
     HELM_VERSION=4.2.3
     CHECKSUM_amd64="e9b88b4ee95b18c706839c28d3a0220e5bc470e9cd9262410c90793c45ff8b7c"
     CHECKSUM_arm64="21abd9354d39b2cd79a8d76be6912cd137a983cbf997193503fb8a6a6e2f2785"
@@ -442,12 +420,7 @@ COPY --from=builder-image /app/git-serve-0.0.5/git-serve /opt/git/bin/git-serve
 
 COPY opt/. /opt/
 
-RUN mkdir -p /opt/slides/reveal.js/3.9.2 && \
-    cd /opt/slides/reveal.js/3.9.2 && \
-    curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/3.9.2.tar.gz && \
-    tar --strip-components 1 -xf src.tar.gz && \
-    rm src.tar.gz && \
-    mkdir -p /opt/slides/reveal.js/4.6.1 && \
+RUN mkdir -p /opt/slides/reveal.js/4.6.1 && \
     cd /opt/slides/reveal.js/4.6.1 && \
     curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/4.6.1.tar.gz && \
     tar --strip-components 1 -xf src.tar.gz && \
@@ -455,6 +428,11 @@ RUN mkdir -p /opt/slides/reveal.js/3.9.2 && \
     mkdir -p /opt/slides/reveal.js/5.2.1 && \
     cd /opt/slides/reveal.js/5.2.1 && \
     curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/5.2.1.tar.gz && \
+    tar --strip-components 1 -xf src.tar.gz && \
+    rm src.tar.gz && \
+    mkdir -p /opt/slides/reveal.js/6.0.1 && \
+    cd /opt/slides/reveal.js/6.0.1 && \
+    curl -sL -o src.tar.gz https://github.com/hakimel/reveal.js/archive/6.0.1.tar.gz && \
     tar --strip-components 1 -xf src.tar.gz && \
     rm src.tar.gz && \
     mkdir -p /opt/slides/impress.js/1.1.0 && \

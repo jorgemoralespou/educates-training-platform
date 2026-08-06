@@ -25,6 +25,61 @@ Features Changed
   bundled binary. The dashboard version and its behavior within workshop
   sessions are unchanged.
 
+* Octant is no longer available as the web console for a workshop session and
+  the Octant binaries are no longer included in the workshop base image.
+  Octant was archived by its authors, with no release since ``0.25.1`` and no
+  fixes available for the many vulnerabilities reported against the versions
+  which were bundled. Workshops which set
+  ``session.applications.console.vendor`` to ``octant`` will now be given the
+  Kubernetes dashboard instead, with a warning logged against the workshop
+  session. The ``session.applications.console.octant`` property has been
+  removed from the ``Workshop`` custom resource definition. Note that Octant
+  was never the console used by default, including for workshops which enable
+  a virtual cluster, so workshops which did not request it explicitly are
+  unaffected.
+
+* The ``git-serve`` program bundled in the workshop base image, which
+  provides the per-session Git server, is now built with patched versions of
+  its Go module dependencies. The 0.0.5 release it is built from is the last
+  its author published, so the dependency versions it pins carry known
+  vulnerabilities and no newer release exists to pick up fixes. The flagged
+  modules are raised to fixed versions at build time; the behavior of the
+  per-session Git server is unchanged.
+
+* The Zot Registry used by the OCI image cache for workshop environments has
+  been updated from version 1.4.3 to 2.1.18, resolving a large number of
+  critical and high severity vulnerabilities reported against the old
+  version. The format of the synchronization rules able to be supplied under
+  ``environment.images.registries`` in the workshop definition is unchanged.
+  Any image cache contents from an existing deployment are re-indexed or
+  re-synchronized on demand, so no action is required when upgrading.
+
+* The image registry deployed for workshop sessions and for workshop
+  environment image mirrors has been updated from the CNCF Distribution
+  registry version 2.8.3 to 3.1.1, with the registry binary additionally
+  rebuilt against a patched Go toolchain and updated dependencies so that no
+  known critical or high severity vulnerabilities remain. The registry
+  continues to be configured through the same environment variables, so
+  workshop definitions which enable a session image registry or an image
+  mirror require no changes. Note that registry 3.x no longer serves
+  manifests in the legacy Docker schema 1 format, which has been deprecated
+  since Docker 1.10 and does not affect images pushed by current tooling.
+
+* The bundled versions of [reveal.js](https://revealjs.com/) used for workshop
+  slides have changed. Version ``6.0.1`` is now bundled alongside ``4.6.1``
+  and ``5.2.1``, and version ``3.9.2`` is no longer included. The 3.9.2 copy
+  bundled a ``reveal-js-multiplex`` plugin package which is flagged as
+  malicious (``MAL-2022-5772``) by scanners which consult the OpenSSF
+  malicious-packages database, and the 3.x series of reveal.js has been
+  unmaintained for years. Workshops which select the reveal.js version
+  through the ``session.applications.slides.reveal.js`` property of the
+  ``Workshop`` custom resource using a ``3.X`` selector need to move to
+  ``4.X``, ``5.X`` or ``6.X``, and should review their slide decks against
+  the upstream reveal.js upgrade guidance since the markup and plugin APIs
+  changed after the 3.x series. If the requested version cannot be matched
+  against a bundled version the slides are not served for the workshop
+  session.
+
 * The container base images used for the training portal, session manager,
   secrets manager, lookup service, tunnel manager, image cache and workshop
   base environment have been updated from Fedora 42 to Fedora 44, eliminating
