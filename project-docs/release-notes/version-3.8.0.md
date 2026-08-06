@@ -17,6 +17,14 @@ possible.
 Features Changed
 ----------------
 
+* The ``git-serve`` program bundled in the workshop base image, which
+  provides the per-session Git server, is now built with patched versions of
+  its Go module dependencies. The 0.0.5 release it is built from is the last
+  its author published, so the dependency versions it pins carry known
+  vulnerabilities and no newer release exists to pick up fixes. The flagged
+  modules are raised to fixed versions at build time; the behavior of the
+  per-session Git server is unchanged.
+
 * The Zot Registry used by the OCI image cache for workshop environments has
   been updated from version 1.4.3 to 2.1.18, resolving a large number of
   critical and high severity vulnerabilities reported against the old
