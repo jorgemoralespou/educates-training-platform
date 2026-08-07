@@ -433,6 +433,15 @@ Deprecations
   ``--overwrite`` option to ``gradle init`` or create the project in a new
   empty subdirectory.
 
+* The ``conda-environment`` workshop base image has been updated to use
+  Miniconda 26.5.3-2, with the conda environment it provides now based on
+  Python 3.14 rather than Python 3.13. The bundled ``notebook`` and
+  ``jupyterlab`` packages have also been updated, to versions 7.6.1 and 4.6.2
+  respectively. Workshops which install additional conda or pip packages into
+  the default conda environment should be verified against the newer Python
+  version in case any of the packages they depend on do not yet support
+  Python 3.14.
+
 * The ``vcluster`` software used by the ``vcluster`` workshop application has
   been updated from 0.30.2 to 0.35.2, and the set of Kubernetes versions the
   virtual cluster can provision has been aligned with the versions supported
