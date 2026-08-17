@@ -1,9 +1,9 @@
 name: Chainloop attest
 description: >-
-  Sign a published container image with cosign, generate SBOM and
-  vulnerability evidence, and record everything as a Chainloop attestation.
-  Expects the calling job to have id-token write permission and to already
-  be logged in to the target registry.
+  Sign a published container image with cosign, generate SBOM,
+  vulnerability and malicious-package evidence, and record everything as a
+  Chainloop attestation. Expects the calling job to have id-token write
+  permission and to already be logged in to the target registry.
 
 inputs:
   image:
@@ -31,6 +31,10 @@ inputs:
       stream, distinct from the chainloop-dev/chainloop OSS release tags.
     required: false
     default: v1.95.11
+  osv-scanner-version:
+    description: OSV-Scanner release to install for the malicious-package scan
+    required: false
+    default: v2.4.0
 
 runs:
   using: composite
@@ -115,6 +119,39 @@ runs:
         format: sarif
         output: ${{runner.temp}}/trivy-results.sarif
 
+    - name: Install OSV-Scanner
+      shell: bash
+      run: |
+        curl -sSfL -o /usr/local/bin/osv-scanner \
+          "https://github.com/google/osv-scanner/releases/download/${{inputs.osv-scanner-version}}/osv-scanner_linux_amd64"
+        chmod +x /usr/local/bin/osv-scanner
+
+    - name: Scan for malicious packages with OSV-Scanner
+      # OSV.dev carries the OpenSSF malicious-packages feed (MAL-
+      # advisories), which Trivy's vulnerability DB does not, so this pass
+      # is what catches known-malicious packages such as fixtures shipped
+      # inside a dependency's published tarball (MAL-2022-4691 in resolve's
+      # tests). The javascript/packagejson plugin must be enabled
+      # explicitly: the default artifact preset skips loose
+      # node_modules/*/package.json files, exactly where such fixtures
+      # live. Exit code 1 only means findings were recorded; the Chainloop
+      # policy gate decides whether they block. The pulled image copy is
+      # removed afterwards because the base-environment job runs close to
+      # the runner's disk limit.
+      shell: bash
+      run: |
+        rc=0
+        osv-scanner scan image --verbosity error \
+          --experimental-plugins artifact,javascript/packagejson \
+          --format sarif \
+          --output-file "${{runner.temp}}/osv-results.sarif" \
+          "${{inputs.image}}@${{inputs.digest}}" || rc=$?
+        docker image rm "${{inputs.image}}@${{inputs.digest}}" >/dev/null 2>&1 || true
+        if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+          echo "::error::osv-scanner failed with exit code $rc"
+          exit "$rc"
+        fi
+
     - name: Install Chainloop CLI
       shell: bash
       run: |
@@ -151,6 +188,11 @@ runs:
         chainloop attestation add \
           --name vulnerability-report \
           --value "${{runner.temp}}/trivy-results.sarif"
+
+        chainloop attestation add \
+          --name osv-vulnerability-report \
+          --value "${{runner.temp}}/osv-results.sarif" \
+          --kind SARIF
 
     - name: Push attestation
       id: attestation-push
