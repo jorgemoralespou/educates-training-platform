@@ -363,7 +363,7 @@ Deprecations
 
 * A number of the command line tools bundled in the workshop base environment
   image have been updated to their latest upstream releases, being ``helm``
-  4.2.3, ``hugo`` 0.164.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
+  4.2.3, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
   updates pick up releases built with a patched Go toolchain and updated
   dependencies which resolve critical vulnerabilities reported against the
   previously bundled versions.
@@ -381,6 +381,15 @@ Deprecations
   majority of high severity vulnerabilities reported against the previously
   bundled binary. The dashboard version and its behavior within workshop
   sessions are unchanged.
+
+* The ``vendir``, ``k9s`` and ``kustomize`` command line tools bundled in the
+  workshop base environment image are now rebuilt from their upstream release
+  sources with a current Go toolchain and patched dependency versions, rather
+  than using the prebuilt release binaries. Each of these tools is already at
+  the newest release its authors have published, and those releases still
+  carry critical vulnerabilities in their bundled dependencies, so rebuilding
+  is the only way to resolve them. The tool versions and their behavior are
+  unchanged.
 
 * The Zot Registry used by the OCI image cache for workshop environments has
   been updated from version 1.4.3 to 2.1.18, resolving a large number of
