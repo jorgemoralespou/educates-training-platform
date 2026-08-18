@@ -51,13 +51,16 @@ EOF
 
 **Removing an old version** — delete the entire `RUN <<EOF ... EOF` block for that version.
 
-### Version mapping scripts (3 files with identical logic)
+### Version mapping scripts (2 files with identical logic)
 
-Update the `case` statement in all three files to match the currently supported versions:
+Update the `case` statement in both files to match the currently supported versions:
 
 - `workshop-images/base-environment/opt/kubernetes/bin/kubectl`
-- `workshop-images/base-environment/opt/kubernetes/bin/kubectl-convert`
 - `workshop-images/base-environment/opt/eduk8s/etc/setup.d/01-kubernetes.sh`
+
+(The `kubectl-convert` plugin and its wrapper were removed in 4.0; branches
+predating that carry a third copy of the same case statement at
+`opt/kubernetes/bin/kubectl-convert`.)
 
 Pattern rules:
 - `1.2*` and `1.3[012]` (or equivalent old versions) → map to the lowest supported version
