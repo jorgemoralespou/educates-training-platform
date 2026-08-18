@@ -391,6 +391,14 @@ Deprecations
   is the only way to resolve them. The tool versions and their behavior are
   unchanged.
 
+* The ``kubectl-convert`` plugin is no longer included in the workshop base
+  environment image. It existed to migrate manifests away from long removed
+  Kubernetes API versions, nothing in Educates itself uses it, and each of
+  the four bundled copies carried vulnerabilities which only a Kubernetes
+  patch release can resolve. Workshops which run ``kubectl-convert`` from
+  workshop instructions or setup scripts need to install it in a custom
+  workshop image, or perform the conversion outside the workshop session.
+
 * The Zot Registry used by the OCI image cache for workshop environments has
   been updated from version 1.4.3 to 2.1.18, resolving a large number of
   critical and high severity vulnerabilities reported against the old
