@@ -503,3 +503,13 @@ Bugs Fixed
   the time which has elapsed since the workshop session was allocated to the
   user when checking whether a workshop session should be deleted due to
   being orphaned or inactive.
+
+* The custom resource definition for the ``SecretImporter`` resource declared
+  a ``sourceSecret`` property in its schema, and the documentation described
+  it as a way of qualifying by name which source secret could be copied. This
+  property was never consulted by the secrets manager, as the name of the
+  secret a ``SecretImporter`` accepts is always determined from the name of
+  the ``SecretImporter`` resource itself. The unused property has been
+  removed from the custom resource definition and the documentation. If you
+  had set ``sourceSecret`` in a ``SecretImporter`` resource it had no effect,
+  and the field should be removed from your manifests.
