@@ -98,25 +98,6 @@ spec:
     sharedSecret: my-shared-secret
 ```
 
-Because secrets can be renamed in the process of being copied, this can be further qualified by identifying by name the source secret in the source namespace.
-
-```yaml
-apiVersion: secrets.educates.dev/v1beta1
-kind: SecretImporter
-metadata:
-  name: registry-credentials
-  namespace: developer-namespace
-spec:
-  sourceSecret:
-    name: registry-credentials
-  sourceNamespaces:
-    nameSelector:
-      matchNames:
-      - registry
-  copyAuthorization:
-    sharedSecret: my-shared-secret
-```
-
 Deletion of the secret importer
 -------------------------------
 
