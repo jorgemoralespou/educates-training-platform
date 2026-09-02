@@ -364,7 +364,7 @@ Deprecations
 
 * A number of the command line tools bundled in the workshop base environment
   image have been updated to their latest upstream releases, being ``helm``
-  4.2.3, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
+  4.2.4, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
   updates pick up releases built with a patched Go toolchain and updated
   dependencies which resolve critical vulnerabilities reported against the
   previously bundled versions.
