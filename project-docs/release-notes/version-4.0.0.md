@@ -164,10 +164,11 @@ New Features
 
 * ``educates local cluster create`` accepts a ``--kubernetes-version`` flag
   to choose the Kubernetes version of the local Kind cluster. The supported
-  versions are ``1.33``, ``1.34``, ``1.35`` and ``1.36``, defaulting to
-  ``1.36``. The version selects a matching Kind node image; an explicit
-  ``--kind-cluster-image`` still takes precedence for pinning an arbitrary
-  image.
+  versions are ``1.34``, ``1.35``, ``1.36`` and ``1.37``, defaulting to
+  ``1.36``. The default deliberately tracks the second newest supported
+  version, trading recency for stability. The version selects a matching Kind
+  node image; an explicit ``--kind-cluster-image`` still takes precedence for
+  pinning an arbitrary image.
 
 * The local Kind cluster can now be multi-node. The ``EducatesLocalConfig``
   ``cluster.nodes`` list declares the cluster's nodes — each with a
@@ -363,7 +364,7 @@ Deprecations
 
 * A number of the command line tools bundled in the workshop base environment
   image have been updated to their latest upstream releases, being ``helm``
-  4.2.3, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
+  4.2.4, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
   updates pick up releases built with a patched Go toolchain and updated
   dependencies which resolve critical vulnerabilities reported against the
   previously bundled versions.
@@ -419,15 +420,15 @@ Deprecations
   since Docker 1.10 and does not affect images pushed by current tooling.
 
 * The set of ``kubectl`` versions bundled in the workshop base environment
-  image has changed. The 1.31 and 1.32 versions have been dropped and 1.35 and
-  1.36 have been added, so the supported range is now 1.33 to 1.36. The
-  ``kubectl`` version is still selected automatically to match the Kubernetes
-  cluster the workshop session is connected to. For clusters older than the
-  supported range the oldest bundled version, 1.33, is used, and for clusters
-  newer than the supported range the most recent bundled version, 1.36, is
-  used. Workshops which target clusters running Kubernetes 1.32 or older may
-  therefore see a larger client/server version skew and should be verified
-  against a supported cluster version.
+  image has changed. The 1.31, 1.32 and 1.33 versions have been dropped and
+  1.35, 1.36 and 1.37 have been added, so the supported range is now 1.34 to
+  1.37. The ``kubectl`` version is still selected automatically to match the
+  Kubernetes cluster the workshop session is connected to. For clusters older
+  than the supported range the oldest bundled version, 1.34, is used, and for
+  clusters newer than the supported range the most recent bundled version,
+  1.37, is used. Workshops which target clusters running Kubernetes 1.33 or
+  older may therefore see a larger client/server version skew and should be
+  verified against a supported cluster version.
 
 * The JDK versions included in the ``jdk8-environment``, ``jdk11-environment``,
   ``jdk17-environment`` and ``jdk21-environment`` workshop base images have
@@ -461,18 +462,22 @@ Deprecations
 
 * The ``vcluster`` software used by the ``vcluster`` workshop application has
   been updated from 0.30.2 to 0.35.2, and the set of Kubernetes versions the
-  virtual cluster can provision has been aligned with the versions supported
-  elsewhere in the platform. The 1.31 and 1.32 versions have been dropped and
-  1.35 and 1.36 have been added, so the supported range is now 1.33 to 1.36
-  with 1.36 the default. Workshops which pin the virtual cluster to Kubernetes
-  1.31 or 1.32 through the ``vcluster`` application ``version`` property must be
-  updated to a supported version.
+  virtual cluster can provision has been updated. The 1.31 and 1.32 versions
+  have been dropped and 1.35 and 1.36 have been added, so the supported range
+  is now 1.33 to 1.36 with 1.36 the default. Workshops which pin the virtual
+  cluster to Kubernetes 1.31 or 1.32 through the ``vcluster`` application
+  ``version`` property must be updated to a supported version. Note that the
+  ``vcluster`` application can still provision Kubernetes 1.33, which is no
+  longer available for local Kind clusters, and cannot yet provision 1.37.
 
 * The version of ``kind`` embedded in the ``educates`` CLI has been updated
-  from 0.29 to 0.32. As a result the default Kubernetes version used when
+  from 0.29 to 0.33. As a result the default Kubernetes version used when
   creating a local cluster with ``educates local cluster create`` has changed
   from 1.33 to 1.36. A specific node image can still be selected using the
   ``--kind-cluster-image`` option if a different Kubernetes version is required.
+  Note that ``kind`` 0.33 no longer publishes a node image for Kubernetes
+  1.33, so that version can no longer be selected through
+  ``--kubernetes-version``.
 
 * ``educates version`` now also reports the git commit the binary was built
   from, with a ``-dirty`` suffix when it was built from a modified working
