@@ -41,9 +41,9 @@ Two kinds of tarballs live here:
 | Chart | Chart version | App version | Upstream | Used by |
 |---|---|---|---|---|
 | cert-manager | v1.20.3 | v1.20.3 | https://charts.jetstack.io | EducatesClusterConfig (BundledCertManager) |
-| contour | 0.7.0 | 1.33.6 | https://github.com/projectcontour/helm-charts | EducatesClusterConfig (BundledContour) |
+| contour | 0.8.0 | 1.33.7 | https://github.com/projectcontour/helm-charts | EducatesClusterConfig (BundledContour) |
 | external-dns | 1.21.1 | 0.21.0 | https://github.com/kubernetes-sigs/external-dns | EducatesClusterConfig (BundledExternalDNS) |
-| kyverno | 3.8.1 | v1.18.1 | https://kyverno.github.io/kyverno | EducatesClusterConfig (BundledKyverno) |
+| kyverno | 3.9.1 | v1.19.1 | https://kyverno.github.io/kyverno | EducatesClusterConfig (BundledKyverno) |
 
 ## Upgrading (or adding) an upstream chart
 
