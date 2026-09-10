@@ -52,16 +52,16 @@ func CertManager() (*chart.Chart, error) {
 // ContourChartVersion is the upstream Helm chart version (semver
 // version of the *chart*, distinct from the Contour appVersion).
 // Surfaced in status.bundledChartVersions["contour"].
-const ContourChartVersion = "0.7.0"
+const ContourChartVersion = "0.8.0"
 
 // ContourAppVersion is the Project Contour binary version the
 // embedded chart installs. Less load-bearing than ContourChartVersion
 // (the chart version is what's pinned in our build), but useful to
 // expose in logs/diagnostics so a reader doesn't have to crack the
 // tarball to learn which Contour they're running.
-const ContourAppVersion = "1.33.6"
+const ContourAppVersion = "1.33.7"
 
-//go:embed contour-0.7.0.tgz
+//go:embed contour-0.8.0.tgz
 var contourTarball []byte
 
 // Contour parses the embedded Project Contour chart tarball and
@@ -178,13 +178,13 @@ func RemoteAccess() (*chart.Chart, error) {
 // KyvernoChartVersion is the upstream Helm chart version
 // (semver of the *chart*, distinct from the Kyverno binary
 // appVersion). Surfaced in status.bundledChartVersions["kyverno"].
-const KyvernoChartVersion = "3.8.1"
+const KyvernoChartVersion = "3.9.1"
 
 // KyvernoAppVersion is the Kyverno binary version the embedded
 // chart installs.
-const KyvernoAppVersion = "v1.18.1"
+const KyvernoAppVersion = "v1.19.1"
 
-//go:embed kyverno-3.8.1.tgz
+//go:embed kyverno-3.9.1.tgz
 var kyvernoTarball []byte
 
 // Kyverno parses the embedded Kyverno chart tarball and returns a
