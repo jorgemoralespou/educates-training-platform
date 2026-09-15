@@ -222,8 +222,12 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 	// annotation unconditionally is harmless when no external-dns is
 	// installed — the annotation is informational metadata. Trailing
 	// dot is FQDN form (matches the v3 Carvel installer's behavior).
+	// The key carries the `external-dns.kubernetes.io/` prefix, the only
+	// prefix external-dns 0.22.0+ reads by default (the former
+	// `external-dns.alpha.kubernetes.io/` prefix is ignored unless the
+	// controller is started with an explicit --annotation-prefix).
 	envoyServiceAnnotations := map[string]any{
-		"external-dns.alpha.kubernetes.io/hostname": fmt.Sprintf("*.%s.", obj.Spec.Ingress.Domain),
+		"external-dns.kubernetes.io/hostname": fmt.Sprintf("*.%s.", obj.Spec.Ingress.Domain),
 	}
 
 	envoyValues := map[string]any{

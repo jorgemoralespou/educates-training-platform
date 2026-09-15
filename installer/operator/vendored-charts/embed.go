@@ -37,9 +37,9 @@ import (
 // CertManagerVersion mirrors the embedded tarball's appVersion and the
 // vendored-charts/SHA256SUMS entry; bumped only when the tarball is
 // replaced via `make vendor-charts`.
-const CertManagerVersion = "v1.20.3"
+const CertManagerVersion = "v1.21.2"
 
-//go:embed cert-manager-v1.20.3.tgz
+//go:embed cert-manager-v1.21.2.tgz
 var certManagerTarball []byte
 
 // CertManager parses the embedded cert-manager tarball and returns a
@@ -75,19 +75,19 @@ func Contour() (*chart.Chart, error) {
 // (semver of the *chart*, distinct from the external-dns
 // appVersion). Surfaced in
 // status.bundledChartVersions["external-dns"].
-const ExternalDNSChartVersion = "1.21.1"
+const ExternalDNSChartVersion = "1.22.0"
 
 // ExternalDNSAppVersion is the kubernetes-sigs/external-dns binary
 // version the embedded chart installs.
-const ExternalDNSAppVersion = "0.21.0"
+const ExternalDNSAppVersion = "0.22.0"
 
-//go:embed external-dns-1.21.1.tgz
+//go:embed external-dns-1.22.0.tgz
 var externalDNSTarball []byte
 
 // ExternalDNS parses the embedded kubernetes-sigs external-dns
 // chart tarball and returns a chart ready for the Helm SDK.
 // Source: https://github.com/kubernetes-sigs/external-dns
-// (helm-chart-1.21.1 release).
+// (helm-chart-1.22.0 release).
 func ExternalDNS() (*chart.Chart, error) {
 	return helm.LoadArchive(externalDNSTarball)
 }

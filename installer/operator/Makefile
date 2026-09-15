@@ -124,9 +124,9 @@ VENDORED_CHARTS_DIR := $(shell pwd)/vendored-charts
 # Order doesn't matter; vendor-charts iterates and verifies each one
 # against ../vendored-charts/SHA256SUMS.
 VENDORED_CHARTS := \
-	cert-manager=v1.20.3=https://charts.jetstack.io/charts/cert-manager-v1.20.3.tgz \
+	cert-manager=v1.21.2=https://charts.jetstack.io/charts/cert-manager-v1.21.2.tgz \
 	contour=0.8.0=https://github.com/projectcontour/helm-charts/releases/download/contour-0.8.0/contour-0.8.0.tgz \
-	external-dns=1.21.1=https://github.com/kubernetes-sigs/external-dns/releases/download/external-dns-helm-chart-1.21.1/external-dns-1.21.1.tgz \
+	external-dns=1.22.0=https://github.com/kubernetes-sigs/external-dns/releases/download/external-dns-helm-chart-1.22.0/external-dns-1.22.0.tgz \
 	kyverno=3.9.1=https://kyverno.github.io/kyverno/kyverno-3.9.1.tgz
 
 .PHONY: vendor-charts

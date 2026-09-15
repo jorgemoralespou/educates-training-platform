@@ -251,6 +251,18 @@ Features Changed
   the 3.x series. If the requested version cannot be matched against a
   bundled version the slides are not served for the workshop session.
 
+* The bundled ``external-dns`` cluster service has been updated to version
+  0.22.0. This version only recognizes annotations carrying the
+  ``external-dns.kubernetes.io/`` prefix and no longer reads the older
+  ``external-dns.alpha.kubernetes.io/`` prefix. The operator now annotates
+  the Envoy service of the ingress controller with
+  ``external-dns.kubernetes.io/hostname`` so that the wildcard DNS record for
+  the ingress domain continues to be published. If you annotate your own
+  ``Service`` or ``Ingress`` resources for the bundled ``external-dns`` to act
+  on, for example when its ``sources`` include ``ingress``, those annotations
+  must be changed to the new prefix. Otherwise ``external-dns`` no longer sees
+  those resources and removes the DNS records it previously created for them.
+
 Deprecations
 ------------
 
