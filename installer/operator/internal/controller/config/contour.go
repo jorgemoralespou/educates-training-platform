@@ -222,12 +222,18 @@ func renderContourValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 	// annotation unconditionally is harmless when no external-dns is
 	// installed — the annotation is informational metadata. Trailing
 	// dot is FQDN form (matches the v3 Carvel installer's behavior).
-	// The key carries the `external-dns.kubernetes.io/` prefix, the only
-	// prefix external-dns 0.22.0+ reads by default (the former
-	// `external-dns.alpha.kubernetes.io/` prefix is ignored unless the
-	// controller is started with an explicit --annotation-prefix).
+	// The hostname is set under both annotation prefixes because each
+	// external-dns release reads exactly one of them (its
+	// --annotation-prefix, defaulting to `external-dns.kubernetes.io/`
+	// from 0.22.0 and to `external-dns.alpha.kubernetes.io/` before) and
+	// ignores the other. The new key serves the bundled 0.22.0, the old
+	// key serves a user-run pre-0.22 instance and keeps the record alive
+	// while the bundled release is upgraded. The old key is deprecated
+	// and will be dropped in a later release.
+	wildcardHostname := fmt.Sprintf("*.%s.", obj.Spec.Ingress.Domain)
 	envoyServiceAnnotations := map[string]any{
-		"external-dns.kubernetes.io/hostname": fmt.Sprintf("*.%s.", obj.Spec.Ingress.Domain),
+		"external-dns.kubernetes.io/hostname":       wildcardHostname,
+		"external-dns.alpha.kubernetes.io/hostname": wildcardHostname,
 	}
 
 	envoyValues := map[string]any{
