@@ -172,6 +172,8 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Conte
 //   - policy: sync. v3's setting for cloud providers; "upsert-only"
 //     leaves stale records on resource deletion, which is wrong
 //     for our lifecycle.
+//     The chart has no default for policy (it is a required value),
+//     so it is always set here.
 //   - registry: txt (chart default).
 //   - serviceAccount.annotations for IRSA / Workload Identity, OR
 //     env vars referencing the user-provided Secret for static
@@ -210,10 +212,9 @@ func renderExternalDNSValues(obj *configv1alpha1.EducatesClusterConfig) map[stri
 	}
 
 	// No replica plumbing: the kubernetes-sigs external-dns chart
-	// hardcodes replicas to 1 in its Deployment template and exposes
-	// no replica value — the controller is deliberately
-	// single-instance (concurrent instances would race on record
-	// writes).
+	// bounds its replicaCount value to 0 or 1 (external-dns has no
+	// leader election, so concurrent instances would race on record
+	// writes) and we leave it at the chart default of 1.
 
 	if obj.Spec.ImageRegistry != nil && obj.Spec.ImageRegistry.Prefix != "" {
 		values["global"] = map[string]any{

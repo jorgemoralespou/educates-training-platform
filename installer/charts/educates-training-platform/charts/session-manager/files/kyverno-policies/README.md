@@ -1,7 +1,7 @@
 # Bundled Kyverno workshop policies
 
 These are **Kyverno `ValidatingPolicy` resources** (`policies.kyverno.io`),
-the policy type Kyverno 1.18 recommends in place of the legacy `ClusterPolicy`
+the policy type Kyverno 1.19 recommends in place of the legacy `ClusterPolicy`
 (`kyverno.io`). Two independent paths, mirroring v3's split between
 `01-clusterpolicies.yaml` and `06-secrets.yaml`:
 
@@ -9,7 +9,7 @@ the policy type Kyverno 1.18 recommends in place of the legacy `ClusterPolicy`
 
 Vendored from
 [kyverno/policies](https://github.com/kyverno/policies)
-(`origin/release-1.18`, matching the Kyverno version the operator bundles —
+(`origin/release-1.19`, matching the Kyverno version the operator bundles —
 see `KyvernoAppVersion` in `installer/operator/vendored-charts/embed.go`),
 from the `pod-security-vpol` set. Both Pod Security Standards profiles are
 installed unconditionally as `ValidatingPolicy` resources when
@@ -84,7 +84,7 @@ security-critical CEL — validate against real resources, not just rendering.
 
 Re-vendor whenever the bundled Kyverno chart is bumped in
 `installer/operator/vendored-charts/` — the branch must match the new
-`KyvernoAppVersion` (e.g. Kyverno `v1.18.x` → branch `release-1.18`).
+`KyvernoAppVersion` (e.g. Kyverno `v1.19.x` → branch `release-1.19`).
 
 1. Clone the matching release branch:
    `git clone --depth 1 --branch release-1.NN https://github.com/kyverno/policies`

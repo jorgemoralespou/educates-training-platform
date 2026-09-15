@@ -584,17 +584,17 @@ spec:
                           operational:
                             description: |-
                               OperationalBlock collects the per-Deployment operational knobs of a
-                              Bundled cluster service. In v1alpha1 only BundledContour carries it:
-                              the cert-manager / external-dns / kyverno blocks were dropped
-                              (2026-06-11) because their semantics didn't hold against the
-                              upstream charts — external-dns 1.21.1 hardcodes replicas to 1 and
-                              exposes no replica value, Kyverno fanning one count across its four
-                              controllers conflicts with upstream HA guidance (3+ for the
-                              admission controller only), and cert-manager never consumed it.
-                              They return when per-service shapes are validated against each
-                              chart's real values surface. Of the knobs below, the reconciler
-                              currently applies replicas; the rest are accepted but not yet
-                              wired into chart values.
+                              Bundled cluster service. In v1alpha1 only BundledContour carries it.
+                              The cert-manager, external-dns and kyverno blocks do not, because a
+                              single per-service block does not map onto those charts: external-dns
+                              is deliberately single-instance (its chart bounds replicaCount to 0 or
+                              1 as the controller has no leader election), Kyverno runs four
+                              controllers whose upstream HA guidance differs (3+ replicas for the
+                              admission controller only), and the cert-manager reconciler installs
+                              the chart with its default workload settings. Per-service shapes may
+                              be added once validated against each chart's real values surface. Of
+                              the knobs below, the reconciler currently applies replicas; the rest
+                              are accepted but not yet wired into chart values.
                             properties:
                               nodeSelector:
                                 additionalProperties:
