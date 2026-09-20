@@ -23,6 +23,7 @@ from .analytics import report_analytics_event
 
 from .operator_config import (
     resolve_workshop_image,
+    PACKAGE_DELIVERY_IMAGE_MOUNT,
     PLATFORM_ARCH,
     OPERATOR_NAMESPACE,
     IMAGE_REPOSITORY,
@@ -810,9 +811,12 @@ def workshop_environment_create(
 
     packages = workshop_spec.get("workshop", {}).get("packages", [])
 
-    # An extension package is delivered either by vendir, when it declares
-    # files, or by the package fetcher, when it declares an image. The two
-    # are mutually exclusive, so each package appears in exactly one config.
+    # An extension package declaring files is downloaded by vendir. One
+    # declaring an image is either mounted into the session, in which case
+    # nothing downloads it, or fetched by the package fetcher. Whichever
+    # applies, a package appears in at most one config.
+
+    image_mount_enabled = PACKAGE_DELIVERY_IMAGE_MOUNT == "enabled"
 
     directories_config = []
     fetch_packages_config = []
@@ -824,6 +828,11 @@ def workshop_environment_create(
         package_image = package.get("image")
 
         if package_image:
+            if image_mount_enabled:
+                # The image is mounted into the session by the kubelet, so
+                # there is nothing to download.
+                continue
+
             fetch_entry = {
                 "path": package_path,
                 "image": substitute_variables(
@@ -2347,6 +2356,13 @@ def workshop_environment_create(
             "uid": workshop_uid,
             "generation": workshop_generation,
             "spec": workshop_spec,
+        },
+        # How extension packages declared as an image are delivered is fixed
+        # when the environment is created, so every session of the environment
+        # is the same. Changing the platform setting affects new environments
+        # only.
+        "packageDelivery": {
+            "imageMount": PACKAGE_DELIVERY_IMAGE_MOUNT,
         },
     }
 
