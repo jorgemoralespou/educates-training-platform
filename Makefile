@@ -220,14 +220,31 @@ build-cli: refresh-cli-embeds stage-renderer-files ## Build the educates CLI for
 build-client-programs: build-cli
 client-programs-educates: build-cli
 
+# The workshop themes are shared: the CLI embeds them and the base
+# environment image ships them. They live in the top level themes/ directory,
+# owned by neither, and are staged into each build's own context below. Both
+# staging directories are gitignored.
+
 # pkg/renderer/hugo.go embeds pkg/renderer/files/* via //go:embed, but that
-# directory is gitignored and populated at build time from the base-environment
-# themes. go vet/build/test fail without it ("no matching files found"), so any
-# CLI compile or CI-parity run must stage it first.
+# directory is gitignored and populated at build time from the shared themes.
+# go vet/build/test fail without it ("no matching files found"), so any CLI
+# compile or CI-parity run must stage it first.
 stage-renderer-files: ## Stage the gitignored CLI theme files the renderer embeds
 	rm -rf client-programs/pkg/renderer/files
 	mkdir -p client-programs/pkg/renderer/files
-	cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
+	cp -rp themes client-programs/pkg/renderer/files/
+
+# The base environment image builds from its own directory as context, so the
+# shared themes are staged into it before the image is built.
+stage-base-environment-themes: ## Stage the gitignored base image theme files
+	rm -rf workshop-images/base-environment/opt/eduk8s/etc/themes
+	mkdir -p workshop-images/base-environment/opt/eduk8s/etc/themes
+	cp -rp themes/. workshop-images/base-environment/opt/eduk8s/etc/themes/
+
+# The CLI image builds from client-programs/ as context, so the themes the
+# renderer embeds are staged into it the same way. This is the same directory
+# stage-renderer-files populates for a local build.
+stage-cli-image-themes: stage-renderer-files ## Stage the themes the CLI image embeds
 
 # =============================================================================
 # CI parity — run the same checks as the GitHub Actions workflows locally.

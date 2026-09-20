@@ -6,6 +6,7 @@ __pycache__
 /client-programs/bin
 /client-programs/pkg/renderer/files
 /developer-testing
+/workshop-images/base-environment/opt/eduk8s/etc/themes
 /lookup-service/venv
 /project-docs/venv
 /project-docs/_build
