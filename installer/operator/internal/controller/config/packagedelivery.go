@@ -347,6 +347,10 @@ func (r *EducatesClusterConfigReconciler) resolvePackageDelivery(
 func (r *EducatesClusterConfigReconciler) probeClusterCapability(
 	ctx context.Context,
 ) (string, []corev1.Node, error) {
+	if r.Discovery == nil {
+		return "", nil, fmt.Errorf("no discovery client is configured")
+	}
+
 	serverVersion, err := r.Discovery.ServerVersion()
 
 	if err != nil {

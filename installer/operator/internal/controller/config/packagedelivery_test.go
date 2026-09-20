@@ -204,9 +204,9 @@ func TestProbeImageMountSupport(t *testing.T) {
 	})
 
 	t.Run("many offending nodes are summarised", func(t *testing.T) {
-		var nodes []corev1.Node
+		nodes := make([]corev1.Node, 0, 8)
 
-		for index := 0; index < 8; index++ {
+		for index := range 8 {
 			nodes = append(nodes, node(fmt.Sprintf("worker-%d", index), "v1.36.4", "containerd://1.7.27"))
 		}
 
