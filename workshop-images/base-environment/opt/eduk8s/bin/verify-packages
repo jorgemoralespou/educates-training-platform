@@ -1,0 +1,57 @@
+#!/bin/bash
+
+# Checks that every extension package declared as an image actually arrived,
+# and reports how each one was delivered.
+#
+# A package image can fail to deliver quietly. An image which is not a package
+# unpacks perfectly well under a fetch and simply leaves nothing behind, and a
+# mount of the wrong image delivers whatever that image happens to hold. Either
+# way the session would otherwise come up missing what the package provides,
+# with nothing in the log saying so.
+#
+# The test is the package manifest which the package image contract requires at
+# the root of every package. Packages declaring files are not checked: they
+# predate the manifest and legitimately do not carry one.
+
+PACKAGES_CONFIG=/opt/eduk8s/config/packages.yaml
+
+# Which packages were fetched rather than mounted is derived rather than passed
+# in: a package the fetcher was asked for is one nothing mounted. This holds for
+# both renderers, since both write the same fetcher config.
+
+FETCHED_PATHS=""
+
+if [ -f "$PACKAGES_CONFIG" ]; then
+    FETCHED_PATHS=$(yq -r '.packages[].path' "$PACKAGES_CONFIG" 2>/dev/null)
+fi
+
+STATUS=0
+
+while IFS= read -r PACKAGE_NAME; do
+    if [ -z "$PACKAGE_NAME" ]; then
+        continue
+    fi
+
+    PACKAGE_PATH=/opt/packages/$PACKAGE_NAME
+
+    DELIVERY="image mount"
+
+    for FETCHED_PATH in $FETCHED_PATHS; do
+        if [ "$FETCHED_PATH" = "$PACKAGE_PATH" ]; then
+            DELIVERY="package fetch"
+            break
+        fi
+    done
+
+    if [ -f "$PACKAGE_PATH/package.yaml" ]; then
+        echo "Package $PACKAGE_NAME: $DELIVERY"
+    else
+        echo "Package $PACKAGE_NAME: manifest missing at $PACKAGE_PATH/package.yaml"
+        STATUS=1
+    fi
+done < <(workshop-definition -r '(.spec.workshop.packages // [])[] | select(.image != null) | .name')
+
+# Every package is checked before failing, so one bad package does not hide the
+# state of the rest.
+
+exit $STATUS

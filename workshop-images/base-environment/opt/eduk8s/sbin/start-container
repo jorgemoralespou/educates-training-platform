@@ -117,6 +117,14 @@ else
     fi
 fi
 
+# Check that every extension package declared as an image actually arrived.
+# This runs in the main container rather than the init container because a
+# mounted package is only visible here, and it reports against the same failure
+# marker as the download above, so a package which did not arrive is one kind of
+# failure however it was delivered.
+
+(verify-packages || touch $DOWNLOAD_FAILED) 2>&1 | tee -a $DOWNLOAD_LOGFILE
+
 # Determine what bundled applications are enabled. These variables will control
 # what is started up from supervisord and also checked by the gateway, rather
 # than the original YAML, so environment variables can be used to override YAML
