@@ -244,8 +244,8 @@ jobs:
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
-      - name: Stage the shared workshop themes
-        run: make stage-base-environment-themes
+      - name: Stage the base image build inputs
+        run: make stage-base-environment
 
       - name: Build and push base-environment image
         uses: docker/build-push-action@v7

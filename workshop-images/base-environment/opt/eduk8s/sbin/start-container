@@ -78,8 +78,15 @@ DOWNLOAD_FAILED=$HOME/.local/share/workshop/download-workshop.failed
 SETUP_LOGFILE=$HOME/.local/share/workshop/setup-scripts.log
 SETUP_FAILED=$HOME/.local/share/workshop/setup-scripts.failed
 
-if [ -f /opt/eduk8s/config/vendir-assets-01.yaml -o -f /opt/eduk8s/config/vendir-packages.yaml ]; then
-    if [ ! -f /opt/assets/vendir-assets-01.yaml -a ! -f /opt/packages/vendir-packages.yaml ]; then
+if [ -f /opt/eduk8s/config/vendir-assets-01.yaml -o \
+     -f /opt/eduk8s/config/vendir-packages.yaml -o \
+     -f /opt/eduk8s/config/packages.yaml ]; then
+    # The init container leaves behind the config it copied, so its presence
+    # says the download already happened and only the merge is left.
+
+    if [ ! -f /opt/assets/vendir-assets-01.yaml -a \
+         ! -f /opt/packages/vendir.yaml -a \
+         ! -f /opt/packages/packages.yaml ]; then
         # In this case we are running in the main container and need to do the
         # download of the workshop content using vendir.
 

@@ -2022,6 +2022,12 @@ def workshop_session_create(name, body, meta, uid, spec, status, patch, retry, *
 
     if not need_secrets:
         for package in workshop_spec.get("workshop", {}).get("packages", []):
+            # A package declared as an image names its credentials directly,
+            # rather than inside a vendir source.
+            if package.get("pullSecretRef", {}).get("name"):
+                need_secrets = True
+                break
+
             package_files = package.get("files", [])
             need_secrets = vendir_secrets_required(package_files)
             if need_secrets:

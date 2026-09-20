@@ -246,6 +246,18 @@ stage-base-environment-themes: ## Stage the gitignored base image theme files
 # stage-renderer-files populates for a local build.
 stage-cli-image-themes: stage-renderer-files ## Stage the themes the CLI image embeds
 
+# The base environment image builds the package fetcher from the CLI module,
+# so that module's source is staged into its context too. The renderer is not
+# in the fetcher's dependency graph, so the embedded themes are not needed.
+stage-base-environment-fetcher: ## Stage the fetcher source the base image builds
+	rm -rf workshop-images/base-environment/client-programs
+	mkdir -p workshop-images/base-environment/client-programs
+	tar -cf - --exclude bin --exclude pkg/renderer/files -C client-programs . \
+		| tar -xf - -C workshop-images/base-environment/client-programs
+
+# Everything the base environment image build needs staged into its context.
+stage-base-environment: stage-base-environment-themes stage-base-environment-fetcher ## Stage all base image build inputs
+
 # =============================================================================
 # CI parity — run the same checks as the GitHub Actions workflows locally.
 # Drift checks regenerate in place and fail on any diff, so a failure may
