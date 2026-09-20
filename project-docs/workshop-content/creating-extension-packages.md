@@ -85,12 +85,14 @@ A package is unpacked into ``/opt/packages/<name>`` in the workshop session,
 and three directories in it are acted on.
 
 Scripts in ``setup.d`` are run when the workshop session starts. They must be
-executable. Use them for work which has to happen once per session, such as
-generating configuration.
+named with a ``.sh`` suffix and must be executable, or they are skipped. Use
+them for work which has to happen once per session, such as generating
+configuration.
 
 Scripts in ``profile.d`` are sourced into the shell environment, so use them
-to export environment variables an application needs. They do not need to be
-executable.
+to export environment variables an application needs. They must also be named
+with a ``.sh`` suffix, but they do not need to be executable, since they are
+sourced rather than run.
 
 A ``bin`` directory is added to the application search path defined by the
 ``PATH`` environment variable, so a program the package ships can be run by
