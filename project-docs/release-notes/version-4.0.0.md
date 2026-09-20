@@ -549,3 +549,10 @@ Bugs Fixed
   3.1.7. These updates pick up fixes for vulnerabilities reported against the
   previously bundled versions. The behavior of the workshop dashboard is
   unchanged.
+
+* Deploying a workshop with ``educates docker workshop deploy`` crashed with a
+  Go panic when an extension package listed under ``spec.workshop.packages``
+  did not declare a ``files`` property. Such a package is now skipped, since
+  there is nothing for ``vendir`` to download, and the remaining packages are
+  still processed. A package declaring a malformed ``files`` property now
+  reports an error naming the package instead of crashing.

@@ -716,7 +716,7 @@ func generateVendirPackagesConfig(workshop *unstructured.Unstructured, name stri
 			tmpPackagesItem, ok := packagesItem.(map[string]interface{})
 
 			if !ok {
-				return "", errors.New("extension package entry is not an object")
+				return "", errors.New("unable to parse extension package, entry is not an object")
 			}
 
 			tmpName, found := tmpPackagesItem["name"]
@@ -728,16 +728,16 @@ func generateVendirPackagesConfig(workshop *unstructured.Unstructured, name stri
 			packagesItemName, ok := tmpName.(string)
 
 			if !ok {
-				return "", errors.New("extension package name is not a string")
+				return "", errors.Errorf("unable to parse extension package, name %v is not a string", tmpName)
 			}
 
 			packagesItemPath := filepath.Clean(path.Join("/opt/packages", packagesItemName))
 
 			tmpPackagesFilesItem, found := tmpPackagesItem["files"]
 
-			// An extension package which does not declare files is not
-			// downloaded by vendir. Skip it here so the rest of the packages
-			// are still rendered.
+			// An extension package which declares no files has nothing for
+			// vendir to download, so it contributes no directory to the
+			// config. The remaining packages are still processed.
 
 			if !found || tmpPackagesFilesItem == nil {
 				continue
@@ -746,14 +746,14 @@ func generateVendirPackagesConfig(workshop *unstructured.Unstructured, name stri
 			packagesFilesItem, ok := tmpPackagesFilesItem.([]interface{})
 
 			if !ok {
-				return "", errors.Errorf("files for extension package %q is not a list", packagesItemName)
+				return "", errors.Errorf("unable to parse extension package %q, files is not a list", packagesItemName)
 			}
 
 			for _, tmpEntry := range packagesFilesItem {
 				entry, ok := tmpEntry.(map[string]interface{})
 
 				if !ok {
-					return "", errors.Errorf("files entry for extension package %q is not an object", packagesItemName)
+					return "", errors.Errorf("unable to parse extension package %q, files entry is not an object", packagesItemName)
 				}
 
 				_, found = entry["path"]

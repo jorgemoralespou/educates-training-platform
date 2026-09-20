@@ -38,8 +38,8 @@ spec:
           url: ghcr.io/educates/educates-extension-packages/argocd:v2.10.6
 `
 
-// A package declared as a package image carries no files entry. Until the
-// image form is implemented the renderer must skip it rather than crash.
+// A package whose content comes from an image rather than a vendir download
+// carries no files entry, so the renderer skips it.
 const workshopWithImagePackage = `
 apiVersion: training.educates.dev/v1beta1
 kind: Workshop
@@ -68,9 +68,9 @@ spec:
           url: ghcr.io/educates/educates-extension-packages/vcluster:v0.19.0
 `
 
-// TestGenerateVendirPackagesConfig_FilesPackage pins today's behaviour so the
-// fix cannot regress it: a files package still produces a vendir directory
-// with the default path applied.
+// TestGenerateVendirPackagesConfig_FilesPackage pins the behaviour of a
+// package declaring files: it produces a vendir directory with the default
+// contents path applied.
 func TestGenerateVendirPackagesConfig_FilesPackage(t *testing.T) {
 	workshop := workshopFromYAML(t, workshopWithFilesPackage)
 
@@ -89,9 +89,8 @@ func TestGenerateVendirPackagesConfig_FilesPackage(t *testing.T) {
 	}
 }
 
-// TestGenerateVendirPackagesConfig_ImagePackageDoesNotPanic is the failing
-// test for this ticket. Before the fix the unchecked type assertion on the
-// missing files key panics.
+// TestGenerateVendirPackagesConfig_ImagePackageDoesNotPanic covers a package
+// with no files key, which the unchecked type assertion used to panic on.
 func TestGenerateVendirPackagesConfig_ImagePackageDoesNotPanic(t *testing.T) {
 	workshop := workshopFromYAML(t, workshopWithImagePackage)
 
@@ -129,11 +128,13 @@ func TestGenerateVendirPackagesConfig_MixedPackages(t *testing.T) {
 // TestGenerateVendirPackagesConfig_MalformedItems covers the remaining
 // unchecked assertions in the same loop: a package item that is not a map, a
 // name that is not a string, a files value that is not a list, and a files
-// entry that is not a map. None may panic.
+// entry that is not a map. Each reports an error naming the problem rather
+// than crashing.
 func TestGenerateVendirPackagesConfig_MalformedItems(t *testing.T) {
 	cases := []struct {
 		name     string
 		workshop string
+		wantErr  string
 	}{
 		{
 			name: "package item is not a map",
@@ -143,6 +144,7 @@ spec:
     packages:
     - just-a-string
 `,
+			wantErr: "entry is not an object",
 		},
 		{
 			name: "name is not a string",
@@ -154,6 +156,7 @@ spec:
       files:
       - path: .
 `,
+			wantErr: "name 42 is not a string",
 		},
 		{
 			name: "files is not a list",
@@ -164,6 +167,7 @@ spec:
     - name: argocd
       files: nonsense
 `,
+			wantErr: `extension package "argocd", files is not a list`,
 		},
 		{
 			name: "files entry is not a map",
@@ -175,6 +179,7 @@ spec:
       files:
       - just-a-string
 `,
+			wantErr: `extension package "argocd", files entry is not an object`,
 		},
 	}
 
@@ -182,10 +187,14 @@ spec:
 		t.Run(test.name, func(t *testing.T) {
 			workshop := workshopFromYAML(t, test.workshop)
 
-			// The assertion under test is that this returns rather than
-			// panics. An error is an acceptable outcome, a crash is not.
-			if _, err := generateVendirPackagesConfig(workshop, "lab-testing", "localhost:5001", "latest"); err != nil {
-				t.Logf("returned an error, which is acceptable: %v", err)
+			config, err := generateVendirPackagesConfig(workshop, "lab-testing", "localhost:5001", "latest")
+
+			if err == nil {
+				t.Fatalf("expected an error naming the problem, got config:\n%s", config)
+			}
+
+			if !strings.Contains(err.Error(), test.wantErr) {
+				t.Errorf("expected the error to mention %q, got: %v", test.wantErr, err)
 			}
 		})
 	}
