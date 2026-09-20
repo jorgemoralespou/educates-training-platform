@@ -52,6 +52,7 @@ type DockerWorkshopDeployOptions struct {
 	WorkshopFile       string
 	WorkshopImage      string
 	WorkshopVersion    string
+	PackageDelivery    string
 	DataValuesFlags    yttcmd.DataValuesFlags
 }
 
@@ -82,6 +83,11 @@ EOS
 {{ if .VendirPackagesConfig -}}
 cat > /opt/eduk8s/config/vendir-packages.yaml << "EOS"
 {{ .VendirPackagesConfig -}}
+EOS
+{{ end -}}
+{{ if .FetchPackagesConfig -}}
+cat > /opt/eduk8s/config/packages.yaml << "EOS"
+{{ .FetchPackagesConfig -}}
 EOS
 {{ end -}}
 {{ if .KubeConfig -}}
@@ -195,6 +201,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 	var workshopConfigData string
 	var vendirFilesConfigData []string
 	var vendirPackagesConfigData string
+	var fetchPackagesConfigData string
 	var workshopImageName string
 
 	var workshopPortsConfig []composetypes.ServicePortConfig
@@ -226,6 +233,29 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		return name, err
 	}
 
+	// Settle how extension packages declared as an image reach the session.
+	// This happens before anything is written, so that forcing a mount onto a
+	// daemon which cannot do it fails here rather than once Compose is
+	// already running.
+
+	packageDelivery, err := parseDockerPackageDelivery(o.PackageDelivery)
+
+	if err != nil {
+		return name, err
+	}
+
+	imagePackages, err := resolveImagePackageDelivery(
+		ctx, cli, workshop, packageDelivery, originalName, o.LocalRepository, o.WorkshopVersion, stdout,
+	)
+
+	if err != nil {
+		return name, err
+	}
+
+	if fetchPackagesConfigData, err = generateFetchPackagesConfig(imagePackages.Fetches); err != nil {
+		return name, err
+	}
+
 	if workshopImageName, err = generateWorkshopImageName(workshop, o.LocalRepository, o.ImageRepository, o.ImageVersion, o.WorkshopImage, o.WorkshopVersion); err != nil {
 		return name, err
 	}
@@ -237,6 +267,10 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 	if workshopVolumesConfig, err = generateWorkshopVolumeMounts(workshop, o.Assets); err != nil {
 		return name, err
 	}
+
+	// A mounted extension package is one more volume on the workshop service.
+
+	workshopVolumesConfig = append(workshopVolumesConfig, imagePackages.Mounts...)
 
 	if workshopEnvironment, err = generateWorkshopEnvironment(workshop, o.LocalRepository, o.Host, o.Port); err != nil {
 		return name, err
@@ -260,6 +294,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		WorkshopConfig       string
 		VendirFilesConfig    []string
 		VendirPackagesConfig string
+		FetchPackagesConfig  string
 		KubeConfig           string
 		Assets               string
 	}
@@ -268,6 +303,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		WorkshopConfig:       workshopConfigData,
 		VendirFilesConfig:    vendirFilesConfigData,
 		VendirPackagesConfig: vendirPackagesConfigData,
+		FetchPackagesConfig:  fetchPackagesConfigData,
 		KubeConfig:           kubeConfigData,
 		Assets:               o.Assets,
 	}
@@ -576,6 +612,12 @@ func (p *ProjectInfo) NewDockerWorkshopDeployCmd() *cobra.Command {
 		"latest",
 		"version of the workshop definition",
 	)
+	c.Flags().StringVar(
+		&o.PackageDelivery,
+		"package-delivery",
+		"auto",
+		"how extension package images are delivered (auto, image-mount or fetch)",
+	)
 
 	c.Flags().StringArrayVar(
 		&o.DataValuesFlags.EnvFromStrings,
@@ -778,6 +820,15 @@ func generateVendirPackagesConfig(workshop *unstructured.Unstructured, name stri
 				"contents": packagesFilesItem,
 			})
 
+		}
+
+		// Every package may have been declared as an image, in which case
+		// vendir has nothing to do. Writing the config anyway would make the
+		// base image run vendir against an empty directory list, so it is
+		// omitted entirely, the same as for a workshop declaring no packages.
+
+		if len(directoriesConfig) == 0 {
+			return "", nil
 		}
 
 		vendirConfig := map[string]interface{}{

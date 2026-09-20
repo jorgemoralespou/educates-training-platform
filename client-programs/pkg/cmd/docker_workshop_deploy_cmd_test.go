@@ -103,6 +103,13 @@ func TestGenerateVendirPackagesConfig_ImagePackageDoesNotPanic(t *testing.T) {
 	if strings.Contains(config, "argocd") {
 		t.Errorf("a package without files must not reach the vendir config, got:\n%s", config)
 	}
+
+	// No config at all rather than one with an empty directory list: the base
+	// image runs vendir when the file is present, so an empty config would
+	// have it download nothing, slowly.
+	if config != "" {
+		t.Errorf("expected no vendir config when every package is an image, got:\n%s", config)
+	}
 }
 
 // TestGenerateVendirPackagesConfig_MixedPackages proves the skip is per
