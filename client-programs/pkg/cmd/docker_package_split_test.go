@@ -140,7 +140,7 @@ spec:
 		}
 	})
 
-	t.Run("a package declaring both is refused", func(t *testing.T) {
+	t.Run("a package declaring both is left to the validator", func(t *testing.T) {
 		both := workshopFromYAML(t, `
 apiVersion: training.educates.dev/v1beta1
 kind: Workshop
@@ -156,14 +156,11 @@ spec:
           url: ghcr.io/educates/argocd:v1
 `)
 
-		_, err := splitImagePackages(both, true, "registry.local:5000", "lab-testing", "1.0")
-
-		if err == nil {
-			t.Fatal("expected a package declaring both image and files to be refused")
-		}
-
-		if !strings.Contains(err.Error(), "argocd") {
-			t.Errorf("expected the error to name the package, got %q", err)
+		// validateWorkshopPackages runs first in the deploy and refuses this,
+		// so the split does not repeat the rule. Checked here so that removing
+		// the validation does not silently leave the case unhandled.
+		if err := validateWorkshopPackages(both); err == nil {
+			t.Error("expected the package validation to refuse image and files together")
 		}
 	})
 

@@ -28,16 +28,15 @@ func resolveImagePackageDelivery(
 	version string,
 	stdout io.Writer,
 ) (splitPackages, error) {
-	// Which delivery is chosen does not change which packages are declared,
-	// so the declaration is read once to find out whether there is anything
-	// to do at all.
-	declared, err := splitImagePackages(workshop, false, localRepository, name, version)
+	// The declaration is read once here. Which delivery is chosen decides how
+	// these packages are handed to the session, not which packages there are.
+	declared, err := readImagePackages(workshop, localRepository, name, version)
 
 	if err != nil {
 		return splitPackages{}, err
 	}
 
-	if len(declared.Names) == 0 {
+	if len(declared) == 0 {
 		return splitPackages{}, nil
 	}
 
@@ -49,16 +48,25 @@ func resolveImagePackageDelivery(
 		capabilities = probeDaemonCapabilities(ctx, cli)
 	}
 
-	podman := strings.Contains(strings.ToLower(capabilities.ServerVersion), "podman") ||
-		isPodmanDaemon(ctx, cli)
+	// A package asking to be pulled every time is pulled before anything else
+	// looks for it locally. On Podman that is what makes a mount possible at
+	// all, since the presence check below would otherwise fall back to a
+	// fetch over the very image this was about to pull.
+	if delivery != dockerPackageDeliveryFetch {
+		if err := prePullImagePackages(ctx, cli, declared, stdout); err != nil {
+			return splitPackages{}, err
+		}
+	}
 
 	// Podman does not pull the image behind a volume, so mounting is only
-	// possible for an image which is already local.
+	// possible for an image which is already local. Whether the daemon is
+	// Podman comes from the same probe, so no extra call is made, and a
+	// forced fetch which skipped the probe does not start making them.
 	podmanImageAbsent := false
 
-	if podman && delivery != dockerPackageDeliveryFetch {
-		for _, entry := range declared.Fetches {
-			if !imagePresentLocally(ctx, cli, entry.Image) {
+	if capabilities.Podman {
+		for _, entry := range declared {
+			if !imagePresentLocally(ctx, cli, entry.Reference) {
 				podmanImageAbsent = true
 				break
 			}
@@ -71,19 +79,16 @@ func resolveImagePackageDelivery(
 		return splitPackages{}, err
 	}
 
-	packages, err := splitImagePackages(workshop, mounting, localRepository, name, version)
-
-	if err != nil {
-		return splitPackages{}, err
-	}
-
-	// A mounted package is pulled by Compose when it is missing, so the pull
-	// policy only needs acting on where it asks for something else.
+	// A package which refuses to be pulled has to be there already. Compose
+	// would otherwise pull it when mounting, which is the one thing the
+	// policy forbids.
 	if mounting {
-		if err := applyImagePullPolicies(ctx, cli, workshop, packages, localRepository, name, version, stdout); err != nil {
+		if err := refuseAbsentImagePackages(ctx, cli, declared); err != nil {
 			return splitPackages{}, err
 		}
 	}
+
+	packages := deliverImagePackages(declared, mounting)
 
 	fmt.Fprintln(stdout, message)
 
@@ -94,113 +99,49 @@ func resolveImagePackageDelivery(
 	return packages, nil
 }
 
-// applyImagePullPolicies honours imagePullPolicy for packages which are being
-// mounted. Compose pulls a missing volume image itself, but only when it is
-// missing, so Always is the case which needs doing here: republishing the
-// same tag is the local authoring loop. Never refuses before the deploy
-// rather than letting Compose pull.
-func applyImagePullPolicies(
+// prePullImagePackages pulls every package which asked to be pulled every
+// time. Compose pulls a volume image only when it is missing, so a package
+// whose tag was republished would otherwise keep the copy already held, which
+// is the opposite of what an author republishing a tag wants.
+func prePullImagePackages(
 	ctx context.Context,
 	cli *client.Client,
-	workshop *unstructured.Unstructured,
-	packages splitPackages,
-	localRepository string,
-	name string,
-	version string,
+	packages []imagePackage,
 	stdout io.Writer,
 ) error {
-	policies, err := imagePullPolicies(workshop, localRepository, name, version)
+	for _, entry := range packages {
+		if entry.PullPolicy != imagePullPolicyAlways {
+			continue
+		}
 
-	if err != nil {
-		return err
-	}
+		fmt.Fprintf(stdout, "Pulling extension package image %s\n", entry.Reference)
 
-	for _, mount := range packages.Mounts {
-		policy := policies[mount.Source]
-
-		switch policy {
-		case "Always":
-			fmt.Fprintf(stdout, "Pulling extension package image %s\n", mount.Source)
-
-			if err := pullPackageImage(ctx, cli, mount.Source); err != nil {
-				return err
-			}
-
-		case "Never":
-			if !imagePresentLocally(ctx, cli, mount.Source) {
-				return errors.Errorf(
-					"the extension package image %s is not in the local image store and "+
-						"imagePullPolicy is Never", mount.Source,
-				)
-			}
+		if err := pullPackageImage(ctx, cli, entry.Reference); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// imagePullPolicies maps each package image reference to the policy declared
-// beside it, keyed by the expanded reference so a caller holding a compose
-// volume can look it up.
-func imagePullPolicies(
-	workshop *unstructured.Unstructured,
-	localRepository string,
-	name string,
-	version string,
-) (map[string]string, error) {
-	policies := map[string]string{}
-
-	workshopVersion, found, _ := unstructured.NestedString(workshop.Object, "spec", "version")
-
-	if !found {
-		workshopVersion = version
-	}
-
-	packagesItems, found, _ := unstructured.NestedSlice(workshop.Object, "spec", "workshop", "packages")
-
-	if !found {
-		return policies, nil
-	}
-
-	for _, packagesItem := range packagesItems {
-		item, ok := packagesItem.(map[string]interface{})
-
-		if !ok {
+// refuseAbsentImagePackages reports a package which asked never to be pulled
+// and is not held locally, before the deploy rather than once Compose has
+// pulled it in spite of the policy.
+func refuseAbsentImagePackages(ctx context.Context, cli *client.Client, packages []imagePackage) error {
+	for _, entry := range packages {
+		if entry.PullPolicy != imagePullPolicyNever {
 			continue
 		}
 
-		tmpImage, found := item["image"]
-
-		if !found || tmpImage == nil {
-			continue
-		}
-
-		packageImage, ok := tmpImage.(string)
-
-		if !ok {
-			continue
-		}
-
-		tmpPolicy, found := item["imagePullPolicy"]
-
-		if !found || tmpPolicy == nil {
-			continue
-		}
-
-		policy, ok := tmpPolicy.(string)
-
-		if !ok {
-			return nil, errors.Errorf(
-				"unable to parse extension package, imagePullPolicy %v is not a string", tmpPolicy,
+		if !imagePresentLocally(ctx, cli, entry.Reference) {
+			return errors.Errorf(
+				"the extension package image %s is not in the local image store and "+
+					"imagePullPolicy is Never", entry.Reference,
 			)
 		}
-
-		reference := expandPackageImageTokens(packageImage, localRepository, name, workshopVersion)
-
-		policies[reference] = policy
 	}
 
-	return policies, nil
+	return nil
 }
 
 // pullPackageImage pulls one package image, reporting a failure for want of
@@ -230,10 +171,21 @@ func pullPackageImage(ctx context.Context, cli *client.Client, reference string)
 // isAuthenticationFailure reports whether a pull failed because the daemon
 // had no credentials for the registry, which is the one failure with a
 // specific remedy.
+//
+// A bare "denied" is deliberately not enough: a registry says that for a
+// repository which does not exist as well as for one the daemon may not read,
+// and telling someone to log in when their reference is simply wrong sends
+// them the wrong way.
 func isAuthenticationFailure(err error) bool {
 	message := strings.ToLower(err.Error())
 
-	for _, marker := range []string{"unauthorized", "authentication required", "denied", "forbidden"} {
+	for _, marker := range []string{
+		"unauthorized",
+		"authentication required",
+		"authorization failed",
+		"access to the resource is denied",
+		"no basic auth credentials",
+	} {
 		if strings.Contains(message, marker) {
 			return true
 		}
@@ -248,26 +200,4 @@ func imagePresentLocally(ctx context.Context, cli *client.Client, reference stri
 	_, err := cli.ImageInspect(ctx, reference)
 
 	return err == nil
-}
-
-// isPodmanDaemon reports whether the daemon behind the Docker API is Podman,
-// which announces itself in the components the version endpoint lists.
-func isPodmanDaemon(ctx context.Context, cli *client.Client) bool {
-	version, err := cli.ServerVersion(ctx, client.ServerVersionOptions{})
-
-	if err != nil {
-		return false
-	}
-
-	if strings.Contains(strings.ToLower(version.Platform.Name), "podman") {
-		return true
-	}
-
-	for _, component := range version.Components {
-		if strings.Contains(strings.ToLower(component.Name), "podman") {
-			return true
-		}
-	}
-
-	return false
 }

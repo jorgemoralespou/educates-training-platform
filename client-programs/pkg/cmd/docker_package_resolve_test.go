@@ -1,9 +1,57 @@
 package cmd
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
+
+func TestIsAuthenticationFailure(t *testing.T) {
+	cases := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{
+			name:    "an explicit unauthorized",
+			message: "unauthorized: authentication required",
+			want:    true,
+		},
+		{
+			name:    "no credentials held",
+			message: `Get "https://registry.example.com/v2/": no basic auth credentials`,
+			want:    true,
+		},
+		{
+			name:    "access denied to an existing repository",
+			message: "denied: requested access to the resource is denied",
+			want:    true,
+		},
+		{
+			name:    "a repository which simply does not exist",
+			message: `manifest unknown: manifest tagged by "v9" is not found`,
+			want:    false,
+		},
+		{
+			name:    "a rate limit, which logging in does not fix",
+			message: "toomanyrequests: You have reached your pull rate limit",
+			want:    false,
+		},
+		{
+			name:    "the registry being unreachable",
+			message: "dial tcp: lookup registry.example.com: no such host",
+			want:    false,
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isAuthenticationFailure(errors.New(test.message)); got != test.want {
+				t.Errorf("isAuthenticationFailure(%q) = %v, want %v", test.message, got, test.want)
+			}
+		})
+	}
+}
 
 func capableDaemon() daemonCapabilities {
 	return daemonCapabilities{

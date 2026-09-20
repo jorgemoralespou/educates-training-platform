@@ -131,6 +131,17 @@ func TestDaemonSupportsImageMounts(t *testing.T) {
 		}
 	})
 
+	t.Run("an unreadable compose version does not block either", func(t *testing.T) {
+		// A plugin which answers with something unparseable must not be
+		// treated more harshly than one which does not answer at all.
+		capabilities := supported
+		capabilities.ComposeVersion = "nonsense"
+
+		if ok, reason := daemonSupportsImageMounts(capabilities); !ok {
+			t.Errorf("expected support with an unreadable compose version, got %q", reason)
+		}
+	})
+
 	t.Run("a missing compose version does not block", func(t *testing.T) {
 		// Compose's version comes from a separate command which may not be
 		// present; that is not a reason to refuse a daemon which is otherwise

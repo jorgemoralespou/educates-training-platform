@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -77,6 +78,10 @@ type daemonCapabilities struct {
 	// ContainerdStore reports whether the daemon stores images with the
 	// containerd snapshotter, which an image volume requires.
 	ContainerdStore bool
+
+	// Podman reports whether the daemon behind the Docker API is Podman,
+	// which mounts an image volume but never pulls the image behind one.
+	Podman bool
 }
 
 // daemonSupportsImageMounts reports whether the probed daemon can mount an
@@ -87,36 +92,27 @@ func daemonSupportsImageMounts(capabilities daemonCapabilities) (bool, string) {
 	major, minor, ok := parseDockerVersion(capabilities.ServerVersion)
 
 	if !ok {
-		return false, errors.Errorf(
+		return false, fmt.Sprintf(
 			"the Docker Engine version %q could not be read", capabilities.ServerVersion,
-		).Error()
+		)
 	}
 
-	if major < minDockerServerMajor || (major == minDockerServerMajor && minor < minDockerServerMinor) {
-		return false, errors.Errorf(
+	if !atLeastVersion(major, minor, minDockerServerMajor, minDockerServerMinor) {
+		return false, fmt.Sprintf(
 			"Docker Engine %d.%d is older than %d.%d",
 			major, minor, minDockerServerMajor, minDockerServerMinor,
-		).Error()
+		)
 	}
 
 	// The compose plugin is asked separately and may not answer. That is not
 	// a reason to refuse a daemon which is otherwise capable: Compose reports
 	// its own error if it turns out it cannot mount.
-	if capabilities.ComposeVersion != "" {
-		composeMajor, composeMinor, ok := parseDockerVersion(capabilities.ComposeVersion)
-
-		if !ok {
-			return false, errors.Errorf(
-				"the Docker Compose version %q could not be read", capabilities.ComposeVersion,
-			).Error()
-		}
-
-		if composeMajor < minComposeMajor ||
-			(composeMajor == minComposeMajor && composeMinor < minComposeMinor) {
-			return false, errors.Errorf(
+	if composeMajor, composeMinor, ok := parseDockerVersion(capabilities.ComposeVersion); ok {
+		if !atLeastVersion(composeMajor, composeMinor, minComposeMajor, minComposeMinor) {
+			return false, fmt.Sprintf(
 				"Docker Compose %d.%d is older than %d.%d",
 				composeMajor, composeMinor, minComposeMajor, minComposeMinor,
-			).Error()
+			)
 		}
 	}
 
@@ -128,6 +124,16 @@ func daemonSupportsImageMounts(capabilities daemonCapabilities) (bool, string) {
 	}
 
 	return true, ""
+}
+
+// atLeastVersion reports whether a major.minor pair is the same as or newer
+// than the one required.
+func atLeastVersion(major int, minor int, wantMajor int, wantMinor int) bool {
+	if major != wantMajor {
+		return major > wantMajor
+	}
+
+	return minor >= wantMinor
 }
 
 // parseDockerVersion reads a major.minor prefix, ignoring a leading "v" and
@@ -195,6 +201,7 @@ func probeDaemonCapabilities(ctx context.Context, cli *client.Client) daemonCapa
 
 	if version, err := cli.ServerVersion(ctx, client.ServerVersionOptions{}); err == nil {
 		capabilities.ServerVersion = version.Version
+		capabilities.Podman = describesPodman(version)
 	}
 
 	if info, err := cli.Info(ctx, client.InfoOptions{}); err == nil {
@@ -204,6 +211,22 @@ func probeDaemonCapabilities(ctx context.Context, cli *client.Client) daemonCapa
 	capabilities.ComposeVersion = composeVersion(ctx)
 
 	return capabilities
+}
+
+// describesPodman reports whether a version response describes Podman serving
+// the Docker API, which it announces in the platform name and its components.
+func describesPodman(version client.ServerVersionResult) bool {
+	if strings.Contains(strings.ToLower(version.Platform.Name), "podman") {
+		return true
+	}
+
+	for _, component := range version.Components {
+		if strings.Contains(strings.ToLower(component.Name), "podman") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // composeVersion asks the compose plugin its version. An empty string means

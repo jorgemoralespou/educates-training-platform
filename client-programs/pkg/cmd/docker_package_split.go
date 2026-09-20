@@ -19,6 +19,33 @@ type fetchPackageEntry struct {
 	Image string `json:"image"`
 }
 
+// The image pull policies a package may declare. Only these two change what
+// the docker renderer does: IfNotPresent and an undeclared policy both leave
+// Compose to pull the image when it is missing, which is what they ask for.
+const (
+	imagePullPolicyAlways = "Always"
+	imagePullPolicyNever  = "Never"
+)
+
+// imagePackage is an extension package declared as an image, read from the
+// workshop definition once so that neither the delivery nor the pull policy
+// has to walk the declaration again.
+type imagePackage struct {
+	// Name is the package name, which is also the directory it is delivered
+	// to.
+	Name string
+
+	// Path is where the package lands in the session.
+	Path string
+
+	// Reference is the image reference with the three tokens expanded.
+	Reference string
+
+	// PullPolicy is the declared imagePullPolicy, empty when none was
+	// declared.
+	PullPolicy string
+}
+
 // splitPackages is how each extension package declared as an image reaches
 // the session. A package appears in exactly one of these, because the base
 // image derives which packages were mounted from the absence of a fetcher
@@ -35,17 +62,16 @@ type splitPackages struct {
 	Names []string
 }
 
-// splitImagePackages sorts the extension packages declared as an image into
-// the delivery chosen for this deploy. Packages declaring files are left
-// alone: vendir downloads those, exactly as before.
-func splitImagePackages(
+// readImagePackages reads the extension packages declared as an image.
+// Packages declaring files are left alone: vendir downloads those, exactly as
+// before.
+func readImagePackages(
 	workshop *unstructured.Unstructured,
-	mounting bool,
 	localRepository string,
 	name string,
 	version string,
-) (splitPackages, error) {
-	packages := splitPackages{}
+) ([]imagePackage, error) {
+	var packages []imagePackage
 
 	workshopVersion, found, _ := unstructured.NestedString(workshop.Object, "spec", "version")
 
@@ -56,14 +82,14 @@ func splitImagePackages(
 	packagesItems, found, _ := unstructured.NestedSlice(workshop.Object, "spec", "workshop", "packages")
 
 	if !found || len(packagesItems) == 0 {
-		return packages, nil
+		return nil, nil
 	}
 
 	for _, packagesItem := range packagesItems {
 		item, ok := packagesItem.(map[string]interface{})
 
 		if !ok {
-			return packages, errors.New("unable to parse extension package, entry is not an object")
+			return nil, errors.New("unable to parse extension package, entry is not an object")
 		}
 
 		tmpName, found := item["name"]
@@ -75,7 +101,7 @@ func splitImagePackages(
 		packageName, ok := tmpName.(string)
 
 		if !ok {
-			return packages, errors.Errorf("unable to parse extension package, name %v is not a string", tmpName)
+			return nil, errors.Errorf("unable to parse extension package, name %v is not a string", tmpName)
 		}
 
 		tmpImage, found := item["image"]
@@ -87,44 +113,80 @@ func splitImagePackages(
 		packageImage, ok := tmpImage.(string)
 
 		if !ok {
-			return packages, errors.Errorf(
+			return nil, errors.Errorf(
 				"unable to parse extension package %q, image is not a string", packageName,
 			)
 		}
 
-		// The two are mutually exclusive, which the cluster enforces in the
-		// CRD. The docker renderer reads the definition without a schema, so
-		// it says so itself rather than silently honouring one of them.
-		if files, found := item["files"]; found && files != nil {
-			return packages, errors.Errorf(
-				"extension package %q declares both image and files, which are mutually exclusive", packageName,
-			)
+		pullPolicy := ""
+
+		if tmpPolicy, found := item["imagePullPolicy"]; found && tmpPolicy != nil {
+			pullPolicy, ok = tmpPolicy.(string)
+
+			if !ok {
+				return nil, errors.Errorf(
+					"unable to parse extension package %q, imagePullPolicy is not a string", packageName,
+				)
+			}
 		}
 
-		packagePath := filepath.Clean(path.Join("/opt/packages", packageName))
+		packages = append(packages, imagePackage{
+			Name:       packageName,
+			Path:       filepath.Clean(path.Join("/opt/packages", packageName)),
+			Reference:  expandPackageImageTokens(packageImage, localRepository, name, workshopVersion),
+			PullPolicy: pullPolicy,
+		})
+	}
 
-		reference := expandPackageImageTokens(packageImage, localRepository, name, workshopVersion)
+	return packages, nil
+}
 
-		packages.Names = append(packages.Names, packageName)
+// deliverImagePackages sorts the packages into the chosen delivery. Mounting
+// produces compose volumes and no fetcher entries, and fetching the reverse,
+// because the base image reads the absence of a fetcher entry as meaning the
+// package was mounted.
+func deliverImagePackages(packages []imagePackage, mounting bool) splitPackages {
+	delivered := splitPackages{}
+
+	for _, entry := range packages {
+		delivered.Names = append(delivered.Names, entry.Name)
 
 		if mounting {
-			packages.Mounts = append(packages.Mounts, composetypes.ServiceVolumeConfig{
+			delivered.Mounts = append(delivered.Mounts, composetypes.ServiceVolumeConfig{
 				Type:     "image",
-				Source:   reference,
-				Target:   packagePath,
+				Source:   entry.Reference,
+				Target:   entry.Path,
 				ReadOnly: true,
 			})
 
 			continue
 		}
 
-		packages.Fetches = append(packages.Fetches, fetchPackageEntry{
-			Path:  packagePath,
-			Image: reference,
+		delivered.Fetches = append(delivered.Fetches, fetchPackageEntry{
+			Path:  entry.Path,
+			Image: entry.Reference,
 		})
 	}
 
-	return packages, nil
+	return delivered
+}
+
+// splitImagePackages reads the declaration and delivers it in one step, for
+// callers which do not need the packages themselves.
+func splitImagePackages(
+	workshop *unstructured.Unstructured,
+	mounting bool,
+	localRepository string,
+	name string,
+	version string,
+) (splitPackages, error) {
+	packages, err := readImagePackages(workshop, localRepository, name, version)
+
+	if err != nil {
+		return splitPackages{}, err
+	}
+
+	return deliverImagePackages(packages, mounting), nil
 }
 
 // expandPackageImageTokens substitutes the three tokens a package image
