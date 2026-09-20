@@ -1930,13 +1930,18 @@ def workshop_session_create(name, body, meta, uid, spec, status, patch, retry, *
     # directory above. The delivery was fixed when the environment was created,
     # so every session of the environment renders the same way.
 
-    package_delivery = (
+    # An environment created before this field existed has no value, and its
+    # download config was written with every package included, so treating it
+    # as a fetch is the only consistent reading.
+
+    image_mount_enabled = (
         environment_instance.obj["status"]["educates"]
         .get("packageDelivery", {})
         .get("imageMount", "disabled")
+        == "enabled"
     )
 
-    if package_delivery == "enabled":
+    if image_mount_enabled:
         package_pull_secrets = []
 
         for package in workshop_spec.get("workshop", {}).get("packages", []):
@@ -2086,14 +2091,20 @@ def workshop_session_create(name, body, meta, uid, spec, status, patch, retry, *
     if not need_secrets:
         for package in workshop_spec.get("workshop", {}).get("packages", []):
             # A package declared as an image names its credentials directly,
-            # rather than inside a vendir source.
+            # rather than inside a vendir source. Where such a package is
+            # mounted the kubelet pulls it using the pod's image pull secrets,
+            # so nothing downloads it and no credentials are needed here.
             if package.get("pullSecretRef", {}).get("name"):
-                need_secrets = True
-                break
+                if not image_mount_enabled:
+                    need_secrets = True
+                    break
+
+                continue
 
             package_files = package.get("files", [])
-            need_secrets = vendir_secrets_required(package_files)
-            if need_secrets:
+
+            if vendir_secrets_required(package_files):
+                need_secrets = True
                 break
 
     if need_secrets and environment_secrets:

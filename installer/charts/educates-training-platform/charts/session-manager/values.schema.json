@@ -169,7 +169,7 @@
       },
 
       "packageDelivery": {
-        "description": "How extension packages declared as an image reach a workshop session. The operator resolves `imageMount` from what the cluster supports; `disabled` means the package contents are fetched instead, which works everywhere.",
+        "description": "How extension packages declared as an image reach a workshop session. With `imageMount` enabled the image is mounted read only into the session; `disabled` means the package contents are fetched instead, which works everywhere.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
