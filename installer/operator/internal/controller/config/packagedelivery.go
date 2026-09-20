@@ -364,17 +364,29 @@ func (r *EducatesClusterConfigReconciler) probeClusterCapability(
 		return "", nil, fmt.Errorf("no discovery client is configured")
 	}
 
-	serverVersion, err := r.Discovery.ServerVersion()
+	// Held between reconciles: the version changes when the control plane is
+	// upgraded, not between reconciles, and the cache keeps a momentary
+	// failure to reach the API server from reading as an unsupported cluster.
+	apiServerVersion, err := r.apiServerVersion.get(func() (string, error) {
+		serverVersion, err := r.Discovery.ServerVersion()
+
+		if err != nil {
+			return "", err
+		}
+
+		return serverVersion.GitVersion, nil
+	})
 
 	if err != nil {
 		return "", nil, fmt.Errorf("unable to read the API server version: %w", err)
 	}
 
+	// Nodes come from the informer cache, so this is an in-memory read.
 	nodes := &corev1.NodeList{}
 
 	if err := r.List(ctx, nodes, client.MatchingLabels{"kubernetes.io/os": "linux"}); err != nil {
-		return serverVersion.GitVersion, nil, fmt.Errorf("unable to list nodes: %w", err)
+		return apiServerVersion, nil, fmt.Errorf("unable to list nodes: %w", err)
 	}
 
-	return serverVersion.GitVersion, nodes.Items, nil
+	return apiServerVersion, nodes.Items, nil
 }

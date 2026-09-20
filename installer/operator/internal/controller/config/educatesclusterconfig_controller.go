@@ -129,7 +129,16 @@ type EducatesClusterConfigReconciler struct {
 	// distinguish "RESTMapper cache is stale, CRDs really exist" from
 	// "CRDs are genuinely missing" when SSA / Get calls return
 	// NoMatchError. See handleCertManagerCRDsMissing.
+	//
+	// It is deliberately uncached, because CRDWatcher polls it to notice
+	// CRDs appearing. The package delivery probe wants the opposite, so it
+	// holds its own answer in apiServerVersion rather than asking every
+	// reconcile.
 	Discovery discovery.DiscoveryInterface
+
+	// apiServerVersion holds the API server version between reconciles. See
+	// apiserverversion.go for why the probe does not read it every time.
+	apiServerVersion apiServerVersionCache
 }
 
 // +kubebuilder:rbac:groups=config.educates.dev,resources=educatesclusterconfigs,verbs=get;list;watch;create;update;patch;delete
