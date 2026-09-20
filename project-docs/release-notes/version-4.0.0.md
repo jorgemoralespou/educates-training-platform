@@ -208,6 +208,15 @@ New Features
   would be published without contacting a registry, and ``--digest-file`` to
   record the published digest for a later step in a pipeline.
 
+* An extension package declared as an image is now delivered to a workshop
+  session by a purpose built package fetcher rather than by ``vendir``. The
+  fetcher resolves a multi architecture image to the architecture the session
+  runs on, so an author writes one image reference whichever architecture the
+  node uses, and it preserves the file permissions the package was published
+  with, which ``vendir`` does not. Packages declared with ``files`` continue to
+  be downloaded by ``vendir`` exactly as before, and a workshop can mix the
+  two.
+
 Features Changed
 ----------------
 
@@ -578,3 +587,11 @@ Bugs Fixed
   there is nothing for ``vendir`` to download, and the remaining packages are
   still processed. A package declaring a malformed ``files`` property now
   reports an error naming the package instead of crashing.
+
+* The workshop session init container which downloads content only ran when a
+  workshop declared assets under ``spec.workshop.files``. A workshop whose only
+  downloads were extension packages therefore downloaded them in the main
+  workshop container instead, where the secrets holding any registry
+  credentials are not mounted, so a package held in a registry requiring
+  authentication could not be downloaded. The init container now runs whenever
+  there is anything to download.
