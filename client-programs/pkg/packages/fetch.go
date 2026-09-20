@@ -71,9 +71,36 @@ func LoadFetchConfig(path string) (*FetchConfig, error) {
 		if entry.Path == "" || entry.Image == "" {
 			return nil, errors.Errorf("every package in %s needs a path and an image", path)
 		}
+
+		if err := validatePackagePath(entry.Path); err != nil {
+			return nil, errors.Wrapf(err, "unable to use the path in %s", path)
+		}
 	}
 
 	return config, nil
+}
+
+// PackagesRoot is the only directory a package may be unpacked into. Fetching
+// replaces the package directory, so the destructive step guards itself here
+// rather than relying on whoever wrote the configuration.
+const PackagesRoot = "/opt/packages"
+
+// validatePackagePath refuses a path which is not a directory directly under
+// the packages root, which is the only shape the platform ever writes.
+func validatePackagePath(path string) error {
+	cleaned := filepath.Clean(path)
+
+	if !filepath.IsAbs(cleaned) {
+		return errors.Errorf("%q is not an absolute path", path)
+	}
+
+	parent, name := filepath.Split(cleaned)
+
+	if filepath.Clean(parent) != PackagesRoot || name == "" {
+		return errors.Errorf("%q is not a directory directly under %s", path, PackagesRoot)
+	}
+
+	return nil
 }
 
 // dockerConfig is the shape of a .dockerconfigjson secret payload.

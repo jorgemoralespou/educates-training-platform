@@ -298,6 +298,43 @@ func TestLoadKeychain_MissingDirectoryIsNotAnError(t *testing.T) {
 	}
 }
 
+// Fetching replaces the package directory, so a configuration naming a path
+// outside the packages root is refused before anything is deleted.
+func TestLoadFetchConfig_RefusesPathsOutsideThePackagesRoot(t *testing.T) {
+	for _, path := range []string{
+		"/",
+		"/opt",
+		"/opt/packages",
+		"/etc/passwd",
+		"/opt/packages/argocd/nested",
+		"/opt/packages/../../etc",
+		"opt/packages/argocd",
+		"relative",
+	} {
+		config := "apiVersion: packages.educates.dev/v1alpha1\nkind: PackageFetch\npackages:\n" +
+			"- path: " + path + "\n  image: ghcr.io/educates/packages/argocd:v1\n"
+
+		file := filepath.Join(t.TempDir(), "packages.yaml")
+		writeTestFile(t, file, config)
+
+		if _, err := LoadFetchConfig(file); err == nil {
+			t.Errorf("the path %q should be refused", path)
+		}
+	}
+}
+
+func TestLoadFetchConfig_AcceptsAPackageDirectory(t *testing.T) {
+	config := "apiVersion: packages.educates.dev/v1alpha1\nkind: PackageFetch\npackages:\n" +
+		"- path: /opt/packages/argocd\n  image: ghcr.io/educates/packages/argocd:v1\n"
+
+	file := filepath.Join(t.TempDir(), "packages.yaml")
+	writeTestFile(t, file, config)
+
+	if _, err := LoadFetchConfig(file); err != nil {
+		t.Errorf("a package directory should be accepted: %v", err)
+	}
+}
+
 func TestSecurePath(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "packages", "argocd")
 

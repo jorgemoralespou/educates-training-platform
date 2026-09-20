@@ -10,13 +10,13 @@ set -x
 
 mkdir -p /opt/packages
 
-FETCHER_ARGS=""
+FETCHER_ARGS=()
 
 if [ -d /opt/secrets ]; then
     # In this case we are running in the init container, where the secrets
     # holding any registry credentials are mounted.
 
-    FETCHER_ARGS="--secrets /opt/secrets"
+    FETCHER_ARGS+=(--secrets /opt/secrets)
 fi
 
 PLATFORM_ARCH=${PLATFORM_ARCH:-}
@@ -29,10 +29,10 @@ if [ -z "$PLATFORM_ARCH" ]; then
 fi
 
 if [ -n "$PLATFORM_ARCH" ]; then
-    FETCHER_ARGS="$FETCHER_ARGS --architecture $PLATFORM_ARCH"
+    FETCHER_ARGS+=(--architecture "$PLATFORM_ARCH")
 fi
 
-time educates-package-fetcher --config /opt/eduk8s/config/packages.yaml $FETCHER_ARGS
+time educates-package-fetcher --config /opt/eduk8s/config/packages.yaml "${FETCHER_ARGS[@]}"
 
 # Record that the fetch happened, the way the vendir path leaves behind the
 # config it copied. The main container reads this to know the packages were

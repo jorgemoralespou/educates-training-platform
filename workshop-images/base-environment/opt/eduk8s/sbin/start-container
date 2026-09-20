@@ -78,9 +78,7 @@ DOWNLOAD_FAILED=$HOME/.local/share/workshop/download-workshop.failed
 SETUP_LOGFILE=$HOME/.local/share/workshop/setup-scripts.log
 SETUP_FAILED=$HOME/.local/share/workshop/setup-scripts.failed
 
-if [ -f /opt/eduk8s/config/vendir-assets-01.yaml -o \
-     -f /opt/eduk8s/config/vendir-packages.yaml -o \
-     -f /opt/eduk8s/config/packages.yaml ]; then
+if downloads-declared; then
     # The init container leaves behind the config it copied, so its presence
     # says the download already happened and only the merge is left.
 

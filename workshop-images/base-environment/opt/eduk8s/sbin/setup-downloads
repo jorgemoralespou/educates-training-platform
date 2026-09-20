@@ -6,14 +6,10 @@ DOWNLOAD_LOGFILE=/opt/assets/download-workshop.log
 DOWNLOAD_FAILED=/opt/assets/download-workshop.failed
 
 if [ -d /opt/assets ]; then
-    # Run when there is anything at all to download: workshop assets, packages
-    # declared with files, or packages declared as an image. A workshop whose
-    # only downloads are packages needs this container too, since it is where
-    # the credentials are mounted.
+    # A workshop whose only downloads are extension packages needs this
+    # container too, since it is where the registry credentials are mounted.
 
-    if [ -f /opt/eduk8s/config/vendir-assets-01.yaml -o \
-         -f /opt/eduk8s/config/vendir-packages.yaml -o \
-         -f /opt/eduk8s/config/packages.yaml ]; then
+    if downloads-declared; then
         (vendir-workshop || touch $DOWNLOAD_FAILED) 2>&1 | tee -a $DOWNLOAD_LOGFILE
     fi
 fi
