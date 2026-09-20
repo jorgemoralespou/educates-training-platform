@@ -206,11 +206,12 @@ regeneration.
 
 The CLI's Hugo renderer embeds theme files via `//go:embed` from
 `client-programs/pkg/renderer/files/`, but that directory is `.gitignore`d
-and populated at build time from the workshop base environment
-(`workshop-images/base-environment/opt/eduk8s/etc/themes`). Without it
-`go vet`/`build`/`test` fail with `pattern all:files/*: no matching files
-found`. Both `make build-cli` and `make ci-cli` stage it automatically; if
-you ever need it on its own, run:
+and populated at build time from the top-level `themes/` directory, which is
+where the themes are committed. The workshop base environment image stages
+them from the same place, so neither the CLI nor the base image owns them.
+Without it `go vet`/`build`/`test` fail with `pattern all:files/*: no
+matching files found`. Both `make build-cli` and `make ci-cli` stage it
+automatically; if you ever need it on its own, run:
 
 ```
 make stage-renderer-files
