@@ -125,7 +125,7 @@ Note that there can be a slight delay in being able to create a new workshop as 
 Accessing workshop error logs
 -----------------------------
 
-If workshop content is not able to be downloaded due to an error, a setup script included with the workshop content fails, or workshop instructions cannot be rendered when using the Hugo renderer, an error dialog will be displayed when the workshop session dashboard is displayed. The dialog will point you at the error logs for details. You have two options for finding details of the errors in these cases.
+If workshop content is not able to be downloaded due to an error, an extension package does not arrive, a setup script included with the workshop content fails, or workshop instructions cannot be rendered when using the Hugo renderer, an error dialog will be displayed when the workshop session dashboard is displayed. The dialog will point you at the error logs for details. You have two options for finding details of the errors in these cases.
 
 The first way is to determine the name of the deployment for the workshop session and which namespace it is in, and use the ``kubectl logs`` command to access the logs. 
 
@@ -137,6 +137,8 @@ The two main log files are:
 * ``$HOME/.local/share/workshop/setup-scripts.log``
 
 You can tell in which phase the error occurred, as there will be a corresponding marker file in the same directory, with same basename, but with ``.failed`` extension.
+
+Extension packages are reported in ``download-workshop.log`` along with the workshop content, whether they were downloaded or mounted into the session. Each extension package declared as an image contributes one line naming the package and how it arrived, and a package which did not arrive is named on a line of its own saying that its package manifest is missing. The most common cause is an image reference which points at an ordinary application image rather than an image built as an extension package.
 
 Live updates to the content
 ---------------------------

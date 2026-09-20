@@ -511,6 +511,8 @@ spec:
 
 When a package is installed it is placed under a sub directory of ``/opt/packages`` with name corresponding to the ``name`` field in the ``packages`` configuration. Any setup scripts contained in the ``setup.d`` directory of the installed package will be run when the workshop session starts, with the shell environment being configured using any scripts in the ``profile.d`` of the installed package.
 
+If the installed package contains a ``bin`` directory, it is added to the application search path defined by the ``PATH`` environment variable, so a program the package ships can be run by name without a ``profile.d`` script to set it up. This applies to a package declared either way. Packages are added in the alphabetical order of their names, so where two packages ship a program of the same name, the one from the package whose name sorts first is found. The ``bin`` directory is on the search path before package setup scripts run, so a setup script can run programs from its own package.
+
 In this example ``vendir`` was being used to download an OCI image artefact, but other mechanisms ``vendir`` provides can also be used when downloading remote files. This includes from Git repositories and HTTP web servers. Any configuration for ``vendir`` should be included under ``spec.packages.files``. The format of configuration supplied needs to match the [configuration](https://carvel.dev/vendir/docs/v0.25.0/vendir-spec/) that can be supplied under ``directories.contents`` of the ``Config`` resource used by ``vendir``.
 
 Note that although ``vendir`` will automatically unpack any archive file by default, it is currently limited in that it will not restore execute permissions on files extracted from a tar/zip archive. Educates will restore execute permissions on ``setup.d`` scripts, but if you have other files which have execute permissions, you will need to supply a ``setup.d`` to restore those execute permissions.
@@ -576,6 +578,34 @@ spec:
 
 Only an image built to the extension package layout may be declared this way.
 An ordinary application image is not an extension package and will not work.
+
+An extension package image carries a package manifest named ``package.yaml``
+at its root, alongside the ``setup.d``, ``profile.d`` and ``bin`` directories
+the package provides. The manifest names the package and its version:
+
+```yaml
+apiVersion: packages.educates.dev/v1alpha1
+kind: ExtensionPackage
+name: argocd
+version: 2.10.6
+description: The Argo CD command line client.
+```
+
+The manifest is what a workshop session looks for to confirm that the package
+arrived. When a workshop session starts, each package declared as an image is
+checked for its manifest, and one line per package is written to
+``download-workshop.log`` naming the package and how it was delivered. A
+package whose manifest is missing is reported there and an error dialog is
+shown on the workshop session dashboard, rather than the session starting
+without the package. This is what an image which is not an extension package
+looks like when it is declared as one.
+
+Such an image is built with the ``educates package publish`` command, which
+takes a package source directory holding the manifest beside the reserved
+``common``, ``linux-amd64`` and ``linux-arm64`` directories, and publishes one
+child image per platform. Files common to every platform go in ``common``, and
+a platform directory overlays it, which is how a package ships a different
+binary per architecture under the same image reference.
 
 For a number of extension packages being maintained by the Educates team see:
 

@@ -243,6 +243,27 @@ New Features
   rather than a fault. The resolution is re-evaluated when a node joins,
   leaves, or is upgraded.
 
+* A ``bin`` directory contained in an installed extension package is now added
+  to the application search path defined by the ``PATH`` environment variable,
+  so a program a package ships can be run by name without the package
+  supplying a ``profile.d`` script to set it up. This applies to a package
+  declared with ``files`` as well as one declared as an image. Packages are
+  added in the alphabetical order of their names, so where two packages ship a
+  program of the same name, the one from the package whose name sorts first is
+  found. The search path is set before package setup scripts run, so a setup
+  script can run programs from its own package.
+
+* Each extension package declared as an image is now checked when a workshop
+  session starts, and one line per package is written to
+  ``download-workshop.log`` naming the package and whether it was mounted or
+  fetched. A package which did not arrive, most commonly because the image
+  reference names an ordinary application image rather than an image built as
+  an extension package, is reported there and an error dialog is shown on the
+  workshop session dashboard, rather than the session starting without the
+  package. Every package is checked before the session reports a failure, so
+  one package which did not arrive does not hide the state of the others or
+  stop the remaining packages' setup scripts from running.
+
 Features Changed
 ----------------
 
