@@ -217,6 +217,16 @@ New Features
   be downloaded by ``vendir`` exactly as before, and a workshop can mix the
   two.
 
+* On a cluster which supports it, an extension package declared as an image is
+  now mounted into a workshop session read only, rather than having its
+  contents downloaded. The workshop definition is the same either way, and the
+  platform chooses: the delivery is settled when the workshop environment is
+  created and every session of that environment uses it, so changing the
+  platform setting affects new environments only. A package held in a registry
+  requiring authentication is pulled using the secret named by
+  ``pullSecretRef``, which must also be listed under
+  ``spec.environment.secrets``.
+
 Features Changed
 ----------------
 
