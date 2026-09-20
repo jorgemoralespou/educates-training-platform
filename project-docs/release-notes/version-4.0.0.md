@@ -186,6 +186,17 @@ New Features
   yet ``Ready``), or a fully installed and ready cluster — making it easy to
   tell a working install from a partial or broken one.
 
+* An extension package listed under ``spec.workshop.packages`` of a workshop
+  definition can now be declared as a published image, by setting ``image`` to
+  a tagged image reference instead of listing ``files``. The two are mutually
+  exclusive. An optional ``imagePullPolicy`` and an optional
+  ``pullSecretRef``, naming a secret also listed in
+  ``spec.environment.secrets``, can accompany it. The image reference may use
+  the ``$(image_repository)``, ``$(workshop_name)`` and
+  ``$(workshop_version)`` variables, must carry a tag, and cannot be a digest.
+  A package declared this way needs a name which is a valid DNS label, as the
+  name is used when the package is delivered to a workshop session.
+
 Features Changed
 ----------------
 

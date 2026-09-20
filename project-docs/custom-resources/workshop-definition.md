@@ -517,6 +517,66 @@ Note that although ``vendir`` will automatically unpack any archive file by defa
 
 If credentials are required to access any remote server, these can be supplied via a Kubernetes secret in your cluster. The ``environment.secrets`` property list should designate the source for the secret, with the secret then being copied into the workshop namespace and automatically injected into the container and passed to ``vendir`` when it is run.
 
+Declaring an extension package as an image
+------------------------------------------
+
+Where an extension package is published as an image built for the purpose, it
+can be declared directly, rather than as a ``vendir`` download:
+
+```yaml
+spec:
+  workshop:
+    packages:
+    - name: argocd
+      image: ghcr.io/educates/educates-extension-packages/argocd:v2.10.6
+```
+
+This is the preferred form for a published package. The ``files`` property
+remains the way to bring in a package from a Git repository or a web server,
+and the way to work on a package locally.
+
+A package declares either ``image`` or ``files``, never both, and no subset of
+the image can be selected: the whole image is the package. The name of the
+package must be a valid DNS label, because it is used when the package is
+delivered to the workshop session.
+
+The image reference must carry a tag and cannot be a digest. The
+``$(image_repository)``, ``$(workshop_name)`` and ``$(workshop_version)``
+variables can be used in the reference.
+
+An optional ``imagePullPolicy`` can be set alongside ``image``, accepting
+``Always``, ``Never`` or ``IfNotPresent``:
+
+```yaml
+spec:
+  workshop:
+    packages:
+    - name: argocd
+      image: ghcr.io/educates/educates-extension-packages/argocd:v2.10.6
+      imagePullPolicy: IfNotPresent
+```
+
+Where the image is held in a registry requiring credentials, an optional
+``pullSecretRef`` names a secret which must also be listed under
+``spec.environment.secrets`` so that it is copied into the workshop namespace:
+
+```yaml
+spec:
+  workshop:
+    packages:
+    - name: argocd
+      image: registry.example.com/packages/argocd:v2.10.6
+      pullSecretRef:
+        name: registry-credentials
+  environment:
+    secrets:
+    - namespace: educates-secrets
+      name: registry-credentials
+```
+
+Only an image built to the extension package layout may be declared this way.
+An ordinary application image is not an extension package and will not work.
+
 For a number of extension packages being maintained by the Educates team see:
 
 * [https://github.com/educates/educates-extension-packages](https://github.com/educates/educates-extension-packages)
