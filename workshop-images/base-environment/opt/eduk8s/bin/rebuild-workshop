@@ -76,6 +76,8 @@ PATH="$PACKAGES_PATH$PATH"
 
 export PATH
 
+unset PACKAGES_PATH dir
+
 touch $WORKSHOP_ENV_ROLLUP
 
 for script in /opt/packages/*/setup.d/*.sh; do

@@ -22,10 +22,32 @@ PACKAGES_CONFIG=/opt/eduk8s/config/packages.yaml
 FETCHED_PATHS=""
 
 if [ -f "$PACKAGES_CONFIG" ]; then
-    FETCHED_PATHS=$(yq -r '.packages[].path' "$PACKAGES_CONFIG" 2>/dev/null)
+    # A config which exists but cannot be read would make every fetched
+    # package look mounted, which is the one thing these lines exist to say,
+    # so it is a failure rather than something to work around.
+    if ! FETCHED_PATHS=$(yq -r '.packages[].path' "$PACKAGES_CONFIG"); then
+        echo "Packages could not be checked: $PACKAGES_CONFIG could not be read"
+        exit 1
+    fi
 fi
 
 STATUS=0
+
+# A workshop with no packages at all is the common case and must stay silent,
+# so an empty list cannot be treated as a failure. What must not pass silently
+# is being unable to read the definition, which would otherwise check nothing
+# and report success. The definition is therefore parsed once, up front, and
+# an unreadable one is a failure in its own right.
+
+if ! PACKAGE_COUNT=$(workshop-definition -r '(.spec.workshop.packages // []) | length' 2>/dev/null) ||
+   [ -z "$PACKAGE_COUNT" ]; then
+    echo "Packages could not be checked: the workshop definition could not be read"
+    exit 1
+fi
+
+if [ "$PACKAGE_COUNT" -eq 0 ]; then
+    exit 0
+fi
 
 while IFS= read -r PACKAGE_NAME; do
     if [ -z "$PACKAGE_NAME" ]; then
@@ -36,12 +58,12 @@ while IFS= read -r PACKAGE_NAME; do
 
     DELIVERY="image mount"
 
-    for FETCHED_PATH in $FETCHED_PATHS; do
-        if [ "$FETCHED_PATH" = "$PACKAGE_PATH" ]; then
-            DELIVERY="package fetch"
-            break
-        fi
-    done
+    # The fetched paths are matched line by line rather than by word, so a
+    # path is compared whole whatever it contains.
+    if [ -n "$FETCHED_PATHS" ] &&
+       printf '%s\n' "$FETCHED_PATHS" | grep -qxF "$PACKAGE_PATH"; then
+        DELIVERY="package fetch"
+    fi
 
     if [ -f "$PACKAGE_PATH/package.yaml" ]; then
         echo "Package $PACKAGE_NAME: $DELIVERY"
