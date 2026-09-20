@@ -61,7 +61,7 @@ func TestAPIServerVersionCacheReadsOnce(t *testing.T) {
 		}
 
 		if version != supportedAPIServerVersion {
-			t.Errorf("version = %q, want v1.36.4", version)
+			t.Errorf("version = %q, want %q", version, supportedAPIServerVersion)
 		}
 	}
 
@@ -91,7 +91,7 @@ func TestAPIServerVersionCacheRefreshes(t *testing.T) {
 	}
 
 	if version != supportedAPIServerVersion {
-		t.Errorf("version = %q, want the upgraded v1.36.4", version)
+		t.Errorf("version = %q, want the upgraded %q", version, supportedAPIServerVersion)
 	}
 
 	if reads := reader.count(); reads != 2 {
@@ -120,7 +120,41 @@ func TestAPIServerVersionCacheKeepsLastKnownValueOnFailure(t *testing.T) {
 	}
 
 	if version != supportedAPIServerVersion {
-		t.Errorf("version = %q, want the last known v1.36.4", version)
+		t.Errorf("version = %q, want the last known %q", version, supportedAPIServerVersion)
+	}
+}
+
+func TestAPIServerVersionCacheBacksOffAfterAFailedRefresh(t *testing.T) {
+	reader := &countingReader{version: supportedAPIServerVersion}
+	cache := &apiServerVersionCache{refreshAfter: time.Hour}
+
+	if _, err := cache.get(reader.read); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	reader.set("", errors.New("connection refused"))
+	cache.expire()
+
+	// The refresh fails, and the reconciler carries on with the last known
+	// value.
+	if _, err := cache.get(reader.read); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	readsAfterFailure := reader.count()
+
+	// Reconciles keep arriving while the API server is unreachable. Retrying
+	// on every one of them would restore the per reconcile round trip this
+	// cache exists to remove, so the failure is held for the refresh interval
+	// like a success.
+	for range 5 {
+		if _, err := cache.get(reader.read); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	if reads := reader.count(); reads != readsAfterFailure {
+		t.Errorf("retried %d times during the outage, want no further reads", reads-readsAfterFailure)
 	}
 }
 
@@ -144,7 +178,7 @@ func TestAPIServerVersionCacheReportsFirstFailure(t *testing.T) {
 	}
 
 	if version != supportedAPIServerVersion {
-		t.Errorf("version = %q, want v1.36.4", version)
+		t.Errorf("version = %q, want %q", version, supportedAPIServerVersion)
 	}
 }
 
@@ -170,7 +204,7 @@ func TestAPIServerVersionCacheRefreshesWhenZeroValued(t *testing.T) {
 	}
 
 	if version != supportedAPIServerVersion {
-		t.Errorf("version = %q, want the upgraded v1.36.4", version)
+		t.Errorf("version = %q, want the upgraded %q", version, supportedAPIServerVersion)
 	}
 }
 

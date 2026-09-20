@@ -37,11 +37,13 @@ type apiServerVersionCache struct {
 // A failed refresh returns the last known value rather than an error: the
 // version is a property of the cluster, not of this moment's connectivity. An
 // error surfaces only when there is no known value to stand on.
+// The lock is deliberately held across read, so that concurrent reconciles
+// wait for one in flight call rather than each making their own.
 func (c *apiServerVersionCache) get(read func() (string, error)) (string, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	if c.version != "" && !c.due() {
+	if c.version != "" && !c.refreshDue() {
 		return c.version, nil
 	}
 
@@ -49,6 +51,14 @@ func (c *apiServerVersionCache) get(read func() (string, error)) (string, error)
 
 	if err != nil {
 		if c.version != "" {
+			// Hold the failure for the refresh interval rather than retrying
+			// on the next reconcile, which during a sustained outage would
+			// restore the round trip per reconcile this cache exists to
+			// remove. The value is still the right one until the cluster is
+			// upgraded, which cannot happen while its API server is
+			// unreachable.
+			c.readAt = time.Now()
+
 			return c.version, nil
 		}
 
@@ -61,8 +71,8 @@ func (c *apiServerVersionCache) get(read func() (string, error)) (string, error)
 	return version, nil
 }
 
-// due reports whether the held value has outlived the refresh interval.
-func (c *apiServerVersionCache) due() bool {
+// refreshDue reports whether the held value has outlived the refresh interval.
+func (c *apiServerVersionCache) refreshDue() bool {
 	interval := c.refreshAfter
 
 	if interval <= 0 {
