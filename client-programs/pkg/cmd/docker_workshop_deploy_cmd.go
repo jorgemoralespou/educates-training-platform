@@ -737,7 +737,9 @@ func generateVendirPackagesConfig(workshop *unstructured.Unstructured, name stri
 
 			// An extension package which declares no files has nothing for
 			// vendir to download, so it contributes no directory to the
-			// config. The remaining packages are still processed.
+			// config. The remaining packages are still processed. The skip is
+			// silent: the deploy reports which packages it delivered and how,
+			// rather than commenting on each one here.
 
 			if !found || tmpPackagesFilesItem == nil {
 				continue
