@@ -713,7 +713,11 @@ func generateVendirPackagesConfig(workshop *unstructured.Unstructured, name stri
 		directoriesConfig := []map[string]interface{}{}
 
 		for _, packagesItem := range packagesItems {
-			tmpPackagesItem := packagesItem.(map[string]interface{})
+			tmpPackagesItem, ok := packagesItem.(map[string]interface{})
+
+			if !ok {
+				return "", errors.New("extension package entry is not an object")
+			}
 
 			tmpName, found := tmpPackagesItem["name"]
 
@@ -721,14 +725,36 @@ func generateVendirPackagesConfig(workshop *unstructured.Unstructured, name stri
 				continue
 			}
 
-			packagesItemPath := filepath.Clean(path.Join("/opt/packages", tmpName.(string)))
+			packagesItemName, ok := tmpName.(string)
 
-			tmpPackagesFilesItem := tmpPackagesItem["files"]
+			if !ok {
+				return "", errors.New("extension package name is not a string")
+			}
 
-			packagesFilesItem := tmpPackagesFilesItem.([]interface{})
+			packagesItemPath := filepath.Clean(path.Join("/opt/packages", packagesItemName))
+
+			tmpPackagesFilesItem, found := tmpPackagesItem["files"]
+
+			// An extension package which does not declare files is not
+			// downloaded by vendir. Skip it here so the rest of the packages
+			// are still rendered.
+
+			if !found || tmpPackagesFilesItem == nil {
+				continue
+			}
+
+			packagesFilesItem, ok := tmpPackagesFilesItem.([]interface{})
+
+			if !ok {
+				return "", errors.Errorf("files for extension package %q is not a list", packagesItemName)
+			}
 
 			for _, tmpEntry := range packagesFilesItem {
-				entry := tmpEntry.(map[string]interface{})
+				entry, ok := tmpEntry.(map[string]interface{})
+
+				if !ok {
+					return "", errors.Errorf("files entry for extension package %q is not an object", packagesItemName)
+				}
 
 				_, found = entry["path"]
 
