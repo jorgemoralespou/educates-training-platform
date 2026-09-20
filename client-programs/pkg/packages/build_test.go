@@ -102,11 +102,11 @@ func layerEntries(t *testing.T, image regv1.Image) map[string]*tar.Header {
 
 func TestBuildPackageImage_ChildrenAndIndex(t *testing.T) {
 	source := writeSource(t, map[string]os.FileMode{
-		"package.yaml":                  0,
-		"common/setup.d/01-setup.sh":    0o755,
-		"common/profile.d/01-path.sh":   0o644,
-		"linux-amd64/bin/argocd":        0o755,
-		"linux-arm64/bin/argocd":        0o755,
+		"package.yaml":                0,
+		"common/setup.d/01-setup.sh":  0o755,
+		"common/profile.d/01-path.sh": 0o644,
+		"linux-amd64/bin/argocd":      0o755,
+		"linux-arm64/bin/argocd":      0o755,
 	})
 
 	if err := os.WriteFile(filepath.Join(source, "package.yaml"), []byte(validManifest), 0o644); err != nil {
@@ -312,6 +312,56 @@ func TestBuildPackageImage_RejectsForbiddenEntries(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("expected the error to mention %q, got: %v", want, err)
 		}
+	}
+}
+
+// A hard link is an ordinary file by its mode, so it is caught by its link
+// count. It would be published as an independent copy under an image mount
+// but dropped by a vendir fetch, which is why the contract refuses it.
+func TestBuildPackageImage_RejectsHardLinks(t *testing.T) {
+	source := writeSource(t, map[string]os.FileMode{
+		"common/bin/real": 0o755,
+	})
+
+	if err := os.WriteFile(filepath.Join(source, "package.yaml"), []byte(validManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Link(filepath.Join(source, "common", "bin", "real"), filepath.Join(source, "common", "bin", "linked")); err != nil {
+		t.Skipf("cannot create a hard link on this platform: %v", err)
+	}
+
+	_, err := BuildPackageImage(source, []Platform{{OS: "linux", Architecture: "amd64"}}, fixedTime())
+
+	if err == nil {
+		t.Fatalf("expected a package source containing a hard link to be refused")
+	}
+
+	if !strings.Contains(err.Error(), "hard link") {
+		t.Errorf("expected the error to name the hard link, got: %v", err)
+	}
+
+	// Both names of the linked file are reported, since either could be the
+	// one the author did not intend.
+	for _, want := range []string{"common/bin/real", "common/bin/linked"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected the error to mention %q, got: %v", want, err)
+		}
+	}
+}
+
+// An ordinary file with a single link is published normally.
+func TestBuildPackageImage_AcceptsOrdinaryFiles(t *testing.T) {
+	source := writeSource(t, map[string]os.FileMode{
+		"common/bin/real": 0o755,
+	})
+
+	if err := os.WriteFile(filepath.Join(source, "package.yaml"), []byte(validManifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := BuildPackageImage(source, []Platform{{OS: "linux", Architecture: "amd64"}}, fixedTime()); err != nil {
+		t.Fatalf("an ordinary file should be published: %v", err)
 	}
 }
 

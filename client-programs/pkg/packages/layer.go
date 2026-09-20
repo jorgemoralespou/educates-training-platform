@@ -3,13 +3,13 @@ package packages
 import (
 	"archive/tar"
 	"bytes"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
@@ -152,6 +152,13 @@ func collectEntries(sourceDir string, platform Platform) ([]sourceEntry, error) 
 			case mode.IsDir():
 				entries[imagePath] = sourceEntry{imagePath: imagePath, sourcePath: sourcePath, isDir: true}
 			case mode.IsRegular():
+				// A hard link is an ordinary file as far as the mode is
+				// concerned, so it is caught by its link count.
+				if isHardLink(info) {
+					rejected = append(rejected, filepath.ToSlash(filepath.Join(dirName, relative))+" is a hard link")
+					return nil
+				}
+
 				entries[imagePath] = sourceEntry{imagePath: imagePath, sourcePath: sourcePath, mode: mode}
 			default:
 				// Symlinks, devices, sockets and named pipes cannot survive
@@ -170,7 +177,7 @@ func collectEntries(sourceDir string, platform Platform) ([]sourceEntry, error) 
 	if len(rejected) != 0 {
 		sort.Strings(rejected)
 
-		return nil, errors.Errorf("the package source contains entries which cannot be published:\n  %s", strings.Join(rejected, "\n  "))
+		return nil, errors.Errorf("the package source contains entries which cannot be published: %s", strings.Join(rejected, ", "))
 	}
 
 	ordered := make([]sourceEntry, 0, len(entries))
@@ -183,6 +190,21 @@ func collectEntries(sourceDir string, platform Platform) ([]sourceEntry, error) 
 	sort.Slice(ordered, func(i, j int) bool { return ordered[i].imagePath < ordered[j].imagePath })
 
 	return ordered, nil
+}
+
+// isHardLink reports a regular file with more than one directory entry
+// pointing at it. Such a file would be published as an independent copy under
+// an image mount but silently dropped by a vendir fetch, so the contract
+// refuses it. Where the link count is not available the file is accepted,
+// which is the behaviour on a filesystem that does not report one.
+func isHardLink(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+
+	if !ok {
+		return false
+	}
+
+	return stat.Nlink > 1
 }
 
 func describeRejected(dirName string, relative string, mode os.FileMode) string {
@@ -226,14 +248,13 @@ func BuildLayer(sourceDir string, platform Platform, manifest []byte, timestamp 
 
 	for _, entry := range entries {
 		header := &tar.Header{
-			Name:     entry.imagePath,
-			ModTime:  timestamp,
-			Uid:      0,
-			Gid:      0,
-			Uname:    "root",
-			Gname:    "root",
-			Format:   tar.FormatPAX,
-			PAXRecords: map[string]string{},
+			Name:    entry.imagePath,
+			ModTime: timestamp,
+			Uid:     0,
+			Gid:     0,
+			Uname:   "root",
+			Gname:   "root",
+			Format:  tar.FormatPAX,
 		}
 
 		if entry.isDir {
@@ -304,7 +325,7 @@ func BuildLayer(sourceDir string, platform Platform, manifest []byte, timestamp 
 }
 
 // IgnoredRootEntries lists what was found beside the reserved directories and
-// left out of the image, for reporting under a dry run.
+// left out of the image, so a publish can say what it did not ship.
 func IgnoredRootEntries(sourceDir string) ([]string, error) {
 	items, err := os.ReadDir(sourceDir)
 
@@ -332,5 +353,3 @@ func IgnoredRootEntries(sourceDir string) ([]string, error) {
 
 	return ignored, nil
 }
-
-var _ io.Writer = (*bytes.Buffer)(nil)

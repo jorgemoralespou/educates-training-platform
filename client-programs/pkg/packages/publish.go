@@ -189,11 +189,7 @@ func (o *PublishOptions) push(reference regname.Tag, build *Build) error {
 			return errors.Wrapf(err, "unable to compute the digest for %s", child.Platform)
 		}
 
-		childReference, err := regname.NewDigest(reference.Context().Name() + "@" + digest.String())
-
-		if err != nil {
-			return errors.Wrapf(err, "unable to build the reference for %s", child.Platform)
-		}
+		childReference := reference.Context().Digest(digest.String())
 
 		if err := simpleRegistry.WriteImage(childReference, child.Image, nil); err != nil {
 			return errors.Wrapf(err, "unable to publish the image for %s", child.Platform)
@@ -231,7 +227,7 @@ func (o *PublishOptions) report(stdout io.Writer, reference regname.Tag, build *
 		fmt.Fprintf(stdout, "  %s %s\n", child.Platform, childDigest.String())
 	}
 
-	if len(build.Ignored) != 0 && o.DryRun {
+	if len(build.Ignored) != 0 {
 		fmt.Fprintf(stdout, "Ignored in the package source: %s\n", strings.Join(build.Ignored, ", "))
 	}
 
