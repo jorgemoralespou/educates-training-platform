@@ -135,6 +135,10 @@ image-%: setup-buildx
 		-t $(IMAGE_REPOSITORY)/educates-$*:$(PACKAGE_VERSION) \
 		$(or $(IMAGE_DIR.$*),$*)
 
+# The base environment image builds from its own directory as context,
+# so the shared themes and the fetcher source are staged into it first.
+image-base-environment: stage-base-environment
+
 # Workshop language images chain FROM the base environment image.
 $(addprefix image-,$(WORKSHOP_IMAGES)) image-desktop-environment: image-base-environment
 
@@ -143,8 +147,9 @@ $(addprefix image-,$(WORKSHOP_IMAGES)) image-desktop-environment: image-base-env
 image-operator: refresh-operator-embeds
 
 # The CLI image embeds the operator chart + schemas via its build
-# context and copies themes from the base-environment image.
-image-cli: refresh-cli-embeds image-base-environment
+# context, and the themes the renderer embeds are staged into that
+# context. It does not build FROM the base environment image.
+image-cli: refresh-cli-embeds stage-cli-image-themes
 
 # =============================================================================
 # Embedded-artifact freshness
