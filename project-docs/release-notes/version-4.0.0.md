@@ -227,6 +227,22 @@ New Features
   ``pullSecretRef``, which must also be listed under
   ``spec.environment.secrets``.
 
+* ``EducatesClusterConfig`` gains ``packageDelivery.imageMount``, controlling
+  whether an extension package declared as an image is mounted into a workshop
+  session or has its contents fetched. The default, ``Auto``, mounts only when
+  the cluster supports it: the API server must be 1.36 or newer, and every
+  Linux node must report a kubelet of 1.35 or newer together with
+  ``containerd`` 2.1 or newer or ``CRI-O`` 1.31 or newer. Where any of those is
+  not met the package contents are fetched instead, which works on any
+  cluster. ``Enabled`` mounts regardless, for a cluster whose support the
+  operator cannot detect, and ``Disabled`` always fetches. The resolved value
+  is published in ``status.packageDelivery.imageMount``, and a
+  ``PackageImageMountAvailable`` condition explains the outcome, naming the
+  API server version or the nodes which fall short. That condition is
+  reported separately from readiness, as fetching is a valid steady state
+  rather than a fault. The resolution is re-evaluated when a node joins,
+  leaves, or is upgraded.
+
 Features Changed
 ----------------
 
