@@ -48,9 +48,18 @@ optional. A package which ships no architecture specific files needs only
 ``common``, and a package which shares nothing needs only the platform
 directories.
 
-The layout above is the whole contract. There is no build file, and nothing in
-the source is interpreted: the files are placed in the workshop session
-exactly as they appear here, with their permissions preserved.
+The layout above is the whole contract. There is no build file, and the files
+are placed in the workshop session exactly as they appear here, with their
+permissions preserved.
+
+Only regular files and directories can be published. A symbolic link, a hard
+link, a device or a socket in the package source fails the publish and is
+named in the error, rather than being silently dropped into an image which
+behaves differently from the source. Where a tool would normally be installed
+as a symbolic link, ship the file itself, or create the link from a ``setup.d``
+script at a writable path. Anything beside the manifest and the reserved
+directories is ignored rather than published, and is listed when publishing so
+that a file in the wrong place is noticed.
 
 The package manifest
 --------------------
@@ -66,9 +75,12 @@ description: The Argo CD command line client.
 ```
 
 The ``name`` and ``version`` are required, and ``description`` is optional.
-The ``name`` must be a valid DNS label, because it names the directory the
-package is delivered to. The ``version`` describes the package and is used as
-the image tag when no tag is given at publish time.
+The ``version`` describes the package and is used as the image tag when no tag
+is given at publish time.
+
+Give the package a name which is a valid DNS label. Publishing does not check
+this, but a workshop declaring the package as an image requires one, because
+the name is used for the directory the package is delivered to.
 
 The manifest is copied to the root of the published image, where it serves a
 second purpose. When a workshop session starts, each package declared as an
@@ -82,7 +94,7 @@ What a package can provide
 --------------------------
 
 A package is unpacked into ``/opt/packages/<name>`` in the workshop session,
-and three directories in it are acted on.
+where several directories in it are acted on by name.
 
 Scripts in ``setup.d`` are run when the workshop session starts. They must be
 named with a ``.sh`` suffix and must be executable, or they are skipped. Use
@@ -102,8 +114,10 @@ names, so where two packages ship a program of the same name, the one from the
 package whose name sorts first is found. The search path is set before setup
 scripts run, so a setup script can run programs from its own package.
 
-A package may also supply ``supervisor`` configuration, which is read the same
-way as it is for a package supplied as files.
+A package may also supply ``supervisor`` configuration to run a background
+process, ``gateway/routes`` to add routes to the workshop dashboard, and
+``examiner/tests`` to add tests for the examiner. These are read the same way
+as they are for a package supplied as files.
 
 (extension-packages-are-read-only)=
 Packages are read only
@@ -159,7 +173,9 @@ timestamps are fixed rather than taken from the file system. Set
 
 Use ``--platform`` to publish for one platform rather than all of them, for
 example ``--platform linux/arm64`` while developing on a machine of that
-architecture.
+architecture. The command warns when it publishes a single platform, because
+the resulting package cannot be used by a workshop session running on any
+other architecture. Publish all platforms for a package others will use.
 
 Publishing from a pipeline
 --------------------------
@@ -175,8 +191,12 @@ educates package publish ./argocd \
 ```
 
 Pass registry credentials with ``--registry-username`` and
-``--registry-password``, or leave them out where the environment already holds
-credentials for the registry.
+``--registry-password``, or ``--registry-token``, or leave them out where the
+environment already holds credentials for the registry. Use
+``--registry-anon`` for a registry which needs none. A registry using a
+private certificate authority is reached with ``--registry-ca-cert-path``, and
+``--registry-insecure`` allows plain HTTP, which is intended for a local
+registry rather than anything else.
 
 ``--digest-file`` writes the digest of the published image index to a file, so
 a later step can refer to exactly what was published rather than to a tag
@@ -197,18 +217,30 @@ where a pipeline is already set up to build images:
 ```text
 FROM scratch
 
+ARG TARGETARCH
+
 LABEL dev.educates.extension-package="1"
 
 COPY package.yaml /package.yaml
-COPY bin/ /bin/
-COPY setup.d/ /setup.d/
+COPY common/ /
+COPY linux-${TARGETARCH}/ /
 ```
 
-The requirements are that the manifest is at the root of the image, that the
-files are laid out as they should appear under ``/opt/packages/<name>``, and
-that the image is built for the platforms the workshop sessions run on. Build
-for multiple platforms with ``docker buildx build --platform`` and publish the
-result as an index.
+The requirements are that the manifest is at the root of the image, and that
+everything else is laid out as it should appear under
+``/opt/packages/<name>``, so a program the package ships is at ``/bin`` in the
+image rather than under a platform directory. The example above reproduces the
+overlay the publish command does, taking the platform directory for the
+architecture being built, so the same package source works either way.
+
+Build for both architectures and publish the result as an index, for example
+with ``docker buildx build --platform linux/amd64,linux/arm64 --push``. An
+image built for one architecture only cannot be used by a workshop session
+running on the other.
+
+The label records that the image was built to this contract. Nothing requires
+it: a workshop session tests for the manifest, not the label, which is what
+makes this alternative possible at all.
 
 Prefer the ``educates package publish`` command unless you have a reason not
 to. It assembles the platform children from one source directory, fixes the

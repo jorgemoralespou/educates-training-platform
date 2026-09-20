@@ -1,4 +1,5 @@
-# The extension package image contract
+The extension package image contract
+====================================
 
 An extension package image is an OCI image index with one child per supported
 platform, built from a source directory holding a ``package.yaml`` manifest
@@ -8,7 +9,8 @@ child carries the label ``dev.educates.extension-package``, and a package is
 referenced by tag rather than by digest. This is hard to reverse once packages
 are published against it, by us and by anyone else.
 
-## The parts, and why each is fixed
+The parts, and why each is fixed
+--------------------------------
 
 **The reserved directory names.** A platform directory overlays ``common``, so
 one source produces every child and a package ships a different binary per
@@ -38,7 +40,8 @@ the same digests, so a tag which has not been republished names the same
 bytes, and ``--digest-file`` records what was published for a pipeline which
 wants to pin.
 
-## Consequences
+Consequences
+------------
 
 Adding a platform means adding a reserved directory name, which every existing
 package source may then optionally use. Changing the manifest shape or the

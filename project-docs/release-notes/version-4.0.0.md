@@ -206,9 +206,7 @@ New Features
   ``SOURCE_DATE_EPOCH`` is honoured where a specific build timestamp is wanted.
   Use ``--dry-run`` to validate a package source and see the digests which
   would be published without contacting a registry, and ``--digest-file`` to
-  record the published digest for a later step in a pipeline. A new page in
-  the documentation, "Creating Extension Packages", covers the package source
-  layout, the manifest, what a package can provide and how to publish one.
+  record the published digest for a later step in a pipeline.
 
 * On a cluster which supports it, an extension package declared as an image is
   now mounted into a workshop session read only, rather than having its

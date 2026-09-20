@@ -1,4 +1,5 @@
-# Extension package images are explicitly declared, not inferred
+Extension package images are explicitly declared, not inferred
+==============================================================
 
 A workshop declares an extension package published as an image by setting
 ``image`` on the package, rather than Educates inferring it from the existing
@@ -6,7 +7,8 @@ A workshop declares an extension package published as an image by setting
 API on the Workshop custom resource, so this is hard to reverse once workshops
 are written against it.
 
-## Considered options
+Considered options
+------------------
 
 The alternative was to keep the existing ``files`` declaration unchanged and
 work out at workshop environment creation whether the referenced image was
@@ -35,7 +37,8 @@ An explicit field has neither problem. The declaration is read from the
 workshop definition, which is already in hand, and a wrong reference is caught
 in the session by the manifest check with a message naming the package.
 
-## Consequences
+Consequences
+------------
 
 Moving a package between the two forms is an edit to the workshop definition
 rather than a republish. That is the cost, and it is accepted: the delivery

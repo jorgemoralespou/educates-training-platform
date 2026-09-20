@@ -1,4 +1,5 @@
-# Package images are fetched by a purpose built fetcher, not vendir
+Package images are fetched by a purpose built fetcher, not vendir
+=================================================================
 
 Where an extension package declared as an image cannot be mounted, its
 contents are fetched by ``educates-package-fetcher``, a small Go program built
@@ -6,7 +7,8 @@ into the workshop base image, rather than by ``vendir``. Packages declared
 with ``files`` are still downloaded by ``vendir``, so a reader will find two
 fetch paths in one container and should know why.
 
-## Considered options
+Considered options
+------------------
 
 Reusing ``vendir`` was the obvious option, since it is already in the base
 image and already downloads packages. It fails on two requirements of the
@@ -29,13 +31,14 @@ mounted read only cannot repair anything at startup, so the permissions have
 to survive delivery. The fetcher preserves the modes the package was published
 with, which makes one contract hold under both deliveries.
 
-## Consequences
+Consequences
+------------
 
 The base image carries a second fetching tool, and its own Go build stage, for
-a binary of the order of fifteen megabytes. The two paths are kept apart rather than unified:
-``vendir`` handles content and ``files`` packages, the fetcher handles package
-images, and each is configured by its own file so that the presence of that
-file is what decides whether it runs.
+a binary of the order of fifteen megabytes. The two paths are kept apart
+rather than unified: ``vendir`` handles content and ``files`` packages, the
+fetcher handles package images, and each is configured by its own file so that
+the presence of that file is what decides whether it runs.
 
 The session derives which packages were mounted from the absence of a fetcher
 entry, so anything writing that configuration must leave mounted packages out
