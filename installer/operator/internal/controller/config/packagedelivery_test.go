@@ -234,6 +234,23 @@ func TestProbeImageMountSupport(t *testing.T) {
 		}
 	})
 
+	t.Run("a node which does not say it is Linux is not counted", func(t *testing.T) {
+		unlabelled := node("mystery-1", "v1.30.0", "docker://24.0.7")
+		unlabelled.Labels = nil
+
+		ok, _, message := probeImageMountSupport("v1.36.4", []corev1.Node{
+			supportedNode("worker-1"), unlabelled,
+		})
+
+		if !ok {
+			t.Fatalf("an unlabelled node should not block support, got %q", message)
+		}
+
+		if !strings.Contains(message, "all 1 nodes") {
+			t.Errorf("expected only labelled Linux nodes to be counted, got %q", message)
+		}
+	})
+
 	t.Run("an unreadable API server version", func(t *testing.T) {
 		_, reason, _ := probeImageMountSupport("nonsense", []corev1.Node{supportedNode("worker-1")})
 

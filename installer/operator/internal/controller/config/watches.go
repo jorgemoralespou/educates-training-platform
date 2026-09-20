@@ -270,6 +270,11 @@ func (r *EducatesClusterConfigReconciler) mapNodeToSingleton(_ context.Context, 
 // node heartbeat would reconcile the singleton.
 func nodeVersionsChanged() predicate.Predicate {
 	return predicate.Funcs{
+		// A node joining or leaving changes which nodes the check covers,
+		// so both always reconcile. These are stated rather than left to
+		// the default so the intent is on the page.
+		CreateFunc: func(event.CreateEvent) bool { return true },
+		DeleteFunc: func(event.DeleteEvent) bool { return true },
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldNode, ok := e.ObjectOld.(*corev1.Node)
 			if !ok {

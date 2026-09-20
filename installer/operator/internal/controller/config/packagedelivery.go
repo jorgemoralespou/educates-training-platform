@@ -204,7 +204,11 @@ func probeImageMountSupport(apiServerVersion string, nodes []corev1.Node) (bool,
 	for index := range nodes {
 		node := &nodes[index]
 
-		if operatingSystem, found := node.Labels["kubernetes.io/os"]; found && operatingSystem != "linux" {
+		// Only Linux nodes run workshop sessions. The caller selects them
+		// server side; this repeats the rule so the check can be exercised
+		// without a cluster, and both agree that a node which does not say
+		// it is Linux is not counted.
+		if node.Labels["kubernetes.io/os"] != "linux" {
 			continue
 		}
 
@@ -306,22 +310,31 @@ func (r *EducatesClusterConfigReconciler) resolvePackageDelivery(
 	apiServerVersion := ""
 
 	var nodes []corev1.Node
+	var probeErr error
 
 	// Disabled settles without consulting the cluster at all.
 	if mode != configv1alpha1.DeliveryModeDisabled {
-		var err error
+		apiServerVersion, nodes, probeErr = r.probeClusterCapability(ctx)
 
-		apiServerVersion, nodes, err = r.probeClusterCapability(ctx)
-
-		if err != nil {
-			log.FromContext(ctx).V(1).Info(
-				"Unable to probe the cluster for image volume support",
-				"error", err.Error(),
+		if probeErr != nil {
+			log.FromContext(ctx).Error(
+				probeErr, "Unable to check whether the cluster can mount package images",
 			)
 		}
 	}
 
 	effective, reason, message := resolveImageMount(mode, apiServerVersion, nodes)
+
+	// A cluster which could not be read reports why, rather than the
+	// downstream complaint about an empty version or an empty node list.
+	if probeErr != nil {
+		reason = reasonProbeFailed
+		message = probeErr.Error()
+
+		if mode == configv1alpha1.DeliveryModeEnabled {
+			message = "spec.packageDelivery.imageMount is Enabled, but the cluster could not be checked: " + message
+		}
+	}
 
 	obj.Status.PackageDelivery = &configv1alpha1.StatusPackageDelivery{
 		ImageMount: effective,
