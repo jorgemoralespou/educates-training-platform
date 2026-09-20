@@ -264,6 +264,31 @@ New Features
   one package which did not arrive does not hide the state of the others or
   stop the remaining packages' setup scripts from running.
 
+* An extension package declared as an image is now delivered when deploying a
+  workshop with ``educates docker workshop deploy``, where previously such a
+  package was not delivered at all. It is mounted into the session read only
+  where the local Docker daemon supports it, which requires Docker Engine
+  28.0 or newer, Docker Compose 2.35 or newer and the containerd image store,
+  and its contents are fetched where it does not. A current Docker Desktop
+  meets all three. The chosen delivery is printed, along with the reason when
+  it falls back, and one line names each package. A new
+  ``--package-delivery`` option takes ``auto``, ``image-mount`` or ``fetch``,
+  so an author can force either delivery. Asking for a mount on a daemon
+  which cannot do it fails before the workshop is deployed, naming what is
+  missing.
+
+* The ``imagePullPolicy`` of an extension package declared as an image is now
+  honoured by ``educates docker workshop deploy`` where the package is
+  mounted. ``Always`` pulls the image before deploying, which matters when
+  republishing the same tag while working on a package locally, and ``Never``
+  reports an error before deploying when the image is not already held
+  locally. Where the package contents are fetched instead, the policy
+  continues to be ignored. Note that ``pullSecretRef`` is ignored when
+  deploying with Docker, so an image held in a registry requiring
+  authentication needs ``docker login`` for that registry first. A pull which
+  fails for want of credentials now names the image, the registry and the
+  command to run.
+
 Features Changed
 ----------------
 

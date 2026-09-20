@@ -170,6 +170,8 @@ This condition is reported separately from the readiness of the installation, be
 
 Delivery is settled for a workshop environment when that environment is created, and every session of it follows that choice. Changing this setting therefore affects only workshop environments created afterwards.
 
+This setting applies to workshops deployed to a cluster. A workshop deployed locally with ``educates docker workshop deploy`` makes the same choice against the local Docker daemon instead, and has its own option for overriding it. See [declaring an extension package as an image](declaring-an-extension-package-as-an-image).
+
 (overriding-container-runtime-class)=
 (restricting-session-manager-permissions)=
 (restricting-network-access)=

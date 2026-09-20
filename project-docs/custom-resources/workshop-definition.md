@@ -519,6 +519,7 @@ Note that although ``vendir`` will automatically unpack any archive file by defa
 
 If credentials are required to access any remote server, these can be supplied via a Kubernetes secret in your cluster. The ``environment.secrets`` property list should designate the source for the secret, with the secret then being copied into the workshop namespace and automatically injected into the container and passed to ``vendir`` when it is run.
 
+(declaring-an-extension-package-as-an-image)=
 Declaring an extension package as an image
 ------------------------------------------
 
@@ -606,6 +607,36 @@ takes a package source directory holding the manifest beside the reserved
 child image per platform. Files common to every platform go in ``common``, and
 a platform directory overlays it, which is how a package ships a different
 binary per architecture under the same image reference.
+
+A package declared as an image is delivered when deploying a workshop locally
+with ``educates docker workshop deploy`` as well as to a cluster. It is
+mounted into the session read only where the local Docker daemon supports it,
+which requires Docker Engine 28.0 or newer, Docker Compose 2.35 or newer and
+the containerd image store, and its contents are fetched where it does not. A
+current Docker Desktop meets all three. Note that a daemon upgraded in place
+from an older release may still be using the earlier image store, in which
+case it cannot mount however recent its version. The chosen delivery is
+printed when the workshop is deployed, with the reason when it falls back.
+
+Pass ``--package-delivery`` with ``image-mount`` or ``fetch`` to force either
+delivery rather than letting the daemon decide, for example to reproduce how
+a package behaves on a cluster which cannot mount. Asking for a mount on a
+daemon which cannot do it reports what is missing rather than deploying.
+
+Where the package is mounted, ``imagePullPolicy`` applies: ``Always`` pulls
+the image before deploying, which is what you want when republishing the same
+tag while working on a package, and ``Never`` reports an error when the image
+is not already held locally. Where the contents are fetched instead, the
+policy is ignored.
+
+``pullSecretRef`` is ignored when deploying with Docker, since a local deploy
+has no access to cluster secrets. An image held in a registry requiring
+authentication needs ``docker login`` for that registry first.
+
+When using Podman rather than Docker, the package is mounted only when its
+image is already held locally, because Podman does not pull the image behind
+a volume. Otherwise the contents are fetched, so the deploy succeeds either
+way.
 
 For a number of extension packages being maintained by the Educates team see:
 
