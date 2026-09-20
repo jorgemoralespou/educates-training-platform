@@ -545,7 +545,17 @@ delivered to the workshop session.
 
 The image reference must carry a tag and cannot be a digest. The
 ``$(image_repository)``, ``$(workshop_name)`` and ``$(workshop_version)``
-variables can be used in the reference.
+variables can be used in the reference, and are the only variables expanded
+in it. The ``$(platform_arch)`` and ``$(oci_image_cache)`` variables are
+rejected: a package image is an image index carrying one child per
+architecture, so the right child is selected when the package is delivered
+and there is no per-architecture reference to construct.
+
+The platform decides how the package reaches a workshop session, either by
+mounting the image read only or by fetching its contents, according to what
+the cluster supports. The workshop definition is the same either way. See
+[delivery of extension packages](delivery-of-extension-packages) for the
+cluster setting which governs this.
 
 An optional ``imagePullPolicy`` can be set alongside ``image``, accepting
 ``Always``, ``Never`` or ``IfNotPresent``:
@@ -577,8 +587,17 @@ spec:
       name: registry-credentials
 ```
 
+Name the secret with ``pullSecretRef`` even where the platform is configured
+with image registry credentials of its own. Those apply when the package image
+is mounted, because the mount is pulled by the cluster the way any other image
+is, but not when the package contents are fetched, because the fetch uses only
+the secret the package names. A package which names its secret works under
+either delivery.
+
 Only an image built to the extension package layout may be declared this way.
 An ordinary application image is not an extension package and will not work.
+See [creating extension packages](creating-extension-packages) for how to
+build and publish one.
 
 An extension package image carries a package manifest named ``package.yaml``
 at its root, alongside the ``setup.d``, ``profile.d`` and ``bin`` directories

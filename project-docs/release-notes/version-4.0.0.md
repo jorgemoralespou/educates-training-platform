@@ -206,16 +206,9 @@ New Features
   ``SOURCE_DATE_EPOCH`` is honoured where a specific build timestamp is wanted.
   Use ``--dry-run`` to validate a package source and see the digests which
   would be published without contacting a registry, and ``--digest-file`` to
-  record the published digest for a later step in a pipeline.
-
-* An extension package declared as an image is now delivered to a workshop
-  session by a purpose built package fetcher rather than by ``vendir``. The
-  fetcher resolves a multi architecture image to the architecture the session
-  runs on, so an author writes one image reference whichever architecture the
-  node uses, and it preserves the file permissions the package was published
-  with, which ``vendir`` does not. Packages declared with ``files`` continue to
-  be downloaded by ``vendir`` exactly as before, and a workshop can mix the
-  two.
+  record the published digest for a later step in a pipeline. A new page in
+  the documentation, "Creating Extension Packages", covers the package source
+  layout, the manifest, what a package can provide and how to publish one.
 
 * On a cluster which supports it, an extension package declared as an image is
   now mounted into a workshop session read only, rather than having its
@@ -291,6 +284,15 @@ New Features
 
 Features Changed
 ----------------
+
+* An extension package declared as an image is now delivered to a workshop
+  session by a purpose built package fetcher rather than by ``vendir``. The
+  fetcher resolves a multi architecture image to the architecture the session
+  runs on, so an author writes one image reference whichever architecture the
+  node uses, and it preserves the file permissions the package was published
+  with, which ``vendir`` does not. Packages declared with ``files`` continue to
+  be downloaded by ``vendir`` exactly as before, and a workshop can mix the
+  two.
 
 * The bundled Kyverno security policies are now ``ValidatingPolicy`` resources
   (``policies.kyverno.io``), the policy type recommended from Kyverno 1.18,

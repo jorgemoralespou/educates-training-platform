@@ -122,6 +122,7 @@ By disabling reserved sessions a new workshop session will always be created on 
 
 Note that there can be a slight delay in being able to create a new workshop as the existing workshop session will need to be shutdown first. The new workshop session may also take some time to start if an updated version of the workshop image has to be pulled down.
 
+(accessing-workshop-error-logs)=
 Accessing workshop error logs
 -----------------------------
 
