@@ -197,6 +197,17 @@ New Features
   A package declared this way needs a name which is a valid DNS label, as the
   name is used when the package is delivered to a workshop session.
 
+* A new ``educates package publish`` command, also available as ``educates
+  publish-package``, builds and publishes an extension package as an image. It
+  takes a package source directory holding a ``package.yaml`` manifest beside
+  the reserved ``common``, ``linux-amd64`` and ``linux-arm64`` directories, and
+  publishes an image index with one child image per platform. No Docker daemon
+  is required. Two builds of the same source produce the same digests, and
+  ``SOURCE_DATE_EPOCH`` is honoured where a specific build timestamp is wanted.
+  Use ``--dry-run`` to validate a package source and see the digests which
+  would be published without contacting a registry, and ``--digest-file`` to
+  record the published digest for a later step in a pipeline.
+
 Features Changed
 ----------------
 
