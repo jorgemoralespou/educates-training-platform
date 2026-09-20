@@ -206,6 +206,14 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 
 	var workshopComposeProject *composetypes.Project
 
+	// Apply the extension package rules the Workshop custom resource
+	// definition enforces on a cluster, so a local deploy gives the same
+	// verdict.
+
+	if err = validateWorkshopPackages(workshop); err != nil {
+		return name, err
+	}
+
 	if workshopConfigData, err = generateWorkshopConfig(workshop); err != nil {
 		return name, err
 	}
