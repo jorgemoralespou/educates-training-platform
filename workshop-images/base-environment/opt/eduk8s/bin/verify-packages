@@ -12,12 +12,19 @@
 # The test is the package manifest which the package image contract requires at
 # the root of every package. Packages declaring files are not checked: they
 # predate the manifest and legitimately do not carry one.
+#
+# The packages are found from what is on disk rather than from the workshop
+# definition, because the definition the session is given is a trimmed one
+# which carries the session configuration and not spec.workshop. Both renderers
+# trim it the same way.
 
 PACKAGES_CONFIG=/opt/eduk8s/config/packages.yaml
+VENDIR_CONFIG=/opt/packages/vendir.yaml
 
-# Which packages were fetched rather than mounted is derived rather than passed
-# in: a package the fetcher was asked for is one nothing mounted. This holds for
-# both renderers, since both write the same fetcher config.
+# A package the fetcher was asked for was fetched; one which is simply present
+# was mounted. Between the two, every package declared as an image is covered:
+# a mount leaves a directory, and a fetch is named in the config whether or not
+# it succeeded.
 
 FETCHED_PATHS=""
 
@@ -31,30 +38,45 @@ if [ -f "$PACKAGES_CONFIG" ]; then
     fi
 fi
 
+# Packages declaring files are downloaded by vendir into the same tree and
+# carry no manifest, so they are excluded by name rather than reported as
+# having failed to arrive.
+
+VENDIR_PATHS=""
+
+if [ -f "$VENDIR_CONFIG" ]; then
+    if ! VENDIR_PATHS=$(yq -r '.directories[].path' "$VENDIR_CONFIG"); then
+        echo "Packages could not be checked: $VENDIR_CONFIG could not be read"
+        exit 1
+    fi
+fi
+
+# The paths to check: everything present under /opt/packages, plus anything
+# the fetcher was asked for which is not there.
+
+PACKAGE_PATHS=$(
+    for ENTRY in /opt/packages/*/; do
+        [ -d "$ENTRY" ] && printf '%s\n' "${ENTRY%/}"
+    done
+
+    printf '%s' "$FETCHED_PATHS"
+)
+
 STATUS=0
+CHECKED=0
 
-# A workshop with no packages at all is the common case and must stay silent,
-# so an empty list cannot be treated as a failure. What must not pass silently
-# is being unable to read the definition, which would otherwise check nothing
-# and report success. The definition is therefore parsed once, up front, and
-# an unreadable one is a failure in its own right.
-
-if ! PACKAGE_COUNT=$(workshop-definition -r '(.spec.workshop.packages // []) | length' 2>/dev/null) ||
-   [ -z "$PACKAGE_COUNT" ]; then
-    echo "Packages could not be checked: the workshop definition could not be read"
-    exit 1
-fi
-
-if [ "$PACKAGE_COUNT" -eq 0 ]; then
-    exit 0
-fi
-
-while IFS= read -r PACKAGE_NAME; do
-    if [ -z "$PACKAGE_NAME" ]; then
+while IFS= read -r PACKAGE_PATH; do
+    if [ -z "$PACKAGE_PATH" ]; then
         continue
     fi
 
-    PACKAGE_PATH=/opt/packages/$PACKAGE_NAME
+    # A files package is vendir's, and has no manifest to test for.
+    if [ -n "$VENDIR_PATHS" ] &&
+       printf '%s\n' "$VENDIR_PATHS" | grep -qxF "$PACKAGE_PATH"; then
+        continue
+    fi
+
+    PACKAGE_NAME=${PACKAGE_PATH##*/}
 
     DELIVERY="image mount"
 
@@ -65,13 +87,22 @@ while IFS= read -r PACKAGE_NAME; do
         DELIVERY="package fetch"
     fi
 
+    CHECKED=$((CHECKED + 1))
+
     if [ -f "$PACKAGE_PATH/package.yaml" ]; then
         echo "Package $PACKAGE_NAME: $DELIVERY"
     else
         echo "Package $PACKAGE_NAME: manifest missing at $PACKAGE_PATH/package.yaml"
         STATUS=1
     fi
-done < <(workshop-definition -r '(.spec.workshop.packages // [])[] | select(.image != null) | .name')
+done < <(printf '%s\n' "$PACKAGE_PATHS" | sort -u)
+
+# A workshop with no packages declared as an image is the common case and says
+# nothing at all.
+
+if [ "$CHECKED" -eq 0 ]; then
+    exit 0
+fi
 
 # Every package is checked before failing, so one bad package does not hide the
 # state of the rest.
