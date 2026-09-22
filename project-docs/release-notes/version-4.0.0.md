@@ -649,9 +649,11 @@ Bugs Fixed
   helper in the workshop base environment image have been updated to their
   latest upstream releases, being ``js-yaml`` 4.3.2, ``morgan`` 1.12.0,
   ``multer`` 2.3.0, ``joi`` 17.13.7, ``liquidjs`` 10.27.2 and ``fast-uri``
-  3.1.7. These updates pick up fixes for vulnerabilities reported against the
-  previously bundled versions. The behavior of the workshop dashboard is
-  unchanged.
+  3.1.7, and the copy of ``js-yaml`` shipped with the workshop instructions
+  theme has been updated to the same 4.3.2. These updates pick up fixes for
+  vulnerabilities reported against the previously bundled versions. The
+  gateway and renderer have also been updated to Bootstrap 5.3.8, the version
+  the theme already used. The behavior of the workshop dashboard is unchanged.
 
 * Deploying a workshop with ``educates docker workshop deploy`` crashed with a
   Go panic when an extension package listed under ``spec.workshop.packages``
