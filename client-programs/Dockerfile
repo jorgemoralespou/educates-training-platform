@@ -1,3 +1,9 @@
+ARG REPOSITORY=localhost:5001
+ARG TAG=latest
+
+# Add this stage before the builder stage
+FROM --platform=$BUILDPLATFORM ${REPOSITORY}/educates-base-environment:${TAG} AS themes-source
+
 # Multi-stage build for client-programs. Pinned to BUILDPLATFORM so Go
 # cross-compiles for non-native target architectures instead of running
 # the toolchain under QEMU emulation.
@@ -15,14 +21,13 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# The renderer embeds the workshop themes, which are staged into this build
-# context before the image is built (see stage-cli-image-themes in the
-# Makefile). They are gitignored here, so the copy above may not have brought
-# them in.
-RUN test -d pkg/renderer/files/themes || \
-    { echo "themes are missing from the build context; run make stage-cli-image-themes" >&2; exit 1; }
+# Prepare renderer files (matching Makefile logic)
+RUN rm -rf pkg/renderer/files && \
+    mkdir -p pkg/renderer/files && \
+    mkdir -p bin
 
-RUN mkdir -p bin
+# Copy themes from base environment
+COPY --from=themes-source /opt/eduk8s/etc/themes pkg/renderer/files/
 
 # Build for multiple architectures
 ARG TARGETOS

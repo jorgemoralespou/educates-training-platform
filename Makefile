@@ -135,9 +135,9 @@ image-%: setup-buildx
 		-t $(IMAGE_REPOSITORY)/educates-$*:$(PACKAGE_VERSION) \
 		$(or $(IMAGE_DIR.$*),$*)
 
-# The base environment image builds from its own directory as context,
-# so the shared themes and the fetcher source are staged into it first.
-image-base-environment: stage-base-environment
+# The base environment image builds the package fetcher from the CLI module,
+# so that module's source is staged into its build context first.
+image-base-environment: stage-base-environment-fetcher
 
 # Workshop language images chain FROM the base environment image.
 $(addprefix image-,$(WORKSHOP_IMAGES)) image-desktop-environment: image-base-environment
@@ -147,9 +147,8 @@ $(addprefix image-,$(WORKSHOP_IMAGES)) image-desktop-environment: image-base-env
 image-operator: refresh-operator-embeds
 
 # The CLI image embeds the operator chart + schemas via its build
-# context, and the themes the renderer embeds are staged into that
-# context. It does not build FROM the base environment image.
-image-cli: refresh-cli-embeds stage-cli-image-themes
+# context and copies themes from the base-environment image.
+image-cli: refresh-cli-embeds image-base-environment
 
 # =============================================================================
 # Embedded-artifact freshness
@@ -225,31 +224,14 @@ build-cli: refresh-cli-embeds stage-renderer-files ## Build the educates CLI for
 build-client-programs: build-cli
 client-programs-educates: build-cli
 
-# The workshop themes are shared: the CLI embeds them and the base
-# environment image ships them. They live in the top level themes/ directory,
-# owned by neither, and are staged into each build's own context below. Both
-# staging directories are gitignored.
-
 # pkg/renderer/hugo.go embeds pkg/renderer/files/* via //go:embed, but that
-# directory is gitignored and populated at build time from the shared themes.
-# go vet/build/test fail without it ("no matching files found"), so any CLI
-# compile or CI-parity run must stage it first.
+# directory is gitignored and populated at build time from the base-environment
+# themes. go vet/build/test fail without it ("no matching files found"), so any
+# CLI compile or CI-parity run must stage it first.
 stage-renderer-files: ## Stage the gitignored CLI theme files the renderer embeds
 	rm -rf client-programs/pkg/renderer/files
 	mkdir -p client-programs/pkg/renderer/files
-	cp -rp themes client-programs/pkg/renderer/files/
-
-# The base environment image builds from its own directory as context, so the
-# shared themes are staged into it before the image is built.
-stage-base-environment-themes: ## Stage the gitignored base image theme files
-	rm -rf workshop-images/base-environment/opt/eduk8s/etc/themes
-	mkdir -p workshop-images/base-environment/opt/eduk8s/etc/themes
-	cp -rp themes/. workshop-images/base-environment/opt/eduk8s/etc/themes/
-
-# The CLI image builds from client-programs/ as context, so the themes the
-# renderer embeds are staged into it the same way. This is the same directory
-# stage-renderer-files populates for a local build.
-stage-cli-image-themes: stage-renderer-files ## Stage the themes the CLI image embeds
+	cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
 
 # The base environment image builds the package fetcher from the CLI module,
 # so that module's source is staged into its context too. The renderer is not
@@ -259,9 +241,6 @@ stage-base-environment-fetcher: ## Stage the fetcher source the base image build
 	mkdir -p workshop-images/base-environment/client-programs
 	tar -cf - --exclude bin --exclude pkg/renderer/files -C client-programs . \
 		| tar -xf - -C workshop-images/base-environment/client-programs
-
-# Everything the base environment image build needs staged into its context.
-stage-base-environment: stage-base-environment-themes stage-base-environment-fetcher ## Stage all base image build inputs
 
 # =============================================================================
 # CI parity — run the same checks as the GitHub Actions workflows locally.

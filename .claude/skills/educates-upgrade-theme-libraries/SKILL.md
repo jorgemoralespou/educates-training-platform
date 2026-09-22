@@ -22,28 +22,13 @@ All libraries live under one directory (the `educates` dashboard theme's static
 assets):
 
 ```
-themes/educates/static/static/libraries/
+workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries/
 ```
 
 Call this `$LIB` below. The target filenames are **version-agnostic** (no
 version in the path), so an upgrade overwrites the existing files in place — no
 renaming or `git rm` of old files is needed (except Font Awesome / Bootstrap if
 upstream ever changes which files ship).
-
-The top-level `themes/` directory is the only committed copy. The build stages
-the themes into the places which consume them, and **those copies are
-gitignored**:
-
-| Staged copy | Staged by |
-|---|---|
-| `workshop-images/base-environment/opt/eduk8s/etc/themes` | `make stage-base-environment-themes` |
-| `client-programs/pkg/renderer/files` | `make stage-renderer-files`, which `make build-cli`, `make ci-cli` and `make stage-cli-image-themes` all run |
-
-Never edit a staged copy. An edit there is invisible to `git diff`, is
-overwritten by the next staging run, and never reaches the repository. If you
-find yourself in one of those directories, you are in the wrong place: the
-themes used to live under `workshop-images/`, and anything still pointing
-there is stale.
 
 ## Libraries, sources, and target files
 
@@ -103,7 +88,7 @@ bundles cleanly.
 The committed minified files carry a version banner in their first line(s):
 
 ```bash
-LIB=themes/educates/static/static/libraries
+LIB=workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries
 head -c 200 "$LIB/bootstrap/css/bootstrap.min.css"      # "Bootstrap v5.3.8"
 head -c 120 "$LIB/jquery/jquery.min.js"                  # "jQuery v3.7.1"
 head -c 200 "$LIB/font-awesome/css/all.min.css"          # "Font Awesome Free 6.5.1"
@@ -125,7 +110,7 @@ Use WebFetch to read the releases/npm page and pick the latest stable version. F
 Set up the path and a scratch dir:
 
 ```bash
-LIB=themes/educates/static/static/libraries
+LIB=workshop-images/base-environment/opt/eduk8s/etc/themes/educates/static/static/libraries
 TMP=$(mktemp -d)
 ```
 
@@ -186,18 +171,13 @@ Clean up: `rm -rf "$TMP"`.
    when the version changed, the matching `package.json` (+ `package-lock.json`)
    in `renderer`/`gateway` — see "Keep aligned with the renderer and gateway
    apps". A theme-only change with no package.json update is usually a drift bug.
-   If `git diff --stat` shows nothing at all, you wrote into a staged copy
-   rather than into `themes/` — see "Canonical location".
 4. Full check (optional, heavy): rebuild the base environment image so the theme
    bundles the new assets:
    ```bash
    make image-base-environment
    ```
    then load a workshop and confirm the dashboard renders (no missing-asset 404s
-   in the browser console). The image build stages the themes itself, so the
-   new assets are picked up without a separate step. To check a staged copy
-   directly without a full image build, run `make stage-base-environment-themes`
-   or `make stage-renderer-files` and look at what it wrote.
+   in the browser console).
 
 ## Notes and gotchas
 

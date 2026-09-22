@@ -244,8 +244,8 @@ jobs:
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
-      - name: Stage the base image build inputs
-        run: make stage-base-environment
+      - name: Stage the package fetcher source
+        run: make stage-base-environment-fetcher
 
       - name: Build and push base-environment image
         uses: docker/build-push-action@v7
@@ -433,7 +433,9 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          make stage-renderer-files
+          rm -rf client-programs/pkg/renderer/files
+          mkdir client-programs/pkg/renderer/files
+          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -478,7 +480,9 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          make stage-renderer-files
+          rm -rf client-programs/pkg/renderer/files
+          mkdir client-programs/pkg/renderer/files
+          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -523,7 +527,9 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          make stage-renderer-files
+          rm -rf client-programs/pkg/renderer/files
+          mkdir client-programs/pkg/renderer/files
+          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -569,7 +575,9 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          make stage-renderer-files
+          rm -rf client-programs/pkg/renderer/files
+          mkdir client-programs/pkg/renderer/files
+          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -590,6 +598,9 @@ jobs:
       contents: read
       packages: write
       id-token: write
+
+    needs:
+      - publish-workshop-base-image
 
     steps:
       - name: Check out the repository
@@ -655,15 +666,14 @@ jobs:
           password: ${{secrets.GITHUB_TOKEN}}
           registry: ghcr.io
 
-      - name: Stage the shared workshop themes
-        run: make stage-cli-image-themes
-
       - name: Build and push docker-cli image
         uses: docker/build-push-action@v7
         with:
           context: client-programs
           platforms: ${{env.TARGET_PLATFORMS}}
           build-args: |
+            REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
+            TAG=${{env.REPOSITORY_SHA_TAG}}
             PROJECT_VERSION=${{env.REPOSITORY_TAG}}
             IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
             GIT_COMMIT=${{env.GIT_COMMIT}}
