@@ -24,9 +24,10 @@
 #                     binary as a dev build, which auto-targets its
 #                     registry for all platform images at deploy time.
 #
-# `make` regenerates committed embedded artifacts (operator CRDs/subchart
-# tarballs, CLI-embedded chart and schemas) when their sources changed —
-# a dirty tree after `make` means those need committing.
+# `make` regenerates committed embedded artifacts (operator CRDs, CLI-embedded
+# chart and schemas) when their sources changed — a dirty tree after `make`
+# means those need committing. It also packages the runtime subchart
+# tarballs the operator embeds, but those are gitignored build output.
 #
 # Prerequisites beyond docker + go: helm (subchart packaging).
 # Run `make help` for the target list.
@@ -153,29 +154,26 @@ image-cli: refresh-cli-embeds image-base-environment
 # =============================================================================
 # Embedded-artifact freshness
 # =============================================================================
-# These regenerate committed files. A dirty tree afterwards means chart
-# or CRD sources changed — commit the regenerated output (CI enforces
-# sync via verify-installer-chart / verify-cli-schemas / chart-sync-lint).
+# The generated CRDs, deepcopy code, RBAC, CLI chart copy and schemas are
+# committed: a dirty tree afterwards means their sources changed, so
+# commit the regenerated output (CI enforces sync via
+# verify-installer-chart / verify-cli-schemas and the ci-operator drift
+# checks). The runtime subchart tarballs the operator embeds are the
+# exception: they are gitignored build output, packaged fresh from their
+# sources every time, so they can never drift from them.
 
 refresh-operator-embeds: ## Regenerate CRDs + deepcopy + the subchart tarballs the operator embeds
 	$(MAKE) -C installer/operator manifests generate package-local-charts
-	@# helm package is not byte-reproducible (gzip timestamps); restore
-	@# any repackaged tarball whose listing + content are unchanged so
-	@# `make` keeps a clean tree when nothing really changed.
-	@for f in $$(git diff --name-only -- 'installer/operator/vendored-charts/*.tgz'); do \
-		new_sum=$$( (tar -tzf "$$f"; tar -xzOf "$$f") | shasum -a 256 ); \
-		old_sum=$$( (git show HEAD:"$$f" | tar -tz; git show HEAD:"$$f" | tar -xzO) 2>/dev/null | shasum -a 256 ); \
-		if [ "$$new_sum" = "$$old_sum" ]; then git checkout --quiet -- "$$f"; fi; \
-	done
 	$(MAKE) generate-installer-rbac
 
 refresh-cli-embeds: refresh-operator-embeds embed-installer-chart generate-cli-schemas ## Refresh everything the CLI embeds (chart + schemas)
 
-package-local-charts: ## Repackage the runtime subcharts into the operator's vendored-charts/
+package-local-charts: ## Package the runtime subcharts the operator embeds into its vendored-charts/
 	$(MAKE) -C installer/operator package-local-charts
 
-generate-installer-rbac: ## Regenerate the operator's fine-grained chart-install ClusterRole from the vendored charts
-	@# Renders every vendored chart and emits templates/rbac/charts-role.yaml
+generate-installer-rbac: package-local-charts ## Regenerate the operator's fine-grained chart-install ClusterRole from the vendored charts
+	@# Renders every vendored chart, the upstream ones and the runtime
+	@# subcharts packaged above, and emits templates/rbac/charts-role.yaml
 	@# (educates-installer-charts). Run after `make vendor-charts`; CI's
 	@# ci-operator drift check covers the result.
 	./hack/generate-installer-rbac.sh
@@ -257,7 +255,7 @@ ci-cli: stage-renderer-files ## CI parity for the CLI (client-programs-ci.yaml)
 	$(MAKE) verify-installer-chart
 	$(MAKE) verify-cli-schemas
 
-ci-operator: ## CI parity for the operator (installer-operator-ci.yaml)
+ci-operator: package-local-charts ## CI parity for the operator (installer-operator-ci.yaml)
 	./hack/lint-chart-versions.sh
 	cd installer/operator && go vet ./...
 	cd installer/operator && go build ./...
@@ -297,8 +295,8 @@ endif
 #   make release-prep VERSION=4.0.1
 #
 # Needs helm: it repackages the runtime subchart tarballs the operator
-# embeds (embed.go, vendored-charts/*.tgz, SHA256SUMS) alongside the
-# Chart.yaml versions and the CLI's embedded chart copy. REGISTRY_HOST /
+# embeds, which are gitignored, and rewrites embed.go to match, alongside
+# the Chart.yaml versions and the CLI's embedded chart copy. REGISTRY_HOST /
 # REGISTRY_NAMESPACE default to the committed canonical values so the
 # image-registry annotations stay ghcr.io/educates; override them only
 # when preparing a fork release.
