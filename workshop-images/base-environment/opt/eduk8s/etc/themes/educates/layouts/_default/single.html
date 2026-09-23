@@ -41,11 +41,13 @@
   </div>
 </div>
 
+{{ partial "toc-sheet.html" . }}
+
 <div class="workshop-bottom-bar" id="bottom-bar">
   <div class="bottom-bar-inner">
     <div class="bottom-bar-progress">
       <button class="btn btn-sm btn-outline-secondary bottom-bar-toc" type="button" aria-label="TOC"
-        data-bs-toggle="modal" data-bs-target="#table-of-contents">
+        data-toc-toggle aria-controls="table-of-contents" aria-expanded="false">
         <span class="fas fa-list" aria-hidden="true"></span>
       </button>
       {{ if gt (len $modules) 1 }}
@@ -66,19 +68,19 @@
     <div class="bottom-bar-actions">
       {{ if $current_module.prev_page }}
       <a href="{{ relURL $current_module.prev_page }}" class="btn btn-sm btn-outline-secondary bottom-bar-back" aria-label="previous">
-        <span class="fas fa-arrow-left" aria-hidden="true"></span> Back
+        <span class="fas fa-arrow-left" aria-hidden="true"></span><span class="bottom-bar-label">Back</span>
       </a>
       {{ end }}
       {{ if $current_module.next_page }}
       <button class="btn btn-primary bottom-bar-continue" id="bottom-bar-next" disabled aria-label="continue"
         onclick="window.location.href='{{ relURL $current_module.next_page }}'">
-        Continue <span class="fas fa-arrow-right" id="bottom-bar-next-icon" aria-hidden="true"></span>
+        <span class="bottom-bar-label">Continue</span><span class="fas fa-arrow-right" id="bottom-bar-next-icon" aria-hidden="true"></span>
         <span class="badge rounded-pill bg-danger bottom-bar-required-badge" id="bottom-bar-required-badge" style="display: none;"></span>
       </button>
       {{ else if and $current_module (.Param "restart_url") }}
       <button class="btn btn-primary bottom-bar-continue" id="bottom-bar-next" disabled aria-label="finish"
         onclick="educates.finished_workshop()">
-        Finish Workshop <span class="fas fa-arrow-right" id="bottom-bar-next-icon" aria-hidden="true"></span>
+        <span class="bottom-bar-label">Finish<span class="bottom-bar-label-extra">&nbsp;Workshop</span></span><span class="fas fa-arrow-right" id="bottom-bar-next-icon" aria-hidden="true"></span>
         <span class="badge rounded-pill bg-danger bottom-bar-required-badge" id="bottom-bar-required-badge" style="display: none;"></span>
       </button>
       {{ end }}
