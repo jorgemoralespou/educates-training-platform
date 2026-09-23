@@ -27,6 +27,20 @@ const (
 	imagePullPolicyNever  = "Never"
 )
 
+// imageRepositories are the two addresses $(image_repository) stands for in a
+// docker deploy. The session reaches the local registry over the educates
+// network by a name only that network resolves, while the Docker daemon, which
+// pulls every image it mounts, reaches the same registry through the port
+// published on the host.
+type imageRepositories struct {
+	// Session is the address used by processes in the session, such as the
+	// package fetcher.
+	Session string
+
+	// Daemon is the address used by the Docker daemon.
+	Daemon string
+}
+
 // imagePackage is an extension package declared as an image, read from the
 // workshop definition once so that neither the delivery nor the pull policy
 // has to walk the declaration again.
@@ -38,8 +52,14 @@ type imagePackage struct {
 	// Path is where the package lands in the session.
 	Path string
 
-	// Reference is the image reference with the three tokens expanded.
+	// Reference is the image reference with the three tokens expanded for the
+	// session, which is what the package fetcher pulls.
 	Reference string
+
+	// DaemonReference is the same reference expanded for the Docker daemon,
+	// which is what a mount, a pull and a presence check through the daemon
+	// use.
+	DaemonReference string
 
 	// PullPolicy is the declared imagePullPolicy, empty when none was
 	// declared.
@@ -67,7 +87,7 @@ type splitPackages struct {
 // before.
 func readImagePackages(
 	workshop *unstructured.Unstructured,
-	localRepository string,
+	repositories imageRepositories,
 	name string,
 	version string,
 ) ([]imagePackage, error) {
@@ -131,10 +151,11 @@ func readImagePackages(
 		}
 
 		packages = append(packages, imagePackage{
-			Name:       packageName,
-			Path:       filepath.Clean(path.Join("/opt/packages", packageName)),
-			Reference:  expandPackageImageTokens(packageImage, localRepository, name, workshopVersion),
-			PullPolicy: pullPolicy,
+			Name:            packageName,
+			Path:            filepath.Clean(path.Join("/opt/packages", packageName)),
+			Reference:       expandPackageImageTokens(packageImage, repositories.Session, name, workshopVersion),
+			DaemonReference: expandPackageImageTokens(packageImage, repositories.Daemon, name, workshopVersion),
+			PullPolicy:      pullPolicy,
 		})
 	}
 
@@ -144,7 +165,8 @@ func readImagePackages(
 // deliverImagePackages sorts the packages into the chosen delivery. Mounting
 // produces compose volumes and no fetcher entries, and fetching the reverse,
 // because the base image reads the absence of a fetcher entry as meaning the
-// package was mounted.
+// package was mounted. A volume names the image as the daemon reaches it,
+// since the daemon is what pulls it.
 func deliverImagePackages(packages []imagePackage, mounting bool) splitPackages {
 	delivered := splitPackages{}
 
@@ -154,7 +176,7 @@ func deliverImagePackages(packages []imagePackage, mounting bool) splitPackages 
 		if mounting {
 			delivered.Mounts = append(delivered.Mounts, composetypes.ServiceVolumeConfig{
 				Type:     "image",
-				Source:   entry.Reference,
+				Source:   entry.DaemonReference,
 				Target:   entry.Path,
 				ReadOnly: true,
 			})
@@ -176,11 +198,11 @@ func deliverImagePackages(packages []imagePackage, mounting bool) splitPackages 
 func splitImagePackages(
 	workshop *unstructured.Unstructured,
 	mounting bool,
-	localRepository string,
+	repositories imageRepositories,
 	name string,
 	version string,
 ) (splitPackages, error) {
-	packages, err := readImagePackages(workshop, localRepository, name, version)
+	packages, err := readImagePackages(workshop, repositories, name, version)
 
 	if err != nil {
 		return splitPackages{}, err

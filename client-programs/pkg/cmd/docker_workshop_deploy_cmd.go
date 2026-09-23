@@ -154,6 +154,11 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 
 	registryNetwork := false
 
+	// The session reaches the local registry by its name on the educates
+	// network, which the daemon cannot resolve, so the address the daemon
+	// uses for the same registry is kept for the images it pulls itself.
+	daemonRepository := o.LocalRepository
+
 	if o.LocalRepository == "localhost:5001" {
 		o.LocalRepository = "registry.docker.local:5000"
 	}
@@ -176,6 +181,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		}
 	} else {
 		o.LocalRepository = ""
+		daemonRepository = ""
 	}
 
 	var kubeConfigData string
@@ -245,7 +251,9 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 	}
 
 	imagePackages, err := resolveImagePackageDelivery(
-		ctx, cli, workshop, packageDelivery, originalName, o.LocalRepository, o.WorkshopVersion, stdout,
+		ctx, cli, workshop, packageDelivery, originalName,
+		imageRepositories{Session: o.LocalRepository, Daemon: daemonRepository},
+		o.WorkshopVersion, stdout,
 	)
 
 	if err != nil {

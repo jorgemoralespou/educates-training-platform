@@ -23,13 +23,21 @@ spec:
       imagePullPolicy: Always
 `
 
+// The session and the daemon reach the local registry by different addresses,
+// as they do when deploying against the local registry, so a test can see
+// which of the two a reference was expanded with.
+var testImageRepositories = imageRepositories{
+	Session: "registry.docker.local:5000",
+	Daemon:  "localhost:5001",
+}
+
 // splitPackages is exercised through both deliveries, since which list a
 // package lands in is the whole point.
 func TestSplitImagePackages(t *testing.T) {
 	workshop := workshopFromYAML(t, workshopWithTwoImagePackages)
 
 	t.Run("mounted packages become volumes and no fetcher entries", func(t *testing.T) {
-		packages, err := splitImagePackages(workshop, true, "registry.local:5000", "lab-testing", "1.0")
+		packages, err := splitImagePackages(workshop, true, testImageRepositories, "lab-testing", "1.0")
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -62,14 +70,16 @@ func TestSplitImagePackages(t *testing.T) {
 		}
 	})
 
-	t.Run("the three tokens are expanded in a mounted reference", func(t *testing.T) {
-		packages, err := splitImagePackages(workshop, true, "registry.local:5000", "lab-testing", "1.0")
+	// The daemon pulls the image behind a volume, so a mounted reference is
+	// expanded with the address the daemon reaches the registry by.
+	t.Run("the three tokens are expanded for the daemon in a mounted reference", func(t *testing.T) {
+		packages, err := splitImagePackages(workshop, true, testImageRepositories, "lab-testing", "1.0")
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		want := "registry.local:5000/crane:1.0"
+		want := "localhost:5001/crane:1.0"
 
 		if got := packages.Mounts[1].Source; got != want {
 			t.Errorf("mount source = %q, want %q", got, want)
@@ -77,7 +87,7 @@ func TestSplitImagePackages(t *testing.T) {
 	})
 
 	t.Run("fetched packages become fetcher entries and no volumes", func(t *testing.T) {
-		packages, err := splitImagePackages(workshop, false, "registry.local:5000", "lab-testing", "1.0")
+		packages, err := splitImagePackages(workshop, false, testImageRepositories, "lab-testing", "1.0")
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -95,8 +105,9 @@ func TestSplitImagePackages(t *testing.T) {
 			t.Errorf("fetch path = %q", packages.Fetches[0].Path)
 		}
 
-		// The same expansion applies whichever way the package arrives.
-		if packages.Fetches[1].Image != "registry.local:5000/crane:1.0" {
+		// The fetcher runs in the session, so a fetched reference is expanded
+		// with the address the session reaches the registry by.
+		if packages.Fetches[1].Image != "registry.docker.local:5000/crane:1.0" {
 			t.Errorf("fetch image = %q", packages.Fetches[1].Image)
 		}
 	})
@@ -111,7 +122,7 @@ spec:
   workshop: {}
 `)
 
-		packages, err := splitImagePackages(empty, true, "registry.local:5000", "lab-testing", "1.0")
+		packages, err := splitImagePackages(empty, true, testImageRepositories, "lab-testing", "1.0")
 
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -127,7 +138,7 @@ spec:
 		for _, mounting := range []bool{true, false} {
 			packages, err := splitImagePackages(
 				workshopFromYAML(t, workshopWithFilesPackage), mounting,
-				"registry.local:5000", "lab-testing", "1.0",
+				testImageRepositories, "lab-testing", "1.0",
 			)
 
 			if err != nil {
@@ -177,7 +188,7 @@ spec:
       image: [not, a, string]
 `)
 
-		if _, err := splitImagePackages(malformed, true, "registry.local:5000", "lab-testing", "1.0"); err == nil {
+		if _, err := splitImagePackages(malformed, true, testImageRepositories, "lab-testing", "1.0"); err == nil {
 			t.Fatal("expected a non string image to be refused")
 		}
 	})
@@ -233,7 +244,7 @@ func TestGenerateFetchPackagesConfig(t *testing.T) {
 func TestMountedPackageVolumeShape(t *testing.T) {
 	packages, err := splitImagePackages(
 		workshopFromYAML(t, workshopWithImagePackage), true,
-		"registry.local:5000", "lab-testing", "1.0",
+		testImageRepositories, "lab-testing", "1.0",
 	)
 
 	if err != nil {

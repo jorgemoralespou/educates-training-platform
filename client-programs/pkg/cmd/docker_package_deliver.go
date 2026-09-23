@@ -24,13 +24,13 @@ func resolveImagePackageDelivery(
 	workshop *unstructured.Unstructured,
 	delivery dockerPackageDelivery,
 	name string,
-	localRepository string,
+	repositories imageRepositories,
 	version string,
 	stdout io.Writer,
 ) (splitPackages, error) {
 	// The declaration is read once here. Which delivery is chosen decides how
 	// these packages are handed to the session, not which packages there are.
-	declared, err := readImagePackages(workshop, localRepository, name, version)
+	declared, err := readImagePackages(workshop, repositories, name, version)
 
 	if err != nil {
 		return splitPackages{}, err
@@ -66,7 +66,7 @@ func resolveImagePackageDelivery(
 
 	if capabilities.Podman {
 		for _, entry := range declared {
-			if !imagePresentLocally(ctx, cli, entry.Reference) {
+			if !imagePresentLocally(ctx, cli, entry.DaemonReference) {
 				podmanImageAbsent = true
 				break
 			}
@@ -114,9 +114,9 @@ func prePullImagePackages(
 			continue
 		}
 
-		fmt.Fprintf(stdout, "Pulling extension package image %s\n", entry.Reference)
+		fmt.Fprintf(stdout, "Pulling extension package image %s\n", entry.DaemonReference)
 
-		if err := pullPackageImage(ctx, cli, entry.Reference); err != nil {
+		if err := pullPackageImage(ctx, cli, entry.DaemonReference); err != nil {
 			return err
 		}
 	}
@@ -133,10 +133,10 @@ func refuseAbsentImagePackages(ctx context.Context, cli *client.Client, packages
 			continue
 		}
 
-		if !imagePresentLocally(ctx, cli, entry.Reference) {
+		if !imagePresentLocally(ctx, cli, entry.DaemonReference) {
 			return errors.Errorf(
 				"the extension package image %s is not in the local image store and "+
-					"imagePullPolicy is Never", entry.Reference,
+					"imagePullPolicy is Never", entry.DaemonReference,
 			)
 		}
 	}

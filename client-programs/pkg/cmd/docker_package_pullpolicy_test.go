@@ -29,7 +29,7 @@ spec:
       image: ghcr.io/educates/unset:v1
 `)
 
-	packages, err := readImagePackages(workshop, "registry.local:5000", "lab-testing", "1.0")
+	packages, err := readImagePackages(workshop, testImageRepositories, "lab-testing", "1.0")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -40,16 +40,37 @@ spec:
 	}
 
 	cases := []struct {
-		name      string
-		policy    string
-		reference string
+		name            string
+		policy          string
+		reference       string
+		daemonReference string
 	}{
-		{name: "always", policy: "Always", reference: "registry.local:5000/always:v1"},
-		{name: "never", policy: "Never", reference: "ghcr.io/educates/never:v1"},
-		{name: "ifnotpresent", policy: "IfNotPresent", reference: "ghcr.io/educates/ifnotpresent:v1"},
+		{
+			name:            "always",
+			policy:          "Always",
+			reference:       "registry.docker.local:5000/always:v1",
+			daemonReference: "localhost:5001/always:v1",
+		},
+		{
+			name:            "never",
+			policy:          "Never",
+			reference:       "ghcr.io/educates/never:v1",
+			daemonReference: "ghcr.io/educates/never:v1",
+		},
+		{
+			name:            "ifnotpresent",
+			policy:          "IfNotPresent",
+			reference:       "ghcr.io/educates/ifnotpresent:v1",
+			daemonReference: "ghcr.io/educates/ifnotpresent:v1",
+		},
 		// An undeclared policy stays empty, so neither of the two branches
 		// which act on a policy fires.
-		{name: "unset", policy: "", reference: "ghcr.io/educates/unset:v1"},
+		{
+			name:            "unset",
+			policy:          "",
+			reference:       "ghcr.io/educates/unset:v1",
+			daemonReference: "ghcr.io/educates/unset:v1",
+		},
 	}
 
 	for index, want := range cases {
@@ -63,9 +84,15 @@ spec:
 			t.Errorf("package %q policy = %q, want %q", want.name, got.PullPolicy, want.policy)
 		}
 
-		// The reference is expanded once, here, rather than rebuilt later.
+		// The reference is expanded once, here, rather than rebuilt later,
+		// for the session and for the daemon alike.
 		if got.Reference != want.reference {
 			t.Errorf("package %q reference = %q, want %q", want.name, got.Reference, want.reference)
+		}
+
+		if got.DaemonReference != want.daemonReference {
+			t.Errorf("package %q daemon reference = %q, want %q",
+				want.name, got.DaemonReference, want.daemonReference)
 		}
 
 		if got.Path != "/opt/packages/"+want.name {
@@ -88,7 +115,7 @@ spec:
       imagePullPolicy: [not, a, string]
 `)
 
-	_, err := readImagePackages(workshop, "registry.local:5000", "lab-testing", "1.0")
+	_, err := readImagePackages(workshop, testImageRepositories, "lab-testing", "1.0")
 
 	if err == nil {
 		t.Fatal("expected a non string policy to be refused")
