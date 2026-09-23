@@ -601,96 +601,110 @@ const educates = (function () {
         } catch (e) {
             // Degrade silently.
         }
-
-        // Also add the current page to the set of visited pages so the
-        // TOC can show which pages the user has been to.
-
-        const visited_key = `${state_key_prefix}:visited-pages`;
-
-        try {
-            let visited = [];
-
-            const raw = sessionStorage.getItem(visited_key);
-
-            if (raw) {
-                visited = JSON.parse(raw);
-            }
-
-            if (!visited.includes(page_path)) {
-                visited.push(page_path);
-                sessionStorage.setItem(visited_key, JSON.stringify(visited));
-            }
-        } catch (e) {
-            // Degrade silently.
-        }
     }
 
-    // Activate TOC links for pages the user has already visited. Unvisited
-    // page links are rendered but disabled (dimmed, clicks blocked).
-    // Shift+clicking the step-number badge bypasses the restriction and
-    // navigates to the page. Because the badge is a <span>, not an <a>,
-    // the browser does not intercept Shift+click the way it would for a
-    // link (e.g. open-in-new-window in Chrome).
+    // The table of contents is a sheet which slides up from behind the
+    // bottom bar. Any element with a data-toc-toggle attribute opens and
+    // closes it. It is also closed by the sheet handle, the Escape key, or
+    // a click anywhere outside of the sheet.
 
-    function activate_toc_links() {
-        if (!in_dashboard || !state_key_prefix) return;
+    function activate_toc_sheet() {
+        const sheet = document.getElementById('table-of-contents');
 
-        let visited = [];
+        if (!sheet) return;
 
-        try {
-            const raw = sessionStorage.getItem(`${state_key_prefix}:visited-pages`);
+        const toggles = document.querySelectorAll('[data-toc-toggle]');
+        const bottom_bar = document.getElementById('bottom-bar');
+        const sheet_body = sheet.querySelector('.toc-sheet-body');
+        const handle = sheet.querySelector('.toc-sheet-handle');
 
-            if (raw) {
-                visited = JSON.parse(raw);
-            }
-        } catch (e) {
-            return;
+        let return_focus = null;
+
+        function is_open() {
+            return sheet.classList.contains('open');
         }
 
-        // Process all TOC entries that are not the active (current) page.
+        function update_toggles(open) {
+            toggles.forEach(toggle => {
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
 
-        document.querySelectorAll('#table-of-contents li.page[data-toc-path]:not(.active)').forEach(li => {
-            const path = li.dataset.tocPath;
-            const link = li.querySelector('a.toc-link-unvisited');
+                const icon = toggle.querySelector('.fas');
 
-            if (!link) return;
-
-            if (visited.includes(path)) {
-                // Page has been visited — enable the link normally.
-
-                link.classList.remove('toc-link-unvisited');
-            } else {
-                // Unvisited page — block clicks on the link itself.
-
-                link.addEventListener('click', function (event) {
-                    if (link.classList.contains('toc-link-unvisited')) {
-                        event.preventDefault();
-                    }
-                });
-
-                // Allow Shift+click on the step-number badge to bypass
-                // the restriction and navigate to the unvisited page.
-
-                const step = li.querySelector('.toc-step');
-
-                if (step) {
-                    step.addEventListener('click', function (event) {
-                        if (event.shiftKey && link.classList.contains('toc-link-unvisited')) {
-                            window.location.href = link.href;
-                        }
-                    });
-
-                    step.addEventListener('mouseenter', function () {
-                        if (shift_key_pressed) {
-                            step.classList.add('toc-step-shift');
-                        }
-                    });
-
-                    step.addEventListener('mouseleave', function () {
-                        step.classList.remove('toc-step-shift');
-                    });
+                if (icon) {
+                    icon.classList.toggle('fa-list', !open);
+                    icon.classList.toggle('fa-xmark', open);
                 }
+            });
+        }
+
+        function open_sheet(trigger) {
+            // Sit the sheet directly on top of the bottom bar, whatever
+            // height the bottom bar is actually rendered at.
+
+            if (bottom_bar) {
+                sheet.style.bottom = `${bottom_bar.offsetHeight}px`;
             }
+
+            sheet.classList.add('open');
+            update_toggles(true);
+
+            return_focus = trigger;
+
+            // Scroll the entry for the current page into the middle of the
+            // list and give it focus so keyboard users start from there.
+
+            const active = sheet.querySelector('li.page.active');
+
+            if (active && sheet_body) {
+                sheet_body.scrollTop = active.offsetTop - (sheet_body.clientHeight - active.offsetHeight) / 2;
+            }
+
+            const link = active ? active.querySelector('a') : null;
+
+            if (link) {
+                link.focus({ preventScroll: true });
+            }
+        }
+
+        function close_sheet(restore_focus) {
+            sheet.classList.remove('open');
+            update_toggles(false);
+
+            if (restore_focus && return_focus) {
+                return_focus.focus();
+            }
+
+            return_focus = null;
+        }
+
+        toggles.forEach(toggle => {
+            toggle.addEventListener('click', function () {
+                if (is_open()) {
+                    close_sheet(true);
+                } else {
+                    open_sheet(toggle);
+                }
+            });
+        });
+
+        if (handle) {
+            handle.addEventListener('click', function () {
+                close_sheet(true);
+            });
+        }
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && is_open()) {
+                close_sheet(true);
+            }
+        });
+
+        document.addEventListener('click', function (event) {
+            if (!is_open()) return;
+
+            if (sheet.contains(event.target) || event.target.closest('[data-toc-toggle]')) return;
+
+            close_sheet(false);
         });
     }
 
@@ -1530,9 +1544,9 @@ const educates = (function () {
 
         save_last_visited_page();
 
-        // Activate TOC links for pages already visited.
+        // Wire up opening and closing of the table of contents sheet.
 
-        activate_toc_links();
+        activate_toc_sheet();
 
         // Auto-trigger clickable actions with autostart attribute. Note that
         // any which are contained within the body of a section are excluded

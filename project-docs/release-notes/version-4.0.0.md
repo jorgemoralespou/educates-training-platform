@@ -266,6 +266,28 @@ Features Changed
   new prefix. Otherwise ``external-dns`` no longer sees those resources and
   removes the DNS records it previously created for them.
 
+* The table of contents for workshop instructions rendered with the default
+  ``educates`` Hugo theme is now a panel which slides up from behind the
+  navigation bar at the bottom of the instructions, instead of a pop-up
+  dialog. The table of contents button in the navigation bar opens and closes
+  the panel, which lists every page with its step number and highlights the
+  page currently being viewed. Clicking anywhere on the entry for a page
+  navigates to that page, including pages which have not yet been visited.
+  Links to pages not yet visited were previously disabled when viewing the
+  workshop instructions in the workshop dashboard. When a workshop has more
+  pages than fit in the panel, the list scrolls, with a scroll bar that is
+  always shown so it is apparent there are further pages. The panel can also
+  be closed using the ``Escape`` key or by clicking outside of it. A custom
+  ``workshop-instructions.css`` file which styled the table of contents
+  through the Bootstrap modal classes needs to be updated. The panel keeps
+  the ``table-of-contents`` element ID, and the ``modules``, ``page`` and
+  ``toc-step`` classes for its list of pages. The colors of the panel, and of
+  the navigation bar at the bottom of the instructions, are taken from the
+  Bootstrap theme variables, so a custom theme which sets the Bootstrap
+  primary color using ``--bs-primary`` and ``--bs-primary-rgb`` also changes
+  the highlight for the current page, the step progress indicator, and the
+  step number shown with the page title.
+
 Deprecations
 ------------
 
@@ -569,6 +591,16 @@ Bugs Fixed
   from the directory given by ``path``, with a relative path being interpreted
   relative to the directory holding the workshop files, normally
   ``/opt/workshop``. Workshops using the value ``public`` are unaffected.
+
+* When workshop instructions rendered using the default ``educates`` Hugo
+  theme were made narrow in the workshop dashboard, by dragging the divider
+  between the instructions and the terminals, the buttons in the navigation
+  bar at the bottom of the instructions were squashed, overlapped each other,
+  or had their labels wrapped onto a second line. As the instructions become
+  narrower, the navigation bar now shows the back button as an arrow only,
+  shortens the ``Finish Workshop`` button to ``Finish``, hides the step
+  progress indicator, and at the narrowest widths shows the continue button
+  as an arrow only.
 
 * When workshop instructions were rendered using the Hugo renderer with the
   default ``educates`` theme, the ``workshop-instructions.css``,
