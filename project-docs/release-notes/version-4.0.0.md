@@ -558,3 +558,14 @@ Bugs Fixed
   displayed a dialog warning that workshop content may not be setup correctly.
   The progress bar is now omitted when there are no pages to show, so the
   instructions render successfully.
+
+* When static workshop instructions were enabled by setting
+  ``session.applications.workshop.path`` in the ``Workshop`` definition, the
+  workshop gateway ignored the value and always served the static HTML files
+  from the ``public`` subdirectory of the workshop files. This only worked for
+  the documented example value of ``public``, and any other relative or
+  absolute path resulted in the wrong content, or no content, being displayed
+  for the workshop instructions. The gateway now serves the static HTML files
+  from the directory given by ``path``, with a relative path being interpreted
+  relative to the directory holding the workshop files, normally
+  ``/opt/workshop``. Workshops using the value ``public`` are unaffected.
