@@ -1909,7 +1909,7 @@ spec:
         path: public
 ```
 
-The static HTML files in this case would need to reside in the ``/opt/workshop/public``directory.
+A relative path is interpreted relative to the directory holding the workshop files, which is normally ``/opt/workshop``, so in this example the static HTML files would need to reside in the ``/opt/workshop/public`` directory. An absolute path can also be given, in which case the static HTML files are served from that directory. The path value can reference any of the session data variables which may be appropriate.
 
 If the static HTML files already exist in the ``workshop/public`` directory of the downloaded workshop files, these will be copied under ``/opt/workshop`` automatically, along with everything else under the ``workshop`` directory.
 
