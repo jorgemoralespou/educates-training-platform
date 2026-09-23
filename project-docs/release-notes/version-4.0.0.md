@@ -549,3 +549,12 @@ Bugs Fixed
   3.1.7. These updates pick up fixes for vulnerabilities reported against the
   previously bundled versions. The behavior of the workshop dashboard is
   unchanged.
+
+* When workshop instructions were rendered using the Hugo renderer with the
+  default ``educates`` theme and the workshop provided no instructions pages,
+  generation of the instructions failed with a division by zero error while
+  rendering the progress bar in the page header. This caused the workshop
+  setup scripts to be reported as having failed, and every workshop session
+  displayed a dialog warning that workshop content may not be setup correctly.
+  The progress bar is now omitted when there are no pages to show, so the
+  instructions render successfully.

@@ -86,7 +86,9 @@
             </div>
         </div>
     </div>
+    {{ if $modules }}
     <div class="header-progress-track" style="display: none;">
         <div class="header-progress-bar" style="width: {{ math.Round (mul (div (float $current_module.step) (len $modules)) 100) }}%;"></div>
     </div>
+    {{ end }}
 </div>
