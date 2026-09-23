@@ -569,3 +569,13 @@ Bugs Fixed
   from the directory given by ``path``, with a relative path being interpreted
   relative to the directory holding the workshop files, normally
   ``/opt/workshop``. Workshops using the value ``public`` are unaffected.
+
+* When workshop instructions were rendered using the Hugo renderer with the
+  default ``educates`` theme, the ``workshop-instructions.css``,
+  ``workshop-instructions.js`` and ``workshop-instructions.html`` files of a
+  custom theme configured for the training portal were not applied. The
+  theme files are mounted into the workshop session from a secret, where each
+  file is a symbolic link, and Hugo skips symbolic links when copying files
+  into the generated instructions. The theme files are now copied, with the
+  symbolic links resolved, before the instructions are generated, so the
+  custom styles, scripts and additional page head content are applied.
