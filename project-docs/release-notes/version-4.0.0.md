@@ -272,12 +272,12 @@ Features Changed
   dialog. The table of contents button in the navigation bar opens and closes
   the panel, which lists every page with its step number and highlights the
   page currently being viewed. Clicking anywhere on the entry for a page
-  navigates to that page, including pages which have not yet been visited.
-  Links to pages not yet visited were previously disabled when viewing the
-  workshop instructions in the workshop dashboard. When a workshop has more
-  pages than fit in the panel, the list scrolls, with a scroll bar that is
-  always shown so it is apparent there are further pages. The panel can also
-  be closed using the ``Escape`` key or by clicking outside of it. A custom
+  navigates to that page. When viewing the workshop instructions in the
+  workshop dashboard, pages which have not yet been visited remain dimmed and
+  cannot be selected, as before. When a workshop has more pages than fit in
+  the panel, the list scrolls, with a scroll bar that is always shown so it is
+  apparent there are further pages. The panel can also be closed using the
+  ``Escape`` key or by clicking outside of it. A custom
   ``workshop-instructions.css`` file which styled the table of contents
   through the Bootstrap modal classes needs to be updated. The panel keeps
   the ``table-of-contents`` element ID, and the ``modules``, ``page`` and

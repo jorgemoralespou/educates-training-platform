@@ -237,10 +237,12 @@ button#header-next-page {
     padding: 10px 0;
 }
 
-/* The link for a page is stretched over the whole row, so clicking anywhere
-   on the row, including the step number, goes to the page. */
+/* The link for a page which can be navigated to is stretched over the whole
+   row, so clicking anywhere on the row, including the step number, goes to
+   the page. Links for blocked pages are not stretched, so that Shift+clicking
+   the step number can still be used to bypass the block. */
 
-.modules .page a::after {
+.modules .page a:not(.toc-link-unvisited)::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -251,7 +253,7 @@ button#header-next-page {
     background-color: rgba(var(--bs-primary-rgb), 0.1);
 }
 
-.modules .page:not(.active):hover {
+.modules .page:not(.active):has(> a:not(.toc-link-unvisited)):hover {
     background-color: var(--bs-tertiary-bg);
 }
 
@@ -274,6 +276,24 @@ button#header-next-page {
     border-color: rgb(var(--bs-primary-rgb));
     background-color: rgb(var(--bs-primary-rgb));
     color: #ffffff;
+}
+
+/* Unvisited TOC links are dimmed and clicks are blocked by JS.
+   Shift+clicking the step-number badge bypasses the restriction. */
+
+.modules .page a.toc-link-unvisited {
+    opacity: 0.5;
+    cursor: default;
+    color: inherit;
+    text-decoration: none;
+}
+
+/* Visual hint when Shift is held and hovering the step badge. */
+
+.modules .page .toc-step-shift {
+    cursor: pointer;
+    border-color: rgba(var(--bs-primary-rgb), 0.4);
+    background-color: rgba(var(--bs-primary-rgb), 0.2);
 }
 
 .page-content h1,

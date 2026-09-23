@@ -601,6 +601,106 @@ const educates = (function () {
         } catch (e) {
             // Degrade silently.
         }
+
+        // Also add the current page to the set of visited pages so the
+        // TOC can show which pages the user has been to.
+
+        const visited_key = `${state_key_prefix}:visited-pages`;
+
+        try {
+            let visited = [];
+
+            const raw = sessionStorage.getItem(visited_key);
+
+            if (raw) {
+                visited = JSON.parse(raw);
+            }
+
+            if (!visited.includes(page_path)) {
+                visited.push(page_path);
+                sessionStorage.setItem(visited_key, JSON.stringify(visited));
+            }
+        } catch (e) {
+            // Degrade silently.
+        }
+    }
+
+    // Activate TOC links for pages the user has already visited. Unvisited
+    // page links are rendered but disabled (dimmed, clicks blocked).
+    // Shift+clicking the step-number badge bypasses the restriction and
+    // navigates to the page. Because the badge is a <span>, not an <a>,
+    // the browser does not intercept Shift+click the way it would for a
+    // link (e.g. open-in-new-window in Chrome).
+
+    function activate_toc_links() {
+        // Pages are only blocked when running inside the dashboard. Outside
+        // of it, all links in the table of contents are left enabled.
+
+        if (!in_dashboard || !state_key_prefix) {
+            document.querySelectorAll('#table-of-contents a.toc-link-unvisited').forEach(link => {
+                link.classList.remove('toc-link-unvisited');
+            });
+
+            return;
+        }
+
+        let visited = [];
+
+        try {
+            const raw = sessionStorage.getItem(`${state_key_prefix}:visited-pages`);
+
+            if (raw) {
+                visited = JSON.parse(raw);
+            }
+        } catch (e) {
+            return;
+        }
+
+        // Process all TOC entries that are not the active (current) page.
+
+        document.querySelectorAll('#table-of-contents li.page[data-toc-path]:not(.active)').forEach(li => {
+            const path = li.dataset.tocPath;
+            const link = li.querySelector('a.toc-link-unvisited');
+
+            if (!link) return;
+
+            if (visited.includes(path)) {
+                // Page has been visited — enable the link normally.
+
+                link.classList.remove('toc-link-unvisited');
+            } else {
+                // Unvisited page — block clicks on the link itself.
+
+                link.addEventListener('click', function (event) {
+                    if (link.classList.contains('toc-link-unvisited')) {
+                        event.preventDefault();
+                    }
+                });
+
+                // Allow Shift+click on the step-number badge to bypass
+                // the restriction and navigate to the unvisited page.
+
+                const step = li.querySelector('.toc-step');
+
+                if (step) {
+                    step.addEventListener('click', function (event) {
+                        if (event.shiftKey && link.classList.contains('toc-link-unvisited')) {
+                            window.location.href = link.href;
+                        }
+                    });
+
+                    step.addEventListener('mouseenter', function () {
+                        if (shift_key_pressed) {
+                            step.classList.add('toc-step-shift');
+                        }
+                    });
+
+                    step.addEventListener('mouseleave', function () {
+                        step.classList.remove('toc-step-shift');
+                    });
+                }
+            }
+        });
     }
 
     // The table of contents is a sheet which slides up from behind the
@@ -1543,6 +1643,10 @@ const educates = (function () {
         // a dashboard refresh the home page can offer to resume here.
 
         save_last_visited_page();
+
+        // Activate TOC links for pages already visited.
+
+        activate_toc_links();
 
         // Wire up opening and closing of the table of contents sheet.
 

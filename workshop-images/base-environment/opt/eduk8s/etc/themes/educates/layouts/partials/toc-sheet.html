@@ -29,7 +29,7 @@
                     </li>
                     {{ else }}
                     <li class="page" data-toc-path="{{ $module.path }}">
-                        <span class="toc-step">{{ $module.step }}</span><a href="{{ relURL .path }}">{{ $title }}</a>
+                        <span class="toc-step">{{ $module.step }}</span><a href="{{ relURL .path }}" class="toc-link-unvisited">{{ $title }}</a>
                     </li>
                     {{ end }}
                     {{ end }}
