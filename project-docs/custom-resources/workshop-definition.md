@@ -457,6 +457,13 @@ spec:
 
 Note that if you use any of the version tags ``:main``, ``:master``, ``:develop`` and ``:latest``, the Educates operator will set the image pull policy to ``Always`` to ensure that a newer version is always pulled if available, otherwise the image will be cached on the Kubernetes nodes and only pulled when it is initially not present. Any other version tags will always be assumed to be unique and never updated. Do though be aware of image registries which use a CDN as front end. When using these image tags the CDN can still always regard them as unique and they will not do pull through requests to update an image even if it uses a tag of ``:latest``.
 
+The same rule applies when a workshop is deployed locally with ``educates
+docker workshop deploy``. A workshop image using one of these tags, or no tag
+at all, is pulled each time the workshop is deployed, so a newer version pushed
+under the same tag is picked up. If the pull fails but a copy of the image is
+already held by the local Docker daemon, a warning is printed and that copy is
+used, so the workshop can still be deployed without access to the registry.
+
 Where special custom workshop base images are available as part of the Educates project, instead of specifying the full location for the image, including the image registry, you can specify a short name. The Educates operator will then fill in the rest of the details.
 
 ```yaml
@@ -645,8 +652,12 @@ daemon which cannot do it reports what is missing rather than deploying.
 Where the package is mounted, ``imagePullPolicy`` applies: ``Always`` pulls
 the image before deploying, which is what you want when republishing the same
 tag while working on a package, and ``Never`` reports an error when the image
-is not already held locally. Where the contents are fetched instead, the
-policy is ignored.
+is not already held locally. A package which declares no ``imagePullPolicy``
+is given the same default as on a cluster, which is ``Always`` for an image
+with the ``:latest`` tag or no tag, and ``IfNotPresent`` otherwise. If a pull
+fails but a copy of the image is already held locally, a warning is printed
+and that copy is used. Where the contents are fetched instead, the policy is
+ignored.
 
 ``pullSecretRef`` is ignored when deploying with Docker, since a local deploy
 has no access to cluster secrets. An image held in a registry requiring

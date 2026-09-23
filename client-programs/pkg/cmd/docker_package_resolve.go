@@ -89,15 +89,16 @@ func describePackageDelivery(names []string, mounting bool) []string {
 }
 
 // missingCredentialsMessage explains a pull which failed for want of
-// credentials, naming the reference, the registry and the command to run. A
+// credentials, naming the image, the registry and the command to run. A
 // docker deploy has no secret support, so the author's own docker login is
 // the only way in.
-func missingCredentialsMessage(reference string, host string) string {
+func missingCredentialsMessage(description string, reference string, host string) string {
 	return fmt.Sprintf(
-		"unable to pull the extension package image %s\n\n"+
-			"The Docker daemon has no credentials for %s. Run \"docker login %s\" and try again. "+
-			"Note that pullSecretRef in the workshop definition is ignored when deploying with Docker.",
-		reference, host, host,
+		"unable to pull the %s %s\n\n"+
+			"Docker has no credentials for %s. Run \"docker login %s\" and try again. "+
+			"Credentials given in the workshop definition, such as the pullSecretRef of an extension "+
+			"package, are not used when deploying with Docker.",
+		description, reference, host, host,
 	)
 }
 

@@ -273,8 +273,12 @@ New Features
   mounted. ``Always`` pulls the image before deploying, which matters when
   republishing the same tag while working on a package locally, and ``Never``
   reports an error before deploying when the image is not already held
-  locally. Where the package contents are fetched instead, the policy
-  continues to be ignored. Note that ``pullSecretRef`` is ignored when
+  locally. A package which declares no ``imagePullPolicy`` is given the same
+  default as on a cluster, which is ``Always`` for an image with the
+  ``:latest`` tag or no tag, and ``IfNotPresent`` otherwise. If a pull fails
+  but a copy of the image is already held locally, a warning is printed and
+  that copy is used. Where the package contents are fetched instead, the
+  policy continues to be ignored. Note that ``pullSecretRef`` is ignored when
   deploying with Docker, so an image held in a registry requiring
   authentication needs ``docker login`` for that registry first. A pull which
   fails for want of credentials now names the image, the registry and the
@@ -282,6 +286,15 @@ New Features
 
 Features Changed
 ----------------
+
+* When deploying a workshop with ``educates docker workshop deploy``, a
+  workshop image using the ``:main``, ``:master``, ``:develop`` or ``:latest``
+  tag, or no tag, is now pulled each time the workshop is deployed, as it is
+  when the workshop is deployed to a cluster. Previously a copy of the image
+  already held by the local Docker daemon was always used, so a newer version
+  pushed under the same tag was not picked up. If the pull fails but a copy of
+  the image is already held locally, a warning is printed and that copy is
+  used, so a workshop can still be deployed without access to the registry.
 
 * An extension package declared as an image is now delivered to a workshop
   session by a purpose built package fetcher rather than by ``vendir``. The
@@ -669,3 +682,11 @@ Bugs Fixed
   credentials are not mounted, so a package held in a registry requiring
   authentication could not be downloaded. The init container now runs whenever
   there is anything to download.
+
+* A custom workshop image given as ``$(image_repository)/...`` could not be
+  pulled when deploying a workshop with ``educates docker workshop deploy``
+  against the local image registry. The reference was expanded to the name the
+  local registry has on the ``educates`` Docker network, which only containers
+  on that network can resolve and the Docker daemon pulling the image cannot.
+  It is now expanded to the address the Docker daemon reaches the local
+  registry by.

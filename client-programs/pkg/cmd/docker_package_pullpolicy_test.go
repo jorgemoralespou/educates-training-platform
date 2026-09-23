@@ -27,16 +27,18 @@ spec:
       imagePullPolicy: IfNotPresent
     - name: unset
       image: ghcr.io/educates/unset:v1
+    - name: unsetlatest
+      image: $(image_repository)/unsetlatest:$(workshop_version)
 `)
 
-	packages, err := readImagePackages(workshop, testImageRepositories, "lab-testing", "1.0")
+	packages, err := readImagePackages(workshop, testImageRepositories, "lab-testing", "latest")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(packages) != 4 {
-		t.Fatalf("expected 4 packages, got %d", len(packages))
+	if len(packages) != 5 {
+		t.Fatalf("expected 5 packages, got %d", len(packages))
 	}
 
 	cases := []struct {
@@ -63,13 +65,21 @@ spec:
 			reference:       "ghcr.io/educates/ifnotpresent:v1",
 			daemonReference: "ghcr.io/educates/ifnotpresent:v1",
 		},
-		// An undeclared policy stays empty, so neither of the two branches
-		// which act on a policy fires.
+		// An undeclared policy takes the Kubernetes default for an image
+		// volume, which for a fixed tag pulls only when the image is missing.
 		{
 			name:            "unset",
-			policy:          "",
+			policy:          "IfNotPresent",
 			reference:       "ghcr.io/educates/unset:v1",
 			daemonReference: "ghcr.io/educates/unset:v1",
+		},
+		// The default is taken after the tokens are expanded, so a workshop
+		// version of latest makes the package pulled every time.
+		{
+			name:            "unsetlatest",
+			policy:          "Always",
+			reference:       "registry.docker.local:5000/unsetlatest:latest",
+			daemonReference: "localhost:5001/unsetlatest:latest",
 		},
 	}
 
@@ -139,5 +149,9 @@ func TestImagePullPolicyConstantsMatchTheDefinition(t *testing.T) {
 
 	if imagePullPolicyNever != "Never" {
 		t.Errorf("imagePullPolicyNever = %q", imagePullPolicyNever)
+	}
+
+	if imagePullPolicyIfNotPresent != "IfNotPresent" {
+		t.Errorf("imagePullPolicyIfNotPresent = %q", imagePullPolicyIfNotPresent)
 	}
 }

@@ -99,10 +99,11 @@ func resolveImagePackageDelivery(
 	return packages, nil
 }
 
-// prePullImagePackages pulls every package which asked to be pulled every
-// time. Compose pulls a volume image only when it is missing, so a package
-// whose tag was republished would otherwise keep the copy already held, which
-// is the opposite of what an author republishing a tag wants.
+// prePullImagePackages pulls every package whose pull policy is Always,
+// whether declared or given by default to a latest tag. Compose pulls a volume
+// image only when it is missing, so a package whose tag was republished would
+// otherwise keep the copy already held, which is the opposite of what an
+// author republishing a tag wants.
 func prePullImagePackages(
 	ctx context.Context,
 	cli *client.Client,
@@ -114,9 +115,7 @@ func prePullImagePackages(
 			continue
 		}
 
-		fmt.Fprintf(stdout, "Pulling extension package image %s\n", entry.DaemonReference)
-
-		if err := pullPackageImage(ctx, cli, entry.DaemonReference); err != nil {
+		if err := refreshImageWithDocker(ctx, cli, entry.DaemonReference, packageImageDescription, stdout); err != nil {
 			return err
 		}
 	}
@@ -139,30 +138,6 @@ func refuseAbsentImagePackages(ctx context.Context, cli *client.Client, packages
 					"imagePullPolicy is Never", entry.DaemonReference,
 			)
 		}
-	}
-
-	return nil
-}
-
-// pullPackageImage pulls one package image, reporting a failure for want of
-// credentials in a way the author can act on.
-func pullPackageImage(ctx context.Context, cli *client.Client, reference string) error {
-	response, err := cli.ImagePull(ctx, reference, client.ImagePullOptions{})
-
-	if err != nil {
-		if isAuthenticationFailure(err) {
-			return errors.New(missingCredentialsMessage(reference, registryHostForReference(reference)))
-		}
-
-		return errors.Wrapf(err, "unable to pull the extension package image %s", reference)
-	}
-
-	defer response.Close()
-
-	// The body reports the pull's progress and must be drained for the pull
-	// to run to completion.
-	if _, err := io.Copy(io.Discard, response); err != nil {
-		return errors.Wrapf(err, "unable to pull the extension package image %s", reference)
 	}
 
 	return nil

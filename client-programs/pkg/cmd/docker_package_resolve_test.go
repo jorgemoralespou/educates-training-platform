@@ -251,9 +251,9 @@ func TestDescribePackageDelivery(t *testing.T) {
 }
 
 func TestMissingCredentialsMessage(t *testing.T) {
-	message := missingCredentialsMessage("ghcr.io/educates/argocd:v1", "ghcr.io")
+	message := missingCredentialsMessage(packageImageDescription, "ghcr.io/educates/argocd:v1", "ghcr.io")
 
-	for _, want := range []string{"ghcr.io/educates/argocd:v1", "docker login ghcr.io"} {
+	for _, want := range []string{packageImageDescription, "ghcr.io/educates/argocd:v1", "docker login ghcr.io"} {
 		if !strings.Contains(message, want) {
 			t.Errorf("expected the message to contain %q, got %q", want, message)
 		}

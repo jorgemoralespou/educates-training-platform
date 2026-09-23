@@ -264,8 +264,18 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 		return name, err
 	}
 
-	if workshopImageName, err = generateWorkshopImageName(workshop, o.LocalRepository, o.ImageRepository, o.ImageVersion, o.WorkshopImage, o.WorkshopVersion); err != nil {
+	// The daemon pulls the workshop image, so the image is named by the
+	// address the daemon reaches the local registry by.
+	if workshopImageName, err = generateWorkshopImageName(workshop, daemonRepository, o.ImageRepository, o.ImageVersion, o.WorkshopImage, o.WorkshopVersion); err != nil {
 		return name, err
+	}
+
+	// Compose only pulls an image which is missing, so a workshop image whose
+	// tag is expected to move is refreshed first, as a cluster would.
+	if workshopImagePullPolicy(workshopImageName) == imagePullPolicyAlways {
+		if err := refreshImageWithDocker(ctx, cli, workshopImageName, workshopImageDescription, stdout); err != nil {
+			return name, err
+		}
 	}
 
 	if workshopPortsConfig, err = composetypes.ParsePortConfig(fmt.Sprintf("%s:%d:10081", o.Host, o.Port)); err != nil {

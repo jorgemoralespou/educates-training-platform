@@ -19,12 +19,13 @@ type fetchPackageEntry struct {
 	Image string `json:"image"`
 }
 
-// The image pull policies a package may declare. Only these two change what
-// the docker renderer does: IfNotPresent and an undeclared policy both leave
-// Compose to pull the image when it is missing, which is what they ask for.
+// The image pull policies. Always and Never change what the docker renderer
+// does, while IfNotPresent leaves Compose to pull the image when it is
+// missing, which is what it asks for.
 const (
-	imagePullPolicyAlways = "Always"
-	imagePullPolicyNever  = "Never"
+	imagePullPolicyAlways       = "Always"
+	imagePullPolicyNever        = "Never"
+	imagePullPolicyIfNotPresent = "IfNotPresent"
 )
 
 // imageRepositories are the two addresses $(image_repository) stands for in a
@@ -61,8 +62,8 @@ type imagePackage struct {
 	// use.
 	DaemonReference string
 
-	// PullPolicy is the declared imagePullPolicy, empty when none was
-	// declared.
+	// PullPolicy is the declared imagePullPolicy, or the one Kubernetes would
+	// give the image volume when none was declared.
 	PullPolicy string
 }
 
@@ -150,11 +151,19 @@ func readImagePackages(
 			}
 		}
 
+		daemonReference := expandPackageImageTokens(packageImage, repositories.Daemon, name, workshopVersion)
+
+		// The default is taken from the expanded reference, since the
+		// workshop version token can expand to a latest tag.
+		if pullPolicy == "" {
+			pullPolicy = defaultPackagePullPolicy(daemonReference)
+		}
+
 		packages = append(packages, imagePackage{
 			Name:            packageName,
 			Path:            filepath.Clean(path.Join("/opt/packages", packageName)),
 			Reference:       expandPackageImageTokens(packageImage, repositories.Session, name, workshopVersion),
-			DaemonReference: expandPackageImageTokens(packageImage, repositories.Daemon, name, workshopVersion),
+			DaemonReference: daemonReference,
 			PullPolicy:      pullPolicy,
 		})
 	}
