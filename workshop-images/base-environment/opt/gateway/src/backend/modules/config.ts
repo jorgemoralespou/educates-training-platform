@@ -301,7 +301,7 @@ function calculate_workshop_path() {
     if (path.isAbsolute(workshop_path))
         return workshop_path
 
-    return path.join(config.workshop_path, workshop_path)
+    return path.join(config.workshop_dir, workshop_path)
 }
 
 function calculate_dashboards() {

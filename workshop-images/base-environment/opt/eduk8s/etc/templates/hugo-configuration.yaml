@@ -11,6 +11,8 @@
 
 #@ params = json.decode(data.read("workshop-variables.json"))
 
+#@ theme_dir = getattr(data.values, "theme_dir", None) or "/opt/eduk8s/theme"
+
 #@ pathways = config.get("pathways", {}).get("paths", {})
 #@ pathway_name = params.get("pathway_name", "")
 
@@ -75,7 +77,7 @@ module:
   mounts:
     - source: static
       target: static
-    - source: /opt/eduk8s/theme
+    - source: #@ theme_dir
       target: static/static/theme
-    - source: /opt/eduk8s/theme
+    - source: #@ theme_dir
       target: assets/theme

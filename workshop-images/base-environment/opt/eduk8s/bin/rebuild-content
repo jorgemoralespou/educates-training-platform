@@ -63,9 +63,27 @@ fi
 
 WORKSHOP_RENDERER_THEME=${WORKSHOP_RENDERER_THEME:-educates}
 
+# Copy the files for any custom theme into a directory which is mounted into
+# the Hugo site. The theme is mounted from a secret, where each file is a
+# symlink, and Hugo ignores symlinks when copying files from a mount, so the
+# files are copied with symlinks resolved.
+
+THEME_DIR=$HOME/.local/share/workshop/theme
+
+rm -rf $THEME_DIR
+mkdir -p $THEME_DIR
+
+for file in /opt/eduk8s/theme/*; do
+    if [ -f "$file" ]; then
+        cp -L "$file" $THEME_DIR/
+    fi
+done
+
 # Generate Hugo configuration.
 
 YTT_ARGS=()
+
+YTT_ARGS+=(--data-value theme_dir=$THEME_DIR)
 
 YTT_ARGS+=(-f $HOME/.local/share/workshop/workshop-variables.json --file-mark workshop-variables.json:type=data)
 
