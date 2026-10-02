@@ -46,9 +46,11 @@ optional. A package which ships no architecture specific files needs only
 ``common``, and a package which shares nothing needs only the platform
 directories.
 
-The layout above is the whole contract. There is no build file, and the files
-are placed in the workshop session exactly as they appear here, with their
-permissions preserved.
+The layout above is all the ``educates package publish`` command needs. There
+is no build file, and the files are placed in the workshop session exactly as
+they appear here, with their permissions preserved. A package which has to be
+built for each platform can instead be built with a ``Dockerfile``, see
+[choosing how to build a package image](choosing-how-to-build-a-package-image).
 
 Only regular files and directories can be published. A symbolic link, a hard
 link, a device or a socket in the package source fails the publish and is
@@ -169,6 +171,26 @@ setting them correctly in the source. Packages supplied as files still need a
 ``setup.d`` script to restore execute permissions, because ``vendir`` does not
 preserve them when unpacking an archive.
 
+(choosing-how-to-build-a-package-image)=
+Choosing how to build a package image
+-------------------------------------
+
+There are two ways to build a package image, and which suits a package depends
+on where the files for each platform come from. Both produce the same image
+layout, and a workshop declares the package the same way whichever was used.
+
+Use the ``educates package publish`` command when the files for each platform
+already exist before the build, such as a release binary downloaded for each
+architecture, or when the package has no architecture specific files at all.
+The command assembles every platform from one source directory, produces the
+same digests when run twice on the same source, and needs no Docker daemon.
+
+Use a ``Dockerfile`` built with ``docker buildx`` when the files have to be
+built for each architecture, such as a program compiled from source. Building
+for an architecture other than the one the machine runs on is easiest in a
+container build, where each platform is built in its own build stage, without
+setting up a toolchain for every architecture on the machine itself.
+
 Publishing a package
 --------------------
 
@@ -242,10 +264,58 @@ not produce a new image.
 Building a package image with a Dockerfile
 ------------------------------------------
 
-The ``educates package publish`` command is the supported way to build a
-package image, and handles the multiple platforms for you. A package image is
-an ordinary OCI image, though, so one can also be built with a ``Dockerfile``
-where a pipeline is already set up to build images:
+A package image is an ordinary OCI image, so it can be built with a
+``Dockerfile``. A build stage produces the files for the platform being built,
+and a final stage starting from ``scratch`` lays them out as the package:
+
+```text
+FROM fedora:44 AS build
+
+RUN dnf install -y gcc make
+
+COPY src/ /src/
+
+RUN make -C /src && \
+    install -D -m 0755 /src/mytool /package/bin/mytool
+
+FROM scratch
+
+LABEL dev.educates.extension-package="1"
+
+COPY package.yaml /package.yaml
+COPY common/ /
+COPY --from=build /package/ /
+```
+
+The requirements are that the manifest is at the root of the image, and that
+everything else is laid out as it should appear under
+``/opt/packages/<name>``, so a program the package ships is at ``/bin`` in the
+image. Here the package source holds ``package.yaml`` and ``common`` as it
+would for the publish command, beside the ``src`` directory the program is
+built from.
+
+The build stage runs as the platform being built, so the compiler it installs
+and the program it produces are for that platform. The program has to run in
+the workshop session, so either build it on the same distribution as the
+workshop base image, which is Fedora as in the example, or link it statically.
+
+Build for both architectures and push the result as an image index:
+
+```text
+docker buildx build --platform linux/amd64,linux/arm64 \
+  --tag ghcr.io/myorg/mytool:1.0.0 --push .
+```
+
+Building for the architecture the machine does not itself run uses emulation,
+which Docker Desktop provides, and can be slow. Where the toolchain supports
+it, a build stage can cross compile instead, by starting it with ``FROM
+--platform=$BUILDPLATFORM`` and choosing what to build from the
+``TARGETARCH`` build argument. An image built for one architecture only cannot
+be used by a workshop session running on the other.
+
+A package which needs no build stage can reproduce the overlay the publish
+command does, taking the platform directory for the architecture being built,
+so that one package source works either way:
 
 ```text
 FROM scratch
@@ -259,25 +329,23 @@ COPY common/ /
 COPY linux-${TARGETARCH}/ /
 ```
 
-The requirements are that the manifest is at the root of the image, and that
-everything else is laid out as it should appear under
-``/opt/packages/<name>``, so a program the package ships is at ``/bin`` in the
-image rather than under a platform directory. The example above reproduces the
-overlay the publish command does, taking the platform directory for the
-architecture being built, so the same package source works either way.
-
-Build for both architectures and publish the result as an index, for example
-with ``docker buildx build --platform linux/amd64,linux/arm64 --push``. An
-image built for one architecture only cannot be used by a workshop session
-running on the other.
-
 The label records that the image was built to this contract. Nothing requires
 it: a workshop session tests for the manifest, not the label, which is what
-makes this alternative possible at all.
+makes building with a ``Dockerfile`` possible at all.
 
-Prefer the ``educates package publish`` command unless you have a reason not
-to. It assembles the platform children from one source directory, fixes the
-timestamps so builds are reproducible, and needs no Docker daemon.
+A ``Dockerfile`` build takes file timestamps from the build, so building the
+same source twice gives different digests. For a reproducible build, set
+``SOURCE_DATE_EPOCH`` in the environment, which ``docker buildx`` passes to the
+build, and add ``rewrite-timestamp=true`` to the image output so the files in
+the image take that timestamp too:
+
+```text
+SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  --output type=image,name=ghcr.io/myorg/mytool:1.0.0,push=true,rewrite-timestamp=true .
+```
+
+The ``rewrite-timestamp`` option needs BuildKit 0.13 or newer.
 
 Using a package in a workshop
 -----------------------------

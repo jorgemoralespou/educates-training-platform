@@ -206,7 +206,10 @@ New Features
   ``SOURCE_DATE_EPOCH`` is honoured where a specific build timestamp is wanted.
   Use ``--dry-run`` to validate a package source and see the digests which
   would be published without contacting a registry, and ``--digest-file`` to
-  record the published digest for a later step in a pipeline.
+  record the published digest for a later step in a pipeline. A package whose
+  files have to be built for each architecture, such as a program compiled
+  from source, can instead be built with a ``Dockerfile`` and ``docker
+  buildx``, and the documentation describes when to use each.
 
 * On a cluster which supports it, an extension package declared as an image is
   now mounted into a workshop session read only, rather than having its
