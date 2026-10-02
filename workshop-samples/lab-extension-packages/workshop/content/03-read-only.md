@@ -38,8 +38,9 @@ command: |-
   cat /opt/packages/greeter/setup.d/01-greeter.sh
 ```
 
-The profile script then points at that location through an environment
-variable, so the program finds it wherever it was written:
+The same script then points at that location through an environment variable,
+which it sets for the session by writing it to the file named by
+`WORKSHOP_ENV`, so the program finds it wherever it was written:
 
 ```terminal:execute
 command: |-

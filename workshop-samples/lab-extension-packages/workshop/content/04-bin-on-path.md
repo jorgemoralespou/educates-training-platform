@@ -3,8 +3,8 @@ title: "The bin Directory on the PATH"
 ---
 
 A `bin` directory at the root of a package is added to the application search
-path, so a program the package ships runs by name. The package does not need a
-profile script to arrange this.
+path, so a program the package ships runs by name. The package does not need
+to arrange this itself.
 
 Run the packaged program:
 
@@ -25,11 +25,12 @@ It should resolve to `/opt/packages/greeter/bin/greeter`.
 
 ## The package did not set this up
 
-The `greeter` package ships a profile script, but it contains no `PATH` line:
+The `greeter` package's setup script sets an environment variable for the
+session, but it contains no `PATH` line:
 
 ```terminal:execute
 command: |-
-  cat /opt/packages/greeter/profile.d/greeter.sh
+  cat /opt/packages/greeter/setup.d/01-greeter.sh
 ```
 
 The search path is arranged for every package, including packages supplied as

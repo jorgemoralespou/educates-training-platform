@@ -44,16 +44,15 @@ educates docker workshop deploy
 The package
 -----------
 
-`greeter` is deliberately minimal. It ships a manifest, a `setup.d` script, a
-`profile.d` script and a `bin/greeter` program built differently for each
-architecture so the workshop can show which build was delivered.
+`greeter` is deliberately minimal. It ships a manifest, a `setup.d` script and
+a `bin/greeter` program built differently for each architecture so the
+workshop can show which build was delivered.
 
 ```
 packages/greeter/
   package.yaml
   common/
     setup.d/01-greeter.sh
-    profile.d/greeter.sh
   linux-amd64/bin/greeter
   linux-arm64/bin/greeter
 ```

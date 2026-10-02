@@ -498,11 +498,11 @@ Adding extension packages
 
 Creating a custom workshop base image is one way of making additional applications available for a workshop. The drawback of a custom workshop base image is that it needs to build from a specific version of the standard workshop base image. As new releases of Educates are made available, if the custom workshop image is not continually rebuilt against the newest workshop base image, it may stop working if changes are made in Educates that require the newest workshop image be used. Use of custom workshop base images is therefore discouraged as a general rule, although if the size of the applications required is large, can be the only choice as downloading applications at the start of every session could take too long.
 
-If using the standard workshop base image, rather than a custom workshop base image, and you want to download additional applications or files required for a workshop when the workshop session is created, you can use a workshop ``setup.d`` script. Having installed the additional applications, a workshop ``profile.d`` script file can be used to set up the shell environment so the applications can be found, or to set any special environment variables which may be required when using the applications.
+If using the standard workshop base image, rather than a custom workshop base image, and you want to download additional applications or files required for a workshop when the workshop session is created, you can use a workshop ``setup.d`` script. Having installed the additional applications, the same script can set any environment variables which may be required when using the applications, by writing them to the file named by the ``WORKSHOP_ENV`` environment variable. See [running steps on container start](running-steps-on-container-start).
 
-Where a set of applications are common and used in more than one workshop, having to have a separate copy of the ``setup.d`` and ``profile.d`` scripts in every workshop is not ideal. This is because the multiple copies makes it hard to ensure they are kept up to date, if how applications are downloaded needs to change, or if the versions of any applications need to be updated.
+Where a set of applications are common and used in more than one workshop, having to have a separate copy of the ``setup.d`` scripts in every workshop is not ideal. This is because the multiple copies makes it hard to ensure they are kept up to date, if how applications are downloaded needs to change, or if the versions of any applications need to be updated.
 
-To try and simplify the process of adding additional applications, an extension package feature is available. This relies on ``vendir`` and can be used to download applications as pre-created bundles from an image repository, with the package also containing any ``setup.d`` and ``profile.d`` scripts which may still be required to configure the package when the workshop session starts.
+To try and simplify the process of adding additional applications, an extension package feature is available. This relies on ``vendir`` and can be used to download applications as pre-created bundles from an image repository, with the package also containing any ``setup.d`` scripts which may still be required to configure the package when the workshop session starts.
 
 As an example, installation of extension package which adds additional command line tools to a workshop session might be configured using:
 
@@ -516,9 +516,9 @@ spec:
           url: ghcr.io/educates/educates-extension-packages/tce-0.12:sha-5f9081f
 ```
 
-When a package is installed it is placed under a sub directory of ``/opt/packages`` with name corresponding to the ``name`` field in the ``packages`` configuration. Any setup scripts contained in the ``setup.d`` directory of the installed package will be run when the workshop session starts, with the shell environment being configured using any scripts in the ``profile.d`` of the installed package.
+When a package is installed it is placed under a sub directory of ``/opt/packages`` with name corresponding to the ``name`` field in the ``packages`` configuration. Any setup scripts contained in the ``setup.d`` directory of the installed package will be run when the workshop session starts, and can set environment variables for the session by writing them to the file named by the ``WORKSHOP_ENV`` environment variable. Scripts in a ``profile.d`` directory of the installed package are still sourced into the shell environment, but ``profile.d`` scripts are deprecated and will be removed in a future version.
 
-If the installed package contains a ``bin`` directory, it is added to the application search path defined by the ``PATH`` environment variable, so a program the package ships can be run by name without a ``profile.d`` script to set it up. This applies to a package declared either way. Packages are added in the alphabetical order of their names, so where two packages ship a program of the same name, the one from the package whose name sorts first is found. The ``bin`` directory is on the search path before package setup scripts run, so a setup script can run programs from its own package.
+If the installed package contains a ``bin`` directory, it is added to the application search path defined by the ``PATH`` environment variable, so a program the package ships can be run by name. This applies to a package declared either way. Packages are added in the alphabetical order of their names, so where two packages ship a program of the same name, the one from the package whose name sorts first is found. The ``bin`` directory is on the search path before package setup scripts run, so a setup script can run programs from its own package.
 
 In this example ``vendir`` was being used to download an OCI image artefact, but other mechanisms ``vendir`` provides can also be used when downloading remote files. This includes from Git repositories and HTTP web servers. Any configuration for ``vendir`` should be included under ``spec.packages.files``. The format of configuration supplied needs to match the [configuration](https://carvel.dev/vendir/docs/v0.25.0/vendir-spec/) that can be supplied under ``directories.contents`` of the ``Config`` resource used by ``vendir``.
 
@@ -607,7 +607,7 @@ See [creating extension packages](creating-extension-packages) for how to
 build and publish one.
 
 An extension package image carries a package manifest named ``package.yaml``
-at its root, alongside the ``setup.d``, ``profile.d`` and ``bin`` directories
+at its root, alongside the ``setup.d`` and ``bin`` directories
 the package provides. The manifest names the package and its version:
 
 ```yaml

@@ -13,8 +13,8 @@ command: |-
   ls -la /opt/packages/greeter
 ```
 
-You should see the package manifest beside the three directories the package
-ships: `bin`, `profile.d` and `setup.d`.
+You should see the package manifest beside the two directories the package
+ships: `bin` and `setup.d`.
 
 ## The package manifest
 

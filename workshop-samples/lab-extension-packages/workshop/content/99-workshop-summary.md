@@ -10,8 +10,8 @@ What was checked:
 - The package was delivered to `/opt/packages/greeter` with its manifest, and
   the files carry the permissions they were published with.
 - The session reported how the package arrived, in `download-workshop.log`.
-- The package hooks ran: a setup script once at startup, and a profile script
-  in every shell.
+- The package hooks ran: a setup script once at startup, and the environment
+  variable it set is in every shell.
 - The package directory is read only where the package was mounted, and the
   package writes what it generates somewhere else.
 - The package's `bin` directory is on the search path, before setup scripts

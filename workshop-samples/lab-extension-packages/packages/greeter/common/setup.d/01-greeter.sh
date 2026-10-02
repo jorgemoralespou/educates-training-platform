@@ -18,6 +18,12 @@ EOF
 
 echo "greeter: wrote $HOME/.local/share/greeter/config"
 
+# Point the program at that file for the rest of the session. A NAME=VALUE line
+# written to the file named by WORKSHOP_ENV becomes an environment variable in
+# later setup scripts and in every shell, which is how a package sets its
+# environment.
+echo "GREETER_CONFIG=$HOME/.local/share/greeter/config" >> "$WORKSHOP_ENV"
+
 # The package's own bin directory is already on the PATH by the time setup
 # scripts run, so a setup script can use what its package ships.
 echo "greeter: the packaged program reports $(greeter --which)"

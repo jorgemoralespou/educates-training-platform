@@ -27,8 +27,6 @@ argocd/
   common/
     setup.d/
       01-configure.sh
-    profile.d/
-      argocd.sh
   linux-amd64/
     bin/
       argocd
@@ -101,15 +99,24 @@ named with a ``.sh`` suffix and must be executable, or they are skipped. Use
 them for work which has to happen once per session, such as generating
 configuration.
 
-Scripts in ``profile.d`` are sourced into the shell environment, so use them
-to export environment variables an application needs. They must also be named
-with a ``.sh`` suffix, but they do not need to be executable, since they are
-sourced rather than run.
+A setup script sets an environment variable an application needs by writing a
+``NAME=VALUE`` line to the file named by the ``WORKSHOP_ENV`` environment
+variable. The variable is then set in the setup scripts which run after it,
+and in the processes run in the workshop session, including the terminal
+shell:
+
+```shell
+#!/bin/bash
+
+echo "ARGOCD_OPTS=--grpc-web" >> $WORKSHOP_ENV
+```
+
+See [running steps on container start](running-steps-on-container-start) for
+more on setup scripts and ``WORKSHOP_ENV``.
 
 A ``bin`` directory is added to the application search path defined by the
 ``PATH`` environment variable, so a program the package ships can be run by
-name. A package does not need a ``profile.d`` script to put its own ``bin``
-directory on the path. Packages are added in the alphabetical order of their
+name. Packages are added in the alphabetical order of their
 names, so where two packages ship a program of the same name, the one from the
 package whose name sorts first is found. The search path is set before setup
 scripts run, so a setup script can run programs from its own package.

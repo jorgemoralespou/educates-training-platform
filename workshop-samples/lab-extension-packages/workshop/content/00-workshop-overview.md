@@ -23,8 +23,8 @@ spec:
 The `greeter` package is deliberately small. It ships:
 
 - A package manifest, `package.yaml`, which names and versions it.
-- A `setup.d` script, run once when the session starts.
-- A `profile.d` script, sourced into every shell.
+- A `setup.d` script, run once when the session starts, which also sets an
+  environment variable for the session.
 - A `bin/greeter` program, built differently for each architecture so that the
   pages can show which one was delivered.
 

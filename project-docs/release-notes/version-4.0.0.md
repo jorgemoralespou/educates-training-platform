@@ -236,8 +236,8 @@ New Features
 
 * A ``bin`` directory contained in an installed extension package is now added
   to the application search path defined by the ``PATH`` environment variable,
-  so a program a package ships can be run by name without the package
-  supplying a ``profile.d`` script to set it up. This applies to a package
+  so a program a package ships can be run by name without the package having
+  to set this up itself. This applies to a package
   declared with ``files`` as well as one declared as an image. Packages are
   added in the alphabetical order of their names, so where two packages ship a
   program of the same name, the one from the package whose name sorts first is
@@ -422,6 +422,14 @@ Deprecations
   scope them per workshop session, and logs a warning when it does), but support
   will be removed on the same timeline as Kyverno's removal of ``ClusterPolicy``.
   Migrate workshop-provided policies to ``ValidatingPolicy``.
+
+* ``profile.d`` scripts are deprecated, whether supplied with workshop content
+  or by an extension package, and will be removed in a future version. They
+  are still sourced for now. Set environment variables from a ``setup.d``
+  script instead, by writing ``NAME=VALUE`` lines to the file named by the
+  ``WORKSHOP_ENV`` environment variable. Variables written there are set in
+  the setup scripts which run afterwards and in the processes run in the
+  workshop session, including the terminal shell.
 
 * The Carvel-based installer from version 3 has been removed. Educates is no
   longer packaged or installed as a ``kapp-controller`` package: the
