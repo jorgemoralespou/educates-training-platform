@@ -94,7 +94,8 @@ workshopSecurity:
 # session; otherwise its contents are fetched, which works on any cluster.
 
 packageDelivery:
-  imageMount: disabled    # enabled | disabled
+  imageMount:
+    enabled: false
 
 # =============================================================================
 # Development overrides

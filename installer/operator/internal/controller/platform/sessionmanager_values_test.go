@@ -191,22 +191,25 @@ func TestRenderNodeCAInjectorValues_ImageOverride(t *testing.T) {
 
 // The session manager reads the delivery the cluster config resolved, so the
 // resolved value has to reach its chart values in the form the chart accepts,
-// which is lowercased.
+// which is an enabled flag.
 func TestApplySMPackageDeliveryValues(t *testing.T) {
 	cases := []struct {
 		name     string
 		status   *configv1alpha1.StatusPackageDelivery
-		expected any
+		set      bool
+		expected bool
 	}{
 		{
-			name:     "enabled reaches the chart lowercased",
+			name:     "enabled reaches the chart as true",
 			status:   &configv1alpha1.StatusPackageDelivery{ImageMount: configv1alpha1.EffectiveDeliveryModeEnabled},
-			expected: map[string]any{"imageMount": "enabled"},
+			set:      true,
+			expected: true,
 		},
 		{
-			name:     "disabled reaches the chart lowercased",
+			name:     "disabled reaches the chart as false",
 			status:   &configv1alpha1.StatusPackageDelivery{ImageMount: configv1alpha1.EffectiveDeliveryModeDisabled},
-			expected: map[string]any{"imageMount": "disabled"},
+			set:      true,
+			expected: false,
 		},
 		{
 			// A cluster config which has not resolved yet leaves the chart
@@ -231,7 +234,7 @@ func TestApplySMPackageDeliveryValues(t *testing.T) {
 
 			actual, found := values["packageDelivery"]
 
-			if test.expected == nil {
+			if !test.set {
 				if found {
 					t.Errorf("expected no value, got %v", actual)
 				}
@@ -249,10 +252,20 @@ func TestApplySMPackageDeliveryValues(t *testing.T) {
 				t.Fatalf("packageDelivery is %T, want a map", actual)
 			}
 
-			expectedMap := test.expected.(map[string]any)
+			imageMount, ok := actualMap["imageMount"].(map[string]any)
 
-			if actualMap["imageMount"] != expectedMap["imageMount"] {
-				t.Errorf("imageMount = %v, want %v", actualMap["imageMount"], expectedMap["imageMount"])
+			if !ok {
+				t.Fatalf("packageDelivery.imageMount is %T, want a map", actualMap["imageMount"])
+			}
+
+			enabled, ok := imageMount["enabled"].(bool)
+
+			if !ok {
+				t.Fatalf("packageDelivery.imageMount.enabled is %T, want a bool", imageMount["enabled"])
+			}
+
+			if enabled != test.expected {
+				t.Errorf("packageDelivery.imageMount.enabled = %v, want %v", enabled, test.expected)
 			}
 		})
 	}

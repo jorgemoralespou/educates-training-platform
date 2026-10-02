@@ -169,13 +169,18 @@
       },
 
       "packageDelivery": {
-        "description": "How extension packages declared as an image reach a workshop session. With `imageMount` enabled the image is mounted read only into the session; `disabled` means the package contents are fetched instead, which works everywhere.",
+        "description": "How extension packages declared as an image reach a workshop session. With `imageMount.enabled` true the image is mounted read only into the session; false means the package contents are fetched instead, which works everywhere.",
         "type": "object",
         "additionalProperties": false,
         "properties": {
           "imageMount": {
-            "type": "string",
-            "enum": ["enabled", "disabled"]
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              }
+            }
           }
         }
       },

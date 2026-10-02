@@ -23,7 +23,7 @@ from .analytics import report_analytics_event
 
 from .operator_config import (
     resolve_workshop_image,
-    PACKAGE_DELIVERY_IMAGE_MOUNT,
+    PACKAGE_DELIVERY_IMAGE_MOUNT_ENABLED,
     PLATFORM_ARCH,
     OPERATOR_NAMESPACE,
     IMAGE_REPOSITORY,
@@ -816,7 +816,7 @@ def workshop_environment_create(
     # nothing downloads it, or fetched by the package fetcher. Whichever
     # applies, a package appears in at most one config.
 
-    image_mount_enabled = PACKAGE_DELIVERY_IMAGE_MOUNT == "enabled"
+    image_mount_enabled = PACKAGE_DELIVERY_IMAGE_MOUNT_ENABLED
 
     directories_config = []
     fetch_packages_config = []
@@ -2362,7 +2362,9 @@ def workshop_environment_create(
         # is the same. Changing the platform setting affects new environments
         # only.
         "packageDelivery": {
-            "imageMount": PACKAGE_DELIVERY_IMAGE_MOUNT,
+            "imageMount": {
+                "enabled": PACKAGE_DELIVERY_IMAGE_MOUNT_ENABLED,
+            },
         },
     }
 

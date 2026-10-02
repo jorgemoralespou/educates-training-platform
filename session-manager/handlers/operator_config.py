@@ -86,8 +86,8 @@ WORKSHOP_SECURITY_RULES_ENGINE = xget(config_values, "workshopSecurity.rulesEngi
 # resolves this from what the cluster supports; the default is the delivery
 # which works everywhere.
 
-PACKAGE_DELIVERY_IMAGE_MOUNT = xget(
-    config_values, "packageDelivery.imageMount", "disabled"
+PACKAGE_DELIVERY_IMAGE_MOUNT_ENABLED = xget(
+    config_values, "packageDelivery.imageMount.enabled", False
 )
 
 DOCKERD_MTU = xget(config_values, "dockerDaemon.networkMTU", 1400)

@@ -575,14 +575,18 @@ func applySMSecurityValues(values map[string]any, obj *platformv1alpha1.SessionM
 // applySMPackageDeliveryValues maps the delivery the cluster config
 // resolved for extension packages. The session manager reads the
 // resolved value rather than deciding for itself, so a cluster which
-// cannot mount package images fetches their contents instead.
+// cannot mount package images fetches their contents instead. The
+// cluster config settles the mode to Enabled or Disabled; the session
+// manager chart takes it as an enabled flag, as its other toggles are.
 func applySMPackageDeliveryValues(values map[string]any, cfg *configv1alpha1.EducatesClusterConfig) {
 	if cfg.Status.PackageDelivery == nil || cfg.Status.PackageDelivery.ImageMount == "" {
 		return
 	}
 
 	values["packageDelivery"] = map[string]any{
-		"imageMount": strings.ToLower(string(cfg.Status.PackageDelivery.ImageMount)),
+		"imageMount": map[string]any{
+			"enabled": cfg.Status.PackageDelivery.ImageMount == configv1alpha1.EffectiveDeliveryModeEnabled,
+		},
 	}
 }
 

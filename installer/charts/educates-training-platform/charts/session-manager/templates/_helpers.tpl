@@ -443,7 +443,7 @@ resolution.
   )
   "clusterSecurity" (dict "policyEngine" (lower $cs.policyEngine))
   "workshopSecurity" (dict "rulesEngine" (lower $ws.rulesEngine))
-  "packageDelivery" (dict "imageMount" (lower (default "disabled" $pd.imageMount)))
+  "packageDelivery" (dict "imageMount" (dict "enabled" (eq (dig "imageMount" "enabled" false $pd) true)))
   "imageRegistry" (dict
     "host" (default "" $ir.host)
     "namespace" (default "" $ir.namespace)

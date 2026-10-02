@@ -1937,8 +1937,8 @@ def workshop_session_create(name, body, meta, uid, spec, status, patch, retry, *
     image_mount_enabled = (
         environment_instance.obj["status"]["educates"]
         .get("packageDelivery", {})
-        .get("imageMount", "disabled")
-        == "enabled"
+        .get("imageMount", {})
+        .get("enabled", False)
     )
 
     if image_mount_enabled:
