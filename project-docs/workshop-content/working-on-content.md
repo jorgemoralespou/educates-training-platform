@@ -126,7 +126,7 @@ Note that there can be a slight delay in being able to create a new workshop as 
 Accessing workshop error logs
 -----------------------------
 
-If workshop content is not able to be downloaded due to an error, an extension package does not arrive, a setup script included with the workshop content fails, or workshop instructions cannot be rendered when using the Hugo renderer, an error dialog will be displayed when the workshop session dashboard is displayed. The dialog will point you at the error logs for details. You have two options for finding details of the errors in these cases.
+If workshop content is not able to be downloaded due to an error, an extension package does not arrive, a setup script included with the workshop content fails, or workshop instructions cannot be rendered when using the Hugo renderer, an error dialog will be displayed when the workshop session dashboard is displayed. The dialog says what failed, but not why, and the details are in the error logs. You have two options for finding details of the errors in these cases.
 
 The first way is to determine the name of the deployment for the workshop session and which namespace it is in, and use the ``kubectl logs`` command to access the logs. 
 
