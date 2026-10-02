@@ -150,9 +150,8 @@ as files without a manifest has nothing added for it, and puts its own ``bin``
 directory on the search path with a line like the one above.
 
 A package may also supply ``supervisor`` configuration to run a background
-process, ``gateway/routes`` to add routes to the workshop dashboard, and
-``examiner/tests`` to add tests for the examiner. These are read the same way
-as they are for a package supplied as files.
+process, and ``examiner/tests`` to add tests for the examiner. These are read
+the same way as they are for a package supplied as files.
 
 (extension-packages-are-read-only)=
 Packages are read only
