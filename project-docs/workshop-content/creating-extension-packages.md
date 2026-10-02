@@ -337,11 +337,14 @@ A ``Dockerfile`` build takes file timestamps from the build, so building the
 same source twice gives different digests. For a reproducible build, set
 ``SOURCE_DATE_EPOCH`` in the environment, which ``docker buildx`` passes to the
 build, and add ``rewrite-timestamp=true`` to the image output so the files in
-the image take that timestamp too:
+the image take that timestamp too. Also turn off the provenance attestation
+which ``docker buildx`` adds to the image index by default, because it records
+details of each individual build and so changes the digest of the index even
+when the platform images are identical:
 
 ```text
 SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) docker buildx build \
-  --platform linux/amd64,linux/arm64 \
+  --platform linux/amd64,linux/arm64 --provenance=false \
   --output type=image,name=ghcr.io/myorg/mytool:1.0.0,push=true,rewrite-timestamp=true .
 ```
 
