@@ -88,6 +88,7 @@ logs](accessing-workshop-error-logs). An image which is not an extension
 package therefore fails visibly rather than leaving the session quietly
 missing whatever the package provides.
 
+(what-an-extension-package-can-provide)=
 What a package can provide
 --------------------------
 
@@ -116,10 +117,35 @@ more on setup scripts and ``WORKSHOP_ENV``.
 
 A ``bin`` directory is added to the application search path defined by the
 ``PATH`` environment variable, so a program the package ships can be run by
-name. Packages are added in the alphabetical order of their
-names, so where two packages ship a program of the same name, the one from the
-package whose name sorts first is found. The search path is set before setup
-scripts run, so a setup script can run programs from its own package.
+name. Packages are added in the alphabetical order of their names, so where
+two packages ship a program of the same name, the one from the package whose
+name sorts first is found. Each setup script of a package runs with the
+package's own ``bin`` directory on the search path, so a setup script can run
+programs from its own package, and the setup scripts supplied with the
+workshop content run with every added ``bin`` directory on it.
+
+A package which needs its ``bin`` directory placed on the search path some
+other way, such as after the directories already there, sets ``PATH`` itself
+by writing a line setting it to the file named by ``WORKSHOP_ENV``. Its
+``bin`` directory is then not added for it. Escape ``$PATH`` in the line, so
+that it is expanded when the line is read rather than replaced by the value it
+has while the setup script runs:
+
+```shell
+#!/bin/bash
+
+PACKAGE_DIR=$(cd "$(dirname "$0")/.."; pwd)
+
+echo "PATH=\$PATH:$PACKAGE_DIR/bin" >> $WORKSHOP_ENV
+```
+
+A package whose programs should not be on the search path at all ships them in
+a directory with another name, such as ``libexec``.
+
+The ``bin`` directory is added in this way only for a package carrying a
+``package.yaml`` manifest, which every package image does. A package supplied
+as files without a manifest has nothing added for it, and puts its own ``bin``
+directory on the search path with a line like the one above.
 
 A package may also supply ``supervisor`` configuration to run a background
 process, ``gateway/routes`` to add routes to the workshop dashboard, and

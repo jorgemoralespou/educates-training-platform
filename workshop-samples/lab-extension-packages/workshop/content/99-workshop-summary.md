@@ -14,8 +14,9 @@ What was checked:
   variable it set is in every shell.
 - The package directory is read only where the package was mounted, and the
   package writes what it generates somewhere else.
-- The package's `bin` directory is on the search path, before setup scripts
-  run, and the build matching this machine's architecture was delivered.
+- The package's `bin` directory is on the search path once, including for the
+  package's own setup script, and the build matching this machine's
+  architecture was delivered.
 
 None of the pages needed to know which delivery the platform chose. A package
 author writes one package and one workshop definition, and the platform

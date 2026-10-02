@@ -2,9 +2,9 @@
 title: "The bin Directory on the PATH"
 ---
 
-A `bin` directory at the root of a package is added to the application search
-path, so a program the package ships runs by name. The package does not need
-to arrange this itself.
+A `bin` directory at the root of a package with a manifest is added to the
+application search path, so a program the package ships runs by name. The
+package does not need to arrange this itself.
 
 Run the packaged program:
 
@@ -26,15 +26,27 @@ It should resolve to `/opt/packages/greeter/bin/greeter`.
 ## The package did not set this up
 
 The `greeter` package's setup script sets an environment variable for the
-session, but it contains no `PATH` line:
+session, but it writes no `PATH` line:
 
 ```terminal:execute
 command: |-
   cat /opt/packages/greeter/setup.d/01-greeter.sh
 ```
 
-The search path is arranged for every package, including packages supplied as
-files, so an author does not repeat it.
+The search path is arranged for any package which carries a manifest, as
+`greeter` does, so an author does not repeat it. A package whose setup script
+does write a `PATH` line takes charge of the search path itself, and has
+nothing added for it.
+
+Setting up the search path a second time, as happens when the workshop is
+rebuilt, adds nothing more. The package's directory appears on it once:
+
+```terminal:execute
+command: |-
+  echo "$PATH" | tr ':' '\n' | grep -c '^/opt/packages/greeter/bin$'
+```
+
+It should print `1`.
 
 ## The right architecture was delivered
 
@@ -51,10 +63,11 @@ command: |-
 The two should agree: `linux-amd64` on an `x86_64` machine, `linux-arm64` on
 an `aarch64` one.
 
-## The search path is set before setup scripts run
+## Setup scripts can run the package's programs
 
-The package's setup script called `greeter` when the session started, before
-any of these pages ran. Its output is in the setup log:
+The package's setup script runs with the package's own `bin` directory on the
+search path. It called `greeter` when the session started, before any of these
+pages ran. Its output is in the setup log:
 
 ```terminal:execute
 command: |-

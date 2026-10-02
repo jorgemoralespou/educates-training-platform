@@ -234,15 +234,21 @@ New Features
   rather than a fault. The resolution is re-evaluated when a node joins,
   leaves, or is upgraded.
 
-* A ``bin`` directory contained in an installed extension package is now added
-  to the application search path defined by the ``PATH`` environment variable,
-  so a program a package ships can be run by name without the package having
-  to set this up itself. This applies to a package
-  declared with ``files`` as well as one declared as an image. Packages are
-  added in the alphabetical order of their names, so where two packages ship a
-  program of the same name, the one from the package whose name sorts first is
-  found. The search path is set before package setup scripts run, so a setup
-  script can run programs from its own package.
+* A ``bin`` directory contained in an installed extension package which
+  carries a ``package.yaml`` manifest is now added to the application search
+  path defined by the ``PATH`` environment variable, so a program the package
+  ships can be run by name without the package having to set this up itself.
+  This applies to a package declared with ``files`` as well as one declared as
+  an image. A package whose setup scripts set ``PATH`` themselves, by writing
+  it to the file named by ``WORKSHOP_ENV``, keeps control of where its ``bin``
+  directory goes and has nothing added for it, and a package without a
+  manifest is not affected. Packages are added in the alphabetical order of
+  their names, so where two packages ship a program of the same name, the one
+  from the package whose name sorts first is found. Each setup script of a
+  package runs with the package's own ``bin`` directory on the search path, so
+  a setup script can run programs from its own package. Running
+  ``rebuild-workshop`` again does not add a directory to the search path a
+  second time.
 
 * Each extension package declared as an image is now checked when a workshop
   session starts, and one line per package is written to
