@@ -32,6 +32,22 @@ guessed at. Nothing rejects an image for lacking it: the manifest is the test,
 which is what allows a package image to be built with a ``Dockerfile`` where a
 pipeline already builds images.
 
+**The label's name.** The key follows the convention for third party image
+labels. Docker asks a tool to prefix each label key with the reverse DNS
+notation of a domain it owns, and the OCI image specification asks the same of
+annotation keys while reserving ``org.opencontainers`` for itself;
+``dev.educates`` is ``educates.dev`` reversed. It is the shape imgpkg uses to
+mark a bundle, ``dev.carvel.imgpkg.bundle``, which vendir's ``imgpkgBundle``
+source relies on through imgpkg, and the shape Cloud Native Buildpacks uses for
+``io.buildpacks.*``. The value is the contract version, currently ``"1"``,
+rather than a flag. The index carries the predefined OCI annotations
+``org.opencontainers.image.title``, ``version`` and ``created`` rather than
+keys of our own. ORAS and the OCI artifact conventions identify content by the
+manifest's ``artifactType`` or a custom config media type instead, but those
+describe artifacts which are not runnable images, and a package image has to
+be a real image, because Kubernetes image volumes and Docker image mounts
+mount nothing else.
+
 **Tags, not digests.** A digest reference would pin a package to one index,
 and an index is exactly what must be resolved per architecture at delivery. It
 would also defeat the mount path, where the kubelet resolves the reference.

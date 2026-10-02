@@ -329,9 +329,10 @@ COPY common/ /
 COPY linux-${TARGETARCH}/ /
 ```
 
-The label records that the image was built to this contract. Nothing requires
-it: a workshop session tests for the manifest, not the label, which is what
-makes building with a ``Dockerfile`` possible at all.
+The label records that the image was built to this contract, and its value,
+``1``, is the version of the contract rather than a flag. Nothing requires
+the label: a workshop session tests for the manifest, not the label, which is
+what makes building with a ``Dockerfile`` possible at all.
 
 A ``Dockerfile`` build takes file timestamps from the build, so building the
 same source twice gives different digests. For a reproducible build, set
