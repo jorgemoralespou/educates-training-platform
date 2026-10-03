@@ -566,11 +566,11 @@ Bugs Fixed
 
 * The Node.js packages bundled with the workshop gateway, renderer and editor
   helper in the workshop base environment image have been updated to their
-  latest upstream releases, being ``js-yaml`` 4.3.2, ``morgan`` 1.12.0,
-  ``multer`` 2.3.0, ``joi`` 17.13.7, ``liquidjs`` 10.27.2 and ``fast-uri``
-  3.1.7. These updates pick up fixes for vulnerabilities reported against the
-  previously bundled versions. The behavior of the workshop dashboard is
-  unchanged.
+  latest upstream releases, being ``axios`` 1.20.0, ``js-yaml`` 4.3.2,
+  ``morgan`` 1.12.1, ``multer`` 2.4.0, ``joi`` 17.13.7, ``liquidjs`` 10.27.2
+  and ``fast-uri`` 3.1.8. These updates pick up fixes for vulnerabilities
+  reported against the previously bundled versions. The behavior of the
+  workshop dashboard is unchanged.
 
 * When workshop instructions were rendered using the Hugo renderer with the
   default ``educates`` theme and the workshop provided no instructions pages,
