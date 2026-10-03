@@ -575,10 +575,9 @@ Bugs Fixed
 * The Python packages bundled with the session manager, secrets manager,
   lookup service, training portal and tunnel manager have been updated to
   releases which fix vulnerabilities reported against the previously bundled
-  versions, being ``urllib3`` 2.8.0 in all five components, ``Django`` 5.2.17
-  in the training portal, ``PyJWT`` 2.15.1 in the lookup service, and
-  ``oauthlib`` 4.0.0 in the session manager, secrets manager, lookup service
-  and tunnel manager. The behavior of these components is unchanged.
+  versions, being ``urllib3`` 2.8.0 and ``oauthlib`` 4.0.0 in all five
+  components, ``Django`` 5.2.17 in the training portal, and ``PyJWT`` 2.15.1
+  in the lookup service. The behavior of these components is unchanged.
 
 * When workshop instructions were rendered using the Hugo renderer with the
   default ``educates`` theme and the workshop provided no instructions pages,
