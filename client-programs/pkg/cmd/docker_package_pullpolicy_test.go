@@ -27,6 +27,8 @@ spec:
       imagePullPolicy: IfNotPresent
     - name: unset
       image: ghcr.io/educates/unset:v1
+    - name: unsetdevelop
+      image: ghcr.io/educates/unsetdevelop:develop
     - name: unsetlatest
       image: $(image_repository)/unsetlatest:$(workshop_version)
 `)
@@ -37,8 +39,8 @@ spec:
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(packages) != 5 {
-		t.Fatalf("expected 5 packages, got %d", len(packages))
+	if len(packages) != 6 {
+		t.Fatalf("expected 6 packages, got %d", len(packages))
 	}
 
 	cases := []struct {
@@ -65,13 +67,20 @@ spec:
 			reference:       "ghcr.io/educates/ifnotpresent:v1",
 			daemonReference: "ghcr.io/educates/ifnotpresent:v1",
 		},
-		// An undeclared policy takes the Kubernetes default for an image
-		// volume, which for a fixed tag pulls only when the image is missing.
+		// An undeclared policy takes the default the session manager gives a
+		// workshop image, which for a fixed tag pulls only when the image is
+		// missing, and for a tag expected to move pulls every time.
 		{
 			name:            "unset",
 			policy:          "IfNotPresent",
 			reference:       "ghcr.io/educates/unset:v1",
 			daemonReference: "ghcr.io/educates/unset:v1",
+		},
+		{
+			name:            "unsetdevelop",
+			policy:          "Always",
+			reference:       "ghcr.io/educates/unsetdevelop:develop",
+			daemonReference: "ghcr.io/educates/unsetdevelop:develop",
 		},
 		// The default is taken after the tokens are expanded, so a workshop
 		// version of latest makes the package pulled every time.

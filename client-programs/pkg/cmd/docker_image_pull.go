@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strings"
 
-	dockerref "github.com/distribution/reference"
 	"github.com/moby/moby/client"
 	"github.com/pkg/errors"
 )
@@ -18,11 +17,12 @@ const (
 	packageImageDescription  = "extension package image"
 )
 
-// workshopImagePullPolicy returns the pull policy the session manager gives a
-// workshop image on a cluster, so a local deploy refreshes the same images a
-// cluster would. A tag which is expected to move, or no tag at all, is pulled
-// every time, and any other tag only when the image is missing.
-func workshopImagePullPolicy(image string) string {
+// defaultImagePullPolicy returns the pull policy the session manager gives a
+// workshop image, and an extension package image declaring none, on a
+// cluster, so a local deploy refreshes the same images a cluster would. A tag
+// which is expected to move, or no tag at all, is pulled every time, and any
+// other tag only when the image is missing.
+func defaultImagePullPolicy(image string) string {
 	for _, tag := range []string{":main", ":master", ":develop", ":latest"} {
 		if strings.HasSuffix(image, tag) {
 			return imagePullPolicyAlways
@@ -30,31 +30,6 @@ func workshopImagePullPolicy(image string) string {
 	}
 
 	if !strings.Contains(image, ":") {
-		return imagePullPolicyAlways
-	}
-
-	return imagePullPolicyIfNotPresent
-}
-
-// defaultPackagePullPolicy returns the pull policy Kubernetes gives an image
-// volume which declares none: Always when the tag is latest, which a reference
-// with neither a tag nor a digest implies, and IfNotPresent otherwise.
-func defaultPackagePullPolicy(reference string) string {
-	named, err := dockerref.ParseNormalizedNamed(reference)
-
-	if err != nil {
-		return imagePullPolicyIfNotPresent
-	}
-
-	tag := ""
-
-	if tagged, ok := named.(dockerref.Tagged); ok {
-		tag = tagged.Tag()
-	}
-
-	_, digested := named.(dockerref.Digested)
-
-	if tag == "latest" || (tag == "" && !digested) {
 		return imagePullPolicyAlways
 	}
 

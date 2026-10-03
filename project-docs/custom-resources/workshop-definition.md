@@ -576,6 +576,14 @@ spec:
       imagePullPolicy: IfNotPresent
 ```
 
+A package which declares no ``imagePullPolicy`` is given the same pull policy
+as the workshop image. An image with the ``:main``, ``:master``, ``:develop``
+or ``:latest`` tag is pulled with ``Always``, so a newer version pushed under
+the same tag is used when a workshop session starts, and an image with any
+other tag is pulled with ``IfNotPresent``, so a copy already held on the node
+is used. The pull policy applies where the package image is mounted. Where the
+package contents are fetched instead, the pull policy is ignored.
+
 Where the image is held in a registry requiring credentials, an optional
 ``pullSecretRef`` names a secret which must also be listed under
 ``spec.environment.secrets`` so that it is copied into the workshop namespace:
@@ -654,10 +662,10 @@ the image before deploying, which is what you want when republishing the same
 tag while working on a package, and ``Never`` reports an error when the image
 is not already held locally. A package which declares no ``imagePullPolicy``
 is given the same default as on a cluster, which is ``Always`` for an image
-with the ``:latest`` tag or no tag, and ``IfNotPresent`` otherwise. If a pull
-fails but a copy of the image is already held locally, a warning is printed
-and that copy is used. Where the contents are fetched instead, the policy is
-ignored.
+with the ``:main``, ``:master``, ``:develop`` or ``:latest`` tag, and
+``IfNotPresent`` otherwise. If a pull fails but a copy of the image is already
+held locally, a warning is printed and that copy is used. Where the contents
+are fetched instead, the policy is ignored.
 
 ``pullSecretRef`` is ignored when deploying with Docker, since a local deploy
 has no access to cluster secrets. An image held in a registry requiring

@@ -195,7 +195,11 @@ New Features
   the ``$(image_repository)``, ``$(workshop_name)`` and
   ``$(workshop_version)`` variables, must carry a tag, and cannot be a digest.
   A package declared this way needs a name which is a valid DNS label, as the
-  name is used when the package is delivered to a workshop session.
+  name is used when the package is delivered to a workshop session. Where the
+  package image is mounted and declares no ``imagePullPolicy``, it is given
+  the same pull policy as the workshop image, which is ``Always`` for an image
+  with the ``:main``, ``:master``, ``:develop`` or ``:latest`` tag, and
+  ``IfNotPresent`` otherwise.
 
 * A new ``educates package publish`` command, also available as ``educates
   publish-package``, builds and publishes an extension package as an image. It
@@ -284,9 +288,9 @@ New Features
   reports an error before deploying when the image is not already held
   locally. A package which declares no ``imagePullPolicy`` is given the same
   default as on a cluster, which is ``Always`` for an image with the
-  ``:latest`` tag or no tag, and ``IfNotPresent`` otherwise. If a pull fails
-  but a copy of the image is already held locally, a warning is printed and
-  that copy is used. Where the package contents are fetched instead, the
+  ``:main``, ``:master``, ``:develop`` or ``:latest`` tag, and
+  ``IfNotPresent`` otherwise. If a pull fails but a copy of the image is
+  already held locally, a warning is printed and that copy is used. Where the package contents are fetched instead, the
   policy continues to be ignored. Note that ``pullSecretRef`` is ignored when
   deploying with Docker, so an image held in a registry requiring
   authentication needs ``docker login`` for that registry first. A pull which

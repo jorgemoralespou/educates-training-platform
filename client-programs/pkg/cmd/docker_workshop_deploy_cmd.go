@@ -272,7 +272,7 @@ func (m *DockerWorkshopsManager) DeployWorkshop(o *DockerWorkshopDeployOptions, 
 
 	// Compose only pulls an image which is missing, so a workshop image whose
 	// tag is expected to move is refreshed first, as a cluster would.
-	if workshopImagePullPolicy(workshopImageName) == imagePullPolicyAlways {
+	if defaultImagePullPolicy(workshopImageName) == imagePullPolicyAlways {
 		if err := refreshImageWithDocker(ctx, cli, workshopImageName, workshopImageDescription, stdout); err != nil {
 			return name, err
 		}

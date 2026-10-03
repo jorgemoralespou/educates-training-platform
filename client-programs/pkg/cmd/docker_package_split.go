@@ -62,8 +62,8 @@ type imagePackage struct {
 	// use.
 	DaemonReference string
 
-	// PullPolicy is the declared imagePullPolicy, or the one Kubernetes would
-	// give the image volume when none was declared.
+	// PullPolicy is the declared imagePullPolicy, or the one the session
+	// manager would give the image volume when none was declared.
 	PullPolicy string
 }
 
@@ -154,9 +154,9 @@ func readImagePackages(
 		daemonReference := expandPackageImageTokens(packageImage, repositories.Daemon, name, workshopVersion)
 
 		// The default is taken from the expanded reference, since the
-		// workshop version token can expand to a latest tag.
+		// workshop version token can expand to a tag expected to move.
 		if pullPolicy == "" {
-			pullPolicy = defaultPackagePullPolicy(daemonReference)
+			pullPolicy = defaultImagePullPolicy(daemonReference)
 		}
 
 		packages = append(packages, imagePackage{

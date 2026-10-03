@@ -1953,16 +1953,24 @@ def workshop_session_create(name, body, meta, uid, spec, status, patch, retry, *
             package_name = package["name"]
             volume_name = f"package-{package_name}"
 
-            image_volume = {
-                "reference": substitute_variables(
-                    package_image, session_variables
-                ),
-            }
+            package_image_reference = substitute_variables(
+                package_image, session_variables
+            )
+
+            # A package declaring no pull policy is given the one a workshop
+            # image would be, rather than the image volume default, so a tag
+            # expected to move such as develop is pulled again when a session
+            # starts, as it is for a workshop image.
 
             package_image_pull_policy = package.get("imagePullPolicy")
 
-            if package_image_pull_policy:
-                image_volume["pullPolicy"] = package_image_pull_policy
+            if not package_image_pull_policy:
+                package_image_pull_policy = image_pull_policy(package_image_reference)
+
+            image_volume = {
+                "reference": package_image_reference,
+                "pullPolicy": package_image_pull_policy,
+            }
 
             deployment_pod_template_spec["volumes"].append(
                 {"name": volume_name, "image": image_volume}

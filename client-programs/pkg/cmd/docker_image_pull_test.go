@@ -7,9 +7,10 @@ import (
 	"testing"
 )
 
-// The rule is the one the session manager applies to a workshop image on a
-// cluster, so these cases are the same tags it recognises.
-func TestWorkshopImagePullPolicy(t *testing.T) {
+// The rule is the one the session manager applies on a cluster to a workshop
+// image, and to an extension package image declaring no pull policy, so these
+// cases are the same tags it recognises.
+func TestDefaultImagePullPolicy(t *testing.T) {
 	cases := []struct {
 		image string
 		want  string
@@ -18,43 +19,17 @@ func TestWorkshopImagePullPolicy(t *testing.T) {
 		{image: "ghcr.io/educates/educates-base-environment:main", want: imagePullPolicyAlways},
 		{image: "ghcr.io/educates/educates-base-environment:master", want: imagePullPolicyAlways},
 		{image: "ghcr.io/educates/educates-base-environment:develop", want: imagePullPolicyAlways},
+		{image: "ghcr.io/educates/argocd:main", want: imagePullPolicyAlways},
 		{image: "ubuntu", want: imagePullPolicyAlways},
 		{image: "ghcr.io/educates/educates-base-environment:4.0.0", want: imagePullPolicyIfNotPresent},
+		{image: "localhost:5001/greeter:1.0.0", want: imagePullPolicyIfNotPresent},
 		{image: "ghcr.io/educates/lab-image@sha256:" + strings.Repeat("a", 64), want: imagePullPolicyIfNotPresent},
 	}
 
 	for _, test := range cases {
 		t.Run(test.image, func(t *testing.T) {
-			if got := workshopImagePullPolicy(test.image); got != test.want {
-				t.Errorf("workshopImagePullPolicy(%q) = %q, want %q", test.image, got, test.want)
-			}
-		})
-	}
-}
-
-// The rule is the one Kubernetes applies to an image volume which declares no
-// pull policy, which is what a package gets on a cluster.
-func TestDefaultPackagePullPolicy(t *testing.T) {
-	cases := []struct {
-		reference string
-		want      string
-	}{
-		{reference: "localhost:5001/greeter:latest", want: imagePullPolicyAlways},
-		// No tag and no digest means latest.
-		{reference: "localhost:5001/greeter", want: imagePullPolicyAlways},
-		{reference: "ghcr.io/educates/argocd", want: imagePullPolicyAlways},
-		{reference: "localhost:5001/greeter:1.0.0", want: imagePullPolicyIfNotPresent},
-		// Unlike a workshop image, a moving branch tag is not special here.
-		{reference: "ghcr.io/educates/argocd:main", want: imagePullPolicyIfNotPresent},
-		{reference: "ghcr.io/educates/argocd@sha256:" + strings.Repeat("a", 64), want: imagePullPolicyIfNotPresent},
-		// A reference which cannot be parsed is left for the pull to report.
-		{reference: "/greeter:1.0.0", want: imagePullPolicyIfNotPresent},
-	}
-
-	for _, test := range cases {
-		t.Run(test.reference, func(t *testing.T) {
-			if got := defaultPackagePullPolicy(test.reference); got != test.want {
-				t.Errorf("defaultPackagePullPolicy(%q) = %q, want %q", test.reference, got, test.want)
+			if got := defaultImagePullPolicy(test.image); got != test.want {
+				t.Errorf("defaultImagePullPolicy(%q) = %q, want %q", test.image, got, test.want)
 			}
 		})
 	}
