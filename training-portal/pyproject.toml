@@ -22,6 +22,9 @@ dependencies = [
     # Not imported directly; constrained here to control CVE exposure via
     # jwcrypto (django-oauth-toolkit).
     "cryptography>=50.0.0",
+    # Not imported directly; constrained here to control CVE exposure via
+    # django-oauth-toolkit.
+    "oauthlib>=4.0.0",
 ]
 
 [dependency-groups]
