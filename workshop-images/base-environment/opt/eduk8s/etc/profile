@@ -54,30 +54,26 @@ if [ -f $HOME/.local/share/workshop/workshop-env-packages.sh ]; then
     set -a; . $HOME/.local/share/workshop/workshop-env-packages.sh; set +a
 fi
 
-# Put the bin directories added for extension packages on the PATH, before the
-# package profile scripts are sourced. The list is the one the workshop setup
-# recorded, already in the order the directories are to be searched, and it
-# leaves out any package which sets PATH itself. Each directory is guarded
-# against being added twice, since this file is sourced afresh for every shell
-# and the PATH it starts from already carries what the session was started
-# with.
+# Put the bin directory of each extension package carrying a package manifest
+# on the PATH, before the package profile scripts are sourced. Each is
+# prepended in glob order, as the workshop setup added them, so where two
+# packages ship a binary of the same name the package whose name sorts last
+# wins. Each directory is guarded against being added twice, since this file
+# is sourced afresh for every shell and the PATH it starts from already
+# carries what the session was started with.
 
-if [ -f $HOME/.local/share/workshop/packages-path.txt ]; then
-    PACKAGES_PATH=""
-
-    while IFS= read -r dir; do
+for dir in /opt/packages/*/bin; do
+    if [ -d "$dir" -a -f "${dir%/bin}/package.yaml" ]; then
         case ":$PATH:" in
             *":$dir:"*) ;;
-            *) PACKAGES_PATH="$PACKAGES_PATH$dir:" ;;
+            *) PATH="$dir:$PATH" ;;
         esac
-    done < $HOME/.local/share/workshop/packages-path.txt
+    fi
+done
 
-    PATH="$PACKAGES_PATH$PATH"
+export PATH
 
-    export PATH
-
-    unset PACKAGES_PATH dir
-fi
+unset dir
 
 for i in /opt/packages/*/profile.d/*.sh /opt/packages/*/profile.d/sh.local; do
     if [ -r "$i" ]; then

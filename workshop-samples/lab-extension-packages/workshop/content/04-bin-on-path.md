@@ -34,9 +34,7 @@ command: |-
 ```
 
 The search path is arranged for any package which carries a manifest, as
-`greeter` does, so an author does not repeat it. A package whose setup script
-does write a `PATH` line takes charge of the search path itself, and has
-nothing added for it.
+`greeter` does, so an author does not repeat it.
 
 Setting up the search path a second time, as happens when the workshop is
 rebuilt, adds nothing more. The package's directory appears on it once:
@@ -65,9 +63,9 @@ an `aarch64` one.
 
 ## Setup scripts can run the package's programs
 
-The package's setup script runs with the package's own `bin` directory on the
-search path. It called `greeter` when the session started, before any of these
-pages ran. Its output is in the setup log:
+The package's `bin` directory is put on the search path just before the
+package's setup script runs. The script called `greeter` when the session
+started, before any of these pages ran. Its output is in the setup log:
 
 ```terminal:execute
 command: |-

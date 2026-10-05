@@ -119,35 +119,34 @@ more on setup scripts and ``WORKSHOP_ENV``.
 
 A ``bin`` directory is added to the application search path defined by the
 ``PATH`` environment variable, so a program the package ships can be run by
-name. Packages are added in the alphabetical order of their names, so where
-two packages ship a program of the same name, the one from the package whose
-name sorts first is found. Each setup script of a package runs with the
-package's own ``bin`` directory on the search path, so a setup script can run
-programs from its own package, and the setup scripts supplied with the
-workshop content run with every added ``bin`` directory on it.
+name. Packages are set up one at a time, in the alphabetical order of their
+names, and a package's ``bin`` directory is added just before its own setup
+scripts run, after which it stays on the search path. A setup script can
+therefore run programs from its own package and from the packages set up
+before it, but never from a package which has not been set up yet. Each
+``bin`` directory is added at the front of the search path, so where two
+packages ship a program of the same name, the one from the package whose name
+sorts last is found. The setup scripts supplied with the workshop content run
+with every package's ``bin`` directory on the search path.
 
-A package which needs its ``bin`` directory placed on the search path some
-other way, such as after the directories already there, sets ``PATH`` itself
-by writing a line setting it to the file named by ``WORKSHOP_ENV``. Its
-``bin`` directory is then not added for it. Escape ``$PATH`` in the line, so
-that it is expanded when the line is read rather than replaced by the value it
-has while the setup script runs:
+A package whose programs should not be on the search path ships them in a
+directory with another name, such as ``libexec``.
+
+The ``bin`` directory is added in this way only for a package carrying a
+``package.yaml`` manifest, which every package image does. A package supplied
+as files without a manifest has nothing added for it, and puts its own ``bin``
+directory on the search path from a setup script, by writing a line setting
+``PATH`` to the file named by ``WORKSHOP_ENV``. Escape ``$PATH`` in the line,
+so that it is expanded when the line is read rather than replaced by the value
+it has while the setup script runs:
 
 ```shell
 #!/bin/bash
 
 PACKAGE_DIR=$(cd "$(dirname "$0")/.."; pwd)
 
-echo "PATH=\$PATH:$PACKAGE_DIR/bin" >> $WORKSHOP_ENV
+echo "PATH=$PACKAGE_DIR/bin:\$PATH" >> $WORKSHOP_ENV
 ```
-
-A package whose programs should not be on the search path at all ships them in
-a directory with another name, such as ``libexec``.
-
-The ``bin`` directory is added in this way only for a package carrying a
-``package.yaml`` manifest, which every package image does. A package supplied
-as files without a manifest has nothing added for it, and puts its own ``bin``
-directory on the search path with a line like the one above.
 
 A package may also supply ``supervisor`` configuration to run a background
 process, and ``examiner/tests`` to add tests for the examiner. These are read

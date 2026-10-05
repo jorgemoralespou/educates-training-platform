@@ -24,9 +24,8 @@ touch $SETUP_LOGFILE
 
 function execute_setup_script() {
     local script=$1
-    local search_path=${2:-$PATH}
     echo "Executing: $script"
-    WORKSHOP_ENV=$WORKSHOP_ENV PATH=$search_path sh -x $script || touch $SETUP_FAILED || true
+    WORKSHOP_ENV=$WORKSHOP_ENV sh -x $script || touch $SETUP_FAILED || true
     cat $WORKSHOP_ENV
 }
 
@@ -55,81 +54,42 @@ for script in /opt/eduk8s/etc/profile.d/*.sh /opt/eduk8s/etc/profile.d/sh.local;
     fi
 done
 
-# A package carrying a package manifest has its bin directory put on the PATH
-# for it, unless one of its setup scripts sets PATH itself by writing it to
-# WORKSHOP_ENV, in which case the package has taken charge of where its bin
-# directory goes, or whether it goes on the PATH at all. A package without a
-# manifest is left to set up the PATH itself. Until the setup scripts have run
-# it is not known which applies, so each setup script of a package with a
-# manifest runs with only its own package's bin directory added, and nothing
-# is added to the PATH of this script until all of them have run.
-
-PACKAGES_SETTING_PATH=""
+# Run the setup scripts of each extension package in turn. A package carrying a
+# package manifest, as every package image does, has its bin directory put on
+# the PATH just before its own setup scripts run, and it stays there. Nothing
+# is added up front, so a package's binaries are never found on the PATH before
+# that package's setup scripts have run, while those of packages already set
+# up remain available to the packages after them. Each directory is prepended,
+# so where two packages ship a binary of the same name the package whose name
+# sorts last wins. Each is guarded against being added twice, so running this
+# script again adds nothing. A package without a manifest is left to set up
+# the PATH itself.
 
 touch $WORKSHOP_ENV_ROLLUP
-
-for script in /opt/packages/*/setup.d/*.sh; do
-    if [ -x "$script" ]; then
-        package=${script%/setup.d/*}
-        search_path=$PATH
-        if [ -f "$package/package.yaml" -a -d "$package/bin" ]; then
-            search_path="$package/bin:$PATH"
-        fi
-        truncate -s 0 $WORKSHOP_ENV
-        execute_setup_script $script "$search_path" 2>&1 | tee -a $SETUP_LOGFILE
-        if grep -qE '^[[:space:]]*(export[[:space:]]+)?PATH=' $WORKSHOP_ENV; then
-            PACKAGES_SETTING_PATH="$PACKAGES_SETTING_PATH:$package"
-        fi
-        set -a; . $WORKSHOP_ENV; set +a
-        cat $WORKSHOP_ENV >> $WORKSHOP_ENV_ROLLUP
-        [ -n "$(tail -c1 $WORKSHOP_ENV_ROLLUP)" ] && echo >> $WORKSHOP_ENV_ROLLUP
-        rm -f $WORKSHOP_ENV
-    fi
-done
-
-mv $WORKSHOP_ENV_ROLLUP $HOME/.local/share/workshop/workshop-env-packages.sh
-
-# Record the bin directories added for packages, in glob order, so that where
-# two packages ship a binary of the same name the alphabetically first package
-# name wins. The list is written afresh on every run, and both this script and
-# the shell profile add each directory only when the PATH does not already
-# hold it, so running this script again never adds a directory twice.
-
-PACKAGES_PATH_LIST=$HOME/.local/share/workshop/packages-path.txt
-
-rm -f $PACKAGES_PATH_LIST.$$
-touch $PACKAGES_PATH_LIST.$$
 
 for package in /opt/packages/*/; do
     package=${package%/}
     if [ -f "$package/package.yaml" -a -d "$package/bin" ]; then
-        case "$PACKAGES_SETTING_PATH:" in
-            *":$package:"*)
-                echo "Not adding $package/bin to PATH, package sets PATH itself" | tee -a $SETUP_LOGFILE
-                ;;
-            *)
-                echo "$package/bin" >> $PACKAGES_PATH_LIST.$$
-                ;;
+        case ":$PATH:" in
+            *":$package/bin:"*) ;;
+            *) PATH="$package/bin:$PATH"; export PATH ;;
         esac
     fi
+    for script in $package/setup.d/*.sh; do
+        if [ -x "$script" ]; then
+            truncate -s 0 $WORKSHOP_ENV
+            execute_setup_script $script 2>&1 | tee -a $SETUP_LOGFILE
+            set -a; . $WORKSHOP_ENV; set +a
+            cat $WORKSHOP_ENV >> $WORKSHOP_ENV_ROLLUP
+            [ -n "$(tail -c1 $WORKSHOP_ENV_ROLLUP)" ] && echo >> $WORKSHOP_ENV_ROLLUP
+            rm -f $WORKSHOP_ENV
+        fi
+    done
 done
 
-mv $PACKAGES_PATH_LIST.$$ $PACKAGES_PATH_LIST
+unset package
 
-PACKAGES_PATH=""
-
-while IFS= read -r dir; do
-    case ":$PATH:" in
-        *":$dir:"*) ;;
-        *) PACKAGES_PATH="$PACKAGES_PATH$dir:" ;;
-    esac
-done < $PACKAGES_PATH_LIST
-
-PATH="$PACKAGES_PATH$PATH"
-
-export PATH
-
-unset PACKAGES_SETTING_PATH PACKAGES_PATH_LIST PACKAGES_PATH package search_path dir
+mv $WORKSHOP_ENV_ROLLUP $HOME/.local/share/workshop/workshop-env-packages.sh
 
 for script in /opt/packages/*/profile.d/*.sh /opt/packages/*/profile.d/sh.local; do
     if [ -r "$script" ]; then

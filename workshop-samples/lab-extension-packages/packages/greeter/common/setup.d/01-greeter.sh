@@ -24,6 +24,6 @@ echo "greeter: wrote $HOME/.local/share/greeter/config"
 # environment.
 echo "GREETER_CONFIG=$HOME/.local/share/greeter/config" >> "$WORKSHOP_ENV"
 
-# A setup script of a package with a manifest runs with its own package's bin
-# directory on the PATH, so it can use what its package ships.
+# A package with a manifest has its bin directory put on the PATH just before
+# its setup scripts run, so a setup script can use what its package ships.
 echo "greeter: the packaged program reports $(greeter --which)"
