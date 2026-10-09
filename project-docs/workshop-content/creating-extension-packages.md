@@ -132,10 +132,11 @@ with every package's ``bin`` directory on the search path.
 A package whose programs should not be on the search path ships them in a
 directory with another name, such as ``libexec``.
 
-The ``bin`` directory is added in this way only for a package carrying a
-``package.yaml`` manifest, which every package image does. A package supplied
-as files without a manifest has nothing added for it, and puts its own ``bin``
-directory on the search path from a setup script, by writing a line setting
+The ``bin`` directory has to exist when the package's turn comes, which for a
+package image means shipping it in the image. A package supplied as files
+which only creates its ``bin`` directory from one of its setup scripts, such
+as by downloading a program when the session starts, has nothing added for it.
+It puts the directory on the search path itself, by writing a line setting
 ``PATH`` to the file named by ``WORKSHOP_ENV``. Escape ``$PATH`` in the line,
 so that it is expanded when the line is read rather than replaced by the value
 it has while the setup script runs:

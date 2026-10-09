@@ -241,20 +241,24 @@ New Features
   rather than a fault. The resolution is re-evaluated when a node joins,
   leaves, or is upgraded.
 
-* A ``bin`` directory contained in an installed extension package which
-  carries a ``package.yaml`` manifest is now added to the application search
-  path defined by the ``PATH`` environment variable, so a program the package
-  ships can be run by name without the package having to set this up itself.
-  This applies to a package declared with ``files`` as well as one declared as
-  an image, and a package without a manifest is not affected. Packages are set
-  up in the alphabetical order of their names, and a package's ``bin``
-  directory is added just before its own setup scripts run and then stays on
-  the search path, so a setup script can run programs from its own package and
-  from packages set up before it, but never from a package not yet set up.
-  Each ``bin`` directory is added at the front of the search path, so where two
-  packages ship a program of the same name, the one from the package whose name
-  sorts last is found. Running ``rebuild-workshop`` again does not add a
-  directory to the search path a second time.
+* A ``bin`` directory contained in an installed extension package is now added
+  to the application search path defined by the ``PATH`` environment variable,
+  so a program the package ships can be run by name without the package having
+  to set this up itself. This applies to a package declared with ``files`` as
+  well as one declared as an image. Packages are set up in the alphabetical
+  order of their names, and a package's ``bin`` directory is added just before
+  its own setup scripts run and then stays on the search path, so a setup
+  script can run programs from its own package and from packages set up before
+  it, but never from a package not yet set up. Each ``bin`` directory is added
+  at the front of the search path, so where two packages ship a program of the
+  same name, the one from the package whose name sorts last is found. Running
+  ``rebuild-workshop`` again does not add a directory to the search path a
+  second time. An existing package which ships a ``bin`` directory and puts it
+  on the search path from a ``profile.d`` script, as the packages in the
+  ``educates-extension-packages`` repository do, now has it added as well, so
+  that line is no longer needed. A package which only creates its ``bin``
+  directory from one of its setup scripts has nothing added for it, and still
+  puts the directory on the search path itself.
 
 * Each extension package declared as an image is now checked when a workshop
   session starts, and one line per package is written to

@@ -2,9 +2,9 @@
 title: "The bin Directory on the PATH"
 ---
 
-A `bin` directory at the root of a package with a manifest is added to the
-application search path, so a program the package ships runs by name. The
-package does not need to arrange this itself.
+A `bin` directory at the root of a package is added to the application search
+path, so a program the package ships runs by name. The package does not need
+to arrange this itself.
 
 Run the packaged program:
 
@@ -33,7 +33,7 @@ command: |-
   cat /opt/packages/greeter/setup.d/01-greeter.sh
 ```
 
-The search path is arranged for any package which carries a manifest, as
+The search path is arranged for any package which ships a `bin` directory, as
 `greeter` does, so an author does not repeat it.
 
 Setting up the search path a second time, as happens when the workshop is
