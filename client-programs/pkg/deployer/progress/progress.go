@@ -45,9 +45,13 @@ type Reporter interface {
 
 // Step represents one numbered deploy operation (apply ECC, wait
 // SessionManager Ready, etc.). Update surfaces an intermediate state
-// while the step is pending; Done / Fail close the step.
+// while the step is pending, which on a TTY the next Update or the
+// closing line replaces; Warn surfaces a warning on a line of its own,
+// which stays on screen after the step closes. Done / Fail close the
+// step.
 type Step interface {
 	Update(phase string)
+	Warn(msg string)
 	Done(summary string)
 	Fail(err error)
 }
@@ -120,9 +124,24 @@ type step struct {
 	r     *reporter
 	n     int
 	label string
+	phase string // last rendered phase, redrawn after a warning
 }
 
 func (s *step) Update(phase string) { s.render(phase) }
+
+// Warn commits a warning line for the step. On a TTY the warning takes the
+// place of the in-progress line, which is then drawn again below it, so the
+// warning stays on screen above the step once the step closes. On a non-TTY
+// it is appended like every other state change.
+func (s *step) Warn(msg string) {
+	line := s.format("⚠", msg)
+	if s.r.isTTY {
+		fmt.Fprint(s.r.w, "\r"+line+clearEOL+"\n")
+		s.render(s.phase)
+	} else {
+		fmt.Fprintln(s.r.w, line)
+	}
+}
 
 func (s *step) Done(summary string) {
 	s.finalize("✓", summary)
@@ -138,6 +157,7 @@ func (s *step) Fail(err error) {
 // finalize commits it. On a non-TTY every state change is its own
 // appended line so the log stays grep-able.
 func (s *step) render(phase string) {
+	s.phase = phase
 	line := s.format("→", phase)
 	if s.r.isTTY {
 		fmt.Fprint(s.r.w, "\r"+line+clearEOL)
@@ -246,6 +266,27 @@ type groupLine struct {
 func (gl *groupLine) Update(phase string) { gl.set("→", phase) }
 func (gl *groupLine) Done(summary string) { gl.set("✓", summary) }
 func (gl *groupLine) Fail(err error)      { gl.set("✗", err.Error()) }
+
+// Warn commits a warning line for the step. On a TTY the warning takes the
+// place of the block's first line and the whole block is repainted below
+// it, so the warning stays on screen above the block. On a non-TTY it is
+// appended like every other state change.
+func (gl *groupLine) Warn(msg string) {
+	g := gl.g
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	line := formatLine(g.r.total, gl.n, "⚠", gl.label, msg)
+	if g.r.isTTY {
+		if g.painted {
+			fmt.Fprintf(g.r.w, "\033[%dA", len(g.lines))
+		}
+		fmt.Fprint(g.r.w, "\r"+line+clearEOL+"\n")
+		g.painted = false
+		g.repaintLocked()
+		return
+	}
+	fmt.Fprintln(g.r.w, line)
+}
 
 func (gl *groupLine) set(symbol, detail string) {
 	g := gl.g

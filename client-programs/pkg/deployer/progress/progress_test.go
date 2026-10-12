@@ -186,3 +186,62 @@ func TestNote_HasNoCounter(t *testing.T) {
 		t.Errorf("note prefix missing:\n%s", out)
 	}
 }
+
+func TestNonTTY_WarnAppendsLine(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 1, false)
+
+	s := r.Start("registry")
+	s.Update("linking to cluster network")
+	s.Warn("Docker refused fixed address")
+	s.Done("ready")
+
+	out := buf.String()
+	warning := "[1/1] ⚠ registry: Docker refused fixed address\n"
+	final := "[1/1] ✓ registry: ready\n"
+	if !strings.Contains(out, warning) {
+		t.Fatalf("warning line missing:\n%s", out)
+	}
+	if strings.Index(out, warning) > strings.Index(out, final) {
+		t.Errorf("warning should come before the closing line:\n%s", out)
+	}
+}
+
+func TestTTY_WarnCommitsAboveRedrawnStep(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 0, true)
+
+	s := r.Start("registry")
+	s.Update("linking to cluster network")
+	s.Warn("Docker refused fixed address")
+	s.Done("ready")
+
+	out := buf.String()
+	// The warning is committed with a newline, so the step's closing line
+	// can't overwrite it, and the in-progress line is redrawn below it with
+	// its last phase.
+	want := "\r⚠ registry: Docker refused fixed address\033[K\n" +
+		"\r→ registry: linking to cluster network\033[K" +
+		"\r✓ registry: ready\033[K\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("expected the warning committed above the redrawn step:\n%q", out)
+	}
+}
+
+func TestStartConcurrent_TTY_WarnPrintsAboveBlock(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, 0, true)
+
+	steps := r.StartConcurrent("Installing LookupService", "Installing SessionManager")
+	steps[1].Warn("slow to reconcile")
+
+	out := buf.String()
+	// The warning replaces the block's first line after moving up over the
+	// block, and the whole block is repainted below it.
+	want := "\033[2A\r⚠ Installing SessionManager: slow to reconcile\033[K\n" +
+		"\r→ Installing LookupService\033[K\n" +
+		"\r→ Installing SessionManager\033[K\n"
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("expected the warning above a repainted block:\n%q", out)
+	}
+}

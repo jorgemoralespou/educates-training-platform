@@ -39,11 +39,12 @@ const hostRegistryTomlTemplate = `[host."http://%s:5000"]`
 // Progress is the minimal surface the registry package uses to surface
 // sub-operation detail on the caller's current step line. The caller
 // (cmd) owns the step lifecycle (Start/Done/Fail); these functions only
-// report intermediate phase text via Update. A nil Progress is valid and
-// silences detail — used by callers that don't render progress.
-// progress.Step satisfies this interface.
+// report intermediate phase text via Update, and warnings via Warn. A nil
+// Progress is valid and silences detail — used by callers that don't
+// render progress. progress.Step satisfies this interface.
 type Progress interface {
 	Update(phase string)
+	Warn(msg string)
 }
 
 // report surfaces a phase line on the caller's step, tolerating a nil
@@ -51,6 +52,15 @@ type Progress interface {
 func report(p Progress, phase string) {
 	if p != nil {
 		p.Update(phase)
+	}
+}
+
+// warn surfaces a warning on the caller's step, on a line of its own that
+// stays on screen after the step closes, tolerating a nil Progress like
+// report.
+func warn(p Progress, msg string) {
+	if p != nil {
+		p.Warn(msg)
 	}
 }
 
@@ -246,7 +256,7 @@ func DeployMirrorAndLinkToCluster(mirrorConfig *MirrorConfig, p Progress) error 
 	err = addRegistryConfigToKindNodes(mirrorConfig.Mirror, content, p)
 
 	if err != nil {
-		report(p, "warning: mirror not added to kind nodes")
+		warn(p, "mirror not added to kind nodes")
 	}
 
 	return nil

@@ -223,7 +223,7 @@ func linkToClusterNetwork(containerName string, fixedAddress func(clusterNetwork
 	addr, err := fixedAddress(nw)
 
 	if err != nil {
-		report(p, fmt.Sprintf("warning: no fixed address for %s: %v", containerName, err))
+		warn(p, fmt.Sprintf("no fixed address for %s: %v", containerName, err))
 
 		if connected {
 			return nil
@@ -241,7 +241,7 @@ func linkToClusterNetwork(containerName string, fixedAddress func(clusterNetwork
 	}
 
 	if err := connectToClusterNetwork(ctx, cli, containerName, addr); err != nil {
-		report(p, fmt.Sprintf("warning: Docker refused fixed address %s for %s, so a Docker restart can still change its address (Docker Engine 29.0.4 or later avoids this)", addr, containerName))
+		warn(p, fmt.Sprintf("Docker refused fixed address %s for %s, so a Docker restart can still change its address (Docker Engine 29.0.4 or later avoids this)", addr, containerName))
 
 		return connectToClusterNetwork(ctx, cli, containerName, netip.Addr{})
 	}

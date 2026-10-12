@@ -836,4 +836,4 @@ Bugs Fixed
   run for it. Docker Engine 29.0.0 to 29.0.3 refuse fixed addresses on the
   ``kind`` network, as do older versions until Docker is restarted for the
   first time after the network is created, in which case Docker picks the
-  address as before.
+  address as before and a warning is shown.
