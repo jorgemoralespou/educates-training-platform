@@ -85,6 +85,8 @@ To deploy the registry again, you can then run:
 educates local registry deploy
 ```
 
+The local image registry, and any registry mirrors, are given fixed addresses at the top of the subnet of the `kind` Docker network, so that restarting Docker does not change the address `registry.default.svc.cluster.local` maps to. Docker Engine 29.0.0 to 29.0.3 refuse fixed addresses on the `kind` network, as do older versions until Docker is restarted for the first time after the network is created, in which case Docker picks the address instead and it can still change when Docker restarts. If pulls from `registry.default.svc.cluster.local` inside the cluster fail, or reach a registry mirror, after Docker restarts, upgrade Docker or restart it, then run `educates local registry deploy` again. Running the command for a registry which already exists keeps its content, moves it to its fixed address, and points `registry.default.svc.cluster.local` at it.
+
 If you have successively pushed new builds of images to the local image registry using the same image version tag, the registry can blow out in size over time due to unreferenced image layers. To reclaim space consumed by these unreferenced image layers, you can run:
 
 ```

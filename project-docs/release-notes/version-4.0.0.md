@@ -817,3 +817,23 @@ Bugs Fixed
   into the generated instructions. The theme files are now copied, with the
   symbolic links resolved, before the instructions are generated, so the
   custom styles, scripts and additional page head content are applied.
+
+* After Docker was restarted, for example by restarting Docker Desktop, the
+  local image registry and the registry mirrors could come back with
+  different addresses on the ``kind`` Docker network, as Docker handed out
+  addresses in whatever order the containers started. The ``registry``
+  service in the ``default`` namespace of the local Kubernetes cluster kept
+  the old address of the local image registry, so access to
+  ``registry.default.svc.cluster.local`` from inside the cluster, such as
+  downloading workshop content published to the local image registry, could
+  fail or reach a registry mirror instead. The local image registry and the
+  registry mirrors are now given fixed addresses at the top of the subnet of
+  the ``kind`` network, which Docker keeps across restarts, and the
+  ``registry`` service is updated in place rather than being deleted and
+  created again. An existing local image registry or registry mirror is moved
+  to its fixed address, keeping its content, the next time
+  ``educates local registry deploy`` or ``educates local mirror deploy`` is
+  run for it. Docker Engine 29.0.0 to 29.0.3 refuse fixed addresses on the
+  ``kind`` network, as do older versions until Docker is restarted for the
+  first time after the network is created, in which case Docker picks the
+  address as before.
