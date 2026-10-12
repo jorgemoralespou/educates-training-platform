@@ -39,11 +39,12 @@ const hostRegistryTomlTemplate = `[host."http://%s:5000"]`
 // Progress is the minimal surface the registry package uses to surface
 // sub-operation detail on the caller's current step line. The caller
 // (cmd) owns the step lifecycle (Start/Done/Fail); these functions only
-// report intermediate phase text via Update. A nil Progress is valid and
-// silences detail — used by callers that don't render progress.
-// progress.Step satisfies this interface.
+// report intermediate phase text via Update, and warnings via Warn. A nil
+// Progress is valid and silences detail — used by callers that don't
+// render progress. progress.Step satisfies this interface.
 type Progress interface {
 	Update(phase string)
+	Warn(msg string)
 }
 
 // report surfaces a phase line on the caller's step, tolerating a nil
@@ -54,10 +55,20 @@ func report(p Progress, phase string) {
 	}
 }
 
+// warn surfaces a warning on the caller's step, on a line of its own that
+// stays on screen after the step closes, tolerating a nil Progress like
+// report.
+func warn(p Progress, msg string) {
+	if p != nil {
+		p.Warn(msg)
+	}
+}
+
 const (
 	RegistryImageV3               = "docker.io/library/registry:3"
 	RegistryConfigTargetPath      = "/etc/distribution/config.yml"
 	EducatesNetworkName           = "educates"
+	ClusterNetworkName            = "kind"
 	EducatesRegistryContainer     = "educates-registry"
 	EducatesControlPlaneContainer = "educates-control-plane"
 )
@@ -124,7 +135,13 @@ func createRegistryContainer(bindIP string, p Progress) error {
 		// If we can retrieve a container of required name we assume it is
 		// running okay. Technically it could be restarting, stopping or
 		// have exited and container was not removed, but if that is the case
-		// then leave it up to the user to sort out.
+		// then leave it up to the user to sort out. It is still linked to the
+		// cluster network, which moves a registry linked without a fixed
+		// address onto its fixed address.
+
+		if err = linkToClusterNetwork(EducatesRegistryContainer, registryFixedAddress, p); err != nil {
+			return errors.Wrap(err, "failed to link registry to cluster")
+		}
 
 		return nil
 	}
@@ -217,7 +234,7 @@ func createRegistryContainer(bindIP string, p Progress) error {
 		return errors.Wrap(err, "unable to connect registry to educates network")
 	}
 
-	if err = linkRegistryToClusterNetwork(EducatesRegistryContainer, p); err != nil {
+	if err = linkToClusterNetwork(EducatesRegistryContainer, registryFixedAddress, p); err != nil {
 		return errors.Wrap(err, "failed to link registry to cluster")
 	}
 
@@ -239,7 +256,7 @@ func DeployMirrorAndLinkToCluster(mirrorConfig *MirrorConfig, p Progress) error 
 	err = addRegistryConfigToKindNodes(mirrorConfig.Mirror, content, p)
 
 	if err != nil {
-		report(p, "warning: mirror not added to kind nodes")
+		warn(p, "mirror not added to kind nodes")
 	}
 
 	return nil
@@ -260,14 +277,25 @@ func createMirrorContainer(mirrorConfig *MirrorConfig, p Progress) error {
 	}
 
 	mirrorContainerName := registryMirrorContainerName(mirrorConfig)
+
+	mirrorFixedAddressFor := func(nw clusterNetwork) (netip.Addr, error) {
+		return mirrorFixedAddress(nw, mirrorContainerName)
+	}
+
 	_, err = cli.ContainerInspect(ctx, mirrorContainerName, client.ContainerInspectOptions{})
 
 	if err == nil {
 		// If we can retrieve a container of required name we assume it is
 		// running okay. Technically it could be restarting, stopping or
 		// have exited and container was not removed, but if that is the case
-		// then leave it up to the user to sort out.
+		// then leave it up to the user to sort out. It is still linked to the
+		// cluster network, which moves a mirror linked without a fixed
+		// address onto its fixed address.
 		report(p, "mirror container already exists")
+
+		if err = linkToClusterNetwork(mirrorContainerName, mirrorFixedAddressFor, p); err != nil {
+			return errors.Wrap(err, "failed to link local registry mirror to cluster")
+		}
 
 		return nil
 	}
@@ -351,7 +379,7 @@ func createMirrorContainer(mirrorConfig *MirrorConfig, p Progress) error {
 		return errors.Wrap(err, "unable to connect local registry mirror to educates network")
 	}
 
-	if err = linkRegistryToClusterNetwork(mirrorContainerName, p); err != nil {
+	if err = linkToClusterNetwork(mirrorContainerName, mirrorFixedAddressFor, p); err != nil {
 		return errors.Wrap(err, "failed to link local registry mirror to cluster")
 	}
 
@@ -490,35 +518,6 @@ func documentLocalRegistry(client *kubernetes.Clientset) error {
 		if err != nil {
 			return errors.Wrap(err, "unable to update local registry hosting config map")
 		}
-	}
-
-	return nil
-}
-
-/**
- * This function is used to link the registry to the cluster network, which is the kind network.
- * It is used when creating a new local registry or registry mirror containers.
- */
-func linkRegistryToClusterNetwork(containerName string, p Progress) error {
-	ctx := context.Background()
-
-	report(p, "linking to cluster network")
-
-	cli, err := docker.NewDockerClient()
-
-	if err != nil {
-		return errors.Wrap(err, "unable to create docker client")
-	}
-
-	cli.NetworkDisconnect(ctx, "kind", client.NetworkDisconnectOptions{Container: containerName})
-
-	_, err = cli.NetworkConnect(ctx, "kind", client.NetworkConnectOptions{
-		Container:      containerName,
-		EndpointConfig: &network.EndpointSettings{},
-	})
-
-	if err != nil {
-		return errors.Wrap(err, "unable to connect registry to cluster network")
 	}
 
 	return nil
@@ -721,11 +720,14 @@ func ListRegistryMirrors() ([]RegistryMirror, error) {
 	return result, nil
 }
 
-/**
- * TODO: Learn whether this is needed or not
- * This function is used to update the registry k8s service.
- * It is used when creating a cluster or a registry in order to update the k8s service to point to the new registry.
- */
+// UpdateRegistryK8SService points the registry Service in the default
+// namespace at the local registry. Pods reach the local registry as
+// registry.default.svc.cluster.local, which this Service, having no
+// selector, maps to the registry container's address on the cluster network
+// through its EndpointSlice. Nodes do not depend on it, as containerd reaches
+// the registry by its container name. It is used when creating a cluster or
+// deploying a registry, and updates both objects in place so the Service
+// keeps its cluster IP.
 func UpdateRegistryK8SService(k8sclient *kubernetes.Clientset) error {
 	ctx := context.Background()
 
@@ -761,10 +763,14 @@ func UpdateRegistryK8SService(k8sclient *kubernetes.Clientset) error {
 		return errors.Wrapf(err, "unable to inspect container for registry")
 	}
 
-	kindNetwork, exists := registryInfo.Container.NetworkSettings.Networks["kind"]
+	kindNetwork, exists := registryInfo.Container.NetworkSettings.Networks[ClusterNetworkName]
 
-	if !exists {
+	if !exists || kindNetwork == nil {
 		return errors.New("registry is not attached to kind network")
+	}
+
+	if !kindNetwork.IPAddress.IsValid() {
+		return errors.New("registry has no IPv4 address on kind network")
 	}
 
 	endpointAddresses := []string{kindNetwork.IPAddress.String()}
@@ -792,24 +798,42 @@ func UpdateRegistryK8SService(k8sclient *kubernetes.Clientset) error {
 		},
 	}
 
-	endpointSliceClient := k8sclient.DiscoveryV1().EndpointSlices("default")
-
-	endpointSliceClient.Delete(context.TODO(), "registry-1", *metav1.NewDeleteOptions(0))
-
 	servicesClient := k8sclient.CoreV1().Services("default")
 
-	servicesClient.Delete(context.TODO(), "registry", *metav1.NewDeleteOptions(0))
+	existingService, err := servicesClient.Get(ctx, service.Name, metav1.GetOptions{})
 
-	_, err = endpointSliceClient.Create(context.TODO(), &endpointSlice, metav1.CreateOptions{})
+	if k8serrors.IsNotFound(err) {
+		if _, err = servicesClient.Create(ctx, &service, metav1.CreateOptions{}); err != nil {
+			return errors.Wrap(err, "unable to create registry service")
+		}
+	} else if err != nil {
+		return errors.Wrap(err, "unable to read registry service")
+	} else {
+		existingService.Spec.Ports = service.Spec.Ports
 
-	if err != nil {
-		return errors.Wrap(err, "unable to create registry headless service endpoint")
+		if _, err = servicesClient.Update(ctx, existingService, metav1.UpdateOptions{}); err != nil {
+			return errors.Wrap(err, "unable to update registry service")
+		}
 	}
 
-	_, err = servicesClient.Create(context.TODO(), &service, metav1.CreateOptions{})
+	endpointSliceClient := k8sclient.DiscoveryV1().EndpointSlices("default")
 
-	if err != nil {
-		return errors.Wrap(err, "unable to create registry headless service")
+	existingEndpointSlice, err := endpointSliceClient.Get(ctx, endpointSlice.Name, metav1.GetOptions{})
+
+	if k8serrors.IsNotFound(err) {
+		if _, err = endpointSliceClient.Create(ctx, &endpointSlice, metav1.CreateOptions{}); err != nil {
+			return errors.Wrap(err, "unable to create registry service endpoint")
+		}
+	} else if err != nil {
+		return errors.Wrap(err, "unable to read registry service endpoint")
+	} else {
+		existingEndpointSlice.Labels = endpointSlice.Labels
+		existingEndpointSlice.Ports = endpointSlice.Ports
+		existingEndpointSlice.Endpoints = endpointSlice.Endpoints
+
+		if _, err = endpointSliceClient.Update(ctx, existingEndpointSlice, metav1.UpdateOptions{}); err != nil {
+			return errors.Wrap(err, "unable to update registry service endpoint")
+		}
 	}
 
 	return nil
