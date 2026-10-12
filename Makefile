@@ -174,7 +174,7 @@ package-local-charts: ## Package the runtime subcharts the operator embeds into 
 generate-installer-rbac: package-local-charts ## Regenerate the operator's fine-grained chart-install ClusterRole from the vendored charts
 	@# Renders every vendored chart, the upstream ones and the runtime
 	@# subcharts packaged above, and emits templates/rbac/charts-role.yaml
-	@# (educates-installer-charts). Run after `make vendor-charts`; CI's
+	@# (educates:installer:charts). Run after `make vendor-charts`; CI's
 	@# ci-operator drift check covers the result.
 	./hack/generate-installer-rbac.sh
 
