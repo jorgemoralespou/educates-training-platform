@@ -633,7 +633,16 @@ const educates = (function () {
     // link (e.g. open-in-new-window in Chrome).
 
     function activate_toc_links() {
-        if (!in_dashboard || !state_key_prefix) return;
+        // Pages are only blocked when running inside the dashboard. Outside
+        // of it, all links in the table of contents are left enabled.
+
+        if (!in_dashboard || !state_key_prefix) {
+            document.querySelectorAll('#table-of-contents a.toc-link-unvisited').forEach(link => {
+                link.classList.remove('toc-link-unvisited');
+            });
+
+            return;
+        }
 
         let visited = [];
 
@@ -691,6 +700,111 @@ const educates = (function () {
                     });
                 }
             }
+        });
+    }
+
+    // The table of contents is a sheet which slides up from behind the
+    // bottom bar. Any element with a data-toc-toggle attribute opens and
+    // closes it. It is also closed by the sheet handle, the Escape key, or
+    // a click anywhere outside of the sheet.
+
+    function activate_toc_sheet() {
+        const sheet = document.getElementById('table-of-contents');
+
+        if (!sheet) return;
+
+        const toggles = document.querySelectorAll('[data-toc-toggle]');
+        const bottom_bar = document.getElementById('bottom-bar');
+        const sheet_body = sheet.querySelector('.toc-sheet-body');
+        const handle = sheet.querySelector('.toc-sheet-handle');
+
+        let return_focus = null;
+
+        function is_open() {
+            return sheet.classList.contains('open');
+        }
+
+        function update_toggles(open) {
+            toggles.forEach(toggle => {
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+
+                const icon = toggle.querySelector('.fas');
+
+                if (icon) {
+                    icon.classList.toggle('fa-list', !open);
+                    icon.classList.toggle('fa-xmark', open);
+                }
+            });
+        }
+
+        function open_sheet(trigger) {
+            // Sit the sheet directly on top of the bottom bar, whatever
+            // height the bottom bar is actually rendered at.
+
+            if (bottom_bar) {
+                sheet.style.bottom = `${bottom_bar.offsetHeight}px`;
+            }
+
+            sheet.classList.add('open');
+            update_toggles(true);
+
+            return_focus = trigger;
+
+            // Scroll the entry for the current page into the middle of the
+            // list and give it focus so keyboard users start from there.
+
+            const active = sheet.querySelector('li.page.active');
+
+            if (active && sheet_body) {
+                sheet_body.scrollTop = active.offsetTop - (sheet_body.clientHeight - active.offsetHeight) / 2;
+            }
+
+            const link = active ? active.querySelector('a') : null;
+
+            if (link) {
+                link.focus({ preventScroll: true });
+            }
+        }
+
+        function close_sheet(restore_focus) {
+            sheet.classList.remove('open');
+            update_toggles(false);
+
+            if (restore_focus && return_focus) {
+                return_focus.focus();
+            }
+
+            return_focus = null;
+        }
+
+        toggles.forEach(toggle => {
+            toggle.addEventListener('click', function () {
+                if (is_open()) {
+                    close_sheet(true);
+                } else {
+                    open_sheet(toggle);
+                }
+            });
+        });
+
+        if (handle) {
+            handle.addEventListener('click', function () {
+                close_sheet(true);
+            });
+        }
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape' && is_open()) {
+                close_sheet(true);
+            }
+        });
+
+        document.addEventListener('click', function (event) {
+            if (!is_open()) return;
+
+            if (sheet.contains(event.target) || event.target.closest('[data-toc-toggle]')) return;
+
+            close_sheet(false);
         });
     }
 
@@ -1533,6 +1647,10 @@ const educates = (function () {
         // Activate TOC links for pages already visited.
 
         activate_toc_links();
+
+        // Wire up opening and closing of the table of contents sheet.
+
+        activate_toc_sheet();
 
         // Auto-trigger clickable actions with autostart attribute. Note that
         // any which are contained within the body of a section are excluded

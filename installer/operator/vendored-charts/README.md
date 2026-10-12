@@ -14,6 +14,7 @@ Helm SDK. The bytes are checked into the repository so that:
 ```
 installer/operator/vendored-charts/
 ├── README.md                    (this file)
+├── .gitignore                   (ignores the runtime subchart tarballs, which are build output)
 ├── SHA256SUMS                   (one line per upstream tarball: <hash>  <filename>)
 ├── embed.go                     (//go:embed directives + version constants)
 ├── embed_test.go                (load tests + directory-consistency test)
@@ -31,19 +32,26 @@ Two kinds of tarballs live here:
   `installer/operator/Makefile`, integrity-recorded in `SHA256SUMS`,
   downloaded by `make vendor-charts`.
 - **Runtime subchart tarballs** (secrets-manager, lookup-service,
-  session-manager, node-ca-injector, remote-access). Repackaged from the
-  in-repo `educates-training-platform` chart sources; *not* covered by
-  `SHA256SUMS` or `VENDORED_CHARTS`. At release time the publish
+  session-manager, node-ca-injector, remote-access). Build output, not
+  vendored: `make package-local-charts` packages them from the in-repo
+  `educates-training-platform` chart sources, and every target which
+  compiles the operator or builds its image (`vet`, `build`, `test`,
+  `lint`, `docker-build`, and the root `ci-operator` and `image-operator`)
+  runs it first. They are gitignored, so they are never committed and
+  cannot drift from their sources. Running `go build` or `go test`
+  directly on a fresh clone needs `make package-local-charts` first,
+  because `//go:embed` requires the files to exist. They are *not* covered
+  by `SHA256SUMS` or `VENDORED_CHARTS`. At release time the publish
   workflow re-stamps them via `hack/stamp-release-version.sh`.
 
 ## Current contents (upstream charts)
 
 | Chart | Chart version | App version | Upstream | Used by |
 |---|---|---|---|---|
-| cert-manager | v1.20.3 | v1.20.3 | https://charts.jetstack.io | EducatesClusterConfig (BundledCertManager) |
-| contour | 0.7.0 | 1.33.6 | https://github.com/projectcontour/helm-charts | EducatesClusterConfig (BundledContour) |
-| external-dns | 1.21.1 | 0.21.0 | https://github.com/kubernetes-sigs/external-dns | EducatesClusterConfig (BundledExternalDNS) |
-| kyverno | 3.8.1 | v1.18.1 | https://kyverno.github.io/kyverno | EducatesClusterConfig (BundledKyverno) |
+| cert-manager | v1.21.2 | v1.21.2 | https://charts.jetstack.io | EducatesClusterConfig (BundledCertManager) |
+| contour | 0.8.0 | 1.33.7 | https://github.com/projectcontour/helm-charts | EducatesClusterConfig (BundledContour) |
+| external-dns | 1.22.0 | 0.22.0 | https://github.com/kubernetes-sigs/external-dns | EducatesClusterConfig (BundledExternalDNS) |
+| kyverno | 3.9.1 | v1.19.1 | https://kyverno.github.io/kyverno | EducatesClusterConfig (BundledKyverno) |
 
 ## Upgrading (or adding) an upstream chart
 
@@ -147,9 +155,9 @@ Chart-specific follow-ups:
   [kyverno/policies](https://github.com/kyverno/policies) at the
   release branch matching `KyvernoAppVersion`. Re-vendor them as part
   of the bump (see
-  `installer/charts/educates-training-platform/charts/session-manager/files/kyverno-policies/README.md`),
-  then repackage the session-manager tarball into this directory with
-  `make package-local-charts`.
+  `installer/charts/educates-training-platform/charts/session-manager/files/kyverno-policies/README.md`).
+  The session-manager tarball the operator embeds is packaged from that
+  source by every operator build, so nothing else needs updating here.
 
 The intent is "we ship the upstream chart unmodified" — never edit a
 vendored tarball or unpack-and-repack it. If a change to the chart is

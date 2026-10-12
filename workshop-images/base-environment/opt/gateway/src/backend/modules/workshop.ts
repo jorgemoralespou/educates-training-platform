@@ -1,4 +1,3 @@
-import * as path from "path"
 import * as express from "express"
 import axios from "axios"
 
@@ -171,7 +170,7 @@ export function setup_workshop(app: express.Application) {
             res.redirect('/workshop/content/')
         })
 
-        app.use("/workshop/content/", express.static(path.join(config.workshop_dir, "public")))
+        app.use("/workshop/content/", express.static(config.workshop_path))
     }
 }
 

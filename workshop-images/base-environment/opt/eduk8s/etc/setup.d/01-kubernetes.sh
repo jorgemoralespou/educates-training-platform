@@ -43,13 +43,10 @@ KUBECTL_VERSION=$(kubectl version -o json | jq -re '[.serverVersion.major,.serve
 
 case "$KUBECTL_VERSION" in
 1.2*)
-    KUBECTL_VERSION=1.33
+    KUBECTL_VERSION=1.34
     ;;
-1.3[012])
-    KUBECTL_VERSION=1.33
-    ;;
-1.33)
-    KUBECTL_VERSION=1.33
+1.3[0123])
+    KUBECTL_VERSION=1.34
     ;;
 1.34)
     KUBECTL_VERSION=1.34
@@ -60,8 +57,11 @@ case "$KUBECTL_VERSION" in
 1.36)
     KUBECTL_VERSION=1.36
     ;;
+1.37)
+    KUBECTL_VERSION=1.37
+    ;;
 *)
-    KUBECTL_VERSION=1.36
+    KUBECTL_VERSION=1.37
     ;;
 esac
 

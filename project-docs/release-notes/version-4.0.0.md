@@ -164,10 +164,11 @@ New Features
 
 * ``educates local cluster create`` accepts a ``--kubernetes-version`` flag
   to choose the Kubernetes version of the local Kind cluster. The supported
-  versions are ``1.33``, ``1.34``, ``1.35`` and ``1.36``, defaulting to
-  ``1.36``. The version selects a matching Kind node image; an explicit
-  ``--kind-cluster-image`` still takes precedence for pinning an arbitrary
-  image.
+  versions are ``1.34``, ``1.35``, ``1.36`` and ``1.37``, defaulting to
+  ``1.36``. The default deliberately tracks the second newest supported
+  version, trading recency for stability. The version selects a matching Kind
+  node image; an explicit ``--kind-cluster-image`` still takes precedence for
+  pinning an arbitrary image.
 
 * The local Kind cluster can now be multi-node. The ``EducatesLocalConfig``
   ``cluster.nodes`` list declares the cluster's nodes — each with a
@@ -185,6 +186,120 @@ New Features
   yet ``Ready``), or a fully installed and ready cluster — making it easy to
   tell a working install from a partial or broken one.
 
+* An extension package listed under ``spec.workshop.packages`` of a workshop
+  definition can now be declared as a published image, by setting ``image`` to
+  a tagged image reference instead of listing ``files``. The two are mutually
+  exclusive. An optional ``imagePullPolicy`` and an optional
+  ``pullSecretRef``, naming a secret also listed in
+  ``spec.environment.secrets``, can accompany it. The image reference may use
+  the ``$(image_repository)``, ``$(workshop_name)`` and
+  ``$(workshop_version)`` variables, must carry a tag, and cannot be a digest.
+  A package declared this way needs a name which is a valid DNS label, as the
+  name is used when the package is delivered to a workshop session. Where the
+  package image is mounted and declares no ``imagePullPolicy``, it is given
+  the same pull policy as the workshop image, which is ``Always`` for an image
+  with the ``:main``, ``:master``, ``:develop`` or ``:latest`` tag, and
+  ``IfNotPresent`` otherwise.
+
+* A new ``educates package publish`` command, also available as ``educates
+  publish-package``, builds and publishes an extension package as an image. It
+  takes a package source directory holding a ``package.yaml`` manifest beside
+  the reserved ``common``, ``linux-amd64`` and ``linux-arm64`` directories, and
+  publishes an image index with one child image per platform. No Docker daemon
+  is required. Two builds of the same source produce the same digests, and
+  ``SOURCE_DATE_EPOCH`` is honoured where a specific build timestamp is wanted.
+  Use ``--dry-run`` to validate a package source and see the digests which
+  would be published without contacting a registry, and ``--digest-file`` to
+  record the published digest for a later step in a pipeline. A package whose
+  files have to be built for each architecture, such as a program compiled
+  from source, can instead be built with a ``Dockerfile`` and ``docker
+  buildx``, and the documentation describes when to use each.
+
+* On a cluster which supports it, an extension package declared as an image is
+  now mounted into a workshop session read only, rather than having its
+  contents downloaded. The workshop definition is the same either way, and the
+  platform chooses: the delivery is settled when the workshop environment is
+  created and every session of that environment uses it, so changing the
+  platform setting affects new environments only. A package held in a registry
+  requiring authentication is pulled using the secret named by
+  ``pullSecretRef``, which must also be listed under
+  ``spec.environment.secrets``.
+
+* ``EducatesClusterConfig`` gains ``packageDelivery.imageMount``, controlling
+  whether an extension package declared as an image is mounted into a workshop
+  session or has its contents fetched. The default, ``Auto``, mounts only when
+  the cluster supports it: the API server must be 1.36 or newer, and every
+  Linux node must report a kubelet of 1.35 or newer together with
+  ``containerd`` 2.1 or newer or ``CRI-O`` 1.31 or newer. Where any of those is
+  not met the package contents are fetched instead, which works on any
+  cluster. ``Enabled`` mounts regardless, for a cluster whose support the
+  operator cannot detect, and ``Disabled`` always fetches. The resolved value
+  is published in ``status.packageDelivery.imageMount``, and a
+  ``PackageImageMountAvailable`` condition explains the outcome, naming the
+  API server version or the nodes which fall short. That condition is
+  reported separately from readiness, as fetching is a valid steady state
+  rather than a fault. The resolution is re-evaluated when a node joins,
+  leaves, or is upgraded.
+
+* A ``bin`` directory contained in an installed extension package is now added
+  to the application search path defined by the ``PATH`` environment variable,
+  so a program the package ships can be run by name without the package having
+  to set this up itself. This applies to a package declared with ``files`` as
+  well as one declared as an image. Packages are set up in the alphabetical
+  order of their names, and a package's ``bin`` directory is added just before
+  its own setup scripts run and then stays on the search path, so a setup
+  script can run programs from its own package and from packages set up before
+  it, but never from a package not yet set up. Each ``bin`` directory is added
+  at the front of the search path, so where two packages ship a program of the
+  same name, the one from the package whose name sorts last is found. Running
+  ``rebuild-workshop`` again does not add a directory to the search path a
+  second time. An existing package which ships a ``bin`` directory and puts it
+  on the search path from a ``profile.d`` script, as the packages in the
+  ``educates-extension-packages`` repository do, now has it added as well, so
+  that line is no longer needed. A package which only creates its ``bin``
+  directory from one of its setup scripts has nothing added for it, and still
+  puts the directory on the search path itself.
+
+* Each extension package declared as an image is now checked when a workshop
+  session starts, and one line per package is written to
+  ``download-workshop.log`` naming the package and whether it was mounted or
+  fetched. A package which did not arrive, most commonly because the image
+  reference names an ordinary application image rather than an image built as
+  an extension package, is reported there and an error dialog is shown on the
+  workshop session dashboard, rather than the session starting without the
+  package. Every package is checked before the session reports a failure, so
+  one package which did not arrive does not hide the state of the others or
+  stop the remaining packages' setup scripts from running.
+
+* An extension package declared as an image is now delivered when deploying a
+  workshop with ``educates docker workshop deploy``, where previously such a
+  package was not delivered at all. It is mounted into the session read only
+  where the local Docker daemon supports it, which requires Docker Engine
+  28.0 or newer, Docker Compose 2.35 or newer and the containerd image store,
+  and its contents are fetched where it does not. A current Docker Desktop
+  meets all three. The chosen delivery is printed, along with the reason when
+  it falls back, and one line names each package. A new
+  ``--package-delivery`` option takes ``auto``, ``image-mount`` or ``fetch``,
+  so an author can force either delivery. Asking for a mount on a daemon
+  which cannot do it fails before the workshop is deployed, naming what is
+  missing.
+
+* The ``imagePullPolicy`` of an extension package declared as an image is now
+  honoured by ``educates docker workshop deploy`` where the package is
+  mounted. ``Always`` pulls the image before deploying, which matters when
+  republishing the same tag while working on a package locally, and ``Never``
+  reports an error before deploying when the image is not already held
+  locally. A package which declares no ``imagePullPolicy`` is given the same
+  default as on a cluster, which is ``Always`` for an image with the
+  ``:main``, ``:master``, ``:develop`` or ``:latest`` tag, and
+  ``IfNotPresent`` otherwise. If a pull fails but a copy of the image is
+  already held locally, a warning is printed and that copy is used. Where the package contents are fetched instead, the
+  policy continues to be ignored. Note that ``pullSecretRef`` is ignored when
+  deploying with Docker, so an image held in a registry requiring
+  authentication needs ``docker login`` for that registry first. A pull which
+  fails for want of credentials now names the image, the registry and the
+  command to run.
+
 * New user-facing ``ClusterRole`` resources are installed for working with the
   Educates custom resources. For each API group there is an admin and a view
   role: ``educates:rbac:admin:training`` and ``educates:rbac:view:training``
@@ -201,6 +316,24 @@ New Features
 
 Features Changed
 ----------------
+
+* When deploying a workshop with ``educates docker workshop deploy``, a
+  workshop image using the ``:main``, ``:master``, ``:develop`` or ``:latest``
+  tag, or no tag, is now pulled each time the workshop is deployed, as it is
+  when the workshop is deployed to a cluster. Previously a copy of the image
+  already held by the local Docker daemon was always used, so a newer version
+  pushed under the same tag was not picked up. If the pull fails but a copy of
+  the image is already held locally, a warning is printed and that copy is
+  used, so a workshop can still be deployed without access to the registry.
+
+* An extension package declared as an image is now delivered to a workshop
+  session by a purpose built package fetcher rather than by ``vendir``. The
+  fetcher resolves a multi architecture image to the architecture the session
+  runs on, so an author writes one image reference whichever architecture the
+  node uses, and it preserves the file permissions the package was published
+  with, which ``vendir`` does not. Packages declared with ``files`` continue to
+  be downloaded by ``vendir`` exactly as before, and a workshop can mix the
+  two.
 
 * The bundled Kyverno security policies are now ``ValidatingPolicy`` resources
   (``policies.kyverno.io``), the policy type recommended from Kyverno 1.18,
@@ -264,6 +397,43 @@ Features Changed
   the 3.x series. If the requested version cannot be matched against a
   bundled version the slides are not served for the workshop session.
 
+* The bundled ``external-dns`` cluster service has been updated to version
+  0.22.0. This version only recognizes annotations carrying the
+  ``external-dns.kubernetes.io/`` prefix and no longer reads the older
+  ``external-dns.alpha.kubernetes.io/`` prefix. The operator now annotates
+  the Envoy service of the ingress controller with both
+  ``external-dns.kubernetes.io/hostname`` and the older
+  ``external-dns.alpha.kubernetes.io/hostname``, so the wildcard DNS record
+  for the ingress domain is published whether it is picked up by the bundled
+  ``external-dns`` or by an ``external-dns`` you run yourself, including
+  versions before 0.22. If you annotate your own ``Service`` or ``Ingress``
+  resources for the bundled ``external-dns`` to act on, for example when its
+  ``sources`` include ``ingress``, those annotations must be changed to the
+  new prefix. Otherwise ``external-dns`` no longer sees those resources and
+  removes the DNS records it previously created for them.
+
+* The table of contents for workshop instructions rendered with the default
+  ``educates`` Hugo theme is now a panel which slides up from behind the
+  navigation bar at the bottom of the instructions, instead of a pop-up
+  dialog. The table of contents button in the navigation bar opens and closes
+  the panel, which lists every page with its step number and highlights the
+  page currently being viewed. Clicking anywhere on the entry for a page
+  navigates to that page. When viewing the workshop instructions in the
+  workshop dashboard, pages which have not yet been visited remain dimmed and
+  cannot be selected, as before. When a workshop has more pages than fit in
+  the panel, the list scrolls, with a scroll bar that is always shown so it is
+  apparent there are further pages. The panel can also be closed using the
+  ``Escape`` key or by clicking outside of it. A custom
+  ``workshop-instructions.css`` file which styled the table of contents
+  through the Bootstrap modal classes needs to be updated. The panel keeps
+  the ``table-of-contents`` element ID, and the ``modules``, ``page`` and
+  ``toc-step`` classes for its list of pages. The colors of the panel, and of
+  the navigation bar at the bottom of the instructions, are taken from the
+  Bootstrap theme variables, so a custom theme which sets the Bootstrap
+  primary color using ``--bs-primary`` and ``--bs-primary-rgb`` also changes
+  the highlight for the current page, the step progress indicator, and the
+  step number shown with the page title.
+
 * The ``ClusterRole`` and ``ClusterRoleBinding`` resources created by Educates
   have been renamed to follow the Kubernetes convention of an application
   prefix separated by colons. Service roles are now named after their
@@ -304,6 +474,14 @@ Deprecations
   scope them per workshop session, and logs a warning when it does), but support
   will be removed on the same timeline as Kyverno's removal of ``ClusterPolicy``.
   Migrate workshop-provided policies to ``ValidatingPolicy``.
+
+* ``profile.d`` scripts are deprecated, whether supplied with workshop content
+  or by an extension package, and will be removed in a future version. They
+  are still sourced for now. Set environment variables from a ``setup.d``
+  script instead, by writing ``NAME=VALUE`` lines to the file named by the
+  ``WORKSHOP_ENV`` environment variable. Variables written there are set in
+  the setup scripts which run afterwards and in the processes run in the
+  workshop session, including the terminal shell.
 
 * The Carvel-based installer from version 3 has been removed. Educates is no
   longer packaged or installed as a ``kapp-controller`` package: the
@@ -399,7 +577,7 @@ Deprecations
 
 * A number of the command line tools bundled in the workshop base environment
   image have been updated to their latest upstream releases, being ``helm``
-  4.2.3, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
+  4.2.4, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
   updates pick up releases built with a patched Go toolchain and updated
   dependencies which resolve critical vulnerabilities reported against the
   previously bundled versions.
@@ -455,15 +633,15 @@ Deprecations
   since Docker 1.10 and does not affect images pushed by current tooling.
 
 * The set of ``kubectl`` versions bundled in the workshop base environment
-  image has changed. The 1.31 and 1.32 versions have been dropped and 1.35 and
-  1.36 have been added, so the supported range is now 1.33 to 1.36. The
-  ``kubectl`` version is still selected automatically to match the Kubernetes
-  cluster the workshop session is connected to. For clusters older than the
-  supported range the oldest bundled version, 1.33, is used, and for clusters
-  newer than the supported range the most recent bundled version, 1.36, is
-  used. Workshops which target clusters running Kubernetes 1.32 or older may
-  therefore see a larger client/server version skew and should be verified
-  against a supported cluster version.
+  image has changed. The 1.31, 1.32 and 1.33 versions have been dropped and
+  1.35, 1.36 and 1.37 have been added, so the supported range is now 1.34 to
+  1.37. The ``kubectl`` version is still selected automatically to match the
+  Kubernetes cluster the workshop session is connected to. For clusters older
+  than the supported range the oldest bundled version, 1.34, is used, and for
+  clusters newer than the supported range the most recent bundled version,
+  1.37, is used. Workshops which target clusters running Kubernetes 1.33 or
+  older may therefore see a larger client/server version skew and should be
+  verified against a supported cluster version.
 
 * The JDK versions included in the ``jdk8-environment``, ``jdk11-environment``,
   ``jdk17-environment`` and ``jdk21-environment`` workshop base images have
@@ -497,18 +675,22 @@ Deprecations
 
 * The ``vcluster`` software used by the ``vcluster`` workshop application has
   been updated from 0.30.2 to 0.35.2, and the set of Kubernetes versions the
-  virtual cluster can provision has been aligned with the versions supported
-  elsewhere in the platform. The 1.31 and 1.32 versions have been dropped and
-  1.35 and 1.36 have been added, so the supported range is now 1.33 to 1.36
-  with 1.36 the default. Workshops which pin the virtual cluster to Kubernetes
-  1.31 or 1.32 through the ``vcluster`` application ``version`` property must be
-  updated to a supported version.
+  virtual cluster can provision has been updated. The 1.31 and 1.32 versions
+  have been dropped and 1.35 and 1.36 have been added, so the supported range
+  is now 1.33 to 1.36 with 1.36 the default. Workshops which pin the virtual
+  cluster to Kubernetes 1.31 or 1.32 through the ``vcluster`` application
+  ``version`` property must be updated to a supported version. Note that the
+  ``vcluster`` application can still provision Kubernetes 1.33, which is no
+  longer available for local Kind clusters, and cannot yet provision 1.37.
 
 * The version of ``kind`` embedded in the ``educates`` CLI has been updated
-  from 0.29 to 0.32. As a result the default Kubernetes version used when
+  from 0.29 to 0.33. As a result the default Kubernetes version used when
   creating a local cluster with ``educates local cluster create`` has changed
   from 1.33 to 1.36. A specific node image can still be selected using the
   ``--kind-cluster-image`` option if a different Kubernetes version is required.
+  Note that ``kind`` 0.33 no longer publishes a node image for Kubernetes
+  1.33, so that version can no longer be selected through
+  ``--kubernetes-version``.
 
 * ``educates version`` now also reports the git commit the binary was built
   from, with a ``-dirty`` suffix when it was built from a modified working
@@ -516,6 +698,14 @@ Deprecations
   the floating ``latest`` or ``develop`` version — distinguishable. Release
   binaries continue to report their release version and additionally show the
   commit they were built from.
+
+* The ``external-dns.alpha.kubernetes.io/hostname`` annotation which the
+  operator sets on the Envoy service of the ingress controller is deprecated.
+  It is set alongside ``external-dns.kubernetes.io/hostname`` so that
+  ``external-dns`` releases before 0.22 continue to publish the wildcard DNS
+  record for the ingress domain, and will be removed in a future release. If
+  you run your own ``external-dns`` against the cluster, update it to version
+  0.22 or later before the older annotation is removed.
 
 Bugs Fixed
 ----------
@@ -539,3 +729,91 @@ Bugs Fixed
   the time which has elapsed since the workshop session was allocated to the
   user when checking whether a workshop session should be deleted due to
   being orphaned or inactive.
+
+* The custom resource definition for the ``SecretImporter`` resource declared
+  a ``sourceSecret`` property in its schema, and the documentation described
+  it as a way of qualifying by name which source secret could be copied. This
+  property was never consulted by the secrets manager, as the name of the
+  secret a ``SecretImporter`` accepts is always determined from the name of
+  the ``SecretImporter`` resource itself. The unused property has been
+  removed from the custom resource definition and the documentation. If you
+  had set ``sourceSecret`` in a ``SecretImporter`` resource it had no effect,
+  and the field should be removed from your manifests.
+
+* The Node.js packages bundled with the workshop gateway, renderer and editor
+  helper in the workshop base environment image have been updated to their
+  latest upstream releases, being ``axios`` 1.20.0, ``express`` 4.22.3,
+  ``js-yaml`` 4.3.2, ``morgan`` 1.12.1, ``multer`` 2.4.0, ``joi`` 17.13.7,
+  ``liquidjs`` 10.27.2 and ``fast-uri`` 3.1.8. These updates pick up fixes for
+  vulnerabilities reported against the previously bundled versions. The
+  behavior of the workshop dashboard is unchanged.
+
+* The Python packages bundled with the session manager, secrets manager,
+  lookup service, training portal and tunnel manager have been updated to
+  releases which fix vulnerabilities reported against the previously bundled
+  versions, being ``urllib3`` 2.8.0 and ``oauthlib`` 4.0.0 in all five
+  components, ``Django`` 5.2.17 in the training portal, and ``PyJWT`` 2.15.1
+  in the lookup service. The behavior of these components is unchanged.
+
+* Deploying a workshop with ``educates docker workshop deploy`` crashed with a
+  Go panic when an extension package listed under ``spec.workshop.packages``
+  did not declare a ``files`` property. Such a package is now skipped, since
+  there is nothing for ``vendir`` to download, and the remaining packages are
+  still processed. A package declaring a malformed ``files`` property now
+  reports an error naming the package instead of crashing.
+
+* The workshop session init container which downloads content only ran when a
+  workshop declared assets under ``spec.workshop.files``. A workshop whose only
+  downloads were extension packages therefore downloaded them in the main
+  workshop container instead, where the secrets holding any registry
+  credentials are not mounted, so a package held in a registry requiring
+  authentication could not be downloaded. The init container now runs whenever
+  there is anything to download.
+
+* A custom workshop image given as ``$(image_repository)/...`` could not be
+  pulled when deploying a workshop with ``educates docker workshop deploy``
+  against the local image registry. The reference was expanded to the name the
+  local registry has on the ``educates`` Docker network, which only containers
+  on that network can resolve and the Docker daemon pulling the image cannot.
+  It is now expanded to the address the Docker daemon reaches the local
+  registry by.
+
+* When workshop instructions were rendered using the Hugo renderer with the
+  default ``educates`` theme and the workshop provided no instructions pages,
+  generation of the instructions failed with a division by zero error while
+  rendering the progress bar in the page header. This caused the workshop
+  setup scripts to be reported as having failed, and every workshop session
+  displayed a dialog warning that workshop content may not be setup correctly.
+  The progress bar is now omitted when there are no pages to show, so the
+  instructions render successfully.
+
+* When static workshop instructions were enabled by setting
+  ``session.applications.workshop.path`` in the ``Workshop`` definition, the
+  workshop gateway ignored the value and always served the static HTML files
+  from the ``public`` subdirectory of the workshop files. This only worked for
+  the documented example value of ``public``, and any other relative or
+  absolute path resulted in the wrong content, or no content, being displayed
+  for the workshop instructions. The gateway now serves the static HTML files
+  from the directory given by ``path``, with a relative path being interpreted
+  relative to the directory holding the workshop files, normally
+  ``/opt/workshop``. Workshops using the value ``public`` are unaffected.
+
+* When workshop instructions rendered using the default ``educates`` Hugo
+  theme were made narrow in the workshop dashboard, by dragging the divider
+  between the instructions and the terminals, the buttons in the navigation
+  bar at the bottom of the instructions were squashed, overlapped each other,
+  or had their labels wrapped onto a second line. As the instructions become
+  narrower, the navigation bar now shows the back button as an arrow only,
+  shortens the ``Finish Workshop`` button to ``Finish``, hides the step
+  progress indicator, and at the narrowest widths shows the continue button
+  as an arrow only.
+
+* When workshop instructions were rendered using the Hugo renderer with the
+  default ``educates`` theme, the ``workshop-instructions.css``,
+  ``workshop-instructions.js`` and ``workshop-instructions.html`` files of a
+  custom theme configured for the training portal were not applied. The
+  theme files are mounted into the workshop session from a secret, where each
+  file is a symbolic link, and Hugo skips symbolic links when copying files
+  into the generated instructions. The theme files are now copied, with the
+  symbolic links resolved, before the instructions are generated, so the
+  custom styles, scripts and additional page head content are applied.

@@ -138,7 +138,7 @@ button#header-next-page {
 
 .menu {
     padding: 0;
-    margin: 0px 5px;
+    margin: 0;
     list-style: none;
 }
 
@@ -149,7 +149,7 @@ button#header-next-page {
 }
 
 .menu li {
-    line-height: 30px;
+    line-height: 1.4;
 }
 
 .menu .category-title {
@@ -162,20 +162,24 @@ button#header-next-page {
     font-weight: bold;
 }
 
+/* Colors in the table of contents, and the bottom bar, are derived from the
+   Bootstrap theme variables, so a custom theme which changes the Bootstrap
+   primary color (--bs-primary-rgb) or body colors also restyles them. */
+
 .menu a {
-    display: inline-block;
-    line-height: 20px;
-    color: #888;
+    display: block;
+    color: var(--bs-secondary-color);
+    text-decoration: none;
 }
 
 .menu a:hover {
-    color: #444;
+    color: var(--bs-body-color);
     text-decoration: none;
 }
 
 .menu .page.active a {
-    font-weight: bold;
-    color: #444;
+    font-weight: 500;
+    color: color-mix(in srgb, rgb(var(--bs-primary-rgb)) 80%, var(--bs-emphasis-color));
 }
 
 .main-content {
@@ -207,7 +211,7 @@ button#header-next-page {
 
 .page-content .title .title-step {
     display: inline-block;
-    background-color: #d4e9f7;
+    background-color: rgba(var(--bs-primary-rgb), 0.15);
     padding: 0.1rem 0.35rem;
     border-radius: 0.375rem;
     margin-right: 0.75rem;
@@ -218,22 +222,60 @@ button#header-next-page {
 }
 
 .modules .page {
+    position: relative;
     display: flex;
-    align-items: baseline;
+    align-items: center;
+    gap: 14px;
+    padding: 0 12px;
+    margin-bottom: 2px;
+    border-radius: 8px;
+}
+
+.modules .page a {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 0;
+}
+
+/* The link for a page which can be navigated to is stretched over the whole
+   row, so clicking anywhere on the row, including the step number, goes to
+   the page. Links for blocked pages are not stretched, so that Shift+clicking
+   the step number can still be used to bypass the block. */
+
+.modules .page a:not(.toc-link-unvisited)::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+}
+
+.modules .page.active {
+    background-color: rgba(var(--bs-primary-rgb), 0.1);
+}
+
+.modules .page:not(.active):has(> a:not(.toc-link-unvisited)):hover {
+    background-color: var(--bs-tertiary-bg);
 }
 
 .modules .page .toc-step {
-    display: inline-block;
-    background-color: #d4e9f7;
-    padding: 0.1rem 0.3rem;
-    border-radius: 0.3rem;
-    margin-right: 0.5rem;
-    min-width: 1.8rem;
-    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 50%;
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-secondary-color);
     font-weight: 600;
-    font-size: 0.85em;
-    line-height: 1.2;
+    font-size: 0.8em;
     flex-shrink: 0;
+}
+
+.modules .page.active .toc-step {
+    border-color: rgb(var(--bs-primary-rgb));
+    background-color: rgb(var(--bs-primary-rgb));
+    color: #ffffff;
 }
 
 /* Unvisited TOC links are dimmed and clicks are blocked by JS.
@@ -250,7 +292,8 @@ button#header-next-page {
 
 .modules .page .toc-step-shift {
     cursor: pointer;
-    background-color: #a8d4f0;
+    border-color: rgba(var(--bs-primary-rgb), 0.4);
+    background-color: rgba(var(--bs-primary-rgb), 0.2);
 }
 
 .page-content h1,
@@ -579,8 +622,8 @@ form.jsonform-hasrequired div.form-group {
     left: 0;
     right: 0;
     z-index: 1030;
-    background: #ffffff;
-    border-top: 1px solid #dee2e6;
+    background: var(--bs-body-bg);
+    border-top: 1px solid var(--bs-border-color);
     box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -596,11 +639,11 @@ form.jsonform-hasrequired div.form-group {
     display: flex;
     align-items: center;
     gap: 12px;
-    flex: 1;
-    min-width: 0;
+    flex: 1 0 auto;
 }
 
 .bottom-bar-toc {
+    flex-shrink: 0;
     font-size: 0.8em;
     height: 36px;
     width: 36px;
@@ -612,9 +655,121 @@ form.jsonform-hasrequired div.form-group {
     color: #555;
 }
 
-.bottom-bar-toc:hover {
-    background-color: #e9ecef;
-    color: #333;
+.bottom-bar-toc:hover,
+.bottom-bar-toc[aria-expanded="true"] {
+    background-color: var(--bs-secondary-bg);
+    color: var(--bs-body-color);
+}
+
+/* Table of contents sheet. It sits directly above the bottom bar and when
+   closed is moved down behind it. The bottom bar has the higher z-index so
+   the sheet slides out from underneath it. The JS sets the bottom offset to
+   the actual height of the bottom bar when the sheet is opened. */
+
+.toc-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 52px;
+    z-index: 1025;
+    display: flex;
+    flex-direction: column;
+    max-height: 70vh;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+    transform: translateY(100%);
+    visibility: hidden;
+    transition: transform 0.25s ease, visibility 0s linear 0.25s;
+}
+
+.toc-sheet.open {
+    transform: translateY(0);
+    visibility: visible;
+    transition: transform 0.25s ease, visibility 0s linear 0s;
+}
+
+.toc-sheet-handle {
+    flex-shrink: 0;
+    align-self: center;
+    width: 64px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.toc-sheet-handle::before {
+    content: "";
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 0 auto;
+    border-radius: 2px;
+    background-color: color-mix(in srgb, var(--bs-secondary-color) 40%, transparent);
+}
+
+.toc-sheet-header {
+    flex-shrink: 0;
+    padding: 0 16px 12px 16px;
+    border-bottom: 1px solid var(--bs-border-color);
+}
+
+.toc-sheet-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--bs-body-color);
+}
+
+.toc-sheet-count {
+    font-size: 0.85em;
+    color: var(--bs-secondary-color);
+}
+
+.toc-sheet-body {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px;
+}
+
+/* Keep the scrollbar for the list of pages visible, so it is apparent there
+   are more pages even where the platform hides scrollbars until scrolling.
+   Browsers supporting the ::-webkit-scrollbar selector ignore it when the
+   standard scrollbar properties are also set, so those are only used when
+   it isn't supported. */
+
+.toc-sheet-body::-webkit-scrollbar {
+    width: 8px;
+}
+
+.toc-sheet-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.toc-sheet-body::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--bs-secondary-color) 40%, transparent);
+    border-radius: 4px;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+    .toc-sheet-body {
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in srgb, var(--bs-secondary-color) 40%, transparent) transparent;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toc-sheet,
+    .toc-sheet.open {
+        transition: none;
+    }
 }
 
 /* Circular step progress ring */
@@ -635,13 +790,13 @@ form.jsonform-hasrequired div.form-group {
 
 .step-ring-bg {
     fill: none;
-    stroke: #e9ecef;
+    stroke: var(--bs-secondary-bg);
     stroke-width: 3;
 }
 
 .step-ring-fill {
     fill: none;
-    stroke: #0d6efd;
+    stroke: rgb(var(--bs-primary-rgb));
     stroke-width: 3;
     stroke-linecap: round;
     transition: stroke-dashoffset 0.3s ease;
@@ -663,6 +818,14 @@ form.jsonform-hasrequired div.form-group {
     align-items: center;
     gap: 8px;
     margin-left: 16px;
+}
+
+.bottom-bar-back,
+.bottom-bar-continue {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
 }
 
 .bottom-bar-back {
@@ -709,6 +872,51 @@ form.jsonform-hasrequired div.form-group {
     transition: opacity 0.3s ease;
 }
 
+/* The workshop instructions panel can be resized down to nothing in the
+   dashboard. As it narrows, progressively drop the less important parts of
+   the bottom bar rather than letting its contents wrap or overlap. */
+
+@media (max-width: 420px) {
+    .bottom-bar-inner {
+        padding: 8px 10px;
+    }
+
+    .bottom-bar-progress {
+        gap: 8px;
+    }
+
+    .bottom-bar-actions {
+        margin-left: 8px;
+        gap: 6px;
+    }
+
+    .bottom-bar-back .bottom-bar-label {
+        display: none;
+    }
+}
+
+@media (max-width: 340px) {
+    .bottom-bar-label-extra {
+        display: none;
+    }
+
+    .bottom-bar-continue {
+        padding: 6px 12px;
+    }
+}
+
+@media (max-width: 260px) {
+    .bottom-bar-step-ring {
+        display: none;
+    }
+}
+
+@media (max-width: 200px) {
+    .bottom-bar-continue .bottom-bar-label {
+        display: none;
+    }
+}
+
 @media print {
     html {
         height: auto;
@@ -740,7 +948,8 @@ form.jsonform-hasrequired div.form-group {
         display: none;
     }
 
-    .workshop-bottom-bar {
+    .workshop-bottom-bar,
+    .toc-sheet {
         display: none;
     }
 }

@@ -435,6 +435,7 @@ resolution.
 {{- $crt := default dict .Values.clusterRuntime -}}
 {{- $cnet := default dict .Values.clusterNetwork -}}
 {{- $dd := default dict .Values.dockerDaemon -}}
+{{- $pd := default dict .Values.packageDelivery -}}
 {{- $proxy := default dict $dd.proxyCache -}}
 {{- $wa := default dict .Values.workshopAnalytics -}}
 {{- $wstyle := default dict .Values.websiteStyling -}}
@@ -456,6 +457,7 @@ resolution.
   )
   "clusterSecurity" (dict "policyEngine" $policyEngine)
   "workshopSecurity" (dict "rulesEngine" (lower $ws.rulesEngine))
+  "packageDelivery" (dict "imageMount" (dict "enabled" (eq (dig "imageMount" "enabled" false $pd) true)))
   "imageRegistry" (dict
     "host" (default "" $ir.host)
     "namespace" (default "" $ir.namespace)

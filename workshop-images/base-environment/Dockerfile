@@ -103,6 +103,13 @@ RUN HOME=/root && \
     chown 1001:0 /opt && \
     ln -s /var/run/docker/docker.sock /var/run/docker.sock
 
+# Node 24 bundles an npm whose vendored tar lags the security fixes;
+# newer Node lines already bundle npm 11.19+, which carries the fixed
+# tar. Take the newest npm 11.x so rebuilds keep absorbing 11.x fixes.
+RUN npm install -g npm@11 && \
+    npm --version && \
+    rm -rf /root/.npm
+
 FROM system-base AS vscode-helper
 
 COPY opt/helper /opt/helper
@@ -174,6 +181,26 @@ RUN <<EOF
         -ldflags "-s -w -X carvel.dev/vendir/pkg/vendir/version.Version=${VENDIR_VERSION}" \
         -o /vendir ./cmd/vendir/...
 EOF
+
+# The package fetcher shares the package image contract with the publish
+# command, so it is built from the client-programs module rather than
+# reimplemented here. Its source is staged into this build context, since the
+# context is this directory (see stage-base-environment-fetcher in the
+# Makefile).
+FROM --platform=$BUILDPLATFORM golang:1.26 AS package-fetcher-build
+
+ARG TARGETOS
+ARG TARGETARCH
+
+ENV GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0
+
+WORKDIR /build
+
+COPY client-programs/ /build/
+
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
+        -ldflags "-s -w" \
+        -o /educates-package-fetcher ./cmd/educates-package-fetcher
 
 FROM --platform=$BUILDPLATFORM golang:1.26 AS k9s-build
 
@@ -263,12 +290,12 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    UV_VERSION=0.11.23
+    UV_VERSION=0.12.5
     ARCHNAME_amd64=x86_64
     ARCHNAME_arm64=aarch64
     ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="e12c4cda2fe8c305510a78380a88f2c32a27e90cdcd123cefd2873388f0ebb5f"
-    CHECKSUM_arm64="1873a77350f6621279ae1a0d2227f2bd8b67131598f14a7eb0ba2215d3da2c98"
+    CHECKSUM_amd64="68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2"
+    CHECKSUM_arm64="9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/uv.tar.gz https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${!ARCHNAME}-unknown-linux-gnu.tar.gz
@@ -282,10 +309,10 @@ EOF
 RUN mkdir -p /opt/kubernetes/bin
 
 RUN <<EOF
-    KUBECTL_VERSION=1.33.13
+    KUBECTL_VERSION=1.34.11
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="7365f43aa89d666d66840935756a32978320eb9a1c92e8c07d6f8bbd76fccfa7e5f18a2393065dd242057f93750823255bed5be8f4eab3729af57cda578096e7"
-    CHECKSUM_arm64="634f8243fc33dac418eebba24399b89e697f4762cf6c3fce2bb4700c50032e65d4ed64c70d9ad47f39dd49bab99ae5b7a7972026821a2b4a93b24af929581bc1"
+    CHECKSUM_amd64="245d980bec82376dbc1cc1dee6ed80333fa82f4e7a4a1beef7acb4381fd63416afb59b158fca5672ea5c87d3335268bc1537cab8339004bcfc78c7124c33ea75"
+    CHECKSUM_arm64="d632ea6f349e786e0cc8afe36c293555d5cd2d3e90cbb79ba19cb100f7f9985eace8291f15e3b6f3683c39a8e5fd6b1ef470ecc4edf1a92cfe07d096f721ef9a"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -296,10 +323,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.34.10
+    KUBECTL_VERSION=1.35.8
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="1e7b5bdbb9eb767fbb4568a2dcb4ae08b8485886b657199c6943fe6449b00d8122a84c339296c3b4c132cd0c9b2c08642d925c8dacda0f53045d9df35860a1ba"
-    CHECKSUM_arm64="71045eb5d452b97555fc5d4cbcbeba0654eda28883631a7f57b0212ee0b4cdfb79897f3ec3b329b60a2c07374f5996a2e447e33218ab6792dd6e71668f72ae56"
+    CHECKSUM_amd64="5e138260db123d000dfabf2a0535c6958b938112f499f698a91097402c9dcf2a0eb4ddcf57707f63e889c1e40e3e22f15fcb2c46a846d069a3a66f91b4912158"
+    CHECKSUM_arm64="f21c47e1bc01fc39f3043980f9fbb91d8f6579dda33b57c2bd16a558fb0c78dce37a928ec111dd3cec11a7fb93fc1f05e25705b7ac2818b1a970c6d2ce1175ea"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -310,10 +337,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.35.7
+    KUBECTL_VERSION=1.36.4
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="923f50fd1fd1b959d7c609732db59523281c10fe3c4f2ff2c677163e7403fcf0c78c9e1fc06b6b60fad4a76647c3a92be8d6e08514d1e5a6459c74757b2a1082"
-    CHECKSUM_arm64="218770474da60916a1485e48c649898618e9a4fe9ad91e5557a6862035fbbccedabe6d9330aa8e2e8fb649a39b2ba2df15c0bdcb8f6287775ed746e46f04bcb6"
+    CHECKSUM_amd64="611ab5bb43640f4eb37302faddde2dbb900e0b79d3e96286acd86a6935b55ad766b7083aa1dcf0e7806da43de5055b1f7056454aaff33d6fabf11cf5c7b41f7d"
+    CHECKSUM_arm64="583f43c85ab8fb884dad26c1650085b073148c390f618dbe89f9d0780a0cf503374c42a8281d377fb13c1b9c9ad677ede6e4e924b09cea2b5482ecf3af300467"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -324,10 +351,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.36.3
+    KUBECTL_VERSION=1.37.0
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="f68e81568b0356e81d27073876356f5516b84f3bc55ddfd7ebab199045b82a720e2adbac7124e800b8b705d1647721b1a529ba524b982d4ff433f62f26f5cdc9"
-    CHECKSUM_arm64="81c427328605de156d45c0378ef6949c74255b34a22c370f11d16ded14202be463968e17be5334327df600fa40c1f42d6d27766968d8a57f85c0d25f240695b5"
+    CHECKSUM_amd64="ff61f94cf73281e24b8b7f16bd7ae15a928ef886399a2e8a360c170828babade73aeb284d37c596fc6c7dc68876b1550b714c1fc3ac4263adb8aef9e30a7c42f"
+    CHECKSUM_arm64="28167564b99d2440c3be873aff2f6bb2726ba55b58a3af3994f877f3d680e539d632e5162f96838d9efd06b87f5e1dbc811782f01f86a221afd90bf7fa9d0328"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -387,10 +414,15 @@ EOF
 # vendir is the patched source rebuild from the vendir-build stage.
 COPY --from=vendir-build /vendir /opt/kubernetes/bin/vendir
 
+# The package fetcher is built from the client-programs module, so that the
+# package image contract has one implementation shared with the publish
+# command rather than a second copy here.
+COPY --from=package-fetcher-build /educates-package-fetcher /opt/kubernetes/bin/educates-package-fetcher
+
 RUN <<EOF
-    HELM_VERSION=4.2.3
-    CHECKSUM_amd64="e9b88b4ee95b18c706839c28d3a0220e5bc470e9cd9262410c90793c45ff8b7c"
-    CHECKSUM_arm64="21abd9354d39b2cd79a8d76be6912cd137a983cbf997193503fb8a6a6e2f2785"
+    HELM_VERSION=4.2.4
+    CHECKSUM_amd64="c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3"
+    CHECKSUM_arm64="564de2191b881e9f71b5606b25345821ea1682f06ab90499d3ab22b530176da1"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/helm.tar.gz https://get.helm.sh/helm-v${HELM_VERSION}-linux-${TARGETARCH}.tar.gz
@@ -416,9 +448,9 @@ COPY --from=kustomize-build /kustomize /opt/kubernetes/bin/kustomize
 # VS Code editor and dashboard extension.
 # Make sure when updating that AI features are disabled and working https://github.com/coder/code-server/issues/7540
 RUN <<EOF
-    CODE_VERSION=4.131.0
-    CHECKSUM_amd64="f6316f0b14ef5c12ed6e67e0154dd02ccf5e66112064687d7e93c51763105361"
-    CHECKSUM_arm64="4d2a8b2f755446079c4364b18e71c9121181e4e605c6c35939e5f1aac8d1eae8"
+    CODE_VERSION=4.133.0
+    CHECKSUM_amd64="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1"
+    CHECKSUM_arm64="d999d8b0256e5537f3b62e6c09f624220026e19107a04a876c0cef62d1c71147"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     mkdir /opt/editor

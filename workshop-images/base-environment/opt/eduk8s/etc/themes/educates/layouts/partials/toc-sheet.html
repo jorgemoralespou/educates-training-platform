@@ -1,0 +1,40 @@
+{{ $modules := (.Scratch.Get "__modules__") }}
+{{ $current_module := (index $modules (trim (substr (.Page.RelPermalink) (len (relURL ""))) "/")) }}
+
+{{ $site := .Site }}
+
+<div class="toc-sheet" id="table-of-contents" role="dialog" aria-labelledby="table-of-contents-title">
+    <button class="toc-sheet-handle" type="button" aria-label="Close"></button>
+    <div class="toc-sheet-header">
+        <h5 class="toc-sheet-title" id="table-of-contents-title">{{ .Param "workshop_title" }}</h5>
+        <div class="toc-sheet-count">{{ len $modules }} {{ if eq (len $modules) 1 }}step{{ else }}steps{{ end }}</div>
+    </div>
+    <div class="toc-sheet-body">
+        <ul class="menu">
+            <li class="category">
+                <ul class="modules">
+                    {{ range $module := sort $modules "step" }}
+                    {{ $title := $module.title }}
+                    {{ if not $title }}
+                    {{ with $site.GetPage $module.path }}
+                    {{ $title = .Title }}
+                    {{ end }}
+                    {{ end }}
+                    {{ if not $title }}
+                    {{ $title = .path }}
+                    {{ end }}
+                    {{ if eq $current_module.path $module.path }}
+                    <li class="page active" data-toc-path="{{ $module.path }}">
+                        <span class="toc-step">{{ $module.step }}</span><a href="{{ relURL .path }}" aria-current="page">{{ $title }}</a>
+                    </li>
+                    {{ else }}
+                    <li class="page" data-toc-path="{{ $module.path }}">
+                        <span class="toc-step">{{ $module.step }}</span><a href="{{ relURL .path }}" class="toc-link-unvisited">{{ $title }}</a>
+                    </li>
+                    {{ end }}
+                    {{ end }}
+                </ul>
+            </li>
+        </ul>
+    </div>
+</div>

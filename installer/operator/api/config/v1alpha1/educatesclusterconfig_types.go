@@ -221,17 +221,17 @@ type SecretKeyRef struct {
 }
 
 // OperationalBlock collects the per-Deployment operational knobs of a
-// Bundled cluster service. In v1alpha1 only BundledContour carries it:
-// the cert-manager / external-dns / kyverno blocks were dropped
-// (2026-06-11) because their semantics didn't hold against the
-// upstream charts — external-dns 1.21.1 hardcodes replicas to 1 and
-// exposes no replica value, Kyverno fanning one count across its four
-// controllers conflicts with upstream HA guidance (3+ for the
-// admission controller only), and cert-manager never consumed it.
-// They return when per-service shapes are validated against each
-// chart's real values surface. Of the knobs below, the reconciler
-// currently applies replicas; the rest are accepted but not yet
-// wired into chart values.
+// Bundled cluster service. In v1alpha1 only BundledContour carries it.
+// The cert-manager, external-dns and kyverno blocks do not, because a
+// single per-service block does not map onto those charts: external-dns
+// is deliberately single-instance (its chart bounds replicaCount to 0 or
+// 1 as the controller has no leader election), Kyverno runs four
+// controllers whose upstream HA guidance differs (3+ replicas for the
+// admission controller only), and the cert-manager reconciler installs
+// the chart with its default workload settings. Per-service shapes may
+// be added once validated against each chart's real values surface. Of
+// the knobs below, the reconciler currently applies replicas; the rest
+// are accepted but not yet wired into chart values.
 type OperationalBlock struct {
 	// replicas overrides the operator-computed default. The default
 	// varies by infrastructure provider (typically 1 for Kind/Minikube,
@@ -682,9 +682,9 @@ type WorkshopPolicyConfig struct {
 }
 
 // KyvernoConfig groups Kyverno-engine sourcing. Required when any
-// policyEnforcement engine resolves to Kyverno. The former `bundled`
-// sub-block (which only carried an operational override) was removed
-// alongside the operational-block trim — see OperationalBlock.
+// policyEnforcement engine resolves to Kyverno. It carries no per-service
+// operational block; see OperationalBlock for why only BundledContour
+// has one.
 type KyvernoConfig struct {
 	// provider defaults to Bundled.
 	// +kubebuilder:default=Bundled
@@ -829,7 +829,62 @@ type EducatesClusterConfigSpec struct {
 	// mode; ignored in Managed mode.
 	// +optional
 	Inline *InlineConfig `json:"inline,omitempty"`
+
+	// packageDelivery configures how extension packages declared as an
+	// image reach a workshop session. Applies in both modes: it describes
+	// what the cluster can do, not what Educates installs.
+	// +optional
+	PackageDelivery *PackageDelivery `json:"packageDelivery,omitempty"`
 }
+
+// DeliveryMode is the tri-state a delivery mechanism is configured with.
+// Auto resolves from what the cluster supports; the other two settle it.
+// +kubebuilder:validation:Enum=Auto;Enabled;Disabled
+type DeliveryMode string
+
+const (
+	// DeliveryModeAuto resolves the mechanism from cluster capability.
+	DeliveryModeAuto DeliveryMode = "Auto"
+
+	// DeliveryModeEnabled uses the mechanism whatever the probe finds.
+	DeliveryModeEnabled DeliveryMode = "Enabled"
+
+	// DeliveryModeDisabled never uses the mechanism.
+	DeliveryModeDisabled DeliveryMode = "Disabled"
+)
+
+// PackageDelivery configures how extension packages reach a session.
+type PackageDelivery struct {
+	// imageMount controls whether an extension package declared as an
+	// image is mounted into the session read only, rather than having its
+	// contents fetched. Mounting needs a recent Kubernetes and container
+	// runtime on every node; under Auto the operator probes for that and
+	// falls back to fetching, which works anywhere.
+	// +optional
+	// +kubebuilder:default=Auto
+	ImageMount DeliveryMode `json:"imageMount,omitempty"`
+}
+
+// StatusPackageDelivery publishes the resolved delivery mechanisms that
+// components consume. Values are settled: never Auto.
+type StatusPackageDelivery struct {
+	// imageMount reports whether extension packages declared as an image
+	// are mounted into a session.
+	// +required
+	ImageMount EffectiveDeliveryMode `json:"imageMount"`
+}
+
+// EffectiveDeliveryMode is a resolved delivery mechanism.
+// +kubebuilder:validation:Enum=Enabled;Disabled
+type EffectiveDeliveryMode string
+
+const (
+	// EffectiveDeliveryModeEnabled means the mechanism is in use.
+	EffectiveDeliveryModeEnabled EffectiveDeliveryMode = "Enabled"
+
+	// EffectiveDeliveryModeDisabled means it is not.
+	EffectiveDeliveryModeDisabled EffectiveDeliveryMode = "Disabled"
+)
 
 // StatusIngress is the ingress contract published in status. Component
 // CRs consume this; they don't read spec. The wildcard (and optional CA)
@@ -917,6 +972,12 @@ type EducatesClusterConfigStatus struct {
 	// in Inline mode.
 	// +optional
 	BundledChartVersions map[string]string `json:"bundledChartVersions,omitempty"`
+
+	// packageDelivery publishes the resolved delivery mechanisms for
+	// extension packages. Components read this rather than the spec, so
+	// an Auto setting is already settled here.
+	// +optional
+	PackageDelivery *StatusPackageDelivery `json:"packageDelivery,omitempty"`
 
 	// conditions report the resource's state:
 	//   - Ready                (aggregate)

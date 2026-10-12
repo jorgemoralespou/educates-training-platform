@@ -89,14 +89,14 @@ The `EducatesClusterConfig` reconciler renders a values map for each vendored up
 
 | Spec fields | Chart (release/namespace) | Derived values (examples) |
 |---|---|---|
-| `ingress.domain`, `ingress.ingressClassName`, `controller.bundledContour.*` | `contour` / `contour` | `contour.replicaCount`, `contour.ingressClass.{name,create,default}`, `envoy.service.type`, the `external-dns.alpha.kubernetes.io/hostname: *.<domain>.` Service annotation |
+| `ingress.domain`, `ingress.ingressClassName`, `controller.bundledContour.*` | `contour` / `contour` | `contour.replicaCount`, `contour.ingressClass.{name,create,default}`, `envoy.service.type`, the `external-dns.kubernetes.io/hostname: *.<domain>.` Service annotation, also set as `external-dns.alpha.kubernetes.io/hostname` for external-dns releases before 0.22 |
 | `ingress.certificates.bundledCertManager.*` | `cert-manager` / `cert-manager` | `crds.enabled`; the ClusterIssuer and wildcard Certificate are created directly by the operator, not through chart values |
 | `dns.bundledExternalDNS.*` | `external-dns` / `external-dns` | `provider`, `sources`, `domainFilters: [<domain>]`, `txtOwnerId`, Workload Identity / IRSA ServiceAccount annotations |
 | `policyEnforcement.*` | `kyverno` / `kyverno` | chart defaults plus `global.image.registry` when an image-registry prefix is set |
 
 In Inline mode this stage installs nothing — the reconciler only validates that the referenced Secrets, IngressClass, and engines exist.
 
-Either way, the stage ends by publishing **status**: the validated ingress contract (`status.ingress.domain`, wildcard certificate and CA Secret references, optional ClusterIssuer), resolved policy engines, image registry, and installed chart versions.
+Either way, the stage ends by publishing **status**: the validated ingress contract (`status.ingress.domain`, wildcard certificate and CA Secret references, optional ClusterIssuer), resolved policy engines, image registry, the resolved extension package delivery (`status.packageDelivery.imageMount`, settled against what the cluster supports), and installed chart versions.
 
 ```shell
 helm -n contour get values contour                  # what the operator computed for a cluster service
@@ -109,7 +109,7 @@ Each component reconciler waits for its gates, then merges its own spec with the
 
 * `SecretsManager` → release `secrets-manager`: `logLevel`, image override, resources, pull secrets from `status.imageRegistry`.
 * `LookupService` → release `lookup-service`: `ingress.host` composed as `<spec.ingress.prefix>.<status.ingress.domain>`, TLS reference from status (or the per-resource override), publishing the result as `status.url`.
-* `SessionManager` → release `session-manager`: `clusterIngress.{domain,tlsCertificateRef,caCertificateRef}` from status, `clusterSecurity.policyEngine` from status, plus everything from its own spec (themes, analytics, storage, network, ingress overrides). Its `nodeCATrust` and `remoteAccess` modes decide two extra releases, `node-ca-injector` and `remote-access`.
+* `SessionManager` → release `session-manager`: `clusterIngress.{domain,tlsCertificateRef,caCertificateRef}` from status, `clusterSecurity.policyEngine` from status, `packageDelivery.imageMount.enabled`, set from the resolved `status.packageDelivery.imageMount` (which decides whether extension packages declared as an image are mounted into a workshop session or have their contents fetched), plus everything from its own spec (themes, analytics, storage, network, ingress overrides). Its `nodeCATrust` and `remoteAccess` modes decide two extra releases, `node-ca-injector` and `remote-access`.
 
 ```shell
 helm -n educates list                              # one release per component
@@ -132,7 +132,7 @@ Following `domain: workshops.example.com` from an `EducatesGKEConfig` file throu
 
 1. **Config kind** — `domain: workshops.example.com`, validated by the `EducatesGKEConfig` schema.
 2. **Custom resource** — the translator emits it as `EducatesClusterConfig.spec.ingress.domain` (and the kind's invariants fill in Contour, ACME/CloudDNS, external-dns around it).
-3. **Cluster-service values** — the reconciler fans it out: the Envoy Service is annotated `external-dns.alpha.kubernetes.io/hostname: *.workshops.example.com.`, the wildcard Certificate requests `*.workshops.example.com`, external-dns gets `domainFilters: [workshops.example.com]`. Once the certificate is issued, `status.ingress.domain: workshops.example.com` is published together with the wildcard Secret reference.
+3. **Cluster-service values** — the reconciler fans it out: the Envoy Service is annotated `external-dns.kubernetes.io/hostname: *.workshops.example.com.` (and with the same value under the older `external-dns.alpha.kubernetes.io/hostname` key), the wildcard Certificate requests `*.workshops.example.com`, external-dns gets `domainFilters: [workshops.example.com]`. Once the certificate is issued, `status.ingress.domain: workshops.example.com` is published together with the wildcard Secret reference.
 4. **Runtime values** — the `SessionManager` reconciler reads it *from status* and sets the session-manager chart's `clusterIngress.domain`; the `LookupService` reconciler composes `lookup.workshops.example.com`.
 5. **Runtime configuration** — the chart writes `clusterIngress.domain` into the `educates-config` Secret, and from there every training portal and workshop session URL is minted under `*.workshops.example.com`.
 
