@@ -437,7 +437,7 @@ Features Changed
 * The ``ClusterRole`` and ``ClusterRoleBinding`` resources created by Educates
   have been renamed to follow the Kubernetes convention of an application
   prefix separated by colons. Service roles are now named after their
-  component — ``educates:session-manager``, ``educates:secrets-manager``,
+  component: ``educates:session-manager``, ``educates:secrets-manager``,
   ``educates:lookup-service``, ``educates:training-portal``,
   ``educates:tunnel-manager``, ``educates:remote-access``,
   ``educates:node-ca-injector`` and the operator's

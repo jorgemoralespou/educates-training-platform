@@ -154,7 +154,7 @@ The `educates-upgrade-kubernetes` skill carries the reciprocal reminder.
    `events.k8s.io` events, `endpointslices` create/delete). The `-vc` namespace
    Role is the syncer's sync-target Role (it holds `pods/status`); the
    session-namespace Role is intentionally narrower.
-   **Mirror every added rule into `educates-session-manager:vcluster` in
+   **Mirror every added rule into `educates:session-manager:vcluster` in
    `installer/charts/educates-training-platform/charts/session-manager/templates/clusterroles.yaml`**
    — Kubernetes privilege-escalation prevention means session-manager can only
    create the per-session Roles if it already holds every permission they grant,
@@ -188,7 +188,7 @@ services / ingresses so the reconciled RBAC is actually hit.
 - [ ] `K8S_VERSIONS` aligned with the platform set (`pkg/constants/kubernetes.go`), or divergence agreed with the user
 - [ ] `vcluster-all-config.yaml` re-copied from the tag + header pin updated
 - [ ] Embedded StatefulSet / Services reconciled against the render, Educates customizations preserved
-- [ ] Embedded RBAC reconciled AND mirrored into `educates-session-manager:vcluster` (clusterroles.yaml)
+- [ ] Embedded RBAC reconciled AND mirrored into `educates:session-manager:vcluster` (clusterroles.yaml)
 - [ ] Non-root syncer securityContext kept + flagged for runtime validation
 - [ ] Release note added; `project-docs` reviewed
 - [ ] `application_vcluster.py` parses; chart re-render matches; runtime vcluster workshop smoke-tested
