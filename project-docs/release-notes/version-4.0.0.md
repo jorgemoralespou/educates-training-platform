@@ -577,14 +577,14 @@ Deprecations
 
 * A number of the command line tools bundled in the workshop base environment
   image have been updated to their latest upstream releases, being ``helm``
-  4.2.4, ``hugo`` 0.165.0, ``skaffold`` 2.23.0 and ``kctrl`` 0.60.4. These
+  4.3.0, ``hugo`` 0.167.0, ``skaffold`` 2.25.0 and ``kctrl`` 0.60.4. These
   updates pick up releases built with a patched Go toolchain and updated
   dependencies which resolve critical vulnerabilities reported against the
   previously bundled versions.
 
 * The ``code-server`` release which provides the workshop editor has been
-  updated from 4.125.0 to 4.131.0, bringing the embedded VS Code version from
-  1.125.0 to 1.131.0. The update resolves a critical vulnerability and a number
+  updated from 4.125.0 to 4.141.0, bringing the embedded VS Code version from
+  1.125.0 to 1.141.0. The update resolves a critical vulnerability and a number
   of high severity vulnerabilities reported against packages bundled with the
   editor.
 
@@ -623,7 +623,7 @@ Deprecations
 
 * The image registry deployed for workshop sessions and for workshop
   environment image mirrors has been updated from the CNCF Distribution
-  registry version 2.8.3 to 3.1.1, with the registry binary additionally
+  registry version 2.8.3 to 3.1.2, with the registry binary additionally
   rebuilt against a patched Go toolchain and updated dependencies so that no
   known critical or high severity vulnerabilities remain. The registry
   continues to be configured through the same environment variables, so
@@ -645,29 +645,29 @@ Deprecations
 
 * The JDK versions included in the ``jdk8-environment``, ``jdk11-environment``,
   ``jdk17-environment`` and ``jdk21-environment`` workshop base images have
-  been updated to the latest Eclipse Temurin patch releases, being 8u502-b07,
-  11.0.32+9, 17.0.20+8 and 21.0.12+8 respectively. The bundled Maven and
-  Gradle versions have also been updated. All four images now include Maven
-  3.9.16. The ``jdk8-environment`` and ``jdk11-environment`` images include
-  Gradle 8.14.5, the latest version able to run on those JDK versions, while
-  the ``jdk17-environment`` and ``jdk21-environment`` images include Gradle
-  9.6.1. Gradle 9 is a new major release which introduces breaking changes
-  relative to Gradle 8, so any workshops which use Gradle in the JDK 17 or
-  JDK 21 images should be verified against the newer Gradle version to ensure
-  they still behave as expected. One behaviour change affects all four
-  images: ``gradle init`` now aborts if the target directory already
-  contains any files, including hidden files, where previously it would
-  generate the new project alongside them. Since the home directory of a
-  workshop session is never empty, any workshop which has users run
+  been updated to the latest Eclipse Temurin patch releases, being 8u504-b01,
+  11.0.32.1+1, 17.0.20.1+1 and 21.0.12.1+1 respectively. The bundled Maven
+  and Gradle versions have also been updated. All four images now include
+  Maven 3.9.16. The ``jdk8-environment`` and ``jdk11-environment`` images
+  include Gradle 8.14.6, the latest version able to run on those JDK
+  versions, while the ``jdk17-environment`` and ``jdk21-environment`` images
+  include Gradle 9.8.1. Gradle 9 is a new major release which introduces
+  breaking changes relative to Gradle 8, so any workshops which use Gradle in
+  the JDK 17 or JDK 21 images should be verified against the newer Gradle
+  version to ensure they still behave as expected. One behaviour change
+  affects all four images: ``gradle init`` now aborts if the target directory
+  already contains any files, including hidden files, where previously it
+  would generate the new project alongside them. Since the home directory of
+  a workshop session is never empty, any workshop which has users run
   ``gradle init`` directly in the home directory, or any other non-empty
   directory, will need its instructions updated to either pass the
   ``--overwrite`` option to ``gradle init`` or create the project in a new
   empty subdirectory.
 
 * The ``conda-environment`` workshop base image has been updated to use
-  Miniconda 26.5.3-2, with the conda environment it provides now based on
+  Miniconda 26.7.1-1, with the conda environment it provides now based on
   Python 3.14 rather than Python 3.13. The bundled ``notebook`` and
-  ``jupyterlab`` packages have also been updated, to versions 7.6.1 and 4.6.2
+  ``jupyterlab`` packages have also been updated, to versions 7.6.3 and 4.6.4
   respectively. Workshops which install additional conda or pip packages into
   the default conda environment should be verified against the newer Python
   version in case any of the packages they depend on do not yet support
