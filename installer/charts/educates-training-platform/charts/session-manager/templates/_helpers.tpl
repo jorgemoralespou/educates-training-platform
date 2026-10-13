@@ -290,7 +290,7 @@ Returns the merged list as a YAML array string (consume via fromYamlArray).
     (dict "name" "jdk21-environment"       "image" (printf "%s/educates-jdk21-environment:%s" $repo $v))
     (dict "name" "conda-environment"       "image" (printf "%s/educates-conda-environment:%s" $repo $v))
     (dict "name" "debian-base-image"       "image" "debian:sid-20230502-slim")
-    (dict "name" "docker-in-docker"        "image" "docker:27.5.1-dind")
+    (dict "name" "docker-in-docker"        "image" "docker:29.9.0-dind")
     (dict "name" "loftsh-kubernetes-v1.33" "image" "ghcr.io/loft-sh/kubernetes:v1.33.4")
     (dict "name" "loftsh-kubernetes-v1.34" "image" "ghcr.io/loft-sh/kubernetes:v1.34.0")
     (dict "name" "loftsh-kubernetes-v1.35" "image" "ghcr.io/loft-sh/kubernetes:v1.35.0")

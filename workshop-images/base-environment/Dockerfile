@@ -15,7 +15,7 @@ ARG TARGETARCH
 
 # Pin the exact Go release: the golang:1.26 image can lag a patch behind,
 # and the current patch carries stdlib security fixes the binary must have.
-ENV GOTOOLCHAIN=go1.26.6
+ENV GOTOOLCHAIN=go1.26.9
 
 RUN <<EOF
     set -eo pipefail
@@ -26,11 +26,13 @@ RUN <<EOF
     test "$(git rev-parse HEAD)" = "${DASHBOARD_COMMIT}"
     go get \
         github.com/docker/distribution@v2.8.2+incompatible \
+        github.com/golang/glog@v1.2.4 \
+        github.com/gorilla/websocket@v1.5.3 \
         github.com/moby/spdystream@v0.5.1 \
-        golang.org/x/crypto@v0.54.0 \
-        golang.org/x/net@v0.57.0 \
-        golang.org/x/oauth2@v0.36.0 \
-        golang.org/x/text@v0.40.0
+        golang.org/x/crypto@v0.58.0 \
+        golang.org/x/net@v0.61.0 \
+        golang.org/x/oauth2@v0.37.0 \
+        golang.org/x/text@v0.43.0
     go mod tidy
     CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
         go build -trimpath -ldflags "-s -w" -o /dashboard-backend ./src/app/backend/
@@ -130,7 +132,7 @@ ARG TARGETARCH
 
 # Pin the exact Go release: the golang:1.26 image can lag a patch behind,
 # and the current patch carries stdlib security fixes the binary must have.
-ENV GOTOOLCHAIN=go1.26.6
+ENV GOTOOLCHAIN=go1.26.9
 
 WORKDIR /app
 
@@ -144,9 +146,10 @@ echo "09cd14a34f17d88cd4f0d2b73e0bbd0bf56984be21bc947f416a7824a709011e /tmp/git-
     tar xvf /tmp/git-serve.tar.gz && \
     cd git-serve-0.0.5 && \
     go get \
+        github.com/prometheus/client_golang@v1.23.2 \
         github.com/sirupsen/logrus@v1.9.4 \
-        golang.org/x/crypto@v0.54.0 \
-        golang.org/x/net@v0.57.0 && \
+        golang.org/x/crypto@v0.58.0 \
+        golang.org/x/net@v0.61.0 && \
     go mod tidy && \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o git-serve cmd/git-serve/main.go
 
@@ -163,16 +166,16 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS vendir-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
 
 RUN <<EOF
     set -eo pipefail
-    VENDIR_VERSION=0.46.0
-    VENDIR_COMMIT=a7fb189b2a1d1be30ccdf0049ae62b17d83240bc
+    VENDIR_VERSION=0.46.2
+    VENDIR_COMMIT=58acd4c5cad5ea379c27e5b6011bdff2feb43ab3
     git clone --depth 1 --branch v${VENDIR_VERSION} https://github.com/carvel-dev/vendir /build
     cd /build
     test "$(git rev-parse HEAD)" = "${VENDIR_COMMIT}"
-    go get golang.org/x/crypto@v0.54.0 golang.org/x/net@v0.57.0
+    go get golang.org/x/crypto@v0.58.0 golang.org/x/net@v0.61.0
     go mod tidy
     # vendir commits a vendor/ tree, which must be regenerated after the
     # dependency bumps or the build refuses to run with -mod=vendor.
@@ -192,7 +195,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS package-fetcher-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
 
 WORKDIR /build
 
@@ -207,7 +210,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS k9s-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
 
 RUN <<EOF
     set -eo pipefail
@@ -217,12 +220,14 @@ RUN <<EOF
     cd /build
     test "$(git rev-parse HEAD)" = "${K9S_COMMIT}"
     go get \
-        github.com/containerd/containerd@v1.7.33 \
-        github.com/containerd/containerd/v2@v2.2.5 \
-        github.com/go-git/go-git/v5@v5.19.2 \
-        golang.org/x/crypto@v0.54.0 \
-        golang.org/x/net@v0.57.0 \
-        google.golang.org/grpc@v1.82.1 \
+        github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3 \
+        github.com/containerd/containerd@v1.7.36 \
+        github.com/containerd/containerd/v2@v2.2.9 \
+        github.com/go-git/go-git/v5@v5.19.3 \
+        go.opentelemetry.io/otel/sdk@v1.45.0 \
+        golang.org/x/crypto@v0.58.0 \
+        golang.org/x/net@v0.61.0 \
+        google.golang.org/grpc@v1.83.2 \
         oras.land/oras-go/v2@v2.6.2
     go mod tidy
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
@@ -230,22 +235,24 @@ RUN <<EOF
         -o /k9s main.go
 EOF
 
-FROM --platform=$BUILDPLATFORM golang:1.26 AS kustomize-build
+FROM --platform=$BUILDPLATFORM golang:1.27 AS kustomize-build
 
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.6 CGO_ENABLED=0
+# kustomize 5.8.3 requires Go 1.27, so this stage uses a newer toolchain
+# than the other source rebuilds.
+ENV GOTOOLCHAIN=go1.27.2 CGO_ENABLED=0
 
 RUN <<EOF
     set -eo pipefail
-    KUSTOMIZE_VERSION=5.8.1
-    KUSTOMIZE_COMMIT=9790a1c3efd2fd35f1b768d495112834176581c1
+    KUSTOMIZE_VERSION=5.8.3
+    KUSTOMIZE_COMMIT=6e4452f7b136fb9a261afe60830867a875183a71
     git clone --depth 1 --branch kustomize/v${KUSTOMIZE_VERSION} https://github.com/kubernetes-sigs/kustomize /build
     cd /build
     test "$(git rev-parse HEAD)" = "${KUSTOMIZE_COMMIT}"
     cd kustomize
-    go get golang.org/x/text@v0.40.0
+    go get golang.org/x/text@v0.43.0
     go mod tidy
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
         -ldflags "-s -w -X sigs.k8s.io/kustomize/api/provenance.version=v${KUSTOMIZE_VERSION}" \
@@ -266,9 +273,9 @@ COPY --from=k8s-console-build /dashboard-backend /opt/console/dashboard
 # Miscellaneous tools.
 
 RUN <<EOF
-    YQ_VERSION=4.53.3
-    CHECKSUM_amd64="fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4"
-    CHECKSUM_arm64="578648e463a11c1b6db6010cbf41eafed6bee79466fcffa1bb446672cf7945ea"
+    YQ_VERSION=4.54.1
+    CHECKSUM_amd64="8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f"
+    CHECKSUM_arm64="189088da0c6429ec5178dfaab1a114805f6cab0b61b165ab236efedf1d57a71b"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_${TARGETARCH}
@@ -277,9 +284,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    HUGO_VERSION=0.165.0
-    CHECKSUM_amd64="5c3a37a5450b3e386e5b75a87a790fea2d04a796d75e171216c80ef48a32b432"
-    CHECKSUM_arm64="65c9fdd75e82d5f1eaf565f6e9fede6c0ceecaa267798e10c73068986996b77d"
+    HUGO_VERSION=0.167.0
+    CHECKSUM_amd64="4d84519b9f619e6d4c3fb45a50157abeabeb724f859c60605f44c23def6e1169"
+    CHECKSUM_arm64="d0dd0d1ed249842525a93413e10ca1ef6f3b63311ee1695b16a0ce488142cec1"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/hugo.tar.gz https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_${HUGO_VERSION}_linux-${TARGETARCH}.tar.gz
@@ -290,12 +297,12 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    UV_VERSION=0.12.5
+    UV_VERSION=0.13.0
     ARCHNAME_amd64=x86_64
     ARCHNAME_arm64=aarch64
     ARCHNAME=ARCHNAME_${TARGETARCH}
-    CHECKSUM_amd64="68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2"
-    CHECKSUM_arm64="9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31"
+    CHECKSUM_amd64="1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154"
+    CHECKSUM_arm64="3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/uv.tar.gz https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${!ARCHNAME}-unknown-linux-gnu.tar.gz
@@ -309,10 +316,10 @@ EOF
 RUN mkdir -p /opt/kubernetes/bin
 
 RUN <<EOF
-    KUBECTL_VERSION=1.34.11
+    KUBECTL_VERSION=1.34.12
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="245d980bec82376dbc1cc1dee6ed80333fa82f4e7a4a1beef7acb4381fd63416afb59b158fca5672ea5c87d3335268bc1537cab8339004bcfc78c7124c33ea75"
-    CHECKSUM_arm64="d632ea6f349e786e0cc8afe36c293555d5cd2d3e90cbb79ba19cb100f7f9985eace8291f15e3b6f3683c39a8e5fd6b1ef470ecc4edf1a92cfe07d096f721ef9a"
+    CHECKSUM_amd64="46596080fe335de00bf3eab6fb02ec737a75133bfdabd9191381fc3a077c6e4eb3eeff8c434f6f8cc0ec3690e22a19410a1c875a32f83f5091e96b860c5f6f40"
+    CHECKSUM_arm64="c14f35d82bd5606da121dc4fe76693763941eb2b011738d05663d436ed96de4b04f4d7f51383c77e513b67623aae2ae23e2717eb95d1460e264b72f0ef87c7f9"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -323,10 +330,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.35.8
+    KUBECTL_VERSION=1.35.9
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="5e138260db123d000dfabf2a0535c6958b938112f499f698a91097402c9dcf2a0eb4ddcf57707f63e889c1e40e3e22f15fcb2c46a846d069a3a66f91b4912158"
-    CHECKSUM_arm64="f21c47e1bc01fc39f3043980f9fbb91d8f6579dda33b57c2bd16a558fb0c78dce37a928ec111dd3cec11a7fb93fc1f05e25705b7ac2818b1a970c6d2ce1175ea"
+    CHECKSUM_amd64="4c2fca25cd725d25ff48ad06c8ebc167d1cca6cfe166d7e1fc5c6b4480c50c7a3afc1145c8acb5b8aa79177f7afb9b446e977aa3f921198a957cebe2ef02cc43"
+    CHECKSUM_arm64="6671c3caf7ac053f764282eea3733d6378fc18f9877cb95f8866aa38532462f0db33c173990dbac64a39881bcf12dda5fa9c9af5fbcd6d47b1169887e1b0b91a"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -337,10 +344,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.36.4
+    KUBECTL_VERSION=1.36.5
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="611ab5bb43640f4eb37302faddde2dbb900e0b79d3e96286acd86a6935b55ad766b7083aa1dcf0e7806da43de5055b1f7056454aaff33d6fabf11cf5c7b41f7d"
-    CHECKSUM_arm64="583f43c85ab8fb884dad26c1650085b073148c390f618dbe89f9d0780a0cf503374c42a8281d377fb13c1b9c9ad677ede6e4e924b09cea2b5482ecf3af300467"
+    CHECKSUM_amd64="952e177737c5de7942c17478ad57694f3dd8d606f66e6198ec8e671effc93d1e5b2b0149d43a32e4eb241c15ea939182718442f533a783c0c915854e87587101"
+    CHECKSUM_arm64="1227e62604f1349c8324956b28d3a86f0b7a74cb3870ba07625c4891a06449b539970b486e9069979fe93d17f1d4ea002d22ed23788e4eb9912906ce460ba87c"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -351,10 +358,10 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KUBECTL_VERSION=1.37.0
+    KUBECTL_VERSION=1.37.1
     KUBECTL_SHORT_VERSION=$(echo ${KUBECTL_VERSION} | cut -d. -f1,2)
-    CHECKSUM_amd64="ff61f94cf73281e24b8b7f16bd7ae15a928ef886399a2e8a360c170828babade73aeb284d37c596fc6c7dc68876b1550b714c1fc3ac4263adb8aef9e30a7c42f"
-    CHECKSUM_arm64="28167564b99d2440c3be873aff2f6bb2726ba55b58a3af3994f877f3d680e539d632e5162f96838d9efd06b87f5e1dbc811782f01f86a221afd90bf7fa9d0328"
+    CHECKSUM_amd64="decde4d990d0fbf6451e65524dec42c549de3339f27005c45af8d3c61cca1de852524ebf2215c82be86d4ab2621c823f56f718b8d2c304b9100a903e696c0c32"
+    CHECKSUM_arm64="bd57d942ec8977b1da238d2c37d01e9aced530b789773158af058c87f4b407c3a87ddc400abb33659154dafdf6b38011b252491312927a58861b979a56d8f741"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/kubernetes-client-linux-${TARGETARCH}.tar.gz https://dl.k8s.io/v${KUBECTL_VERSION}/kubernetes-client-linux-${TARGETARCH}.tar.gz
@@ -368,9 +375,9 @@ EOF
 COPY --from=k9s-build /k9s /opt/kubernetes/bin/k9s
 
 RUN <<EOF
-    YTT_VERSION=0.55.1
-    CHECKSUM_amd64="3a2c925ed222f8db4956946d40279688edd6ceb3e919f03f919a8fc8b8532eda"
-    CHECKSUM_arm64="ce61f7aee3f66f9b78d5781ef8528b7c8e199a2747796ef17a954118d3e65724"
+    YTT_VERSION=0.55.3
+    CHECKSUM_amd64="15751b45a819edbf22b3d3eadb5fa9a5a2599128d921660a874bd39c47bb41e1"
+    CHECKSUM_arm64="fed073d52b780a88ce506e68c44f33cedede2dad3d5f4fbe07a2833e45d996ed"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/ytt https://github.com/carvel-dev/ytt/releases/download/v${YTT_VERSION}/ytt-linux-${TARGETARCH}
@@ -379,9 +386,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    IMGPKG_VERSION=0.48.1
-    CHECKSUM_amd64="6c7a1a2e6555e7827c3c97580be87c84d06778d0650d308f7dc67613aec7c7c8"
-    CHECKSUM_arm64="ce7243af30411581474ab86051774626b34c5b95ff1d030b3ee979ebddaf795d"
+    IMGPKG_VERSION=0.48.3
+    CHECKSUM_amd64="d177073901136b1e07741c9c7e6afdbdf8b4bcf32017c1e5bc8d184c8383ec69"
+    CHECKSUM_arm64="655609325d9497096546342a4683688fc2a87a2952542b5da8105838285ec079"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/imgpkg https://github.com/carvel-dev/imgpkg/releases/download/v${IMGPKG_VERSION}/imgpkg-linux-${TARGETARCH}
@@ -390,9 +397,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KBLD_VERSION=0.49.1
-    CHECKSUM_amd64="437d38d3e59d01dd0d1ad75b4eb67fbd04fe51ed3de1ed55c3f7b3b7d5ec7546"
-    CHECKSUM_arm64="b3f5277ff4819de189d1ebd6e455b3390308ca43b122b5bb3c40a7bb9e6f30c4"
+    KBLD_VERSION=0.49.2
+    CHECKSUM_amd64="8715db7932129a279b25060a9b90cc0eb9221d111d9924af996d6ed82de5b391"
+    CHECKSUM_arm64="89c19adefa4c15799fb4d036dc747c7737091190df28ef277398037fbe8947f0"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/kbld https://github.com/carvel-dev/kbld/releases/download/v${KBLD_VERSION}/kbld-linux-${TARGETARCH}
@@ -401,9 +408,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    KAPP_VERSION=0.65.3
-    CHECKSUM_amd64="1724da4b62982285b1da696fb0354738e33913b33e59f3787b5c2b5ac7030327"
-    CHECKSUM_arm64="485eb76508c33365780a91831ebbf030b1be93b02d6011935abdaa751328d719"
+    KAPP_VERSION=0.65.4
+    CHECKSUM_amd64="bf7df0647d7645572d45185bb8bf6a40dd1e631ff4ee1522bc8ce56db53bd243"
+    CHECKSUM_arm64="e41693ac3d69e1143c7e5fe870712ca05ed810e1e0bc5b00f77ca22ba0f18ae1"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/kapp https://github.com/carvel-dev/kapp/releases/download/v${KAPP_VERSION}/kapp-linux-${TARGETARCH}
@@ -420,9 +427,9 @@ COPY --from=vendir-build /vendir /opt/kubernetes/bin/vendir
 COPY --from=package-fetcher-build /educates-package-fetcher /opt/kubernetes/bin/educates-package-fetcher
 
 RUN <<EOF
-    HELM_VERSION=4.2.4
-    CHECKSUM_amd64="c306b46f719b0a4da32d0f78ee21bf90ce8d602f15b22ab753f0674d1670a7f3"
-    CHECKSUM_arm64="564de2191b881e9f71b5606b25345821ea1682f06ab90499d3ab22b530176da1"
+    HELM_VERSION=4.3.0
+    CHECKSUM_amd64="86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb"
+    CHECKSUM_arm64="31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/helm.tar.gz https://get.helm.sh/helm-v${HELM_VERSION}-linux-${TARGETARCH}.tar.gz
@@ -432,9 +439,9 @@ RUN <<EOF
 EOF
 
 RUN <<EOF
-    SKAFFOLD_VERSION=2.23.0
-    CHECKSUM_amd64="c44fb83ec88a9ed2945f3326a6d6b78bb957354535f0efcf653413bcd0e9510d"
-    CHECKSUM_arm64="d7905e255319c250302cf52285abe68e59699a91534a5e2be06613186d1916dd"
+    SKAFFOLD_VERSION=2.25.0
+    CHECKSUM_amd64="42b9e2e3246c19b78fcc53dd60cc7ded1da8704293886b909a2a02b9bef34d20"
+    CHECKSUM_arm64="416f5fed2009c2b4adc62ae887ee5fc19ff08cc8a0250b81d8682d55626a75fd"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /opt/kubernetes/bin/skaffold https://github.com/GoogleContainerTools/skaffold/releases/download/v${SKAFFOLD_VERSION}/skaffold-linux-${TARGETARCH}
@@ -448,9 +455,9 @@ COPY --from=kustomize-build /kustomize /opt/kubernetes/bin/kustomize
 # VS Code editor and dashboard extension.
 # Make sure when updating that AI features are disabled and working https://github.com/coder/code-server/issues/7540
 RUN <<EOF
-    CODE_VERSION=4.133.0
-    CHECKSUM_amd64="a4e0f8f8c76e7de8e7424289f74e507af4c97bfe104c3e8ee272b8cc7b46c6f1"
-    CHECKSUM_arm64="d999d8b0256e5537f3b62e6c09f624220026e19107a04a876c0cef62d1c71147"
+    CODE_VERSION=4.141.0
+    CHECKSUM_amd64="65bcd20b524d03eb1b5adb7f360244599ef0e5b74089a46a982d32c074b97a29"
+    CHECKSUM_arm64="e5cc78da1d631c6cf6162f9b18eeaa8ee9d3239e1a88bb99d0602cdc5fa1852d"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     mkdir /opt/editor
