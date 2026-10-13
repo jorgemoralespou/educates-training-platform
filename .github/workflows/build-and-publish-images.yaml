@@ -863,12 +863,16 @@ jobs:
   publish-schemas:
     name: Publish (json schemas)
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
     # Deploys to this repository's GitHub Pages site (upstream maps it
     # to schemas.educates.dev — see developer-docs/json-schemas.md).
+    # Only final release tags publish; prerelease tags skip the job.
     # Forks without Pages enabled fail the deploy step; that must not
     # gate the release.
+    if: startsWith(github.ref, 'refs/tags/') && needs.variables.outputs.prerelease == 'false'
     continue-on-error: true
+
+    needs:
+      - variables
 
     permissions:
       contents: read
