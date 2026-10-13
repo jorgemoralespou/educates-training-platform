@@ -40,12 +40,15 @@ RUN uv sync --frozen --no-dev --no-cache && \
 
 # ---- final: runtime only --------------------------------------------------
 
+# curl is included deliberately: it is the one debugging tool worth having
+# when using kubectl exec against a running pod, and it honours the CA bundle
+# variables set below.
 FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/* && \
     useradd -u 1001 -g 0 -M -d /opt/app-root/src default && \
     mkdir -p /opt/app-root && \

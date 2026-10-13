@@ -60,10 +60,14 @@ ENV DEBIAN_FRONTEND=noninteractive
 # media-types supplies /etc/mime.types for its generated configuration.
 # The apache2 metapackage is deliberately not used, as it drags in perl,
 # procps and the Debian site configuration that mod_wsgi-express ignores.
+# curl is included deliberately: it is the one debugging tool worth having
+# when using kubectl exec against a running pod, and it honours the CA bundle
+# variables set below.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         apache2-bin \
         ca-certificates \
+        curl \
         media-types \
     && rm -rf /var/lib/apt/lists/* && \
     useradd -u 1001 -g 0 -M -d /opt/app-root/src default && \
