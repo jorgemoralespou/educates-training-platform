@@ -456,6 +456,23 @@ Features Changed
   directly, for example a ``session.objects`` entry binding
   ``educates-admin-session-role``, need to be updated to the new names.
 
+* The ``session-manager``, ``lookup-service`` and ``training-portal``
+  containers no longer rely on an init container running as ``root`` to
+  install the cluster ingress CA into the operating system trust store when a
+  private certificate authority is in use. The CA secret is instead mounted
+  into the container and, on start-up, appended to a copy of the system CA
+  bundle at ``/opt/app-root/ca-bundle.crt``. The ``SSL_CERT_FILE``,
+  ``REQUESTS_CA_BUNDLE``, ``CURL_CA_BUNDLE``, ``GIT_SSL_CAINFO`` and
+  ``NODE_EXTRA_CA_CERTS`` environment variables are set in the container
+  images to point at that bundle, so the CA is trusted by the application and
+  also by tools such as ``curl`` when using ``kubectl exec`` to debug from
+  inside the container. The ``secrets-manager`` and ``tunnel-manager`` images
+  carry the same environment variables for consistency. The same mechanism
+  applies regardless of whether a CA is configured, in which case the bundle
+  holds only the system roots. Workshop session containers are unaffected and
+  continue to use an init container, as the many command line tools they
+  provide need the CA in the operating system trust store.
+
 Deprecations
 ------------
 

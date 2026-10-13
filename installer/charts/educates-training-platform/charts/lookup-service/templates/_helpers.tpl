@@ -82,17 +82,15 @@ win where set; subchart-local defaults pass through otherwise.
 {{- end -}}
 
 {{/*
-Render the ca-trust-store init container + volumes/volumeMounts when the
-resolved clusterIngress.caCertificateRef.name is set. Reuses the main
-lookup-service image (Fedora-based, has `update-ca-trust` and `tar`) so no
-extra image pull happens. The init container reads the CA from a Secret
-mounted at /etc/pki/ca-trust/source/anchors/Cluster_Ingress_CA.pem, runs
-`update-ca-trust`, and writes the populated trust store to /mnt — the main
-container then mounts that same emptyDir at /etc/pki/ca-trust read-only.
+True when the resolved clusterIngress.caCertificateRef.name is set — drives
+mounting of the CA Secret at /opt/app-root/certs/ingress-ca in the
+lookup-service Deployment. The image's start script appends that CA to the
+system bundle at /opt/app-root/ca-bundle.crt, which SSL_CERT_FILE,
+REQUESTS_CA_BUNDLE and related variables in the image point at, so no init
+container and no root access are needed.
 
-Mirrors v3's overlay-ca-injector.yaml. Required when lookup-service must
-verify TLS against a private/self-signed CA when calling other clusters'
-endpoints.
+Required when lookup-service must verify TLS against a private/self-signed
+CA when calling other clusters' training portals.
 */}}
 {{- define "lookup-service.caTrustEnabled" -}}
 {{- $ci := include "lookup-service.resolvedClusterIngress" . | fromYaml -}}
