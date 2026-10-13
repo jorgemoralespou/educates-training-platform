@@ -106,6 +106,12 @@ How I expect to collaborate:
 - **Always draft a plan or check-list when working with complex tasks.** If you
   envision the task is going to be long, either plan properly if needed, or at
   least create a task-list to track progress.
+- **Use `scratch/` for temporary files.** The `scratch/` directory is ignored
+  by git (only its `.gitignore` is tracked). It holds temporary working files,
+  such as reference material given to an agent, plans or check-lists an agent
+  is asked to generate, and throwaway scripts or test output. Its contents come
+  and go, so never reference `scratch/` files by name from code or
+  documentation that will be committed.
 - **Every user-facing change needs a release-notes entry to be complete.** Before
   considering a change done, add or update the matching entry in
   `project-docs/release-notes/version-4.0.0.md` (New Features / Features Changed /
