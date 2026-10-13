@@ -1,27 +1,35 @@
-#syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1
 
-FROM fedora:44
+# zot is a self-contained Go binary, so the image needs no distribution
+# userland. It is built as a static PIE that still names the glibc dynamic
+# loader as its interpreter, so it needs the distroless base with glibc
+# rather than the fully static one. That base also supplies the public CA
+# roots zot needs to pull from upstream registries over TLS, tzdata, and a
+# passwd file. The pod spec sets runAsUser explicitly, so the image's default
+# user does not matter.
 
 ARG TARGETARCH
+ARG ZOT_VERSION=2.1.22
 
-RUN useradd -u 1001 -g 0 -M -d /opt/app-root/src default && \
-    mkdir -p /opt/app-root/src && \
-    chown -R 1001:0 /opt/app-root
+# ADD --checksum verifies the download and fails the build on mismatch. One
+# stage per architecture carries its own checksum; the FROM below selects
+# the stage matching the target platform.
 
-WORKDIR /opt/app-root/src
+FROM scratch AS zot-amd64
+ARG ZOT_VERSION
+ADD --checksum=sha256:33b9b5bfe05d6788c076de951a01920477dbd6395c330146e23cc2340073e52e --chmod=755 \
+    https://github.com/project-zot/zot/releases/download/v${ZOT_VERSION}/zot-linux-amd64 /zot
 
-RUN <<EOF
-    set -eo pipefail
-    VERSION=2.1.22
-    CHECKSUM_amd64="33b9b5bfe05d6788c076de951a01920477dbd6395c330146e23cc2340073e52e"
-    CHECKSUM_arm64="abc9bab13c144a4ee2f9067a6bbbe70ca1c018c49dbf521db28975514ea705da"
-    CHECKSUM=CHECKSUM_${TARGETARCH}
-    curl --silent --fail -L -o /usr/bin/zot https://github.com/project-zot/zot/releases/download/v${VERSION}/zot-linux-${TARGETARCH}
-    echo "${!CHECKSUM}  /usr/bin/zot" | sha256sum --check --status
-    chmod +x /usr/bin/zot
-EOF
+FROM scratch AS zot-arm64
+ARG ZOT_VERSION
+ADD --checksum=sha256:abc9bab13c144a4ee2f9067a6bbbe70ca1c018c49dbf521db28975514ea705da --chmod=755 \
+    https://github.com/project-zot/zot/releases/download/v${ZOT_VERSION}/zot-linux-arm64 /zot
 
-USER 1001
+FROM zot-${TARGETARCH} AS zot
+
+FROM gcr.io/distroless/base-debian13:nonroot
+
+COPY --from=zot /zot /usr/bin/zot
 
 ENTRYPOINT ["/usr/bin/zot"]
 
