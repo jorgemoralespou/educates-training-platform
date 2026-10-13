@@ -20,8 +20,10 @@ Publishing
 ----------
 
 The `publish-schemas` job in the release workflow deploys the schemas to
-this repository's GitHub Pages site on every release tag, at paths
-matching the `$id` baked into each schema:
+this repository's GitHub Pages site on every final release tag, at paths
+matching the `$id` baked into each schema. Prerelease tags (alpha, beta
+and rc) skip the job, so the published schemas only change with a final
+release:
 
 ```
 https://schemas.educates.dev/cli/v1alpha1/<Kind>.json

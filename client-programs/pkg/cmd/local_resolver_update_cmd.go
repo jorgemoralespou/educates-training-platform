@@ -8,7 +8,7 @@ import (
 
 var localResolverUpdateExample = `
   # Update the local DNS resolver from the laptop config:
-  educates local resolver update --local-config
+  educates local resolver update
 
   # Update using a specific config file:
   educates local resolver update --config config.yaml
@@ -20,7 +20,7 @@ type LocalResolverUpdateOptions struct {
 }
 
 func (o *LocalResolverUpdateOptions) Run() error {
-	cfg, err := loadResolverInputs(o.Config, o.LocalConfig)
+	cfg, err := loadResolverInputs(o.Config)
 	if err != nil {
 		return err
 	}
@@ -38,8 +38,7 @@ func (p *ProjectInfo) NewLocalResolverUpdateCmd() *cobra.Command {
 		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
-	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml")
+	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml (default when --config is not given)")
 	c.MarkFlagsMutuallyExclusive("config", "local-config")
-	c.MarkFlagsOneRequired("config", "local-config")
 	return c
 }
