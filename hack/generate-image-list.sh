@@ -21,7 +21,9 @@
 #     external-dns, Kyverno), extracted by rendering the vendored chart
 #     tarballs with default values. Defaults are a superset of what the
 #     operator enables, so this over-collects slightly rather than ever
-#     missing an image.
+#     missing an image. Schema validation is skipped for these renders,
+#     since some upstream schemas require values that have no default
+#     (external-dns requires `policy`) and the operator supplies them.
 #
 # The list is intentionally COMPLETE — it includes the JDK/conda
 # environments and the vcluster application images even though most
@@ -98,11 +100,22 @@ emit() {
     fi
 }
 
+# Render a chart, leaving helm's stderr visible and exiting on failure so
+# a chart that no longer renders cannot yield a short or empty list.
+render_chart() {
+    local chart="$1"
+    shift
+    helm template image-list-probe "$chart" "$@" || {
+        echo "failed to render chart $chart" >&2
+        exit 1
+    }
+}
+
 # Image references appear in rendered manifests as `image:` fields and,
 # for cert-manager's acmesolver, as a `--*-image=` controller argument.
 extract_chart_images() {
     local tarball="$1"
-    helm template image-list-probe "$tarball" 2>/dev/null |
+    render_chart "$tarball" --skip-schema-validation |
         grep -ohE '(image: *"?[^"[:space:]]+"?|--[a-z0-9-]*image=[^"[:space:]]+)' |
         sed -E 's/^image: *"?//; s/"$//; s/^--[a-z0-9-]*image=//'
 }
@@ -113,11 +126,10 @@ extract_chart_images() {
 # Educates-built entries resolve to the published location; clusterIngress
 # .domain is a required value that does not affect image refs.
 render_session_manager_images() {
-    helm template image-list-probe "$SESSION_MANAGER_CHART" \
+    render_chart "$SESSION_MANAGER_CHART" \
         --set clusterIngress.domain=image-list-probe.invalid \
         --set development.imageRegistry.host="$REGISTRY_HOST" \
-        --set development.imageRegistry.namespace="$REGISTRY_NAMESPACE" \
-        2>/dev/null |
+        --set development.imageRegistry.namespace="$REGISTRY_NAMESPACE" |
         grep -ohE 'image: *"?[^"[:space:]]+"?' |
         sed -E 's/^image: *"?//; s/"$//'
 }
@@ -127,6 +139,10 @@ all_refs=""
 for name in $PLATFORM_IMAGES; do
     all_refs+="$REGISTRY_PREFIX/educates-$name:$VERSION"$'\n'
 done
+
+# Captured before the loop rather than read through process substitution,
+# whose exit status set -e never sees, so a failed render stops the script.
+session_manager_refs=$(render_session_manager_images)
 
 # Educates-built inventory entries render at the chart's appVersion; pin
 # them to the release VERSION instead. External entries (vcluster,
@@ -138,7 +154,7 @@ while read -r ref; do
         "$REGISTRY_PREFIX"/*) all_refs+="${ref%:*}:$VERSION"$'\n' ;;
         *) all_refs+="$ref"$'\n' ;;
     esac
-done < <(render_session_manager_images)
+done <<< "$session_manager_refs"
 
 for glob in $UPSTREAM_CHART_GLOBS; do
     # shellcheck disable=SC2086 -- glob expansion is the point
