@@ -139,6 +139,25 @@ To delete everything deployed to the cluster, use:
 educates admin platform delete
 ```
 
+Container image conventions
+---------------------------
+
+The runtime component images (`secrets-manager`, `session-manager`, `lookup-service`, `tunnel-manager` and `training-portal`) share one layout, and a change to one of them should normally be mirrored in the others.
+
+* **Base image.** `debian:trixie-slim`, pinned by codename only. A rebuild picks up the current Debian point release and security rebuilds. The codename is bumped when Debian stable moves on, which happens roughly every two years; there is no six-monthly base image bump as there was with Fedora. The `image-cache` image is the exception and uses `gcr.io/distroless/base-debian13:nonroot`, since `zot` is a self-contained binary.
+
+* **Two stages.** A `builder` stage carries `uv`, downloads the Python interpreter, syncs the virtual environment and, for `training-portal`, compiles `mod_wsgi` against the Debian Apache and collects the Django static files. The final stage installs only the runtime packages (`ca-certificates` and `curl`, plus `apache2-bin` and `media-types` for `training-portal`), creates the `default` user as UID 1001, and copies `/opt/app-root/python` and `/opt/app-root/venv` (for `training-portal`, the whole of `/opt/app-root`) from the builder. Both trees must land at the same absolute paths they were built at, because the virtual environment records the interpreter path. The final image contains no `uv` binary, compiler or development packages.
+
+* **Python.** Each component runs on a `uv`-managed CPython rather than the distribution's Python (`UV_PYTHON_PREFERENCE=only-managed`). The `.python-version` file in each component directory pins the minor version (`3.14`) and floats on the patch release, so a rebuild takes the newest patch `uv` knows about. The interpreter is trimmed in the same `RUN` step that installs it, removing the standard library test suite, the static library and the desktop-only modules, so the removed files never land in an image layer. The `uv` version itself is pinned by the `COPY --from=ghcr.io/astral-sh/uv:<minor>` line and is the one thing that needs a periodic bump.
+
+* **Locale.** `LANG` and `LC_ALL` are `C.UTF-8`, which Debian provides without installing locale data.
+
+* **CA certificates.** The final stage copies `/etc/ssl/certs/ca-certificates.crt` to `/opt/app-root/ca-bundle.crt` and sets `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO` and `NODE_EXTRA_CA_CERTS` to that path. The file always exists, so consumers which fail on a missing bundle (`requests`, `curl`, `git`, `uv`) work when no private CA is configured, and `kubectl exec` sessions inherit the variables. When the cluster ingress CA Secret is mounted at `/opt/app-root/certs/ingress-ca`, the component's start script appends `ca.crt` from it to the bundle before starting the application. The bundle is rebuilt only on container start, so a rotated CA takes effect on the next restart. Set these variables in the Dockerfile, never in a start script, so that they are visible to anything run in the container. `curl` is installed in the runtime images for exactly this reason: from a `kubectl exec` session it can be used to test an endpoint signed by the ingress CA without any further setup.
+
+* **Shell.** `/bin/sh` is `dash` on Debian. Scripts which need bash features must use `#!/bin/bash`, and `RUN` heredocs which do must either start with that shebang or follow a `SHELL ["/bin/bash", "-c"]` instruction.
+
+The workshop base environment image and the images derived from it have their own conventions and remain Fedora based.
+
 Building additional workshop images
 -----------------------------------
 

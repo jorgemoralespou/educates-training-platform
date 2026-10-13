@@ -473,6 +473,20 @@ Features Changed
   continue to use an init container, as the many command line tools they
   provide need the CA in the operating system trust store.
 
+* The container images for the ``secrets-manager``, ``session-manager``,
+  ``lookup-service``, ``tunnel-manager`` and ``training-portal`` components
+  are now based on Debian (``debian:trixie-slim``) instead of Fedora, and the
+  ``image-cache`` image is now based on a distroless base image. The Python
+  components run on a Python interpreter installed by ``uv`` rather than the
+  distribution's Python, and are built in two stages so that the published
+  images contain no compiler, package build tooling or ``uv`` binary. The
+  ``training-portal`` image uses the Debian Apache HTTPD packages for
+  ``mod_wsgi``. Debian stable receives security updates for a given release
+  for far longer than a Fedora release, so the base image no longer needs to
+  be moved forward twice a year. The images are smaller as a result of these
+  changes. The workshop base environment image and the images derived from it
+  remain based on Fedora for now.
+
 Deprecations
 ------------
 
