@@ -154,7 +154,7 @@ Set this up before creating the cluster, in the following order. The examples us
 First, if you want to use a domain name, deploy the local DNS resolver for it. The `--domain` flag tells the resolver which domain to serve before it is set in the configuration:
 
 ```
-educates local resolver deploy --local-config --domain educates-local-dev.test
+educates local resolver deploy --domain educates-local-dev.test
 ```
 
 On macOS you also need to register the domain with the system resolver, and the resolver setup differs by operating system, so follow the full steps under [Local DNS resolver](local-dns-resolver) in the local environment guide.
