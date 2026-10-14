@@ -14,13 +14,13 @@ import (
 
 var localResolverDeployExample = `
   # Deploy the local DNS resolver using the laptop config:
-  educates local resolver deploy --local-config
+  educates local resolver deploy
 
   # Deploy using a specific config file:
   educates local resolver deploy --config config.yaml
 
   # Override the ingress domain from the config:
-  educates local resolver deploy --local-config --domain mydomain.test
+  educates local resolver deploy --domain mydomain.test
 `
 
 type LocalResolverDeployOptions struct {
@@ -30,7 +30,7 @@ type LocalResolverDeployOptions struct {
 }
 
 func (o *LocalResolverDeployOptions) Run() error {
-	cfg, err := loadResolverInputs(o.Config, o.LocalConfig)
+	cfg, err := loadResolverInputs(o.Config)
 	if err != nil {
 		return err
 	}
@@ -52,26 +52,23 @@ func (p *ProjectInfo) NewLocalResolverDeployCmd() *cobra.Command {
 		RunE:    func(_ *cobra.Command, _ []string) error { return o.Run() },
 	}
 	c.Flags().StringVarP(&o.Config, "config", "c", "", "path to a CLI config file (any kind)")
-	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml")
+	c.Flags().BoolVar(&o.LocalConfig, "local-config", false, "use <data-home>/config.yaml (default when --config is not given)")
 	c.Flags().StringVar(&o.Domain, "domain", "", "override ingress.domain from the config")
 	c.MarkFlagsMutuallyExclusive("config", "local-config")
-	c.MarkFlagsOneRequired("config", "local-config")
 	return c
 }
 
-// loadResolverInputs loads an EducatesLocalConfig from --config or
-// --local-config and returns the parts the resolver helpers need.
-// EducatesConfig (escape hatch) is accepted when target.cluster /
-// target.resolver are populated.
-func loadResolverInputs(configPath string, useLocalConfig bool) (*v1alpha1.EducatesLocalConfig, error) {
-	var path string
-	if useLocalConfig {
+// loadResolverInputs loads an EducatesLocalConfig from configPath, or from
+// <data-home>/config.yaml when configPath is empty, and returns the parts
+// the resolver helpers need. EducatesConfig (escape hatch) is accepted
+// when target.cluster / target.resolver are populated.
+func loadResolverInputs(configPath string) (*v1alpha1.EducatesLocalConfig, error) {
+	path := configPath
+	if path == "" {
 		path = filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
 		if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
 			return nil, err
 		}
-	} else {
-		path = configPath
 	}
 	loaded, err := config.Load(path)
 	if err != nil {
