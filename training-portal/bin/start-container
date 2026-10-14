@@ -36,13 +36,16 @@ export ADMIN_PASSWORD
 
 source $VENV_DIR/bin/activate
 
-# If a CA certificate bundle is provided we need to merge it with the default
-# CA bundle used by Python and set the REQUESTS_CA_BUNDLE environment variable
-# to point to the merged CA bundle.
+# Rebuild the CA bundle when the cluster ingress CA is mounted. The bundle
+# path is fixed by SSL_CERT_FILE and the related variables set in the image,
+# so here we only replace its contents with the system roots plus the
+# ingress CA. Rebuilt on container start only: a rotated CA Secret takes
+# effect on the next restart.
 
-if [ -f /opt/app-root/certs/ingress-ca/ca.crt ]; then
-    cat $(python -c "import certifi; print(certifi.where())") /opt/app-root/certs/ingress-ca/ca.crt > /opt/app-root/combined-ca-bundle.crt
-    export REQUESTS_CA_BUNDLE=/opt/app-root/combined-ca-bundle.crt
+INGRESS_CA=/opt/app-root/certs/ingress-ca/ca.crt
+
+if [ -f "$INGRESS_CA" ]; then
+    cat /etc/ssl/certs/ca-certificates.crt "$INGRESS_CA" > /opt/app-root/ca-bundle.crt
 fi
 
 # Initialize the database if it doesn't already exist. We always

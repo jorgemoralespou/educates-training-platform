@@ -1,7 +1,7 @@
 # Scenario 08 — node-ca-injector image-pull validation.
 #
 # Same TLS+CA setup as scenario 02 (wildcard cert + CA in `educates-secrets`,
-# auto-derived SecretCopier + ca-trust-store init container in chart pods),
+# auto-derived SecretCopier + CA Secret mounted into chart pods),
 # plus the `node-ca-injector` subchart enabled. The scenario-local workshop
 # under `./workshop/` exercises the per-session registry: build a tiny
 # image, push to the registry (HTTPS via the wildcard cert), then create a

@@ -123,11 +123,13 @@ IfNotPresent
 
 {{/*
 True when the resolved clusterIngress.caCertificateRef.name is set — drives
-rendering of the chart-side ca-trust-store init container in the
-session-manager Deployment. The init container reuses the main session-manager
-image (Fedora-based: has `update-ca-trust` and `tar`), so no extra image pull
-on the node. Mirrors the runtime-side overlay session-manager already applies
-to spawned pods (workshopsession.py) and v3's overlay-ca-injector.yaml.
+mounting of the CA Secret at /opt/app-root/certs/ingress-ca in the
+session-manager Deployment. The image's start script appends that CA to the
+system bundle at /opt/app-root/ca-bundle.crt, which SSL_CERT_FILE,
+REQUESTS_CA_BUNDLE and related variables in the image point at, so no init
+container and no root access are needed. The runtime-side handling that
+session-manager applies to spawned training-portal pods (trainingportal.py)
+uses the same mount path.
 */}}
 {{- define "session-manager.caTrustEnabled" -}}
 {{- $ci := include "session-manager.resolvedClusterIngress" . | fromYaml -}}

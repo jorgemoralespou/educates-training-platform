@@ -11,8 +11,9 @@ description: |
   Defaults to disabled at the umbrella level (`node-ca-injector.enabled:
   false`); opt in when a private CA is in use AND containerd-level trust
   is needed (e.g., image pulls from a private registry behind that CA).
-  Per-pod CA trust is handled separately by the ca-trust-store init
-  container in the session-manager and lookup-service Deployments.
+  Per-pod CA trust is handled separately: the session-manager and
+  lookup-service Deployments mount the CA Secret and their images append
+  it to the CA bundle their TLS environment variables point at.
 type: application
 version: 4.0.0-alpha.1
 appVersion: "3.7.1"

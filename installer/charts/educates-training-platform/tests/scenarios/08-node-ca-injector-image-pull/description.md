@@ -18,8 +18,8 @@ the per-session registry (which is fronted by the wildcard cert).
 ## Layout
 
 Same TLS+CA setup as scenario 02 (wildcard cert + CA in
-`educates-secrets`, auto-derived SecretCopier, ca-trust-store init
-container in session-manager and lookup-service Deployments), plus
+`educates-secrets`, auto-derived SecretCopier, CA Secret mounted into the
+session-manager and lookup-service Deployments), plus
 `node-ca-injector.enabled: true` at the umbrella so the subchart's
 controller Deployment + privileged DaemonSet render and run.
 

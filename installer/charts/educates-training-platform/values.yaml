@@ -75,8 +75,9 @@ session-manager:
 # containerd registry-CA configuration into /etc/containerd/certs.d on
 # every node. Off by default; opt in only when a private/self-signed CA is
 # in use AND containerd-level trust is required (e.g., image pulls from a
-# private registry behind that CA). Per-pod CA trust is handled separately
-# by the ca-trust-store init container in session-manager and lookup-
-# service.
+# private registry behind that CA). Per-pod CA trust is handled separately:
+# the session-manager and lookup-service Deployments mount the CA Secret
+# and their images append it to the CA bundle their TLS environment
+# variables point at.
 node-ca-injector:
   enabled: false

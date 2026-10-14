@@ -456,6 +456,37 @@ Features Changed
   directly, for example a ``session.objects`` entry binding
   ``educates-admin-session-role``, need to be updated to the new names.
 
+* The ``session-manager``, ``lookup-service`` and ``training-portal``
+  containers no longer rely on an init container running as ``root`` to
+  install the cluster ingress CA into the operating system trust store when a
+  private certificate authority is in use. The CA secret is instead mounted
+  into the container and, on start-up, appended to a copy of the system CA
+  bundle at ``/opt/app-root/ca-bundle.crt``. The ``SSL_CERT_FILE``,
+  ``REQUESTS_CA_BUNDLE``, ``CURL_CA_BUNDLE``, ``GIT_SSL_CAINFO`` and
+  ``NODE_EXTRA_CA_CERTS`` environment variables are set in the container
+  images to point at that bundle, so the CA is trusted by the application and
+  also by tools such as ``curl`` when using ``kubectl exec`` to debug from
+  inside the container. The ``secrets-manager`` and ``tunnel-manager`` images
+  carry the same environment variables for consistency. The same mechanism
+  applies regardless of whether a CA is configured, in which case the bundle
+  holds only the system roots. Workshop session containers are unaffected and
+  continue to use an init container, as the many command line tools they
+  provide need the CA in the operating system trust store.
+
+* The container images for the ``secrets-manager``, ``session-manager``,
+  ``lookup-service``, ``tunnel-manager`` and ``training-portal`` components
+  are now based on Debian (``debian:trixie-slim``) instead of Fedora, and the
+  ``image-cache`` image is now based on a distroless base image. The Python
+  components run on a Python interpreter installed by ``uv`` rather than the
+  distribution's Python, and are built in two stages so that the published
+  images contain no compiler, package build tooling or ``uv`` binary. The
+  ``training-portal`` image uses the Debian Apache HTTPD packages for
+  ``mod_wsgi``. Debian stable receives security updates for a given release
+  for far longer than a Fedora release, so the base image no longer needs to
+  be moved forward twice a year. The images are smaller as a result of these
+  changes. The workshop base environment image and the images derived from it
+  remain based on Fedora for now.
+
 Deprecations
 ------------
 

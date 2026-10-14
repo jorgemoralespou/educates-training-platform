@@ -24,28 +24,6 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if $caEnabled }}
-      # ca-trust-store init container reuses the main lookup-service image
-      # (Fedora-based: has `update-ca-trust` and `tar`). Mirrors v3's
-      # overlay-ca-injector.yaml mechanism with no extra image pull.
-      initContainers:
-        - name: ca-trust-store-initialization
-          image: "{{ include "lookup-service.image.repository" . }}:{{ include "lookup-service.image.tag" . }}"
-          imagePullPolicy: {{ include "lookup-service.image.pullPolicy" . }}
-          securityContext:
-            runAsNonRoot: false
-            runAsUser: 0
-            allowPrivilegeEscalation: false
-          command: ["/bin/bash", "-c"]
-          args:
-            - "update-ca-trust && tar -C /etc/pki/ca-trust -cf - . | tar -C /mnt -xf -"
-          volumeMounts:
-            - name: cluster-ca
-              mountPath: /etc/pki/ca-trust/source/anchors/Cluster_Ingress_CA.pem
-              subPath: ca.crt
-            - name: cluster-ca-trust
-              mountPath: /mnt
-      {{- end }}
       containers:
         - name: lookup-service
           image: "{{ include "lookup-service.image.repository" . }}:{{ include "lookup-service.image.tag" . }}"
@@ -63,8 +41,16 @@ spec:
               mountPath: /opt/cluster-access-token
             {{- end }}
             {{- if $caEnabled }}
-            - name: cluster-ca-trust
-              mountPath: /etc/pki/ca-trust
+            # The image's start script appends ca.crt from this mount to the
+            # system CA bundle at /opt/app-root/ca-bundle.crt, which the
+            # SSL_CERT_FILE, REQUESTS_CA_BUNDLE and related variables baked
+            # into the image already point at. Required when lookup-service
+            # verifies TLS against a private or self-signed CA when calling
+            # other clusters' training portals. Mounted as a directory, not
+            # via subPath, so a rotated Secret propagates into the pod for
+            # the next restart.
+            - name: cluster-ca
+              mountPath: /opt/app-root/certs/ingress-ca
               readOnly: true
             {{- end }}
           {{- end }}
@@ -79,7 +65,5 @@ spec:
         - name: cluster-ca
           secret:
             secretName: {{ $caRef.name | quote }}
-        - name: cluster-ca-trust
-          emptyDir: {}
         {{- end }}
       {{- end }}
