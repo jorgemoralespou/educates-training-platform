@@ -24,8 +24,8 @@ func secretsCacheDir() string {
 	return path.Join(utils.GetEducatesHomeDir(), "secrets")
 }
 
-// cachedSecretPath is the file the cached Secret name is stored in.
-func cachedSecretPath(name string) string {
+// CachedSecretPath is the file the cached Secret name is stored in.
+func CachedSecretPath(name string) string {
 	return path.Join(secretsCacheDir(), name+".yaml")
 }
 
@@ -107,7 +107,7 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset, names []strin
 
 // decodeCachedSecret reads and decodes the cached Secret name.
 func decodeCachedSecret(name string) (*apiv1.Secret, error) {
-	fullPath := cachedSecretPath(name)
+	fullPath := CachedSecretPath(name)
 
 	yamlData, err := os.ReadFile(fullPath)
 	if err != nil {

@@ -45,7 +45,7 @@ func (p *ProjectInfo) NewLocalSecretsAddCmdGroup() *cobra.Command {
 // NAME argument and validates its shape, returning a meaningful error
 // (with the command path and a --help pointer) before any work runs. It is
 // shared by every 'local secrets add' subcommand and by 'local secrets
-// remove'.
+// view' and 'local secrets remove'.
 func secretNameArgs(cmd *cobra.Command, args []string) error {
 	if len(args) != 1 {
 		return utils.CmdError(cmd, "name is required", "NAME")

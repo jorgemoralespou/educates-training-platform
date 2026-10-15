@@ -87,7 +87,7 @@ func WriteCachedSecret(secret *apiv1.Secret) error {
 		return errors.Wrap(err, "failed to generate YAML data")
 	}
 
-	secretFilePath := cachedSecretPath(secret.ObjectMeta.Name)
+	secretFilePath := CachedSecretPath(secret.ObjectMeta.Name)
 	if err := writeFileOwnerOnly(dir, secretFilePath, secretData); err != nil {
 		return errors.Wrapf(err, "unable to write secret file %q", secretFilePath)
 	}
@@ -127,7 +127,7 @@ func writeFileOwnerOnly(dir, filePath string, data []byte) error {
 // read or decoded is an invalid entry, and its error is an
 // *InvalidCachedSecretError with the problem CachedSecretUnreadable.
 func LoadCachedSecret(name string) (*apiv1.Secret, error) {
-	secretFilePath := cachedSecretPath(name)
+	secretFilePath := CachedSecretPath(name)
 
 	if _, err := os.Stat(secretFilePath); err != nil {
 		if os.IsNotExist(err) {
@@ -180,7 +180,7 @@ func QuoteNames(names []string) string {
 // RemoveCachedSecret deletes the cached secret named name. Removing a
 // secret that is not cached is not an error.
 func RemoveCachedSecret(name string) error {
-	secretFilePath := cachedSecretPath(name)
+	secretFilePath := CachedSecretPath(name)
 	if err := os.Remove(secretFilePath); err != nil && !os.IsNotExist(err) {
 		return errors.Wrapf(err, "unable to remove secret file %q", secretFilePath)
 	}
@@ -226,7 +226,7 @@ func RemoveCachedSecretAndDependents(name string) ([]string, error) {
 
 	var removed []string
 	for _, target := range targets {
-		secretFilePath := cachedSecretPath(target)
+		secretFilePath := CachedSecretPath(target)
 		err := os.Remove(secretFilePath)
 		if os.IsNotExist(err) {
 			continue
