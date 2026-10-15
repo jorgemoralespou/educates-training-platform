@@ -91,13 +91,27 @@ New Features
   from the schemas, which now carry field documentation for every kind.
 
 * Workshop sessions on local clusters are now served using TLS certificates
-  issued in-cluster by cert-manager from a local certificate authority managed
-  using ``educates local secrets add ca``. The generated CA is cached locally
-  and reused for every future cluster using the same ingress domain. The CA
-  certificate can be exported as a PEM file using
+  issued in-cluster by cert-manager from a certificate authority limited to
+  the cluster's ingress domain, minted from a root certificate authority
+  that never leaves the machine running the CLI.
+  ``educates local secrets add ca NAME`` generates the root CA, or with
+  ``--cert`` and ``--key`` registers an existing one, such as the root CA of
+  ``mkcert``, after checking that the certificate is a CA and that the key
+  matches it. The root certificate can be exported as a PEM file using
   ``educates local secrets export NAME --pem`` for importing into the
   operating system trust store, so browsers trust the workshop URLs; the
-  quick start guide includes per-platform import instructions.
+  quick start guide includes per-platform import instructions. The import is
+  needed once: the first deploy for an ingress domain mints an intermediate
+  CA from the root, with a name constraint permitting only that domain and
+  excluding every IP address, and copies only the intermediate's key pair
+  into the cluster, so switching to a new local domain needs no new import
+  and a key taken from a cluster cannot sign for any other site. The deploy
+  prints a line whenever it mints. Later deploys for the same domain reuse
+  the intermediate, and one that has expired or was minted from a root since
+  replaced is minted again. A root that carries its own name constraints
+  must permit the ingress domain. The local secrets cache holds one root CA,
+  and ``add ca`` refuses a second one, naming the existing root. With
+  ``--cert`` alone, ``add ca`` caches a CA certificate for trust only.
 
 * TLS termination by an external load balancer or proxy in front of the
   cluster is now supported by setting ``externalTLSTermination`` in the CLI
@@ -605,14 +619,68 @@ Deprecations
 * Workshop sessions are served over HTTPS when the cluster configuration
   provides certificate settings, which is a wildcard certificate, a
   certificate authority, or ACME issuer details. On local clusters with a
-  custom ingress domain, ``educates local cluster create`` stops and prints
-  the exact ``educates local secrets add ca`` command to run when no CA
-  exists yet for that domain. A local configuration with no ingress domain
-  set instead defaults to a plain HTTP install on a ``<host-IP>.nip.io``
-  address and needs no CA, since that address cannot obtain a trusted
-  certificate. Set ``ingress.insecure`` to request plain HTTP explicitly
-  for a custom domain. See the New Features entry on installing without
-  in-cluster TLS for the full picture.
+  custom ingress domain, ``educates local cluster create`` stops before
+  creating anything when no root CA is cached, and prints the
+  ``educates local secrets add ca`` commands that generate a root CA or
+  register the root CA of ``mkcert``. A local configuration with no ingress
+  domain set instead defaults to a plain HTTP install on a
+  ``<host-IP>.nip.io`` address and needs no CA, since that address cannot
+  obtain a trusted certificate. Set ``ingress.insecure`` to request plain
+  HTTP explicitly for a custom domain. See the New Features entry on
+  installing without in-cluster TLS for the full picture.
+
+* The local secrets cache stores certificate authorities in a new shape,
+  and ``educates local secrets add ca`` no longer takes a ``--domain``
+  option: a root CA serves every ingress domain, and a deploy decides the
+  domain from ``ingress.domain``. A root CA named ``NAME`` is cached as the
+  CA trust secret ``NAME``, an ``Opaque`` secret holding the root
+  certificate as ``ca.crt``, and the CA root key pair
+  ``NAME-root-key-pair``, a ``kubernetes.io/tls`` secret holding the root
+  certificate and its private key, which is never copied to a cluster. Each
+  ingress domain gets the CA key pair ``<domain>-ca-key-pair``, a
+  ``kubernetes.io/tls`` secret holding the intermediate CA followed by the
+  root as ``tls.crt``, the intermediate's private key as ``tls.key`` and the
+  root as ``ca.crt``, annotated with ``training.educates.dev/domain`` and
+  ``training.educates.dev/root-ca``. A local deploy references the CA key
+  pair as ``customCA.caKeyPairSecretRef`` and the root's CA trust secret as
+  ``customCA.caCertificateSecretRef``. A deploy and
+  ``educates local secrets sync`` now copy into the ``educates-secrets``
+  namespace every cached secret except CA root key pairs and any other
+  secret holding a CA private key, apart from the CA key pair selected for
+  the ingress domain. ``educates local secrets sync`` selects that CA key
+  pair from the ``ingress.domain`` of the local configuration, minting it
+  when needed, and without a local configuration copies none.
+
+  CAs cached by 4.0.0 alpha releases, ``kubernetes.io/tls`` secrets holding
+  a CA certificate and its private key, are not migrated automatically, and
+  a deploy no longer uses them. To keep a CA you have already imported into
+  your trust store, re-register it as the root CA. With ``NAME`` the name of
+  the cached CA, export its certificate and key, replace it with the root CA
+  and delete the exported key:
+
+  ```
+  educates local secrets export NAME --pem > NAME.crt
+  educates local secrets export NAME | awk '$1 == "tls.key:" {print $2}' | base64 --decode > NAME.key
+  educates local secrets remove NAME
+  educates local secrets add ca NAME --cert NAME.crt --key NAME.key
+  rm NAME.key
+  ```
+
+  The cache holds one root CA, so if you cached a CA for each of several
+  domains, re-register only one of them: deploys for the other domains mint
+  their CAs from it, and you can remove the other CAs from the cache with
+  ``educates local secrets remove`` and from your trust store. If the CA was
+  the root CA of ``mkcert``, register it straight from ``mkcert`` instead:
+
+  ```
+  educates local secrets remove NAME
+  educates local secrets add ca NAME --cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"
+  ```
+
+  Then delete and recreate the local cluster with
+  ``educates local cluster delete`` and ``educates local cluster create``:
+  the cluster still holds the old CA secret, whose type has changed, and an
+  alpha cluster received the CA's private key.
 
 * The ``imageCache`` configuration setting has been renamed to
   ``imagePrePuller``. It is now enabled by default in the CLI configuration

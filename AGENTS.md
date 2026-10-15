@@ -132,7 +132,7 @@ How I expect to collaborate:
 CLI-driven (laptop or single command from CI):
 
 ```bash
-educates local secrets add ca <domain>-ca --domain <domain>   # one-time: generate self-signed CA
+educates local secrets add ca educates-ca                     # one-time: generate a root CA, trusted once
 educates local config init                                    # one-time: write a minimal config
 educates local cluster create                                 # kind + registry + deploy in one
 # Or after the cluster's already up:
