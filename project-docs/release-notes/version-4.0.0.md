@@ -48,7 +48,7 @@ New Features
   references a secret holding the certificate under ``tls.crt`` and its
   private key under ``tls.key``, and the optional
   ``staticCertificate.caCertificateSecretRef``, which replaces
-  ``caCertificateRef``, references a CA trust secret holding, under
+  ``caCertificateRef``, references a CA trust Secret holding, under
   ``ca.crt``, the certificate of the CA that issued it. Both take an optional
   ``namespace``, which defaults to the operator namespace. The operator
   copies only ``tls.crt`` and ``tls.key`` into a secret named
@@ -56,7 +56,7 @@ New Features
   the referenced secret changes, publishes it as
   ``status.ingress.wildcardCertificateSecretRef`` with no
   ``clusterIssuerRef``, and derives ``educates-ingress-ca`` from the CA trust
-  secret. Before serving the certificate or deriving ``educates-ingress-ca``
+  Secret. Before serving the certificate or deriving ``educates-ingress-ca``
   the operator checks the certificate, so a CA it does not verify against
   never reaches Educates components, and reports each problem on the
   ``CertificatesReady`` condition with its own reason:
@@ -65,7 +65,7 @@ New Features
   ``WildcardCertificateDomainMismatch`` when its SANs do not include
   ``*.<domain>``, ``WildcardCertificateExpired``, or
   ``WildcardCertificateUntrusted`` when its chain does not verify against the
-  CA trust secret. A certificate that expires while the cluster runs is
+  CA trust Secret. A certificate that expires while the cluster runs is
   reported without any change to the configuration. A local configuration
   selects the provider when a cached wildcard certificate covers its ingress
   domain, as described in the entry on local wildcard certificates; other
@@ -126,7 +126,7 @@ New Features
 * Workshop sessions on local clusters are now served using TLS certificates
   issued in-cluster by cert-manager from a certificate authority limited to
   the cluster's ingress domain, minted from a root certificate authority
-  that never leaves the machine running the CLI.
+  whose private key never leaves the machine running the CLI.
   ``educates local secrets add ca NAME`` generates the root CA, or with
   ``--cert`` and ``--key`` registers an existing one, such as the root CA of
   ``mkcert``, after checking that the certificate is a CA and that the key
@@ -138,9 +138,9 @@ New Features
   import is needed once: the first deploy for an ingress domain mints an
   intermediate CA from the root, with a name constraint permitting only that
   domain and excluding every IP address, and copies only the intermediate's
-  key pair into the cluster, so switching to a new local domain needs no new
-  import and a key taken from a cluster cannot sign for any other site. The
-  deploy prints a line whenever it mints. Later deploys for the same domain
+  CA key pair into the cluster, so switching to a new local domain needs no
+  new import and a key taken from a cluster cannot sign for any other site.
+  The deploy prints a line whenever it mints. Later deploys for the same domain
   reuse the intermediate, and one that has expired or was minted from a root
   since replaced is minted again. A root that carries its own name
   constraints must permit the ingress domain. The local secrets cache holds
@@ -570,15 +570,16 @@ Features Changed
   continue to use an init container, as the many command line tools they
   provide need the CA in the operating system trust store.
 
-* Every pod that mounts the CA secret, being the ``session-manager``,
-  ``lookup-service`` and ``node-ca-injector`` deployments, the training
-  portal and workshop sessions, now mounts only its ``ca.crt`` key, the only
-  key these components read. Previously the ``session-manager``,
-  ``lookup-service`` and ``node-ca-injector`` deployments and the training
-  portal mounted every key the secret held, so a CA secret which also carried
-  a private key exposed that key inside their containers. The CA secret is
-  still mounted as a directory rather than as a single file, so a replaced CA
-  certificate is picked up when the pod next restarts.
+* Every pod that mounts the CA trust Secret of the cluster ingress, being the
+  ``session-manager``, ``lookup-service`` and ``node-ca-injector``
+  deployments, the training portal and workshop sessions, now mounts only its
+  ``ca.crt`` key, the only key these components read. Previously the
+  ``session-manager``, ``lookup-service`` and ``node-ca-injector``
+  deployments and the training portal mounted every key the secret held, so
+  a CA secret which also carried a private key exposed that key inside their
+  containers. The CA trust Secret is still mounted as a directory rather than
+  as a single file, so a replaced CA certificate is picked up when the pod
+  next restarts.
 
 * The container images for the ``secrets-manager``, ``session-manager``,
   ``lookup-service``, ``tunnel-manager`` and ``training-portal`` components
@@ -621,33 +622,38 @@ Features Changed
   ``CertificatesReady`` condition with a reason naming it, being
   ``CAKeyPairNotFound``, ``CAKeyPairIncomplete``, ``CAKeyPairUnparseable``
   or ``CAKeyPairNotCA``. A new optional field,
-  ``customCA.caCertificateSecretRef``, references a CA trust secret holding,
+  ``customCA.caCertificateSecretRef``, references a CA trust Secret holding,
   under ``ca.crt``, the certificate Educates components should trust, for
   example the root of an intermediate CA used as the key pair. Both
   references take an optional ``namespace``, which defaults to the operator
-  namespace. Local deploys emit the new field name.
+  namespace.
 
-* Whenever a CA is configured, in ``Managed`` mode with a custom CA or in
-  ``Inline`` mode with ``inline.ingress.caCertificateSecretRef``, Educates
-  components now receive the CA certificate through a secret named
-  ``educates-ingress-ca`` that the operator creates and owns in its own
-  namespace, and publishes as ``status.ingress.caCertificateSecretRef`` of
-  the ``EducatesClusterConfig``. The secret holds a single key, ``ca.crt``,
-  and never a private key, whatever the source secret holds. In ``Managed``
-  mode the certificate comes from the CA trust secret when one is
-  referenced, otherwise from the ``ca.crt`` key of the CA key pair, otherwise
-  from the root-most certificate of the key pair's ``tls.crt`` chain. In
-  ``Inline`` mode it comes from the ``ca.crt`` key of the referenced CA
-  secret, and any other key that secret holds is ignored, so a CA secret
-  that also holds a private key keeps working without the key reaching any
-  component. The secret is updated when its source secret changes.
-  Previously no CA was published in ``Managed`` mode, so the session manager,
-  lookup service, training portals, workshop sessions and cluster nodes did
-  not trust certificates issued from a custom CA, and workshops calling their
+* Whenever a CA is configured, being a custom CA or a CA trust Secret named
+  by ``staticCertificate.caCertificateSecretRef`` in ``Managed`` mode, or a
+  CA trust Secret named by ``inline.ingress.caCertificateSecretRef`` in
+  ``Inline`` mode, Educates components now receive the CA certificate
+  through a secret named ``educates-ingress-ca`` that the operator creates
+  and owns in its own namespace, and publishes as
+  ``status.ingress.caCertificateSecretRef`` of the
+  ``EducatesClusterConfig``. The secret holds a single key, ``ca.crt``, and
+  never a private key, whatever the source secret holds. The certificate
+  comes from the ``ca.crt`` key of the CA trust Secret when one is
+  referenced. A custom CA without one uses the ``ca.crt`` key of the CA key
+  pair, otherwise the root-most certificate of the key pair's ``tls.crt``
+  chain. Any other key a CA trust Secret holds is ignored, so an ``Inline``
+  mode CA secret that also holds a private key keeps working without the key
+  reaching any component. The secret is updated when its source secret
+  changes. A referenced CA trust Secret that is missing, has no ``ca.crt``
+  key, or whose ``ca.crt`` does not parse sets the ``CertificatesReady``
+  condition to ``False`` with the reason ``CATrustSecretNotFound``,
+  ``CATrustSecretIncomplete`` or ``CATrustSecretUnparseable``. Previously no
+  CA was published in ``Managed`` mode, so the session manager, lookup
+  service, training portals, workshop sessions and cluster nodes did not
+  trust certificates issued from a custom CA, and workshops calling their
   own ingress over HTTPS failed, while ``Inline`` mode published the
-  referenced CA secret itself, with whatever keys it held. In ``Managed``
-  mode the CA's private key now stays in the namespace of the CA key pair and
-  in the ``cert-manager`` namespace.
+  referenced CA secret itself, with whatever keys it held. With a custom CA
+  the CA's private key now stays in the namespace of the CA key pair and in
+  the ``cert-manager`` namespace.
 
 * The ``inline.ingress.wildcardCertificateSecretRef`` field of the
   ``EducatesClusterConfig`` now takes an optional ``namespace``, which
@@ -663,40 +669,42 @@ Features Changed
 * In ``Inline`` mode the wildcard certificate named by
   ``inline.ingress.wildcardCertificateSecretRef`` is now checked in the same
   way as one served with the ``StaticCertificate`` provider, against the CA
-  trust secret named by ``inline.ingress.caCertificateSecretRef`` when there
+  trust Secret named by ``inline.ingress.caCertificateSecretRef`` when there
   is one. Previously only the presence of its ``tls.crt`` and ``tls.key``
   keys was checked. ``Inline`` mode now also sets the ``CertificatesReady``
-  condition: ``True`` once the wildcard certificate and CA secret pass
+  condition: ``True`` once the wildcard certificate and CA trust Secret pass
   validation, and ``False`` with the same reasons as ``StaticCertificate``
   when the certificate is not usable, or with a reason such as
-  ``CATrustSecretIncomplete`` when the CA secret is not. A wildcard
+  ``CATrustSecretIncomplete`` when the CA trust Secret is not. A wildcard
   certificate that does not cover ``*.<domain>``, has expired, or was not
   issued by the named CA now leaves the ``EducatesClusterConfig`` not ready.
 
 * The ``ingressOverrides.caCertificateSecretRef`` field of the
-  ``SessionManager`` resource now takes an optional ``namespace``, which
-  defaults to the operator namespace. Previously the secret was looked up in
-  the namespace of the cluster's wildcard certificate. The session manager
-  no longer receives the referenced secret itself: the operator copies its
-  ``ca.crt`` key, and nothing else, into a secret named
-  ``educates-session-manager-ingress-ca`` that it creates and owns in its own
-  namespace, keeps it updated when the referenced secret changes, and passes
-  that secret to the session manager in place of ``educates-ingress-ca``.
-  When the referenced secret is missing or holds no valid certificate under
-  ``ca.crt``, the ``SessionManager`` reports ``Ready`` as ``False`` with a
-  reason naming the problem, being ``CATrustSecretNotFound``,
+  ``SessionManager`` resource, which names a CA trust Secret, now takes an
+  optional ``namespace``, which defaults to the operator namespace.
+  Previously the secret was looked up in the namespace of the cluster's
+  wildcard certificate. The session manager no longer receives the
+  referenced secret itself: the operator copies its ``ca.crt`` key, and
+  nothing else, into a secret named ``educates-session-manager-ingress-ca``
+  that it creates and owns in its own namespace, keeps it updated when the
+  referenced secret changes, and passes that secret to the session manager
+  in place of ``educates-ingress-ca``. When the referenced secret is missing
+  or holds no valid certificate under ``ca.crt``, the ``SessionManager``
+  reports ``Ready`` as ``False`` with the same reasons as a CA trust Secret
+  of the ``EducatesClusterConfig``, being ``CATrustSecretNotFound``,
   ``CATrustSecretIncomplete`` or ``CATrustSecretUnparseable``.
 
 * With ``nodeCATrust.mode`` left at ``Auto`` in the ``SessionManager``
   resource, the node CA injector is now installed on every cluster that
   publishes a CA: a ``Managed`` mode cluster with a custom CA, a
-  ``StaticCertificate`` cluster that names a CA trust secret, and an
-  ``Inline`` mode cluster that names a CA secret. This includes every local
-  cluster created with ``educates local cluster create`` that serves HTTPS,
-  since such a cluster now publishes its CA. Cluster nodes then trust
-  registries served through the cluster ingress, such as the image registry
-  of a workshop session. Set ``nodeCATrust.mode`` to ``Disabled`` to keep
-  the privileged node CA injector daemon set off.
+  ``StaticCertificate`` cluster that names a CA trust Secret, and an
+  ``Inline`` mode cluster that names a CA trust Secret. This includes every
+  local cluster whose certificates are issued from a cached root CA, and
+  every local cluster serving a cached wildcard certificate that a cached CA
+  certificate verifies, since such a cluster now publishes its CA. Cluster
+  nodes then trust registries served through the cluster ingress, such as
+  the image registry of a workshop session. Set ``nodeCATrust.mode`` to
+  ``Disabled`` to keep the privileged node CA injector daemon set off.
 
 Deprecations
 ------------
@@ -767,7 +775,7 @@ Deprecations
   and a deploy decides the domain from ``ingress.domain``.
   ``educates local secrets add tls`` now requires both ``--cert`` and
   ``--key`` and refuses a certificate it cannot serve. A root CA named
-  ``NAME`` is cached as the CA trust secret ``NAME``, an ``Opaque`` secret
+  ``NAME`` is cached as the CA trust Secret ``NAME``, an ``Opaque`` secret
   holding the root certificate as ``ca.crt``, and the CA root key pair
   ``NAME-root-key-pair``, a ``kubernetes.io/tls`` secret holding the root
   certificate and its private key, which is never copied to a cluster. Each
@@ -776,7 +784,7 @@ Deprecations
   root as ``tls.crt``, the intermediate's private key as ``tls.key`` and the
   root as ``ca.crt``, annotated with ``training.educates.dev/domain`` and
   ``training.educates.dev/root-ca``. A local deploy references the CA key
-  pair as ``customCA.caKeyPairSecretRef`` and the root's CA trust secret as
+  pair as ``customCA.caKeyPairSecretRef`` and the root's CA trust Secret as
   ``customCA.caCertificateSecretRef``. A deploy and
   ``educates local secrets sync`` now copy into the ``educates-secrets``
   namespace every cached secret except CA root key pairs and any other
