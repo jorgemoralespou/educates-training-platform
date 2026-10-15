@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -120,7 +119,7 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 
 func resolveDeployConfigPath(o *PlatformDeployOptions) (string, error) {
 	if o.LocalConfig {
-		return filepath.Join(utils.GetEducatesHomeDir(), "config.yaml"), nil
+		return config.LocalConfigPath(utils.GetEducatesHomeDir()), nil
 	}
 	if o.Config == "" {
 		return "", fmt.Errorf("internal: neither --config nor --local-config set")

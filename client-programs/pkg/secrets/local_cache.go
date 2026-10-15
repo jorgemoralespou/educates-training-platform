@@ -87,7 +87,7 @@ func WriteCachedSecret(secret *apiv1.Secret) error {
 		return errors.Wrap(err, "failed to generate YAML data")
 	}
 
-	secretFilePath := path.Join(dir, secret.ObjectMeta.Name+".yaml")
+	secretFilePath := cachedSecretPath(secret.ObjectMeta.Name)
 	if err := writeFileOwnerOnly(dir, secretFilePath, secretData); err != nil {
 		return errors.Wrapf(err, "unable to write secret file %q", secretFilePath)
 	}
@@ -125,7 +125,7 @@ func writeFileOwnerOnly(dir, filePath string, data []byte) error {
 // returns a clear "no secret named" error when the secret is not cached,
 // so callers can surface that directly.
 func LoadCachedSecret(name string) (*apiv1.Secret, error) {
-	secretFilePath := path.Join(secretsCacheDir(), name+".yaml")
+	secretFilePath := cachedSecretPath(name)
 
 	if _, err := os.Stat(secretFilePath); err != nil {
 		if os.IsNotExist(err) {
@@ -134,7 +134,7 @@ func LoadCachedSecret(name string) (*apiv1.Secret, error) {
 		return nil, errors.Wrapf(err, "unable to read secret file %q", secretFilePath)
 	}
 
-	return decodeFileIntoSecret(name + ".yaml")
+	return decodeCachedSecret(name)
 }
 
 // ListCachedSecretNames returns the names (without the .yaml suffix) of all
@@ -160,10 +160,20 @@ func ListCachedSecretNames() ([]string, error) {
 	return names, nil
 }
 
+// QuoteNames returns the cached Secret names quoted and comma separated,
+// as messages name them.
+func QuoteNames(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = fmt.Sprintf("%q", n)
+	}
+	return strings.Join(quoted, ", ")
+}
+
 // RemoveCachedSecret deletes the cached secret named name. Removing a
 // secret that is not cached is not an error.
 func RemoveCachedSecret(name string) error {
-	secretFilePath := path.Join(secretsCacheDir(), name+".yaml")
+	secretFilePath := cachedSecretPath(name)
 	if err := os.Remove(secretFilePath); err != nil && !os.IsNotExist(err) {
 		return errors.Wrapf(err, "unable to remove secret file %q", secretFilePath)
 	}
@@ -194,7 +204,7 @@ func RemoveCachedSecretAndDependents(name string) ([]string, error) {
 		if cached == name || cached == root || cached == RootKeyPairName(root) {
 			continue
 		}
-		secret, err := decodeFileIntoSecret(cached + ".yaml")
+		secret, err := decodeCachedSecret(cached)
 		if err != nil {
 			continue
 		}
@@ -206,7 +216,7 @@ func RemoveCachedSecretAndDependents(name string) ([]string, error) {
 
 	var removed []string
 	for _, target := range targets {
-		secretFilePath := path.Join(secretsCacheDir(), target+".yaml")
+		secretFilePath := cachedSecretPath(target)
 		err := os.Remove(secretFilePath)
 		if os.IsNotExist(err) {
 			continue

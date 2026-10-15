@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"os"
+
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"k8s.io/kubectl/pkg/util/templates"
 
@@ -51,4 +54,48 @@ func secretNameArgs(cmd *cobra.Command, args []string) error {
 		return utils.CmdError(cmd, err.Error(), "NAME")
 	}
 	return nil
+}
+
+// readKeyPairFiles reads a certificate, optionally followed by its chain,
+// from certFile and its private key from keyFile, and checks the key
+// matches the certificate. Its errors name the file at fault.
+func readKeyPairFiles(certFile, keyFile string) (*secrets.KeyPair, error) {
+	certData, err := os.ReadFile(certFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read certificate file %s", certFile)
+	}
+	keyData, err := os.ReadFile(keyFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read key file %s", keyFile)
+	}
+	kp, err := secrets.ParseKeyPair(certData, keyData)
+	var kpErr *secrets.KeyPairError
+	if errors.As(err, &kpErr) {
+		switch kpErr.Problem {
+		case secrets.KeyPairCertificateUnparseable:
+			return nil, errors.Wrapf(kpErr.Err, "invalid certificate file %s", certFile)
+		case secrets.KeyPairKeyUnparseable:
+			return nil, errors.Wrapf(kpErr.Err, "invalid key file %s", keyFile)
+		default:
+			return nil, errors.Errorf("the private key in %s does not match the certificate in %s", keyFile, certFile)
+		}
+	}
+	return kp, err
+}
+
+// rootCAAlreadyRegisteredError refuses a second root CA, naming the
+// cached roots and how to remove one before doing what action says.
+func rootCAAlreadyRegisteredError(roots []string, action string) error {
+	return errors.Errorf(`a root CA is already registered in the local secrets cache: %s.
+
+The cache holds one root CA, from which deploys mint a CA for each ingress
+domain. To %s, remove the existing one first:
+
+  educates local secrets remove %s`, secrets.QuoteNames(roots), action, roots[0])
+}
+
+// rootCANameError refuses to cache a Secret of kind what under name, the
+// name of the root CA, whose CA trust Secret deploys reference.
+func rootCANameError(name, what string) error {
+	return errors.Errorf("%q is the root CA registered in the local secrets cache; choose another name for this %s", name, what)
 }

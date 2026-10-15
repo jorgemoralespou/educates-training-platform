@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"os"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -39,49 +39,28 @@ func (o *LocalSecretsAddTlsOptions) Run(name string) error {
 	if err != nil {
 		return err
 	}
-	for _, root := range roots {
-		if root == name {
-			return errors.Errorf("%q is the root CA registered in the local secrets cache; choose another name for this TLS certificate", name)
-		}
+	if slices.Contains(roots, name) {
+		return rootCANameError(name, "TLS certificate")
 	}
 
-	certData, err := os.ReadFile(o.CertFile)
+	kp, err := readKeyPairFiles(o.CertFile, o.KeyFile)
 	if err != nil {
-		return errors.Wrapf(err, "failed to read certificate file %s", o.CertFile)
+		return err
 	}
-	chain, err := secrets.ParseCertificatesPEM(certData)
-	if err != nil {
-		return errors.Wrapf(err, "invalid certificate file %s", o.CertFile)
-	}
-	cert := chain[0]
+	cert := kp.Certificate()
 	if secrets.IsCACertificate(cert) {
 		return errors.Errorf("the certificate in %s (subject %q) is a CA certificate, not a wildcard certificate; register a CA with 'educates local secrets add ca'", o.CertFile, cert.Subject.String())
-	}
-	keyData, err := os.ReadFile(o.KeyFile)
-	if err != nil {
-		return errors.Wrapf(err, "failed to read key file %s", o.KeyFile)
-	}
-	key, err := secrets.ParsePrivateKeyPEM(keyData)
-	if err != nil {
-		return errors.Wrapf(err, "invalid key file %s", o.KeyFile)
-	}
-	if !secrets.KeyMatchesCertificate(cert, key) {
-		return errors.Errorf("the private key in %s does not match the certificate in %s", o.KeyFile, o.CertFile)
 	}
 	if len(secrets.WildcardDomains(cert)) == 0 {
 		return errors.Errorf("the certificate in %s has no wildcard DNS name (*.<domain>) among its SANs %v; Educates serves one wildcard certificate for every workshop host of an ingress domain", o.CertFile, cert.DNSNames)
 	}
 
-	var certPEM []byte
-	for _, c := range chain {
-		certPEM = append(certPEM, secrets.EncodeCertificatePEM(c)...)
-	}
-	keyPEM, err := secrets.EncodePrivateKeyPEM(key)
+	keyPEM, err := secrets.EncodePrivateKeyPEM(kp.Key)
 	if err != nil {
 		return err
 	}
 
-	return secrets.WriteCachedSecret(secrets.NewTLSSecret(name, certPEM, keyPEM))
+	return secrets.WriteCachedSecret(secrets.NewTLSSecret(name, secrets.EncodeCertificatesPEM(kp.Chain), keyPEM))
 }
 
 // reservedNameSuffix returns the suffix of name that the local secrets

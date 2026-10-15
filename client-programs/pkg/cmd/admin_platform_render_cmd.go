@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -148,7 +147,7 @@ func (c *yamlComments) Note(msg string) {
 // is $EDUCATES_CLI_DATA_HOME or $XDG_DATA_HOME/educates.
 func resolveConfigPath(o *PlatformRenderOptions) (string, error) {
 	if o.LocalConfig {
-		return filepath.Join(utils.GetEducatesHomeDir(), "config.yaml"), nil
+		return config.LocalConfigPath(utils.GetEducatesHomeDir()), nil
 	}
 	if o.Config == "" {
 		return "", fmt.Errorf("internal: neither --config nor --local-config set (should have been caught by cobra)")

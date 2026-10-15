@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -54,10 +55,8 @@ func (o *LocalSecretsAddCaOptions) Run(w io.Writer, name string) error {
 	if o.CertFile != "" && o.KeyFile == "" {
 		// A CA certificate cached for trust only. It must not replace the
 		// certificate of a root, which deploys reference as its trust.
-		for _, root := range roots {
-			if root == name {
-				return errors.Errorf("%q is the root CA registered in the local secrets cache; choose another name for this CA certificate", name)
-			}
+		if slices.Contains(roots, name) {
+			return rootCANameError(name, "CA certificate")
 		}
 		cert, err := readCACertificate(o.CertFile)
 		if err != nil {
@@ -67,12 +66,7 @@ func (o *LocalSecretsAddCaOptions) Run(w io.Writer, name string) error {
 	}
 
 	if len(roots) > 0 {
-		return errors.Errorf(`a root CA is already registered in the local secrets cache: %q.
-
-The cache holds one root CA, from which deploys mint a CA for each ingress
-domain. To register another root, remove the existing one first:
-
-  educates local secrets remove %s`, roots[0], roots[0])
+		return rootCAAlreadyRegisteredError(roots, "register another root")
 	}
 
 	var certPEM, keyPEM []byte
@@ -83,23 +77,16 @@ domain. To register another root, remove the existing one first:
 			return errors.Wrap(err, "failed to generate root CA")
 		}
 	} else {
-		cert, err := readCACertificate(o.CertFile)
+		kp, err := readKeyPairFiles(o.CertFile, o.KeyFile)
 		if err != nil {
 			return err
 		}
-		keyData, err := os.ReadFile(o.KeyFile)
-		if err != nil {
-			return errors.Wrapf(err, "failed to read key file %s", o.KeyFile)
-		}
-		key, err := secrets.ParsePrivateKeyPEM(keyData)
-		if err != nil {
-			return errors.Wrapf(err, "invalid key file %s", o.KeyFile)
-		}
-		if !secrets.KeyMatchesCertificate(cert, key) {
-			return errors.Errorf("the private key in %s does not match the CA certificate in %s", o.KeyFile, o.CertFile)
+		cert := kp.Certificate()
+		if !secrets.IsCACertificate(cert) {
+			return errors.Errorf("the certificate in %s (subject %q) is not a CA certificate", o.CertFile, cert.Subject.String())
 		}
 		certPEM = secrets.EncodeCertificatePEM(cert)
-		if keyPEM, err = secrets.EncodePrivateKeyPEM(key); err != nil {
+		if keyPEM, err = secrets.EncodePrivateKeyPEM(kp.Key); err != nil {
 			return err
 		}
 	}

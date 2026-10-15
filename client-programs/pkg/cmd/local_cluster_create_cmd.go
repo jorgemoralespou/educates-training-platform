@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -237,7 +236,7 @@ func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfi
 	if o.Config != "" {
 		path = o.Config
 	} else {
-		path = filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
+		path = config.LocalConfigPath(utils.GetEducatesHomeDir())
 		// Unlike render/deploy, a first-time laptop create shouldn't dead-end
 		// on "run config init first"; write a minimal default in place and
 		// carry on. Migration of an existing v3 install still takes priority.

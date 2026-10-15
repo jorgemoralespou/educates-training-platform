@@ -107,7 +107,7 @@ func checkImportedRootCAs(imported []*apiv1.Secret) error {
 		return errors.Errorf(`the secrets file holds more than one root CA: %s.
 
 The local secrets cache holds one root CA, from which deploys mint a CA
-for each ingress domain. Import a file that holds only one of them.`, quoteNames(names))
+for each ingress domain. Import a file that holds only one of them.`, secrets.QuoteNames(names))
 	}
 
 	root := names[0]
@@ -122,12 +122,7 @@ for each ingress domain. Import a file that holds only one of them.`, quoteNames
 		return nil
 	}
 
-	return errors.Errorf(`a root CA is already registered in the local secrets cache: %s.
-
-The cache holds one root CA, from which deploys mint a CA for each ingress
-domain. To import the root CA %q, remove the existing one first:
-
-  educates local secrets remove %s`, quoteNames(cachedRoots), root, cachedRoots[0])
+	return rootCAAlreadyRegisteredError(cachedRoots, fmt.Sprintf("import the root CA %q", root))
 }
 
 // sameRootCertificate reports whether keyPair, an imported CA root key
@@ -137,21 +132,12 @@ func sameRootCertificate(root string, keyPair *apiv1.Secret) bool {
 	if err != nil {
 		return false
 	}
-	cachedCert, err := secrets.ParseCertificatePEM(secretValue(cached, "tls.crt"))
+	cachedCert, err := secrets.ParseCertificatePEM(secrets.SecretData(cached, "tls.crt"))
 	if err != nil {
 		return false
 	}
-	importedCert, err := secrets.ParseCertificatePEM(secretValue(keyPair, "tls.crt"))
+	importedCert, err := secrets.ParseCertificatePEM(secrets.SecretData(keyPair, "tls.crt"))
 	return err == nil && importedCert.Equal(cachedCert)
-}
-
-// quoteNames returns names quoted and comma separated.
-func quoteNames(names []string) string {
-	quoted := make([]string, len(names))
-	for i, n := range names {
-		quoted[i] = fmt.Sprintf("%q", n)
-	}
-	return strings.Join(quoted, ", ")
 }
 
 func (p *ProjectInfo) NewLocalSecretsImportCmd() *cobra.Command {

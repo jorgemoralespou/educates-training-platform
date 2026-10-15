@@ -6,7 +6,6 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/pem"
 	"fmt"
 	"math/big"
 	"net"
@@ -31,19 +30,8 @@ import (
 //   - No name constraints: the root's key never leaves the laptop, and
 //     every CA minted from it is limited to its own domain.
 func GenerateSelfSignedCA(commonName string) (certPEM, keyPEM []byte, err error) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate RSA key: %w", err)
-	}
-
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate serial: %w", err)
-	}
-
 	now := time.Now().UTC()
 	tmpl := &x509.Certificate{
-		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:   commonName,
 			Organization: []string{"Educates"},
@@ -54,21 +42,7 @@ func GenerateSelfSignedCA(commonName string) (certPEM, keyPEM []byte, err error)
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 	}
-
-	derBytes, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create certificate: %w", err)
-	}
-
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-
-	keyDER, err := x509.MarshalPKCS8PrivateKey(priv)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshal private key: %w", err)
-	}
-	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})
-
-	return certPEM, keyPEM, nil
+	return issueCertificate(tmpl, nil, nil)
 }
 
 // MintDomainCA mints, from root and its private key rootKey, an
@@ -82,22 +56,11 @@ func GenerateSelfSignedCA(commonName string) (certPEM, keyPEM []byte, err error)
 // domain under the root's organization, and it is valid until the root
 // expires. Like the generated root it uses an RSA 2048 key.
 func MintDomainCA(root *x509.Certificate, rootKey crypto.Signer, domain string) (certPEM, keyPEM []byte, err error) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate RSA key: %w", err)
-	}
-
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return nil, nil, fmt.Errorf("generate serial: %w", err)
-	}
-
 	notBefore := time.Now().UTC().Add(-1 * time.Hour)
 	if notBefore.Before(root.NotBefore) {
 		notBefore = root.NotBefore
 	}
 	tmpl := &x509.Certificate{
-		SerialNumber: serial,
 		Subject: pkix.Name{
 			CommonName:   domain,
 			Organization: root.Subject.Organization,
@@ -116,20 +79,34 @@ func MintDomainCA(root *x509.Certificate, rootKey crypto.Signer, domain string) 
 			{IP: net.IPv6zero, Mask: net.CIDRMask(0, 128)},
 		},
 	}
+	return issueCertificate(tmpl, root, rootKey)
+}
 
-	derBytes, err := x509.CreateCertificate(rand.Reader, tmpl, root, &priv.PublicKey, rootKey)
+// issueCertificate issues a certificate from tmpl for a new RSA 2048
+// key, with a random 128-bit serial number, signed by parent with
+// parentKey, or self-signed when parent is nil. It returns the
+// certificate and the new private key as PEM.
+func issueCertificate(tmpl, parent *x509.Certificate, parentKey crypto.Signer) (certPEM, keyPEM []byte, err error) {
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate RSA key: %w", err)
+	}
+	tmpl.SerialNumber, err = rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate serial: %w", err)
+	}
+	if parent == nil {
+		parent, parentKey = tmpl, priv
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, &priv.PublicKey, parentKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create certificate: %w", err)
 	}
-
-	certPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
-
 	keyPEM, err = EncodePrivateKeyPEM(priv)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	return certPEM, keyPEM, nil
+	return encodeCertificateDER(der), keyPEM, nil
 }
 
 // PermitsDNSName reports whether the DNS name constraints of CA

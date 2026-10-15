@@ -6,7 +6,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
-	apiv1 "k8s.io/api/core/v1"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
@@ -86,8 +85,8 @@ func printSecretCertificatePEM(w io.Writer, name string) error {
 		return err
 	}
 
-	tlsCerts, tlsErr := secrets.ParseCertificatesPEM(secretValue(secret, "tls.crt"))
-	caCerts, caErr := secrets.ParseCertificatesPEM(secretValue(secret, "ca.crt"))
+	tlsCerts, tlsErr := secrets.ParseCertificatesPEM(secrets.SecretData(secret, "tls.crt"))
+	caCerts, caErr := secrets.ParseCertificatesPEM(secrets.SecretData(secret, "ca.crt"))
 
 	var certs []*x509.Certificate
 	switch {
@@ -100,22 +99,7 @@ func printSecretCertificatePEM(w io.Writer, name string) error {
 		return errors.Errorf("secret %q does not contain a certificate", name)
 	}
 
-	var out []byte
-	for _, cert := range certs {
-		out = append(out, secrets.EncodeCertificatePEM(cert)...)
-	}
-	_, err = w.Write(out)
+	_, err = w.Write(secrets.EncodeCertificatesPEM(certs))
 
 	return err
-}
-
-// secretValue returns the value of key in s, from data or stringData.
-func secretValue(s *apiv1.Secret, key string) []byte {
-	if v, ok := s.Data[key]; ok {
-		return v
-	}
-	if v, ok := s.StringData[key]; ok {
-		return []byte(v)
-	}
-	return nil
 }

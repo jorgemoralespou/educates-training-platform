@@ -24,6 +24,11 @@ func secretsCacheDir() string {
 	return path.Join(utils.GetEducatesHomeDir(), "secrets")
 }
 
+// cachedSecretPath is the file the cached Secret name is stored in.
+func cachedSecretPath(name string) string {
+	return path.Join(secretsCacheDir(), name+".yaml")
+}
+
 // LocalSecretsSyncNamespace is the cluster namespace the local secrets
 // cache is synced into.
 const LocalSecretsSyncNamespace = "educates-secrets"
@@ -59,7 +64,7 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset, names []strin
 	secretsClient := client.CoreV1().Secrets(LocalSecretsSyncNamespace)
 
 	for _, name := range names {
-		secretObj, err := decodeFileIntoSecret(name + ".yaml")
+		secretObj, err := decodeCachedSecret(name)
 		if err != nil {
 			return err
 		}
@@ -100,8 +105,9 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset, names []strin
 	return nil
 }
 
-func decodeFileIntoSecret(fileName string) (*apiv1.Secret, error) {
-	fullPath := path.Join(secretsCacheDir(), fileName)
+// decodeCachedSecret reads and decodes the cached Secret name.
+func decodeCachedSecret(name string) (*apiv1.Secret, error) {
+	fullPath := cachedSecretPath(name)
 
 	yamlData, err := os.ReadFile(fullPath)
 	if err != nil {

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
@@ -46,7 +46,7 @@ lists, YAML-serialised output is emitted.`,
 }
 
 func runLocalConfigGet(w io.Writer, path string) error {
-	cfgPath := filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
+	cfgPath := config.LocalConfigPath(utils.GetEducatesHomeDir())
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", cfgPath, err)

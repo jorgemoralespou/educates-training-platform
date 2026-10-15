@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -53,7 +52,7 @@ func runLocalConfigEdit() error {
 	if err := os.MkdirAll(dataHome, 0o755); err != nil {
 		return fmt.Errorf("create data home %q: %w", dataHome, err)
 	}
-	canonical := filepath.Join(dataHome, "config.yaml")
+	canonical := config.LocalConfigPath(dataHome)
 	tmp := fmt.Sprintf("%s.%d", canonical, os.Getpid())
 
 	// Keep the temp file on exit only when we abort after the user has made

@@ -36,7 +36,7 @@ import (
 // of "no prompt", not "invisible").
 func MaybeMigrateV3(dataHome string) error {
 	v3Path := filepath.Join(dataHome, "values.yaml")
-	v4Path := filepath.Join(dataHome, "config.yaml")
+	v4Path := LocalConfigPath(dataHome)
 	backupPath := filepath.Join(dataHome, "values.yaml.v3-backup")
 
 	if _, err := os.Stat(v4Path); err == nil {

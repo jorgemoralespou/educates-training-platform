@@ -20,8 +20,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"sort"
@@ -142,7 +140,7 @@ func Resolve(cfg *v1alpha1.EducatesLocalConfig) (*Plan, error) {
 // no CA key pair is selected and none is pushed. It only reads the cache
 // and the config.
 func ResolveSync() (*Plan, error) {
-	cfg, err := loadLocalConfig()
+	cfg, err := config.LoadLocalConfigIfPresent(utils.GetEducatesHomeDir())
 	if err != nil {
 		return nil, err
 	}
@@ -154,21 +152,6 @@ func ResolveSync() (*Plan, error) {
 		return nil, err
 	}
 	return &Plan{SyncSecretNames: syncSecretNames(names, "")}, nil
-}
-
-// loadLocalConfig loads <data-home>/config.yaml. It returns nil when the
-// file does not exist or holds another kind than EducatesLocalConfig.
-func loadLocalConfig() (*v1alpha1.EducatesLocalConfig, error) {
-	path := filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, nil
-	}
-	cfg, err := config.Load(path)
-	if err != nil {
-		return nil, err
-	}
-	local, _ := cfg.(*v1alpha1.EducatesLocalConfig)
-	return local, nil
 }
 
 // tlsCertificate is a wildcard TLS certificate in the local secrets
@@ -223,12 +206,11 @@ domain %q: %s.
 A deploy serves one wildcard certificate for the domain. Remove the ones
 you do not want to use with:
 
-  educates local secrets remove NAME`, domain, quoteAll(names))
+  educates local secrets remove NAME`, domain, secrets.QuoteNames(names))
 	}
 
 	c := valid[0]
-	key, err := secrets.ParsePrivateKeyPEM(secrets.SecretData(c.secret, "tls.key"))
-	if err != nil || !secrets.KeyMatchesCertificate(c.cert(), key) {
+	if _, err := secrets.ParseKeyPair(secrets.SecretData(c.secret, "tls.crt"), secrets.SecretData(c.secret, "tls.key")); err != nil {
 		return nil, nil, fmt.Errorf(`TLS certificate %q covers ingress domain %q but cannot be served: its
 tls.key is not the private key of its certificate. Cache it again with
 'educates local secrets add tls %s --cert FILE --key FILE', or remove it
@@ -365,7 +347,7 @@ func loadRootCA(domain string) (*rootCA, error) {
 It can hold only one root CA, from which deploys mint a CA for each
 ingress domain. Remove the root CAs you do not use with:
 
-  educates local secrets remove NAME`, quoteAll(roots))
+  educates local secrets remove NAME`, secrets.QuoteNames(roots))
 	}
 
 	name := roots[0]
@@ -377,19 +359,13 @@ ingress domain. Remove the root CAs you do not use with:
 	if err != nil {
 		return nil, unusable("%v", err)
 	}
-	cert, err := secrets.ParseCertificatePEM(keyPair.Data["tls.crt"])
+	kp, err := secrets.ParseKeyPair(secrets.SecretData(keyPair, "tls.crt"), secrets.SecretData(keyPair, "tls.key"))
 	if err != nil {
-		return nil, unusable("tls.crt of its CA root key pair %q: %v", keyPairName, err)
+		return nil, unusable("its CA root key pair %q: %v", keyPairName, err)
 	}
+	cert := kp.Certificate()
 	if !secrets.IsCACertificate(cert) {
 		return nil, unusable("the certificate of its CA root key pair %q is not a CA certificate", keyPairName)
-	}
-	key, err := secrets.ParsePrivateKeyPEM(keyPair.Data["tls.key"])
-	if err != nil {
-		return nil, unusable("tls.key of its CA root key pair %q: %v", keyPairName, err)
-	}
-	if !secrets.KeyMatchesCertificate(cert, key) {
-		return nil, unusable("the private key of its CA root key pair %q does not match its certificate", keyPairName)
 	}
 	if now := time.Now(); now.After(cert.NotAfter) {
 		return nil, unusable("it expired on %s; register a new root CA", cert.NotAfter.UTC().Format(time.DateOnly))
@@ -401,7 +377,7 @@ ingress domain. Remove the root CAs you do not use with:
 	if err != nil {
 		return nil, unusable("its CA trust Secret %q is missing from the local secrets cache", name)
 	}
-	trustCert, err := secrets.ParseCertificatePEM(trust.Data["ca.crt"])
+	trustCert, err := secrets.ParseCertificatePEM(secrets.SecretData(trust, "ca.crt"))
 	if err != nil || !trustCert.Equal(cert) {
 		return nil, unusable("its CA trust Secret %q does not hold the root certificate as ca.crt", name)
 	}
@@ -417,7 +393,7 @@ whose name constraints permit this domain.`,
 			name, domain, wildcard, listOrNone(cert.PermittedDNSDomains), listOrNone(cert.ExcludedDNSDomains))
 	}
 
-	return &rootCA{name: name, cert: cert, certPEM: secrets.EncodeCertificatePEM(cert), key: key}, nil
+	return &rootCA{name: name, cert: cert, certPEM: secrets.EncodeCertificatePEM(cert), key: kp.Key}, nil
 }
 
 // errNoRootCA is loadRootCA's error for a cache with no root CA.
@@ -434,7 +410,7 @@ func noCertificateError(domain string, expired []*tlsCertificate) error {
 		for i, c := range expired {
 			names[i] = c.name
 		}
-		skipped = fmt.Sprintf("\n\nThe cached TLS certificates for the domain have expired: %s.", quoteAll(names))
+		skipped = fmt.Sprintf("\n\nThe cached TLS certificates for the domain have expired: %s.", secrets.QuoteNames(names))
 	}
 	return fmt.Errorf(`no certificate for ingress domain %q in the local secrets cache: it holds
 no root CA and no unexpired wildcard TLS certificate for %q.%s
@@ -499,19 +475,15 @@ func caKeyPairStaleness(s *apiv1.Secret, domain string, root *rootCA) string {
 	if s.Type != apiv1.SecretTypeTLS {
 		return invalid
 	}
-	chain, err := secrets.ParseCertificatesPEM(s.Data["tls.crt"])
-	if err != nil {
+	kp, err := secrets.ParseKeyPair(secrets.SecretData(s, "tls.crt"), secrets.SecretData(s, "tls.key"))
+	if err != nil || !secrets.IsCACertificate(kp.Certificate()) {
 		return invalid
 	}
-	ca := chain[0]
-	key, err := secrets.ParsePrivateKeyPEM(s.Data["tls.key"])
-	if err != nil || !secrets.IsCACertificate(ca) || !secrets.KeyMatchesCertificate(ca, key) {
-		return invalid
-	}
+	ca := kp.Certificate()
 	if !reflect.DeepEqual(ca.PermittedDNSDomains, []string{domain}) {
 		return "is not limited to the domain"
 	}
-	caCrt, err := secrets.ParseCertificatePEM(s.Data["ca.crt"])
+	caCrt, err := secrets.ParseCertificatePEM(secrets.SecretData(s, "ca.crt"))
 	if s.Annotations[secrets.RootCAAnnotation] != root.name ||
 		err != nil || !caCrt.Equal(root.cert) ||
 		ca.CheckSignatureFrom(root.cert) != nil {
@@ -551,14 +523,6 @@ func holdsCAKey(name string) bool {
 	}
 	s, err := secrets.LoadCachedSecret(name)
 	return err == nil && secrets.ClassifyCachedSecret(name, s).HoldsCAKey()
-}
-
-func quoteAll(names []string) string {
-	quoted := make([]string, len(names))
-	for i, n := range names {
-		quoted[i] = fmt.Sprintf("%q", n)
-	}
-	return strings.Join(quoted, ", ")
 }
 
 func listOrNone(values []string) string {

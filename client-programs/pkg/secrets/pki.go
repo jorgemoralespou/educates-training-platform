@@ -78,6 +78,80 @@ func ParsePrivateKeyPEM(data []byte) (crypto.Signer, error) {
 	}
 }
 
+// KeyPair is a certificate, with any chain that follows it, and the
+// private key of that certificate.
+type KeyPair struct {
+	// Chain is the certificate first, then any certificates after it.
+	Chain []*x509.Certificate
+
+	// Key is the private key of Chain[0].
+	Key crypto.Signer
+}
+
+// Certificate is the key pair's certificate, the first of its chain.
+func (kp *KeyPair) Certificate() *x509.Certificate {
+	return kp.Chain[0]
+}
+
+// KeyPairProblem is why PEM data is not a usable key pair.
+type KeyPairProblem int
+
+const (
+	// KeyPairCertificateUnparseable is certificate PEM data holding no
+	// certificate, or one that does not parse.
+	KeyPairCertificateUnparseable KeyPairProblem = iota
+
+	// KeyPairKeyUnparseable is private key PEM data holding no private
+	// key, or one that does not parse.
+	KeyPairKeyUnparseable
+
+	// KeyPairKeyMismatch is a private key that is not the certificate's.
+	KeyPairKeyMismatch
+)
+
+// KeyPairError reports PEM data that is not a usable key pair. Callers
+// that know where the data came from, a file or a Secret key, phrase
+// their message from Problem.
+type KeyPairError struct {
+	Problem KeyPairProblem
+
+	// Err is the parse error, for the two unparseable problems.
+	Err error
+}
+
+func (e *KeyPairError) Error() string {
+	switch e.Problem {
+	case KeyPairCertificateUnparseable:
+		return "certificate: " + e.Err.Error()
+	case KeyPairKeyUnparseable:
+		return "private key: " + e.Err.Error()
+	default:
+		return "the private key does not match the certificate"
+	}
+}
+
+func (e *KeyPairError) Unwrap() error {
+	return e.Err
+}
+
+// ParseKeyPair parses certPEM, a certificate optionally followed by its
+// chain, and keyPEM, the private key of that certificate, and checks the
+// key matches the certificate. Its error is a *KeyPairError.
+func ParseKeyPair(certPEM, keyPEM []byte) (*KeyPair, error) {
+	chain, err := ParseCertificatesPEM(certPEM)
+	if err != nil {
+		return nil, &KeyPairError{Problem: KeyPairCertificateUnparseable, Err: err}
+	}
+	key, err := ParsePrivateKeyPEM(keyPEM)
+	if err != nil {
+		return nil, &KeyPairError{Problem: KeyPairKeyUnparseable, Err: err}
+	}
+	if !KeyMatchesCertificate(chain[0], key) {
+		return nil, &KeyPairError{Problem: KeyPairKeyMismatch}
+	}
+	return &KeyPair{Chain: chain, Key: key}, nil
+}
+
 // KeyMatchesCertificate reports whether key is the private key of cert.
 func KeyMatchesCertificate(cert *x509.Certificate, key crypto.Signer) bool {
 	pub, ok := cert.PublicKey.(interface{ Equal(crypto.PublicKey) bool })
@@ -109,7 +183,23 @@ func WildcardDomains(cert *x509.Certificate) []string {
 
 // EncodeCertificatePEM returns cert as a CERTIFICATE PEM block.
 func EncodeCertificatePEM(cert *x509.Certificate) []byte {
-	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	return encodeCertificateDER(cert.Raw)
+}
+
+// EncodeCertificatesPEM returns certs as CERTIFICATE PEM blocks, in
+// order.
+func EncodeCertificatesPEM(certs []*x509.Certificate) []byte {
+	var out []byte
+	for _, cert := range certs {
+		out = append(out, EncodeCertificatePEM(cert)...)
+	}
+	return out
+}
+
+// encodeCertificateDER returns the DER-encoded certificate der as a
+// CERTIFICATE PEM block.
+func encodeCertificateDER(der []byte) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
 // EncodePrivateKeyPEM returns key as a PKCS #8 PRIVATE KEY PEM block.

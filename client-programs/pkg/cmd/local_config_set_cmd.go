@@ -13,6 +13,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 	"gopkg.in/yaml.v3"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1/schemas"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
@@ -59,7 +60,7 @@ type / enum errors are caught up front with the offending field path.`,
 }
 
 func runLocalConfigSet(w io.Writer, path, rawValue string) error {
-	cfgPath := filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
+	cfgPath := config.LocalConfigPath(utils.GetEducatesHomeDir())
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {
 		return fmt.Errorf("read %s (run 'educates local config init' first?): %w", cfgPath, err)
