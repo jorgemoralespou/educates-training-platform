@@ -337,7 +337,17 @@ func (r *EducatesClusterConfigReconciler) ensureContourReady(ctx context.Context
 // Idempotent: re-running after partial drain re-attempts only
 // what's still present. helm.Uninstall has IgnoreNotFound on the
 // underlying action.
-func (r *EducatesClusterConfigReconciler) cleanupContour(ctx context.Context, _ *configv1alpha1.EducatesClusterConfig) error {
+//
+// The cleanup runs only when the ingress controller provider is
+// BundledContour. For an external ingress controller the operator
+// installed nothing here, and a Contour release or namespace under the
+// same names belongs to the administrator, so it must survive the
+// teardown. The provider is immutable, so the spec seen at deletion is
+// the one the install ran with.
+func (r *EducatesClusterConfigReconciler) cleanupContour(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
+	if !shouldInstallContour(obj) {
+		return nil
+	}
 	hc, err := r.HelmClientFor(contourNamespace)
 	if err != nil {
 		return fmt.Errorf("build helm client for cleanup: %w", err)

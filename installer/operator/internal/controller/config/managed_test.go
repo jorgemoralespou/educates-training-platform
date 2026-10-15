@@ -26,6 +26,7 @@ import (
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	chart "helm.sh/helm/v4/pkg/chart/v2"
 	releasecommon "helm.sh/helm/v4/pkg/release/common"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -82,6 +83,67 @@ func validManagedSpec() configv1alpha1.EducatesClusterConfigSpec {
 			},
 		},
 	}
+}
+
+// clusterServiceRelease names the Helm release, and the namespace it
+// lives in, that the operator installs a bundled cluster service as.
+type clusterServiceRelease struct {
+	namespace   string
+	releaseName string
+	loadChart   func() (*chart.Chart, error)
+}
+
+var (
+	certManagerRelease = clusterServiceRelease{certManagerNamespace, certManagerReleaseName, vendoredcharts.CertManager}
+	contourRelease     = clusterServiceRelease{contourNamespace, contourReleaseName, vendoredcharts.Contour}
+	externalDNSRelease = clusterServiceRelease{externalDNSNamespace, externalDNSReleaseName, vendoredcharts.ExternalDNS}
+	kyvernoRelease     = clusterServiceRelease{kyvernoNamespace, kyvernoReleaseName, vendoredcharts.Kyverno}
+)
+
+// deleteClusterConfigOverSeededRelease seeds a deployed release of svc
+// in its namespace through helmFac, creates an EducatesClusterConfig
+// with spec, deletes it once its finalizer is in place and waits for
+// the teardown to finish. It returns the Helm client for svc's
+// namespace.
+func deleteClusterConfigOverSeededRelease(helmFac *memoryHelmFactory, svc clusterServiceRelease, spec configv1alpha1.EducatesClusterConfigSpec) *helm.Client {
+	ensureNamespace(svc.namespace)
+	// Later specs use the service's namespace appearing as their sign
+	// that its install has started, so delete it afterwards; the next
+	// BeforeEach finalizes it away.
+	DeferCleanup(func() {
+		_ = k8sClient.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: svc.namespace}})
+	})
+	hc, err := helmFac.For(svc.namespace)
+	Expect(err).NotTo(HaveOccurred())
+	chrt, err := svc.loadChart()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(hc.SeedRelease(
+		svc.releaseName, 1, releasecommon.StatusDeployed,
+		chrt, map[string]any{}, "Install complete",
+	)).To(Succeed())
+
+	obj := &configv1alpha1.EducatesClusterConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec:       spec,
+	}
+	Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+	// Wait for the finalizer so the delete below runs the reconciler's
+	// teardown rather than removing the CR outright.
+	Eventually(func() []string {
+		got := &configv1alpha1.EducatesClusterConfig{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+			return nil
+		}
+		return got.Finalizers
+	}, 30*time.Second, 200*time.Millisecond).Should(ContainElement(finalizerName))
+
+	Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+	Eventually(func() bool {
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, &configv1alpha1.EducatesClusterConfig{})
+		return apierrors.IsNotFound(err)
+	}, 30*time.Second, 200*time.Millisecond).Should(BeTrue())
+	return hc
 }
 
 // staticCertificateSpec returns a Managed-mode spec that serves the
@@ -1146,62 +1208,79 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
 	})
 
-	// An administrator may run their own cert-manager under the same
-	// release and namespace names the bundled one uses. Deleting an
-	// Educates install that never installed cert-manager must leave it
-	// alone.
-	DescribeTable("leaves a cert-manager it did not install in place on delete",
-		func(provider configv1alpha1.CertificatesProvider) {
-			ensureNamespace(certManagerNamespace)
-			// Later specs use the cert-manager namespace appearing as
-			// their sign that the install has started, so delete it
-			// afterwards; the next BeforeEach finalizes it away.
-			DeferCleanup(func() {
-				_ = k8sClient.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: certManagerNamespace}})
-			})
-			hc, err := helmFac.For(certManagerNamespace)
-			Expect(err).NotTo(HaveOccurred())
-			chrt, err := vendoredcharts.CertManager()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(hc.SeedRelease(
-				certManagerReleaseName, 1, releasecommon.StatusDeployed,
-				chrt, map[string]any{}, "Install complete",
-			)).To(Succeed())
-
+	// An administrator may run their own cert-manager, Contour,
+	// external-dns or Kyverno under the release and namespace names the
+	// bundled one uses. Deleting an Educates install whose spec does not
+	// bundle that service must leave it alone.
+	DescribeTable("leaves a cluster service it did not install in place on delete",
+		func(svc clusterServiceRelease, notBundled func(spec *configv1alpha1.EducatesClusterConfigSpec)) {
 			spec := validManagedSpec()
-			spec.Ingress.Certificates = configv1alpha1.Certificates{Provider: provider}
-			obj := &configv1alpha1.EducatesClusterConfig{
-				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-				Spec:       spec,
-			}
-			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+			notBundled(&spec)
+			hc := deleteClusterConfigOverSeededRelease(helmFac, svc, spec)
 
-			// Wait for the finalizer so the delete below runs the
-			// reconciler's teardown rather than removing the CR outright.
-			Eventually(func() []string {
-				got := &configv1alpha1.EducatesClusterConfig{}
-				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
-					return nil
-				}
-				return got.Finalizers
-			}, 30*time.Second, 200*time.Millisecond).Should(ContainElement(finalizerName))
-
-			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
-			Eventually(func() bool {
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, &configv1alpha1.EducatesClusterConfig{})
-				return apierrors.IsNotFound(err)
-			}, 30*time.Second, 200*time.Millisecond).Should(BeTrue())
-
-			rel, err := hc.Status(certManagerReleaseName)
+			rel, err := hc.Status(svc.releaseName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(rel.Info.Status).To(Equal(releasecommon.StatusDeployed))
 
 			ns := &corev1.Namespace{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)).To(Succeed())
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: svc.namespace}, ns)).To(Succeed())
 			Expect(ns.DeletionTimestamp).To(BeNil())
 		},
-		Entry("provider None", configv1alpha1.CertificatesProviderNone),
-		Entry("provider StaticCertificate", configv1alpha1.CertificatesProviderStaticCertificate),
+		Entry("cert-manager with certificates provider None", certManagerRelease,
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+				spec.Ingress.Certificates = configv1alpha1.Certificates{Provider: configv1alpha1.CertificatesProviderNone}
+			}),
+		Entry("cert-manager with certificates provider StaticCertificate", certManagerRelease,
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+				spec.Ingress.Certificates = configv1alpha1.Certificates{Provider: configv1alpha1.CertificatesProviderStaticCertificate}
+			}),
+		Entry("Contour with an external ingress controller", contourRelease,
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+				spec.Ingress.Controller.Provider = configv1alpha1.IngressControllerProviderExternalIngressController
+			}),
+		Entry("external-dns with DNS provider Manual", externalDNSRelease,
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+				spec.DNS = &configv1alpha1.DNS{Provider: configv1alpha1.DNSProviderManual}
+			}),
+		Entry("Kyverno with an external Kyverno", kyvernoRelease,
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+				spec.PolicyEnforcement = bundledKyvernoPolicyEnforcement()
+				spec.PolicyEnforcement.Kyverno.Provider = configv1alpha1.KyvernoProviderExternal
+			}),
+	)
+
+	// The gates above must still let teardown remove every service the
+	// spec has the operator install, whether or not its install got as
+	// far as Ready. Here validation fails for want of the CA Secret, so
+	// the operator installs nothing and the seeded release stands in
+	// for the one it would have installed.
+	DescribeTable("removes a cluster service the spec bundles on delete",
+		func(svc clusterServiceRelease, bundled func(spec *configv1alpha1.EducatesClusterConfigSpec)) {
+			spec := validManagedSpec()
+			bundled(&spec)
+			hc := deleteClusterConfigOverSeededRelease(helmFac, svc, spec)
+
+			_, err := hc.Status(svc.releaseName)
+			Expect(err).To(MatchError(helm.ErrReleaseNotFound))
+
+			// envtest has no namespace controller, so the namespace
+			// stays Terminating rather than disappearing.
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: svc.namespace}, ns)).To(Succeed())
+			Expect(ns.DeletionTimestamp).NotTo(BeNil())
+		},
+		Entry("cert-manager", certManagerRelease,
+			func(*configv1alpha1.EducatesClusterConfigSpec) {}),
+		Entry("Contour", contourRelease,
+			func(*configv1alpha1.EducatesClusterConfigSpec) {}),
+		Entry("external-dns", externalDNSRelease,
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+				spec.DNS = bundledRoute53DNS()
+			}),
+		Entry("Kyverno", kyvernoRelease,
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+				spec.PolicyEnforcement = bundledKyvernoPolicyEnforcement()
+			}),
 	)
 
 	It("refuses to drain cluster services while platform CRs exist, then unblocks once they are gone", func() {

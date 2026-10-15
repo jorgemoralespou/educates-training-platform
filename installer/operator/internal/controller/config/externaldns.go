@@ -387,7 +387,17 @@ func (r *EducatesClusterConfigReconciler) ensureExternalDNSReady(ctx context.Con
 
 // cleanupExternalDNS unwinds the install in reverse order: helm
 // uninstall → external-dns namespace delete. Idempotent.
-func (r *EducatesClusterConfigReconciler) cleanupExternalDNS(ctx context.Context, _ *configv1alpha1.EducatesClusterConfig) error {
+//
+// The cleanup runs only when the DNS provider is BundledExternalDNS.
+// For any other provider the operator installed nothing here, and an
+// external-dns release or namespace under the same names belongs to the
+// administrator, so it must survive the teardown. The provider is
+// immutable, so the spec seen at deletion is the one the install ran
+// with.
+func (r *EducatesClusterConfigReconciler) cleanupExternalDNS(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
+	if !shouldInstallExternalDNS(obj) {
+		return nil
+	}
 	hc, err := r.HelmClientFor(externalDNSNamespace)
 	if err != nil {
 		return fmt.Errorf("build helm client for cleanup: %w", err)

@@ -273,10 +273,12 @@ func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Cont
 
 // cleanupManaged tears down installed cluster services in **reverse
 // install order**: each per-service cleanup is self-contained and
-// no-ops when its corresponding install was skipped (External
-// provider variants). Adding a new cluster service means
-// appending its cleanup* call at the top of this function (since
-// it'll have been the *last* to install).
+// runs only when the spec has the operator install its service, so a
+// service the administrator provides survives the teardown. The CRD
+// makes how each service is provided immutable, so the spec seen at
+// deletion is the one the install ran with. Adding a new cluster
+// service means appending its cleanup* call at the top of this
+// function (since it'll have been the *last* to install).
 //
 // Cleanups are idempotent — retried reconciles after partial drain
 // failure re-attempt only what's still present.

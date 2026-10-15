@@ -270,7 +270,17 @@ func (r *EducatesClusterConfigReconciler) ensureKyvernoReady(ctx context.Context
 // cleanupKyverno unwinds the install: helm uninstall → kyverno
 // namespace delete. helm-managed webhook configurations and CRDs
 // cascade with the release uninstall. Idempotent.
-func (r *EducatesClusterConfigReconciler) cleanupKyverno(ctx context.Context, _ *configv1alpha1.EducatesClusterConfig) error {
+//
+// The cleanup runs only when the spec has the operator install Kyverno.
+// Otherwise the operator installed nothing here, and a Kyverno release
+// or namespace under the same names belongs to the administrator, so it
+// must survive the teardown. The policy engines and the kyverno block
+// are immutable, so the spec seen at deletion is the one the install
+// ran with.
+func (r *EducatesClusterConfigReconciler) cleanupKyverno(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
+	if !shouldInstallKyverno(obj) {
+		return nil
+	}
 	hc, err := r.HelmClientFor(kyvernoNamespace)
 	if err != nil {
 		return fmt.Errorf("build helm client for cleanup: %w", err)
