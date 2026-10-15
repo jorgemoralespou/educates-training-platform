@@ -2,10 +2,12 @@
 # No external DNS; no policy enforcement. The shortest path to a working
 # Managed-mode install — useful for smoke tests on a developer machine.
 #
-# Prerequisite: a TLS Secret in the operator namespace whose tls.crt and
-# tls.key form a CA the workshop client trusts (self-signed is fine for
-# local development). The operator copies it into cert-manager's
-# namespace and the wildcard ClusterIssuer signs from it.
+# Prerequisite: a CA key pair Secret in the operator namespace whose
+# tls.crt and tls.key form a CA the workshop client trusts (self-signed is
+# fine for local development). The operator copies it into cert-manager's
+# namespace and the wildcard ClusterIssuer signs from it. Educates
+# components never see this Secret: the operator derives the key-free
+# educates-ingress-ca from it, holding only the CA certificate as ca.crt.
 #
 #   kubectl -n educates-installer create secret tls educates-custom-ca \
 #     --cert=ca.crt --key=ca.key
@@ -26,7 +28,7 @@ spec:
       bundledCertManager:
         issuerType: CustomCA
         customCA:
-          caCertificateRef:
+          caKeyPairSecretRef:
             name: educates-custom-ca
   policyEnforcement:
     clusterPolicy:
