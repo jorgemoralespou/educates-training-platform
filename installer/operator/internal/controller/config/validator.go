@@ -152,10 +152,10 @@ func (r *EducatesClusterConfigReconciler) checkWildcardSecret(ctx context.Contex
 // checkCASecret validates the Inline-mode caCertificateSecretRef. The
 // ref's optional Namespace is honoured (defaulting to the operator
 // namespace when empty) — mirrors the Managed-mode CustomCA flow's
-// CASecretReference semantics. Bypasses the cache via APIReader so
+// SecretReference semantics. Bypasses the cache via APIReader so
 // cross-namespace reads (e.g. educates-secrets) don't fail with
 // "unknown namespace for the cache".
-func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, ref configv1alpha1.CASecretReference) error {
+func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, ref configv1alpha1.SecretReference) error {
 	ns := ref.Namespace
 	if ns == "" {
 		ns = r.OperatorNamespace

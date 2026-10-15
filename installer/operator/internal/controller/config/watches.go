@@ -105,7 +105,7 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 
 	// matchesOpNamespaceRef holds for refs that are operator-namespace-
 	// scoped by design (everything except CustomCA, which can be
-	// cross-namespace via CASecretReference).
+	// cross-namespace via SecretReference).
 	matchesOpNamespaceRef := func(refName string) bool {
 		return ns == r.OperatorNamespace && name == refName
 	}
@@ -143,7 +143,7 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 			if refNS == "" {
 				refNS = r.OperatorNamespace
 			}
-			// CASecretReference allows cross-namespace; compare both
+			// SecretReference allows cross-namespace; compare both
 			// namespace and name. Without this, watches on a CA Secret
 			// in (e.g.) educates-secrets never enqueued a reconcile and
 			// rotations went unnoticed.

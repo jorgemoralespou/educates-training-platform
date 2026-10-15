@@ -66,7 +66,7 @@ func validManagedSpec() configv1alpha1.EducatesClusterConfigSpec {
 				BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 					IssuerType: configv1alpha1.IssuerTypeCustomCA,
 					CustomCA: &configv1alpha1.CustomCAConfig{
-						CACertificateRef: configv1alpha1.CASecretReference{
+						CACertificateRef: configv1alpha1.SecretReference{
 							Name: "custom-ca",
 						},
 					},

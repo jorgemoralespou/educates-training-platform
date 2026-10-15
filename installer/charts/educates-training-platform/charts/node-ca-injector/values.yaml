@@ -27,8 +27,9 @@ imagePullSecrets: []
 # Cluster-wide ingress identity. Same shape as the umbrella's
 # `global.clusterIngress`; under the umbrella, set values there and they
 # propagate here automatically. This subchart consumes `caCertificateRef`
-# — without a Secret name, the rendered DaemonSet has nothing to mount and
-# the chart fails fast at template time.
+# and mounts only the Secret's `ca.crt` key into the DaemonSet. Without a
+# Secret name, the rendered DaemonSet has nothing to mount and the chart
+# fails fast at template time.
 clusterIngress:
   caCertificateRef:
     name: ""

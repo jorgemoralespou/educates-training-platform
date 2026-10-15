@@ -47,12 +47,10 @@ then push to the cluster:
 
   1. helm upgrade --install educates-installer (embedded chart)
   2. apply EducatesClusterConfig → wait Ready=True
-  3. verify educates-custom-ca Secret prerequisite (skipped when
-     --local-config syncs the cached CA in step 0)
-  4. apply SecretsManager → wait Ready=True
-  5. apply LookupService (if configured) → wait Ready=True
+  3. apply SecretsManager → wait Ready=True
+  4. apply LookupService (if configured) → wait Ready=True
      (interleaved with SessionManager — both apply, then both wait)
-  6. apply SessionManager → wait Ready=True`,
+  5. apply SessionManager → wait Ready=True`,
 		Example: adminPlatformDeployExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return p.runDeploy(cmd.Context(), cmd.OutOrStdout(), &o)

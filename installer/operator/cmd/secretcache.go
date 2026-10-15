@@ -38,7 +38,7 @@ const defaultExternalSecretsNS = "educates-secrets"
 //     for cross-namespace CA refs; covers first-install before any CR
 //     exists)
 //   - any additional namespaces referenced by the current
-//     EducatesClusterConfig singleton's CASecretReference fields
+//     EducatesClusterConfig singleton's SecretReference fields
 //     (CustomCA in Managed mode, CACertificateSecretRef in Inline mode)
 //
 // Boot-time only: if the user later edits the ECC to point at a new
