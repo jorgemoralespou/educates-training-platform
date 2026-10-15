@@ -35,7 +35,8 @@ type LocalSecretsViewOptions struct{}
 // only whether the Secret holds one, of registry credentials only their
 // registries, and of a generic Secret only the names of its keys. For an
 // invalid entry it prints why it is invalid and the command that removes
-// it. A name the cache does not hold is an error.
+// it, after, for a CA cached by a 4.0.0 alpha release, how to keep the CA.
+// A name the cache does not hold is an error.
 func (o *LocalSecretsViewOptions) Run(w io.Writer, name string) error {
 	s, err := secrets.LoadCachedSecret(name)
 	var unreadable *secrets.InvalidCachedSecretError
@@ -97,9 +98,16 @@ func (v *secretViewPrinter) secret(name string, s *apiv1.Secret, now time.Time) 
 }
 
 // invalid prints why the cached entry name is invalid, and the command
-// that removes it.
+// that removes it. For a CA cached with its key by a 4.0.0 alpha release,
+// whose removal removes the CA's key, it first says how to keep the CA by
+// registering it as the root CA, as the documented migration does.
 func (v *secretViewPrinter) invalid(name string, reason error) {
 	v.field("Invalid because", reason.Error())
+	var invalid *secrets.InvalidCachedSecretError
+	if errors.As(reason, &invalid) && invalid.Problem == secrets.CachedSecretUnmanagedCAKey {
+		v.field("To keep the CA", fmt.Sprintf(`register it as the root CA under a name other than %s before removing it, as "CAs cached by alpha releases" in the Local Environment documentation describes`, name))
+		v.field("Register with", "educates local secrets add ca ROOT --cert FILE --key FILE")
+	}
 	v.field("Remove with", "educates local secrets remove "+name)
 }
 
@@ -325,7 +333,9 @@ never the key itself.
 For registry credentials it shows only the registries, never the
 usernames or passwords, and for a generic secret only the names of its
 keys. For an invalid secret it shows why it is invalid and the command
-that removes it.`,
+that removes it. For a CA cached with its private key by a 4.0.0 alpha
+release, it first shows how to keep the CA by registering it as the root
+CA, since removing the secret removes the CA's key.`,
 		Example: localSecretsViewExample,
 		RunE:    func(cmd *cobra.Command, args []string) error { return o.Run(cmd.OutOrStdout(), args[0]) },
 	}

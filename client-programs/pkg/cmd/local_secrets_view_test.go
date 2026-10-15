@@ -443,6 +443,8 @@ func TestLocalSecretsView_AlphaCAShowsWhyItIsInvalid(t *testing.T) {
 	if !strings.Contains(reason, "4.0.0 alpha releases") {
 		t.Errorf("Invalid because = %q does not say alpha releases cached it", reason)
 	}
+	// Removing the entry removes the CA's key, so the view says how to keep
+	// the CA, as the documented migration does, before how to remove it.
 	assertFields(t, "view", view.fieldBlock, [][2]string{
 		{"Name", "workshops-ca"},
 		{"Type", "invalid"},
@@ -450,6 +452,8 @@ func TestLocalSecretsView_AlphaCAShowsWhyItIsInvalid(t *testing.T) {
 		{"Secret type", "kubernetes.io/tls"},
 		{"Private key", "present"},
 		{"Invalid because", reason},
+		{"To keep the CA", `register it as the root CA under a name other than workshops-ca before removing it, as "CAs cached by alpha releases" in the Local Environment documentation describes`},
+		{"Register with", "educates local secrets add ca ROOT --cert FILE --key FILE"},
 		{"Remove with", "educates local secrets remove workshops-ca"},
 	})
 	assertHeadings(t, view, "Certificate (tls.crt)")
