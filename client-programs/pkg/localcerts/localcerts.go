@@ -91,7 +91,7 @@ func Resolve(cfg *v1alpha1.EducatesLocalConfig) (*Plan, error) {
 
 	// A root CA mints the CA key pair cert-manager issues the ingress
 	// certificate from.
-	root, err := loadRootCA(domain, names)
+	root, err := loadRootCA(domain)
 	if err != nil {
 		return nil, err
 	}
@@ -158,12 +158,10 @@ type rootCA struct {
 
 // loadRootCA loads the one root CA of the cache, checking it can mint a
 // CA for domain.
-func loadRootCA(domain string, names []string) (*rootCA, error) {
-	var roots []string
-	for _, name := range names {
-		if root, ok := strings.CutSuffix(name, secrets.RootKeyPairSuffix); ok {
-			roots = append(roots, root)
-		}
+func loadRootCA(domain string) (*rootCA, error) {
+	roots, err := secrets.CachedRootCAs()
+	if err != nil {
+		return nil, err
 	}
 	switch len(roots) {
 	case 0:
