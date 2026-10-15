@@ -20,7 +20,7 @@ import (
 )
 
 // listColumns are the columns `educates local secrets list` prints.
-var listColumns = []string{"NAME", "TYPE", "DOMAINS", "SUBJECT", "EXPIRES"}
+var listColumns = []string{"NAME", "TYPE", "DOMAINS", "EXPIRES"}
 
 // listCachedSecrets runs `educates local secrets list` and returns its
 // rows keyed by NAME, each a map of column to cell.
@@ -98,7 +98,7 @@ func TestLocalSecretsList_CACertificate(t *testing.T) {
 	}
 
 	assertListRow(t, listCachedSecrets(t), "corporate-ca", map[string]string{
-		"TYPE": "CA certificate", "DOMAINS": "any", "SUBJECT": "corporate root", "EXPIRES": "2031-03-04",
+		"TYPE": "CA certificate", "DOMAINS": "any", "EXPIRES": "2031-03-04",
 	})
 }
 
@@ -135,22 +135,22 @@ func TestLocalSecretsList_SuppliedRootShowsItsNameConstraints(t *testing.T) {
 
 			rows := listCachedSecrets(t)
 			assertListRow(t, rows, "team-ca", map[string]string{
-				"TYPE": "CA certificate", "DOMAINS": tc.domains, "SUBJECT": "team root", "EXPIRES": "2030-06-30",
+				"TYPE": "CA certificate", "DOMAINS": tc.domains, "EXPIRES": "2030-06-30",
 			})
 			assertListRow(t, rows, "team-ca-root-key-pair", map[string]string{
-				"TYPE": "CA root key pair", "DOMAINS": tc.domains, "SUBJECT": "team root", "EXPIRES": "2030-06-30",
+				"TYPE": "CA root key pair", "DOMAINS": tc.domains, "EXPIRES": "2030-06-30",
 			})
 		})
 	}
 }
 
-func TestLocalSecretsList_CAKeyPairShowsItsDomainUnderItsRoot(t *testing.T) {
+func TestLocalSecretsList_CAKeyPairShowsItsDomain(t *testing.T) {
 	withSecretsCache(t)
 	registerRoot(t, "team-ca", testpki.NewRootCA(testpki.WithCommonName("team root"), validUntil(2030, time.June, 30)))
 	mintCAKeyPairs(t, "workshops.test")
 
 	assertListRow(t, listCachedSecrets(t), "workshops.test-ca-key-pair", map[string]string{
-		"TYPE": "CA intermediate key pair", "DOMAINS": "workshops.test", "SUBJECT": "workshops.test (team-ca)", "EXPIRES": "2030-06-30",
+		"TYPE": "CA intermediate key pair", "DOMAINS": "workshops.test", "EXPIRES": "2030-06-30",
 	})
 }
 
@@ -171,8 +171,7 @@ func TestLocalSecretsList_TLSCertificateShowsEveryWildcardDomain(t *testing.T) {
 	}
 
 	assertListRow(t, listCachedSecrets(t), "dev-tls", map[string]string{
-		"TYPE": "TLS certificate", "DOMAINS": "labs.test, workshops.test",
-		"SUBJECT": "OU=dev@laptop,O=mkcert development certificate", "EXPIRES": "2028-01-15",
+		"TYPE": "TLS certificate", "DOMAINS": "labs.test, workshops.test", "EXPIRES": "2028-01-15",
 	})
 }
 
@@ -219,10 +218,10 @@ func TestLocalSecretsList_AlphaCAListedAsInvalid(t *testing.T) {
 
 	rows := listCachedSecrets(t)
 	assertListRow(t, rows, "workshops-ca", map[string]string{
-		"TYPE": "invalid", "DOMAINS": "", "SUBJECT": "alpha root", "EXPIRES": "2034-05-09",
+		"TYPE": "invalid", "DOMAINS": "", "EXPIRES": "2034-05-09",
 	})
 	assertListRow(t, rows, "corporate-ca", map[string]string{
-		"TYPE": "CA certificate", "DOMAINS": "any", "SUBJECT": "corporate root", "EXPIRES": "2031-03-04",
+		"TYPE": "CA certificate", "DOMAINS": "any", "EXPIRES": "2031-03-04",
 	})
 }
 
@@ -274,7 +273,7 @@ func TestLocalSecretsList_AlphaCAReRegisteredAsTheRoot_ListsNoInvalidEntry(t *te
 		t.Errorf("list has %d rows, want the root CA's two", len(rows))
 	}
 	for _, name := range []string{"educates-ca", "educates-ca-root-key-pair"} {
-		want := map[string]string{"TYPE": "CA certificate", "DOMAINS": "any", "SUBJECT": "alpha root", "EXPIRES": "2034-05-09"}
+		want := map[string]string{"TYPE": "CA certificate", "DOMAINS": "any", "EXPIRES": "2034-05-09"}
 		if name == "educates-ca-root-key-pair" {
 			want["TYPE"] = "CA root key pair"
 		}
@@ -297,7 +296,7 @@ func TestLocalSecretsList_ExpiredCertificateShowsExpired(t *testing.T) {
 	}
 
 	assertListRow(t, listCachedSecrets(t), "old-tls", map[string]string{
-		"TYPE": "TLS certificate", "DOMAINS": "workshops.test", "SUBJECT": "old wildcard", "EXPIRES": "expired",
+		"TYPE": "TLS certificate", "DOMAINS": "workshops.test", "EXPIRES": "expired",
 	})
 }
 
@@ -314,7 +313,7 @@ func TestLocalSecretsList_MalformedFileListedAsInvalid(t *testing.T) {
 	rows := listCachedSecrets(t)
 	assertListRow(t, rows, "broken", map[string]string{"TYPE": "invalid"})
 	assertListRow(t, rows, "corporate-ca", map[string]string{
-		"TYPE": "CA certificate", "DOMAINS": "any", "SUBJECT": "corporate root", "EXPIRES": "2031-03-04",
+		"TYPE": "CA certificate", "DOMAINS": "any", "EXPIRES": "2031-03-04",
 	})
 }
 
