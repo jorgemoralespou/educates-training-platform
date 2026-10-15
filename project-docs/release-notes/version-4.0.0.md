@@ -723,8 +723,16 @@ Features Changed
   every local cluster serving a cached wildcard certificate that a cached CA
   certificate verifies, since such a cluster now publishes its CA. Cluster
   nodes then trust registries served through the cluster ingress, such as
-  the image registry of a workshop session. Set ``nodeCATrust.mode`` to
-  ``Disabled`` to keep the privileged node CA injector daemon set off.
+  the image registry of a workshop session. A ``SessionManager`` that sets
+  ``ingressOverrides.caCertificateSecretRef`` also gets the node CA
+  injector, even on a cluster that publishes no CA, and nodes then trust the
+  override's ``educates-session-manager-ingress-ca`` in place of the
+  cluster's CA, since the session manager serves the registries of workshop
+  sessions with the overriding certificate. With ``nodeCATrust.mode`` set to
+  ``Enabled``, the ``SessionManager`` reports ``Ready`` as ``False`` only
+  when neither the cluster nor an override provides a CA. Set
+  ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged node CA
+  injector daemon set off.
 
 Deprecations
 ------------
