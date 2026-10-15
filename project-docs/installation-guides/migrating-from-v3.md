@@ -80,10 +80,10 @@ For local kind-cluster users, the v4 CLI migrates your configuration on first us
 
 If the v3 file's provider is anything other than kind or empty, the CLI refuses with instructions instead: cloud and BYO configurations carry intent the CLI cannot infer (DNS, ACME, identity wiring), so they must be re-declared against a v4 kind as described above. The `values.yaml` is left untouched for reference.
 
-One caveat: v3 cached its local CA differently (an `Opaque` Secret holding only the certificate). v4's install needs the CA key as well, so a v3-cached CA cannot be reused — the migration warns about this, and you regenerate with:
+One caveat: v3 cached its local CA differently (an `Opaque` Secret holding only the certificate). v4's install mints a CA for the ingress domain from a root CA whose key is cached on your machine, so a v3-cached CA certificate alone cannot sign. The migration warns about this. Generate a root CA with the following command, or register the root CA you used with v3 together with its key by adding `--cert` and `--key`:
 
 ```shell
-educates local secrets add ca <domain>-ca --domain <domain>
+educates local secrets add ca <name>
 ```
 
 Command changes

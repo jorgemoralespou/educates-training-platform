@@ -135,7 +135,7 @@ This command will perform the following steps:
 
 * Deploy an image registry accessible via port 5001 on the local machine, and configure the cluster to trust it.
 
-* Install the Educates operator, which in turn installs the required cluster services: Contour as the ingress controller exposed via ports 80/443 on the local machine, and a security policy engine. When you configure trusted HTTPS, cert-manager is also installed to issue TLS certificates from your local CA.
+* Install the Educates operator, which in turn installs the required cluster services: Contour as the ingress controller exposed via ports 80/443 on the local machine, and a security policy engine. When you configure trusted HTTPS, cert-manager is also installed to issue TLS certificates from a CA minted from your local root CA.
 
 * Deploy the Educates training platform components.
 
@@ -165,10 +165,10 @@ Next, set the ingress domain in the configuration. Setting a domain turns off th
 educates local config set ingress.domain educates-local-dev.test
 ```
 
-Then create a certificate authority (CA) for the domain. With no `--cert`/`--key` arguments a self-signed CA is generated for you and cached locally, and it is reused for every future cluster with the same domain. To supply an existing CA certificate and key with `--cert`/`--key` instead, for example one created with `mkcert`, see [the local environment guide](custom-ingress-domain). Create the CA with:
+Then create a root certificate authority (CA). With no `--cert`/`--key` arguments a root CA is generated for you and cached locally. Its private key never leaves your machine: each cluster receives only a CA that Educates mints from the root for the cluster's ingress domain, so you trust the root once and it covers every ingress domain you use locally. If you use `mkcert`, you can register its root CA with its key instead, so that you do not trust a second root; see [the local environment guide](custom-ingress-domain). Create the root CA with:
 
 ```
-educates local secrets add ca educates-local-dev-test-ca --domain educates-local-dev.test
+educates local secrets add ca educates-local-ca
 ```
 
 Finally create the cluster, running `educates local cluster delete` first if you already created the plain HTTP cluster:
@@ -177,18 +177,18 @@ Finally create the cluster, running `educates local cluster delete` first if you
 educates local cluster create
 ```
 
-Educates installs cert-manager, issues the wildcard certificate from your CA, and serves workshop URLs over HTTPS.
+Educates mints a CA for `educates-local-dev.test` from your root CA, installs cert-manager, issues the wildcard certificate from that CA, and serves workshop URLs over HTTPS.
 
 (trusting-the-workshop-certificates)=
 Trusting the workshop certificates
 ----------------------------------
 
-Workshop URLs are then served with TLS certificates signed by your local CA. Until that CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session.
+Workshop URLs are then served with TLS certificates that chain to your local root CA. Until the root CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session. If you registered the root CA of `mkcert`, which `mkcert -install` already trusts, there is nothing to import.
 
-First export the CA certificate from the local secrets cache as a PEM file:
+First export the root CA certificate from the local secrets cache as a PEM file:
 
 ```
-educates local secrets export educates-local-dev-test-ca --pem > educates-local-dev-test-ca.pem
+educates local secrets export educates-local-ca --pem > educates-local-ca.pem
 ```
 
 Then import it into the trust store for your operating system:
@@ -197,7 +197,7 @@ Then import it into the trust store for your operating system:
 
 :::{tab-item} macOS
 ```
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain educates-local-dev-test-ca.pem
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain educates-local-ca.pem
 ```
 
 This covers Safari and Chrome.
@@ -205,27 +205,27 @@ This covers Safari and Chrome.
 
 :::{tab-item} Linux (Debian/Ubuntu)
 ```
-sudo cp educates-local-dev-test-ca.pem /usr/local/share/ca-certificates/educates-local-dev-test-ca.crt
+sudo cp educates-local-ca.pem /usr/local/share/ca-certificates/educates-local-ca.crt
 sudo update-ca-certificates
 ```
 
 Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
 
 ```
-certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-dev-test-ca -i educates-local-dev-test-ca.pem
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-ca -i educates-local-ca.pem
 ```
 :::
 
 :::{tab-item} Linux (Fedora/RHEL)
 ```
-sudo cp educates-local-dev-test-ca.pem /etc/pki/ca-trust/source/anchors/educates-local-dev-test-ca.pem
+sudo cp educates-local-ca.pem /etc/pki/ca-trust/source/anchors/educates-local-ca.pem
 sudo update-ca-trust
 ```
 
 Note that Chrome on Linux does not use the system trust store; it reads the NSS database in your home directory instead:
 
 ```
-certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-dev-test-ca -i educates-local-dev-test-ca.pem
+certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-ca -i educates-local-ca.pem
 ```
 :::
 
@@ -233,7 +233,7 @@ certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n educates-local-dev-test-ca -i ed
 
 Firefox maintains its own certificate store on every platform. Import the PEM file via Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import, and check "Trust this CA to identify websites".
 
-Restart your browser after importing for the change to take effect. The import only needs to be done once: the CA is reused for every future cluster created with the same ingress domain.
+Restart your browser after importing for the change to take effect. The import only needs to be done once: the CA of every future cluster is minted from the same root, whatever its ingress domain.
 
 Deploying a workshop
 --------------------
