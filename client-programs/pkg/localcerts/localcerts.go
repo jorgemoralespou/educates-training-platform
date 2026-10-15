@@ -450,11 +450,11 @@ func (p *Plan) caKeyPairFor(domain string, root *rootCA) (string, error) {
 	name := secrets.CAKeyPairName(domain)
 	note := fmt.Sprintf("Minted CA key pair %q for ingress domain %q from root CA %q.", name, domain, root.name)
 	if cached, err := secrets.LoadCachedSecret(name); err == nil {
-		stale := caKeyPairStaleness(cached, domain, root)
-		if stale == "" {
+		state := checkCachedCAKeyPair(cached, domain, root)
+		if state == caKeyPairUsable {
 			return name, nil
 		}
-		note = fmt.Sprintf("Minted CA key pair %q for ingress domain %q from root CA %q, replacing the cached one, which %s.", name, domain, root.name, stale)
+		note = fmt.Sprintf("Minted CA key pair %q for ingress domain %q from root CA %q, replacing the cached one, which %s.", name, domain, root.name, state)
 	}
 
 	certPEM, keyPEM, err := secrets.MintDomainCA(root.cert, root.key, domain)
@@ -468,31 +468,58 @@ func (p *Plan) caKeyPairFor(domain string, root *rootCA) (string, error) {
 	return name, nil
 }
 
-// caKeyPairStaleness returns why the cached CA key pair s cannot serve
-// domain under root, or "" when it can.
-func caKeyPairStaleness(s *apiv1.Secret, domain string, root *rootCA) string {
-	const invalid = "is not a valid CA key pair"
+// cachedCAKeyPairState is whether a cached CA key pair can serve an
+// ingress domain under the root CA, and if not, why. Its String is the
+// reason, phrased to follow "the cached one, which".
+type cachedCAKeyPairState int
+
+const (
+	caKeyPairUsable cachedCAKeyPairState = iota
+	caKeyPairInvalid
+	caKeyPairNotLimitedToDomain
+	caKeyPairFromAnotherRoot
+	caKeyPairExpired
+)
+
+func (s cachedCAKeyPairState) String() string {
+	switch s {
+	case caKeyPairUsable:
+		return "can serve the domain"
+	case caKeyPairNotLimitedToDomain:
+		return "is not limited to the domain"
+	case caKeyPairFromAnotherRoot:
+		return "was minted from another root CA"
+	case caKeyPairExpired:
+		return "has expired"
+	default:
+		return "is not a valid CA key pair"
+	}
+}
+
+// checkCachedCAKeyPair returns whether the cached CA key pair s can
+// serve domain under root.
+func checkCachedCAKeyPair(s *apiv1.Secret, domain string, root *rootCA) cachedCAKeyPairState {
 	if s.Type != apiv1.SecretTypeTLS {
-		return invalid
+		return caKeyPairInvalid
 	}
 	kp, err := secrets.ParseKeyPair(secrets.SecretData(s, "tls.crt"), secrets.SecretData(s, "tls.key"))
 	if err != nil || !secrets.IsCACertificate(kp.Certificate()) {
-		return invalid
+		return caKeyPairInvalid
 	}
 	ca := kp.Certificate()
 	if !reflect.DeepEqual(ca.PermittedDNSDomains, []string{domain}) {
-		return "is not limited to the domain"
+		return caKeyPairNotLimitedToDomain
 	}
 	caCrt, err := secrets.ParseCertificatePEM(secrets.SecretData(s, "ca.crt"))
 	if s.Annotations[secrets.RootCAAnnotation] != root.name ||
 		err != nil || !caCrt.Equal(root.cert) ||
 		ca.CheckSignatureFrom(root.cert) != nil {
-		return "was minted from another root CA"
+		return caKeyPairFromAnotherRoot
 	}
 	if time.Now().After(ca.NotAfter) {
-		return "has expired"
+		return caKeyPairExpired
 	}
-	return ""
+	return caKeyPairUsable
 }
 
 // syncSecretNames returns the cached Secrets a sync pushes, sorted: every
