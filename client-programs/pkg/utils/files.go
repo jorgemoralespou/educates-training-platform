@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,7 +13,10 @@ import (
 	"github.com/pkg/errors"
 )
 
-func PrintYamlFilesInDir(dir string, args []string) error {
+// PrintYamlFilesInDir writes to w the YAML files in dir, each after a
+// "---" line: all of them, or only those named, without the .yaml suffix,
+// in args.
+func PrintYamlFilesInDir(w io.Writer, dir string, args []string) error {
 	files, err := os.ReadDir(dir)
 
 	if err != nil {
@@ -38,10 +42,10 @@ func PrintYamlFilesInDir(dir string, args []string) error {
 				}
 
 				// if count != 0 {
-				fmt.Println("---")
+				fmt.Fprintln(w, "---")
 				// }
 
-				fmt.Print(string(yamlData))
+				fmt.Fprint(w, string(yamlData))
 
 				count = count + 1
 			}

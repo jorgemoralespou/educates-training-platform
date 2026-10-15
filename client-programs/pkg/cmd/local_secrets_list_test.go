@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -228,15 +229,21 @@ func TestLocalSecretsList_AlphaCAListedAsInvalid(t *testing.T) {
 
 // exportedTLSKey returns the private key the cached Secret name holds as
 // tls.key, extracted from what `educates local secrets export NAME`
-// prints, the cached file as it is, the way the release notes extract
-// it: awk '$1 == "tls.key:" {print $2}' | base64 --decode.
+// prints the way the release notes extract it:
+// awk '$1 == "tls.key:" {print $2}' | base64 --decode.
 func exportedTLSKey(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(secretsCacheDir(), name+".yaml"))
-	if err != nil {
-		t.Fatal(err)
+	c := (&ProjectInfo{}).NewLocalSecretsExportCmd()
+	var out bytes.Buffer
+	c.SetOut(&out)
+	c.SetErr(io.Discard)
+	c.SilenceUsage = true
+	c.SilenceErrors = true
+	c.SetArgs([]string{name})
+	if err := c.Execute(); err != nil {
+		t.Fatalf("export %s: %v", name, err)
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(out.String(), "\n") {
 		if fields := strings.Fields(line); len(fields) >= 2 && fields[0] == "tls.key:" {
 			key, err := base64.StdEncoding.DecodeString(fields[1])
 			if err != nil {
@@ -245,7 +252,7 @@ func exportedTLSKey(t *testing.T, name string) []byte {
 			return key
 		}
 	}
-	t.Fatalf("export of %s has no tls.key line:\n%s", name, data)
+	t.Fatalf("export of %s has no tls.key line:\n%s", name, out.String())
 	return nil
 }
 

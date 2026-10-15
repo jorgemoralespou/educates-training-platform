@@ -52,7 +52,7 @@ certificate, the certificate and its chain.`,
 				return err
 			}
 
-			if err := utils.PrintYamlFilesInDir(secretsCacheDir, args); err != nil {
+			if err := utils.PrintYamlFilesInDir(cmd.OutOrStdout(), secretsCacheDir, args); err != nil {
 				return errors.Wrapf(err, "unable to read secrets cache directory")
 			}
 
