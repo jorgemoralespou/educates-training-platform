@@ -49,8 +49,17 @@ type IngressOverrides struct {
 	// +optional
 	TLSSecretRef *LocalObjectReference `json:"tlsSecretRef,omitempty"`
 
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding, under ca.crt, the CA certificate that replaces the
+	// cluster's ingress CA for session-manager and the training portals
+	// and workshop sessions it creates. Namespace defaults to the
+	// operator namespace when empty. session-manager never receives this
+	// Secret: the operator derives the operator-owned
+	// educates-session-manager-ingress-ca in the operator namespace from
+	// its ca.crt alone, so any other key it holds, a private key
+	// included, is ignored.
 	// +optional
-	CACertificateSecretRef *LocalObjectReference `json:"caCertificateSecretRef,omitempty"`
+	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 
 	// protocol asserts the scheme of the public-facing URLs the
 	// session manager and workshops generate. Set to https when TLS

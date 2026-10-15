@@ -18,6 +18,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -42,6 +43,7 @@ import (
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
 
@@ -90,6 +92,17 @@ type SessionManagerReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
+	// APIReader is an uncached reader for the CA override's Secret,
+	// which may live in a namespace outside the operator's Secret
+	// cache. Production wiring uses mgr.GetAPIReader().
+	APIReader client.Reader
+
+	// OperatorNamespace is where the reconciler writes the key-free copy
+	// of the CA override, and where an override Secret lives when its
+	// reference names no namespace. Sourced from the OPERATOR_NAMESPACE
+	// env var (downward API).
+	OperatorNamespace string
+
 	// HelmClientFor returns a Helm client scoped to the given
 	// namespace. Production: REST-config-backed. Envtest: in-memory.
 	HelmClientFor func(namespace string) (*helm.Client, error)
@@ -100,6 +113,11 @@ type SessionManagerReconciler struct {
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=sessionmanagers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=secretsmanagers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=lookupservices,verbs=get;list;watch
+
+// Secrets: read the CA override's Secret in any namespace and write its
+// key-free copy, educates-session-manager-ingress-ca, in the operator
+// namespace.
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile drives a SessionManager CR through its lifecycle.
 func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -202,6 +220,21 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
 		obj.Status.ObservedGeneration = obj.Generation
 		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
+	}
+
+	// A CA override reaches session-manager only as its key-free copy,
+	// derived before every install or upgrade that references it.
+	if err := r.ensureIngressCAOverride(ctx, obj); err != nil {
+		serr, ok := errors.AsType[*pki.SourceError](err)
+		if !ok {
+			return ctrl.Result{}, fmt.Errorf("derive CA override trust: %w", err)
+		}
+		r.markSMReady(obj, metav1.ConditionFalse, serr.Reason, caOverrideField+": "+serr.Message)
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
+		obj.Status.ObservedGeneration = obj.Generation
+		// The Secret watch sees a repaired source only in a namespace
+		// the operator's Secret cache covers; the requeue covers the rest.
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
@@ -356,11 +389,12 @@ func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *
 	if err != nil {
 		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	return hc.EnsureRelease(ctx, sessionManagerReleaseName, chrt, renderSessionManagerValues(obj, cfg))
+	return hc.EnsureRelease(ctx, sessionManagerReleaseName, chrt, renderSessionManagerValues(obj, cfg, r.OperatorNamespace))
 }
 
 // renderSessionManagerValues maps SessionManagerSpec + cluster config
 // status into the session-manager subchart's values shape.
+// operatorNamespace locates the key-free copy of a CA override.
 //
 // Scoped to fields the v1alpha1 CRD exposes today. The richer surface
 // the subchart accepts (themes content, image-cache wiring, registry
@@ -372,11 +406,11 @@ func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *
 // session-manager/templates/_helpers.tpl) reads back any prior
 // generated credentials from the live `educates-config` Secret via
 // `helm lookup`, so passwords don't rotate on every reconcile.
-func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) map[string]any {
+func renderSessionManagerValues(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig, operatorNamespace string) map[string]any {
 	values := map[string]any{}
 
 	applySMImageValues(values, obj, cfg)
-	applySMIngressValues(values, obj, cfg)
+	applySMIngressValues(values, obj, cfg, operatorNamespace)
 	applySMSecurityValues(values, obj, cfg)
 	applySMPackageDeliveryValues(values, cfg)
 	applySMSessionValues(values, obj)
@@ -502,10 +536,12 @@ func imagePrePullerValues(values map[string]any) map[string]any {
 
 // applySMIngressValues maps the cluster ingress contract (TLS + CA
 // refs from cluster config status) with optional per-SessionManager
-// override of the Secret name. Overrides resolve against the cluster-
-// config-published namespace; the chart's auto-SecretCopier handles
-// cross-namespace placement.
-func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) {
+// overrides. A TLS override names a Secret in the cluster-config-
+// published wildcard namespace. A CA override is never passed on as
+// it is: the chart receives the key-free copy the reconciler derives
+// from it, educates-session-manager-ingress-ca in operatorNamespace.
+// The chart's auto-SecretCopier handles cross-namespace placement.
+func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig, operatorNamespace string) {
 	// wildcardNS is the cluster-config-published namespace for ingress
 	// secrets; both it and tlsName are empty when there is no in-cluster
 	// wildcard certificate (None provider), which the chart reads as
@@ -531,10 +567,10 @@ func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionMa
 			"namespace": cfg.Status.Ingress.CACertificateSecretRef.Namespace,
 		}
 	}
-	if obj.Spec.IngressOverrides != nil && obj.Spec.IngressOverrides.CACertificateSecretRef != nil {
+	if caOverrideRef(obj) != nil {
 		caRef = map[string]any{
-			"name":      obj.Spec.IngressOverrides.CACertificateSecretRef.Name,
-			"namespace": wildcardNS,
+			"name":      sessionManagerIngressCASecretName,
+			"namespace": operatorNamespace,
 		}
 	}
 	clusterIngress["caCertificateRef"] = caRef
@@ -858,6 +894,9 @@ func (r *SessionManagerReconciler) updateSMStatusWithTransitionLog(ctx context.C
 //   - LookupService (Auto-mode signal for remoteAccess: presence
 //     of a LookupService CR causes Auto to install remote-access).
 //   - apps/v1 Deployment, narrowed to platform-ns + session-manager.
+//   - Secret, narrowed to the CA override's source and its key-free
+//     copy. Events arrive only from the namespaces the operator's
+//     Secret cache covers.
 func (r *SessionManagerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.SessionManager{},
@@ -870,6 +909,8 @@ func (r *SessionManagerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(mapLookupServiceToSessionManager)).
 		Watches(&appsv1.Deployment{},
 			handler.EnqueueRequestsFromMapFunc(mapSessionManagerDeployment)).
+		Watches(&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.mapSecretToSessionManager)).
 		Named("platform-sessionmanager").
 		Complete(r)
 }

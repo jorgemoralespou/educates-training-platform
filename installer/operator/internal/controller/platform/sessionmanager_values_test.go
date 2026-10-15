@@ -80,7 +80,7 @@ func TestApplySMIngressValues_NoneProvider(t *testing.T) {
 		},
 	}
 	values := map[string]any{}
-	applySMIngressValues(values, &platformv1alpha1.SessionManager{}, cfg)
+	applySMIngressValues(values, &platformv1alpha1.SessionManager{}, cfg, "educates-installer")
 
 	ci := values["clusterIngress"].(map[string]any)
 	tlsRef := ci["tlsCertificateRef"].(map[string]any)
@@ -147,7 +147,7 @@ func TestRenderSessionManagerValues_PrePullerComposition(t *testing.T) {
 			},
 		},
 	}
-	values := renderSessionManagerValues(obj, valuesTestClusterConfig())
+	values := renderSessionManagerValues(obj, valuesTestClusterConfig(), "educates-installer")
 
 	prePuller, ok := values["imagePrePuller"].(map[string]any)
 	if !ok {

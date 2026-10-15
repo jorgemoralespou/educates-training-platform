@@ -332,8 +332,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&platformcontroller.SessionManagerReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:            mgr.GetClient(),
+		APIReader:         mgr.GetAPIReader(),
+		Scheme:            mgr.GetScheme(),
+		OperatorNamespace: operatorNamespace,
 		HelmClientFor: func(ns string) (*helm.Client, error) {
 			return helm.NewClient(restCfg, ns)
 		},
