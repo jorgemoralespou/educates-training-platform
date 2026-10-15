@@ -18,11 +18,17 @@ func loadCfg(t *testing.T, fixture string) v1alpha1.Config {
 	return cfg
 }
 
-// testOpts supplies a non-empty CA secret name so EducatesLocalConfig
-// translation doesn't fail validation. Cluster-side secrets cache
-// integration is exercised by the command-level tests.
+// testOpts supplies a BundledCertManager decision with a CA key pair so
+// EducatesLocalConfig translation doesn't fail validation. Resolving the
+// decision from the local secrets cache is exercised by the localcerts
+// tests.
 func testOpts() Options {
-	return Options{CASecretName: "test-ca", CASecretNamespace: "educates-secrets"}
+	return Options{LocalCertificates: LocalCertificates{
+		Provider: CertificatesProviderBundledCertManager,
+		CustomCA: &LocalCustomCA{
+			CAKeyPairSecretRef: SecretRef{Name: "test-ca", Namespace: "educates-secrets"},
+		},
+	}}
 }
 
 // translateBytes is a load+translate helper for tests that build YAML
@@ -186,18 +192,43 @@ func getNested(root map[string]interface{}, path string) (interface{}, bool) {
 	return cur, true
 }
 
+// TestTranslateLocal_WithoutCertificatesDecision_Errors asserts that a
+// local config cannot be translated without a complete certificates
+// decision, so a missing CA fails before anything is deployed.
+func TestTranslateLocal_WithoutCertificatesDecision_Errors(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	for name, lc := range map[string]LocalCertificates{
+		"no decision": {},
+		"BundledCertManager without a CA key pair": {Provider: CertificatesProviderBundledCertManager},
+		"BundledCertManager with an unnamed CA key pair": {
+			Provider: CertificatesProviderBundledCertManager,
+			CustomCA: &LocalCustomCA{},
+		},
+		"unknown provider": {Provider: "Unknown"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Translate(cfg, Options{LocalCertificates: lc}); err == nil {
+				t.Errorf("Translate accepted certificates decision %+v", lc)
+			}
+		})
+	}
+}
+
 // TestTranslateLocal_Insecure_NoneProviderHTTP asserts that an insecure
-// local config produces a None certificates provider with http protocol
-// and needs no CA: translateBytes passes empty Options, so a non-empty
-// CASecretName is not required when ingress.insecure is set.
+// local config with the None certificates decision produces a None
+// certificates provider with http protocol and needs no CA.
 func TestTranslateLocal_Insecure_NoneProviderHTTP(t *testing.T) {
-	out, err := translateBytes(t, []byte(`
+	cfg, err := config.LoadBytes([]byte(`
 apiVersion: cli.educates.dev/v1alpha1
 kind: EducatesLocalConfig
 ingress:
   domain: 192.168.1.10.nip.io
   insecure: true
-`))
+`), "inline-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Translate(cfg, Options{LocalCertificates: LocalCertificates{Provider: CertificatesProviderNone}})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}

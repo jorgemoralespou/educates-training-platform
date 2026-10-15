@@ -46,9 +46,10 @@ spec:
             # SSL_CERT_FILE, REQUESTS_CA_BUNDLE and related variables baked
             # into the image already point at. Required when lookup-service
             # verifies TLS against a private or self-signed CA when calling
-            # other clusters' training portals. Mounted as a directory, not
-            # via subPath, so a rotated Secret propagates into the pod for
-            # the next restart.
+            # other clusters' training portals. Only ca.crt is projected
+            # from the Secret. Mounted as a directory, not via subPath, so
+            # a rotated Secret propagates into the pod for the next
+            # restart.
             - name: cluster-ca
               mountPath: /opt/app-root/certs/ingress-ca
               readOnly: true
@@ -65,5 +66,8 @@ spec:
         - name: cluster-ca
           secret:
             secretName: {{ $caRef.name | quote }}
+            items:
+              - key: ca.crt
+                path: ca.crt
         {{- end }}
       {{- end }}

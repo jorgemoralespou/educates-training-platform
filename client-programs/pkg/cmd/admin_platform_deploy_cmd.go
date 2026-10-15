@@ -12,6 +12,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
+	"github.com/educates/educates-training-platform/client-programs/pkg/localcerts"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
@@ -87,8 +88,7 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		return err
 	}
 
-	var caSecretName, caSecretNamespace string
-	syncLocalSecrets := false
+	var plan *localcerts.Plan
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
 		c.ApplyCLIDefaults(p.Version, p.ImageRepository)
@@ -101,19 +101,16 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		} else if c.Ingress.Domain == "" {
 			return fmt.Errorf("ingress.domain is required when using --config (set it in %s)", path)
 		}
-		// A secure install needs a cached CA; an insecure one serves
-		// plain HTTP and needs none (localCASecretIfSecure handles both).
-		var lookupErr error
-		caSecretName, caSecretNamespace, lookupErr = localCASecretIfSecure(c)
-		if lookupErr != nil {
-			return lookupErr
+		// The certificates, and the cached Secrets to sync, come from the
+		// local certificate resolution step.
+		if plan, err = localcerts.Resolve(c); err != nil {
+			return err
 		}
-		syncLocalSecrets = true
 	case *v1alpha1.EducatesConfig:
 		// Pure passthrough.
 	}
 
-	return translateAndDeploy(ctx, w, cfg, caSecretName, caSecretNamespace, syncLocalSecrets, deployPipelineFlags{
+	return translateAndDeploy(ctx, w, cfg, plan, deployPipelineFlags{
 		Kubeconfig: o.Kubeconfig,
 		Context:    o.Context,
 		Timeout:    o.Timeout,

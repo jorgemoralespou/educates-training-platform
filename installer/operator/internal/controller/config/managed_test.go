@@ -803,6 +803,64 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
 	})
 
+	// An administrator may run their own cert-manager under the same
+	// release and namespace names the bundled one uses. Deleting an
+	// Educates install that never installed cert-manager must leave it
+	// alone.
+	DescribeTable("leaves a cert-manager it did not install in place on delete",
+		func(provider configv1alpha1.CertificatesProvider) {
+			ensureNamespace(certManagerNamespace)
+			// Later specs use the cert-manager namespace appearing as
+			// their sign that the install has started, so delete it
+			// afterwards; the next BeforeEach finalizes it away.
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: certManagerNamespace}})
+			})
+			hc, err := helmFac.For(certManagerNamespace)
+			Expect(err).NotTo(HaveOccurred())
+			chrt, err := vendoredcharts.CertManager()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(hc.SeedRelease(
+				certManagerReleaseName, 1, releasecommon.StatusDeployed,
+				chrt, map[string]any{}, "Install complete",
+			)).To(Succeed())
+
+			spec := validManagedSpec()
+			spec.Ingress.Certificates = configv1alpha1.Certificates{Provider: provider}
+			obj := &configv1alpha1.EducatesClusterConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       spec,
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			// Wait for the finalizer so the delete below runs the
+			// reconciler's teardown rather than removing the CR outright.
+			Eventually(func() []string {
+				got := &configv1alpha1.EducatesClusterConfig{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+					return nil
+				}
+				return got.Finalizers
+			}, 30*time.Second, 200*time.Millisecond).Should(ContainElement(finalizerName))
+
+			Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, &configv1alpha1.EducatesClusterConfig{})
+				return apierrors.IsNotFound(err)
+			}, 30*time.Second, 200*time.Millisecond).Should(BeTrue())
+
+			rel, err := hc.Status(certManagerReleaseName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(rel.Info.Status).To(Equal(releasecommon.StatusDeployed))
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)).To(Succeed())
+			Expect(ns.DeletionTimestamp).To(BeNil())
+		},
+		Entry("provider None", configv1alpha1.CertificatesProviderNone),
+		Entry("provider StaticCertificate", configv1alpha1.CertificatesProviderStaticCertificate),
+	)
+
 	It("refuses to drain cluster services while platform CRs exist, then unblocks once they are gone", func() {
 		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
 

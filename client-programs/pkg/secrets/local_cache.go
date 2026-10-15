@@ -85,14 +85,13 @@ func LoadCachedSecret(name string) (*apiv1.Secret, error) {
 }
 
 // ListCachedSecretNames returns the names (without the .yaml suffix) of all
-// secrets in the cache, sorted. The cache directory is created if needed.
+// secrets in the cache, sorted. It only reads: a cache directory that does
+// not exist yet holds no secrets.
 func ListCachedSecretNames() ([]string, error) {
-	dir, err := CacheDir()
-	if err != nil {
-		return nil, err
+	files, err := os.ReadDir(secretsCacheDir())
+	if os.IsNotExist(err) {
+		return nil, nil
 	}
-
-	files, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, errors.Wrapf(err, "unable to read secrets cache directory")
 	}

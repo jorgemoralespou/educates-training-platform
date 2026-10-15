@@ -923,9 +923,42 @@ def workshop_environment_create(
 
     pykube.ClusterRole(api, cluster_role_body).create()
 
-    # Setup rule for copying the ingress secret into the workshop namespace.
+    # Setup rules for copying the ingress TLS and CA secrets into the
+    # workshop namespace. The CA secret is copied whenever a CA is
+    # configured, even when there is no wildcard TLS secret, as workshop
+    # session pods mount the CA secret in either case.
+
+    ingress_secret_copier_rules = []
 
     if INGRESS_SECRET:
+        ingress_secret_copier_rules.append(
+            {
+                "sourceSecret": {
+                    "name": INGRESS_SECRET,
+                    "namespace": OPERATOR_NAMESPACE,
+                },
+                "targetNamespaces": {
+                    "nameSelector": {"matchNames": [workshop_namespace]}
+                },
+                "reclaimPolicy": "Delete",
+            }
+        )
+
+    if INGRESS_CA_SECRET:
+        ingress_secret_copier_rules.append(
+            {
+                "sourceSecret": {
+                    "name": INGRESS_CA_SECRET,
+                    "namespace": OPERATOR_NAMESPACE,
+                },
+                "targetNamespaces": {
+                    "nameSelector": {"matchNames": [workshop_namespace]}
+                },
+                "reclaimPolicy": "Delete",
+            }
+        )
+
+    if ingress_secret_copier_rules:
         secret_copier_body = {
             "apiVersion": "secrets.educates.dev/v1beta1",
             "kind": "SecretCopier",
@@ -941,34 +974,9 @@ def workshop_environment_create(
                 },
             },
             "spec": {
-                "rules": [
-                    {
-                        "sourceSecret": {
-                            "name": INGRESS_SECRET,
-                            "namespace": OPERATOR_NAMESPACE,
-                        },
-                        "targetNamespaces": {
-                            "nameSelector": {"matchNames": [workshop_namespace]}
-                        },
-                        "reclaimPolicy": "Delete",
-                    }
-                ],
+                "rules": ingress_secret_copier_rules,
             },
         }
-
-        if INGRESS_CA_SECRET:
-            xget(secret_copier_body, "spec.rules").append(
-                {
-                    "sourceSecret": {
-                        "name": INGRESS_CA_SECRET,
-                        "namespace": OPERATOR_NAMESPACE,
-                    },
-                    "targetNamespaces": {
-                        "nameSelector": {"matchNames": [workshop_namespace]}
-                    },
-                    "reclaimPolicy": "Delete",
-                }
-            )
 
         kopf.adopt(secret_copier_body, namespace_instance.obj)
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -64,12 +66,17 @@ type Options struct {
 	// kubectl apply, etc.).
 	SkipCRDApply bool
 
-	// SyncLocalSecrets, when true, copies <data-home>/secrets/*.yaml into
-	// the cluster's 'educates-secrets' namespace before applying the
-	// platform CRs. Matches the v3 laptop flow: cached CA/TLS material
-	// is pushed at deploy time, ECC's caCertificateRef points there.
-	// Only meaningful for EducatesLocalConfig deploys.
+	// SyncLocalSecrets, when true, ensures the cluster's
+	// 'educates-secrets' namespace and copies the cached Secrets named in
+	// LocalSecretNames into it before applying the platform CRs. Matches
+	// the v3 laptop flow: cached CA/TLS material is pushed at deploy
+	// time, ECC's caCertificateRef points there. Only meaningful for
+	// EducatesLocalConfig deploys.
 	SyncLocalSecrets bool
+
+	// LocalSecretNames names the cached Secrets SyncLocalSecrets copies:
+	// the local certificate resolution plan's SyncSecretNames.
+	LocalSecretNames []string
 
 	// Progress is the structured progress reporter. When nil, plain
 	// io.Discard-backed reporter is used (no progress output, but the
@@ -107,7 +114,7 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	// Push cached local secrets so the operator can consume them.
 	if opts.SyncLocalSecrets {
 		step := opts.Progress.Start("syncing cached local secrets to cluster")
-		if err := syncLocalSecrets(opts.Getter); err != nil {
+		if err := syncLocalSecrets(opts.Getter, opts.LocalSecretNames); err != nil {
 			step.Fail(err)
 			return err
 		}
@@ -246,6 +253,7 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	step := opts.Progress.Start("Installing " + label)
 	step.Update("applying")
 	if _, err := applier.Apply(ctx, u); err != nil {
+		err = explainApplyRejection(err)
 		step.Fail(err)
 		return err
 	}
@@ -257,10 +265,29 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	return nil
 }
 
-// syncLocalSecrets copies <data-home>/secrets/*.yaml into the cluster's
+// certificateProviderImmutableRule is the start of the message the
+// EducatesClusterConfig CRD's validation rule reports when an update
+// changes spec.ingress.certificates.provider.
+const certificateProviderImmutableRule = "spec.ingress.certificates.provider is immutable"
+
+// explainApplyRejection adds the remedy to an API server rejection the
+// user can only resolve outside a redeploy. The certificate provider
+// of an existing install is immutable, so a deploy that would change
+// it, such as toggling ingress.insecure on a local cluster, needs the
+// platform deleted or the cluster recreated first. Any other error is
+// returned unchanged.
+func explainApplyRejection(err error) error {
+	if apierrors.IsInvalid(err) && strings.Contains(err.Error(), certificateProviderImmutableRule) {
+		return fmt.Errorf("the certificate provider of an existing Educates install cannot change; "+
+			"run 'educates admin platform delete' and deploy again, or recreate the cluster: %w", err)
+	}
+	return err
+}
+
+// syncLocalSecrets copies the named cached Secrets into the cluster's
 // 'educates-secrets' namespace. Reuses the secrets package so the
 // laptop flow stays the same.
-func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
+func syncLocalSecrets(getter genericclioptions.RESTClientGetter, names []string) error {
 	cfg, err := getter.ToRESTConfig()
 	if err != nil {
 		return fmt.Errorf("REST config for secrets sync: %w", err)
@@ -269,7 +296,7 @@ func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
 	if err != nil {
 		return fmt.Errorf("kubernetes client for secrets sync: %w", err)
 	}
-	if err := secrets.SyncLocalCachedSecretsToCluster(cs); err != nil {
+	if err := secrets.SyncLocalCachedSecretsToCluster(cs, names); err != nil {
 		return fmt.Errorf("sync local secrets: %w", err)
 	}
 	return nil
