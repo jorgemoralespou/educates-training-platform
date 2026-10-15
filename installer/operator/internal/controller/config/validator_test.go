@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/testpki"
 )
 
 const testOperatorNamespace = "test-operator"
@@ -85,7 +86,7 @@ func validInlineSpec() configv1alpha1.EducatesClusterConfigSpec {
 			Ingress: configv1alpha1.InlineIngress{
 				Domain:           "educates.test",
 				IngressClassName: "contour",
-				WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+				WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 					Name: "wildcard-tls",
 				},
 			},
@@ -132,12 +133,14 @@ func makeWildcardSecret(withTLSCrt bool) *corev1.Secret {
 var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 	BeforeEach(func() {
 		ensureNamespace(testOperatorNamespace)
+		ensureNamespace(testCASecretsNamespace)
 	})
 
 	AfterEach(func() {
 		drainCR()
 		// Best-effort cleanup of supporting resources; ignore not-found.
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testCASecretsNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
 	})
 
@@ -262,6 +265,117 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 
 		ready := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
 		Expect(ready.Message).To(ContainSubstring("caCertificateSecretRef"))
+	})
+
+	It("publishes a wildcard Secret in another namespace with that namespace", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		wildcard := makeWildcardSecret(true)
+		wildcard.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, wildcard)).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.WildcardCertificateSecretRef.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+		Expect(got.Status.Ingress.WildcardCertificateSecretRef).To(Equal(&configv1alpha1.NamespacedSecretRef{
+			Namespace: testCASecretsNamespace,
+			Name:      "wildcard-tls",
+		}))
+	})
+
+	It("flips to Degraded when the wildcard Secret is missing from the referenced namespace", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		// The Secret exists, but in the operator namespace only.
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.WildcardCertificateSecretRef.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+		ready := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+		Expect(ready.Message).To(ContainSubstring("wildcardCertificateSecretRef"))
+		Expect(ready.Message).To(ContainSubstring(testCASecretsNamespace + "/wildcard-tls not found"))
+	})
+
+	It("publishes educates-ingress-ca holding only the CA Secret's ca.crt, even when it also holds a key", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
+		ca := testpki.NewRootCA()
+		Expect(k8sClient.Create(ctx, makeSecret(testCASecretsNamespace, "byo-ca", map[string][]byte{
+			"ca.crt":  ca.CertPEM,
+			"tls.crt": ca.CertPEM,
+			"tls.key": ca.KeyPEM,
+		}))).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.SecretReference{
+			Name:      "byo-ca",
+			Namespace: testCASecretsNamespace,
+		}
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+		Expect(got.Status.Ingress.CACertificateSecretRef).To(Equal(&configv1alpha1.NamespacedSecretRef{
+			Namespace: testOperatorNamespace,
+			Name:      ingressCASecretName,
+		}))
+		Expect(ingressCAData()).To(Equal(map[string][]byte{"ca.crt": ca.CertPEM}))
+
+		derived := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: ingressCASecretName}, derived)).To(Succeed())
+		Expect(derived.Type).To(Equal(corev1.SecretTypeOpaque))
+		Expect(derived.OwnerReferences).To(HaveLen(1))
+		Expect(derived.OwnerReferences[0].Kind).To(Equal("EducatesClusterConfig"))
+	})
+
+	It("flips to Degraded when the CA Secret has no ca.crt", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
+		ca := testpki.NewRootCA()
+		Expect(k8sClient.Create(ctx, makeSecret(testOperatorNamespace, "byo-ca", map[string][]byte{
+			"tls.crt": ca.CertPEM,
+			"tls.key": ca.KeyPEM,
+		}))).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.SecretReference{Name: "byo-ca"}
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+		ready := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+		Expect(ready.Message).To(ContainSubstring("caCertificateSecretRef"))
+		Expect(ready.Message).To(ContainSubstring(`"ca.crt"`))
+		Expect(ingressCAData()).To(BeNil())
 	})
 
 	It("clears the finalizer on delete", func() {

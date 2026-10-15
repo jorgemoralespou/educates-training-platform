@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 )
 
 // We unit-test the namespace-collection logic by factoring through a
@@ -91,8 +92,9 @@ func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 		Ingress: configv1alpha1.InlineIngress{
 			Domain:           "workshop.example.com",
 			IngressClassName: "contour",
-			WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
-				Name: "wildcard",
+			WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
+				Name:      "wildcard",
+				Namespace: "shared-tls",
 			},
 			CACertificateSecretRef: &configv1alpha1.SecretReference{
 				Name:      "byo-ca",
@@ -106,9 +108,32 @@ func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"educates-installer", "educates-secrets", "shared-ca"}
+	want := []string{"educates-installer", "educates-secrets", "shared-ca", "shared-tls"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Inline CA NS not folded in: got %v, want %v", got, want)
+		t.Errorf("Inline wildcard and CA namespaces not folded in: got %v, want %v", got, want)
+	}
+}
+
+func TestCollectFromECC_SessionManagerCAOverrideNS_Added(t *testing.T) {
+	scheme := testScheme(t)
+	sm := &platformv1alpha1.SessionManager{}
+	sm.Name = eccSingletonName
+	sm.Spec.IngressOverrides = &platformv1alpha1.IngressOverrides{
+		CACertificateSecretRef: &platformv1alpha1.SecretReference{
+			Name:      "portal-ca",
+			Namespace: "portal-ca-secrets",
+		},
+	}
+	// No EducatesClusterConfig yet: the SessionManager is read on its own.
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sm).Build()
+
+	got, err := collectFromClient(context.Background(), c, "educates-installer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"educates-installer", "educates-secrets", "portal-ca-secrets"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SessionManager CA override namespace not folded in: got %v, want %v", got, want)
 	}
 }
 
@@ -150,5 +175,6 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	s := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(s))
 	utilruntime.Must(configv1alpha1.AddToScheme(s))
+	utilruntime.Must(platformv1alpha1.AddToScheme(s))
 	return s
 }

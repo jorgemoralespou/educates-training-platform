@@ -26,6 +26,7 @@ import (
 	releasecommon "helm.sh/helm/v4/pkg/release/common"
 	release "helm.sh/helm/v4/pkg/release/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,8 +39,19 @@ import (
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
+	"github.com/educates/educates-training-platform/installer/operator/internal/testpki"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
+
+// testOperatorNamespace is the operator namespace the SessionManager
+// reconciler runs with, matching the namespace of the references the
+// cluster config fixtures publish.
+const testOperatorNamespace = "educates-installer"
+
+// testCAOverrideNamespace holds CA override Secrets, a namespace other
+// than the operator namespace.
+const testCAOverrideNamespace = "test-ca-override"
 
 // makeReadySecretsManager creates the SecretsManager singleton and
 // stamps Ready=True directly via the status subresource. Used as a
@@ -99,6 +111,8 @@ var _ = Describe("SessionManager reconciler", func() {
 
 	BeforeEach(func() {
 		ensureNamespace(platformNamespace)
+		ensureNamespace(testOperatorNamespace)
+		ensureNamespace(testCAOverrideNamespace)
 		helmFac = newMemoryHelmFactory()
 
 		var mgrCtx context.Context
@@ -112,9 +126,11 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		Expect((&SessionManagerReconciler{
-			Client:        mgr.GetClient(),
-			Scheme:        mgr.GetScheme(),
-			HelmClientFor: helmFac.For,
+			Client:            mgr.GetClient(),
+			APIReader:         mgr.GetAPIReader(),
+			Scheme:            mgr.GetScheme(),
+			OperatorNamespace: testOperatorNamespace,
+			HelmClientFor:     helmFac.For,
 		}).SetupWithManager(mgr)).To(Succeed())
 
 		mgrDone = make(chan error, 1)
@@ -145,6 +161,141 @@ var _ = Describe("SessionManager reconciler", func() {
 		}
 		_ = k8sClient.DeleteAllOf(ctx, &configv1alpha1.EducatesClusterConfig{})
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(platformNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testCAOverrideNamespace))
+	})
+
+	// smCACertificateRefValue returns the clusterIngress.caCertificateRef
+	// value of the session-manager release, or nil while there is no
+	// release.
+	smCACertificateRefValue := func() any {
+		hc, err := helmFac.For(platformNamespace)
+		if err != nil {
+			return nil
+		}
+		rel, err := hc.Status(sessionManagerReleaseName)
+		if err != nil {
+			return nil
+		}
+		ci, _ := rel.Config["clusterIngress"].(map[string]any)
+		return ci["caCertificateRef"]
+	}
+
+	// overrideCAData returns the data of the key-free copy of the CA
+	// override, or nil while it does not exist.
+	overrideCAData := func() map[string][]byte {
+		s := &corev1.Secret{}
+		key := types.NamespacedName{Namespace: testOperatorNamespace, Name: sessionManagerIngressCASecretName}
+		if err := k8sClient.Get(ctx, key, s); err != nil {
+			return nil
+		}
+		return s.Data
+	}
+
+	withCAOverride := func(name string) *platformv1alpha1.SessionManager {
+		return &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec: platformv1alpha1.SessionManagerSpec{
+				IngressOverrides: &platformv1alpha1.IngressOverrides{
+					CACertificateSecretRef: &platformv1alpha1.SecretReference{
+						Name:      name,
+						Namespace: testCAOverrideNamespace,
+					},
+				},
+			},
+		}
+	}
+
+	It("derives a key-free copy of a CA override in another namespace and points the chart values at it", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		publishIngressCAOnClusterConfig()
+		ca := testpki.NewRootCA()
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "override-ca", Namespace: testCAOverrideNamespace},
+			Data: map[string][]byte{
+				"ca.crt":  ca.CertPEM,
+				"tls.crt": ca.CertPEM,
+				"tls.key": ca.KeyPEM,
+			},
+		})).To(Succeed())
+
+		Expect(k8sClient.Create(ctx, withCAOverride("override-ca"))).To(Succeed())
+
+		Eventually(smCACertificateRefValue, 30*time.Second, 200*time.Millisecond).Should(Equal(map[string]any{
+			"name":      sessionManagerIngressCASecretName,
+			"namespace": testOperatorNamespace,
+		}))
+		Expect(overrideCAData()).To(Equal(map[string][]byte{"ca.crt": ca.CertPEM}))
+
+		derived := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: sessionManagerIngressCASecretName}, derived)).To(Succeed())
+		Expect(derived.Type).To(Equal(corev1.SecretTypeOpaque))
+		Expect(derived.OwnerReferences).To(HaveLen(1))
+		Expect(derived.OwnerReferences[0].Kind).To(Equal("SessionManager"))
+		Expect(derived.OwnerReferences[0].Name).To(Equal(singletonName))
+	})
+
+	It("refreshes the key-free copy when the CA override's Secret changes", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		first, second := testpki.NewRootCA(), testpki.NewRootCA()
+		source := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "override-ca", Namespace: testCAOverrideNamespace},
+			Data:       map[string][]byte{"ca.crt": first.CertPEM},
+		}
+		Expect(k8sClient.Create(ctx, source)).To(Succeed())
+		Expect(k8sClient.Create(ctx, withCAOverride("override-ca"))).To(Succeed())
+		Eventually(overrideCAData, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(map[string][]byte{"ca.crt": first.CertPEM}))
+
+		// No spec change and less than the reconciler's own requeue
+		// delay: only the Secret watch can carry this through.
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(source), source)).To(Succeed())
+		source.Data = map[string][]byte{"ca.crt": second.CertPEM}
+		Expect(k8sClient.Update(ctx, source)).To(Succeed())
+
+		Eventually(overrideCAData, 10*time.Second, 200*time.Millisecond).
+			Should(Equal(map[string][]byte{"ca.crt": second.CertPEM}))
+	})
+
+	It("refuses a CA override whose Secret is missing, with a specific reason", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+
+		Expect(k8sClient.Create(ctx, withCAOverride("missing-ca"))).To(Succeed())
+
+		Eventually(func() string {
+			return smgrConditionReason(conditionReady)
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal(pki.ReasonCATrustSecretNotFound))
+		Expect(overrideCAData()).To(BeNil())
+
+		hc, err := helmFac.For(platformNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, statusErr := hc.Status(sessionManagerReleaseName)
+		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+	})
+
+	It("drops the key-free copy and returns to the cluster CA when the override is removed", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		publishIngressCAOnClusterConfig()
+		ca := testpki.NewRootCA()
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "override-ca", Namespace: testCAOverrideNamespace},
+			Data:       map[string][]byte{"ca.crt": ca.CertPEM},
+		})).To(Succeed())
+		Expect(k8sClient.Create(ctx, withCAOverride("override-ca"))).To(Succeed())
+		Eventually(overrideCAData, 30*time.Second, 200*time.Millisecond).ShouldNot(BeNil())
+
+		smgr := &platformv1alpha1.SessionManager{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, smgr)).To(Succeed())
+		smgr.Spec.IngressOverrides = nil
+		Expect(k8sClient.Update(ctx, smgr)).To(Succeed())
+
+		Eventually(overrideCAData, 30*time.Second, 200*time.Millisecond).Should(BeNil())
+		Eventually(smCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(ingressCAChartRef()))
 	})
 
 	It("refuses when EducatesClusterConfig is missing", func() {

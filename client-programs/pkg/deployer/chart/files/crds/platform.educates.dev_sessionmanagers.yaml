@@ -144,13 +144,22 @@ spec:
                 properties:
                   caCertificateSecretRef:
                     description: |-
-                      LocalObjectReference is a name-only reference to an object in the
-                      operator namespace (or, for cluster-scoped kinds, to the cluster-
-                      scoped object). Mirrors the shape used in the config API group;
-                      duplicated here to avoid cross-group Go coupling.
+                      caCertificateSecretRef optionally references a CA trust Secret
+                      holding, under ca.crt, the CA certificate that replaces the
+                      cluster's ingress CA for session-manager and the training portals
+                      and workshop sessions it creates. Namespace defaults to the
+                      operator namespace when empty. session-manager never receives this
+                      Secret: the operator derives the operator-owned
+                      educates-session-manager-ingress-ca in the operator namespace from
+                      its ca.crt alone, so any other key it holds, a private key
+                      included, is ignored.
                     properties:
                       name:
                         description: name of the referent.
+                        type: string
+                      namespace:
+                        description: namespace of the referent. Empty means the operator
+                          namespace.
                         type: string
                     required:
                     - name

@@ -107,7 +107,7 @@ func assertMountsOnlyCACrt(t *testing.T, workloads []renderedWorkload, caSecretN
 
 func TestSessionManagerChart_MountsOnlyCACrtFromCATrustSecret(t *testing.T) {
 	cfg := valuesTestClusterConfig()
-	values := renderSessionManagerValues(&platformv1alpha1.SessionManager{}, cfg)
+	values := renderSessionManagerValues(&platformv1alpha1.SessionManager{}, cfg, "educates-installer")
 
 	workloads := renderWorkloads(t, vendoredcharts.SessionManager, values)
 

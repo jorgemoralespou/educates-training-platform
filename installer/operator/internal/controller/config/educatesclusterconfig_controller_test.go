@@ -203,7 +203,7 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 					Ingress: configv1alpha1.InlineIngress{
 						Domain:           "educates.test",
 						IngressClassName: "contour",
-						WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+						WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 							Name: "wildcard-tls",
 						},
 					},
@@ -231,7 +231,7 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 					Ingress: configv1alpha1.InlineIngress{
 						Domain:           "educates.test",
 						IngressClassName: "contour",
-						WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+						WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 							Name: "wildcard-tls",
 						},
 					},

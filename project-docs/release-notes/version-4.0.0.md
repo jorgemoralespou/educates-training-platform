@@ -544,20 +544,52 @@ Features Changed
   references take an optional ``namespace``, which defaults to the operator
   namespace. Local deploys emit the new field name.
 
-* In ``Managed`` mode with a custom CA, Educates components now receive the
-  CA certificate through a secret named ``educates-ingress-ca`` that the
-  operator creates and owns in its own namespace, and publishes as
-  ``status.ingress.caCertificateSecretRef`` of the ``EducatesClusterConfig``.
-  The secret holds a single key, ``ca.crt``, and never a private key, whatever
-  the source secret holds. The certificate comes from the CA trust secret when
-  one is referenced, otherwise from the ``ca.crt`` key of the CA key pair,
-  otherwise from the root-most certificate of the key pair's ``tls.crt``
-  chain, and the secret is updated when its source secret changes.
+* Whenever a CA is configured, in ``Managed`` mode with a custom CA or in
+  ``Inline`` mode with ``inline.ingress.caCertificateSecretRef``, Educates
+  components now receive the CA certificate through a secret named
+  ``educates-ingress-ca`` that the operator creates and owns in its own
+  namespace, and publishes as ``status.ingress.caCertificateSecretRef`` of
+  the ``EducatesClusterConfig``. The secret holds a single key, ``ca.crt``,
+  and never a private key, whatever the source secret holds. In ``Managed``
+  mode the certificate comes from the CA trust secret when one is
+  referenced, otherwise from the ``ca.crt`` key of the CA key pair, otherwise
+  from the root-most certificate of the key pair's ``tls.crt`` chain. In
+  ``Inline`` mode it comes from the ``ca.crt`` key of the referenced CA
+  secret, and any other key that secret holds is ignored, so a CA secret
+  that also holds a private key keeps working without the key reaching any
+  component. The secret is updated when its source secret changes.
   Previously no CA was published in ``Managed`` mode, so the session manager,
   lookup service, training portals, workshop sessions and cluster nodes did
   not trust certificates issued from a custom CA, and workshops calling their
-  own ingress over HTTPS failed. The CA's private key now stays in the
-  namespace of the CA key pair and in the ``cert-manager`` namespace.
+  own ingress over HTTPS failed, while ``Inline`` mode published the
+  referenced CA secret itself, with whatever keys it held. In ``Managed``
+  mode the CA's private key now stays in the namespace of the CA key pair and
+  in the ``cert-manager`` namespace.
+
+* The ``inline.ingress.wildcardCertificateSecretRef`` field of the
+  ``EducatesClusterConfig`` now takes an optional ``namespace``, which
+  defaults to the operator namespace, as
+  ``inline.ingress.caCertificateSecretRef`` already did, so the wildcard
+  certificate can be kept outside the operator namespace.
+  ``status.ingress.wildcardCertificateSecretRef`` names the referenced secret
+  with its namespace, and changes to either referenced secret are reflected
+  in the status. The ``EducatesInlineConfig`` configuration kind still names
+  secrets in the operator namespace; use the ``EducatesConfig`` escape hatch
+  to name another namespace.
+
+* The ``ingressOverrides.caCertificateSecretRef`` field of the
+  ``SessionManager`` resource now takes an optional ``namespace``, which
+  defaults to the operator namespace. Previously the secret was looked up in
+  the namespace of the cluster's wildcard certificate. The session manager
+  no longer receives the referenced secret itself: the operator copies its
+  ``ca.crt`` key, and nothing else, into a secret named
+  ``educates-session-manager-ingress-ca`` that it creates and owns in its own
+  namespace, keeps it updated when the referenced secret changes, and passes
+  that secret to the session manager in place of ``educates-ingress-ca``.
+  When the referenced secret is missing or holds no valid certificate under
+  ``ca.crt``, the ``SessionManager`` reports ``Ready`` as ``False`` with a
+  reason naming the problem, being ``CATrustSecretNotFound``,
+  ``CATrustSecretIncomplete`` or ``CATrustSecretInvalidCertificate``.
 
 * With ``nodeCATrust.mode`` left at ``Auto`` in the ``SessionManager``
   resource, the node CA injector is now installed on clusters that use a

@@ -115,7 +115,7 @@ imageRegistry:
 externalTLSTermination: false                  # true when a proxy/LB terminates TLS in front of the cluster
 ```
 
-`domain`, `ingressClassName` and `wildcardCertificateSecret` are required. The referenced Secrets must exist in the operator's namespace before deployment. See [secure HTTP connections](secure-http-connections) for the certificate options across all scenarios.
+`domain`, `ingressClassName` and `wildcardCertificateSecret` are required. The referenced Secrets must exist in the operator's namespace before deployment. Educates components never receive the `caCertificateSecret` itself, only a copy of its `ca.crt`. To keep the Secrets in another namespace, use the `EducatesConfig` escape hatch, whose `inline.ingress.wildcardCertificateSecretRef` and `inline.ingress.caCertificateSecretRef` take an optional `namespace`. See [secure HTTP connections](secure-http-connections) for the certificate options across all scenarios.
 
 Note that with `workshopEngine: None` there is no workshop-level security policy enforcement — see the [cluster requirements](cluster-requirements) discussion before serving untrusted users.
 
@@ -187,7 +187,7 @@ Session manager settings
 
 Runtime behavior settings live on the `SessionManager` custom resource spec, reachable via the `sessionManager` block of `EducatesConfig` (or directly when applying resources yourself):
 
-* `ingressOverrides` — per-component TLS/CA Secret overrides, plus `protocol` to assert `https` URLs when TLS is terminated outside the cluster (this is what the kinds' `externalTLSTermination` translates to).
+* `ingressOverrides`: overrides of the cluster's ingress TLS Secret (`tlsSecretRef`, named in the namespace of the cluster's wildcard certificate) and CA (`caCertificateSecretRef`, a Secret holding `ca.crt`, with an optional `namespace` that defaults to the operator namespace; the session manager receives only its `ca.crt`, through the operator-owned `educates-session-manager-ingress-ca`), plus `protocol` to assert `https` URLs when TLS is terminated outside the cluster (this is what the kinds' `externalTLSTermination` translates to).
 * `tracking` — analytics integrations (Google Analytics, Amplitude, Microsoft Clarity, webhooks).
 * `sessionCookieDomain` — share the authentication cookie across subdomains.
 * `allowedEmbeddingHosts` — sites permitted to embed workshop sessions (CSP frame ancestors).
@@ -196,7 +196,7 @@ Runtime behavior settings live on the `SessionManager` custom resource spec, rea
 * `images` — per-image overrides for runtime-spawned images.
 * `themes`/`defaultTheme` — Secret-sourced workshop themes.
 * `imagePrePuller` — pre-pull key images on cluster nodes.
-* `nodeCATrust`, `remoteAccess` — node-level CA trust injection and cross-cluster CLI access. With `nodeCATrust.mode` at its default, `Auto`, the node CA injector is installed whenever the cluster publishes a CA, which includes every Managed mode install with a custom CA. Set it to `Disabled` to keep the privileged node CA injector DaemonSet off.
+* `nodeCATrust`, `remoteAccess`: node-level CA trust injection and cross-cluster CLI access. With `nodeCATrust.mode` at its default, `Auto`, the node CA injector is installed whenever the cluster publishes a CA, which includes every Managed mode install with a custom CA and every Inline mode install that names a CA Secret. Set it to `Disabled` to keep the privileged node CA injector DaemonSet off.
 
 Use `kubectl explain sessionmanager.spec` for the full schema. A few spec blocks (`defaultAccessCredentials`, `registryMirrors`, and ConfigMap/URL-sourced themes) are reserved in the CRD but rejected as not yet supported in this release.
 

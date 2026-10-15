@@ -105,10 +105,14 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 	}
 
 	// matchesOpNamespaceRef holds for refs that are operator-namespace-
-	// scoped by design (everything except CustomCA, which can be
-	// cross-namespace via SecretReference).
+	// scoped by design (the name-only image pull Secret references).
 	matchesOpNamespaceRef := func(refName string) bool {
 		return ns == r.OperatorNamespace && name == refName
+	}
+	// matchesSecretRef holds for a SecretReference, which may name
+	// another namespace; compare both namespace and name.
+	matchesSecretRef := func(ref *configv1alpha1.SecretReference) bool {
+		return ref != nil && ns == r.secretRefNamespace(*ref) && name == ref.Name
 	}
 
 	switch cr.Spec.Mode {
@@ -116,17 +120,9 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 		if cr.Spec.Inline == nil {
 			return nil
 		}
-		if ref := cr.Spec.Inline.Ingress.WildcardCertificateSecretRef; ref != nil && matchesOpNamespaceRef(ref.Name) {
+		if matchesSecretRef(cr.Spec.Inline.Ingress.WildcardCertificateSecretRef) ||
+			matchesSecretRef(cr.Spec.Inline.Ingress.CACertificateSecretRef) {
 			return singletonRequest
-		}
-		if ref := cr.Spec.Inline.Ingress.CACertificateSecretRef; ref != nil {
-			refNS := ref.Namespace
-			if refNS == "" {
-				refNS = r.OperatorNamespace
-			}
-			if ns == refNS && name == ref.Name {
-				return singletonRequest
-			}
 		}
 		if cr.Spec.Inline.ImageRegistry != nil {
 			for _, ref := range cr.Spec.Inline.ImageRegistry.PullSecrets {
@@ -137,18 +133,11 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 		}
 	case configv1alpha1.ClusterConfigModeManaged:
 		if ca := customCAConfig(cr); ca != nil {
-			// SecretReference allows cross-namespace; compare both
-			// namespace and name. The CA key pair feeds the ClusterIssuer
-			// copy and, like the CA trust Secret, the derived
-			// educates-ingress-ca, so a change to either must reconcile.
-			refs := []configv1alpha1.SecretReference{ca.CAKeyPairSecretRef}
-			if ca.CACertificateSecretRef != nil {
-				refs = append(refs, *ca.CACertificateSecretRef)
-			}
-			for _, ref := range refs {
-				if ns == r.secretRefNamespace(ref) && name == ref.Name {
-					return singletonRequest
-				}
+			// The CA key pair feeds the ClusterIssuer copy and, like the
+			// CA trust Secret, the derived educates-ingress-ca, so a
+			// change to either must reconcile.
+			if matchesSecretRef(&ca.CAKeyPairSecretRef) || matchesSecretRef(ca.CACertificateSecretRef) {
+				return singletonRequest
 			}
 		}
 		if cr.Spec.ImageRegistry != nil {

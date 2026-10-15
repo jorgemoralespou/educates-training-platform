@@ -704,7 +704,7 @@
               "description": "InlineIngress declares pre-existing ingress resources for Inline\nmode. The operator validates these and republishes them in status.",
               "properties": {
                 "caCertificateSecretRef": {
-                  "description": "caCertificateSecretRef references a Secret with the ca.crt key\nfor the issuing CA chain. Optional.",
+                  "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding the certificate of the CA that issued the wildcard\ncertificate, under ca.crt. Namespace defaults to the operator\nnamespace when empty. Educates components never receive this\nSecret: the operator derives educates-ingress-ca from its ca.crt\nalone, so any other key it holds, a private key included, is\nignored.",
                   "properties": {
                     "name": {
                       "description": "name of the referent.",
@@ -748,10 +748,14 @@
                   "type": "string"
                 },
                 "wildcardCertificateSecretRef": {
-                  "description": "wildcardCertificateSecretRef references a kubernetes.io/tls Secret\nwith keys tls.crt and tls.key, valid for *.\u003cdomain\u003e. Omit it when\nthe cluster serves plain HTTP or terminates TLS outside the\ncluster.",
+                  "description": "wildcardCertificateSecretRef references a kubernetes.io/tls Secret\nwith keys tls.crt and tls.key, valid for *.\u003cdomain\u003e. Namespace\ndefaults to the operator namespace when empty. Omit it when the\ncluster serves plain HTTP or terminates TLS outside the cluster.",
                   "properties": {
                     "name": {
                       "description": "name of the referent.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "namespace of the referent. Empty means the operator namespace.",
                       "type": "string"
                     }
                   },
@@ -1167,10 +1171,14 @@
           "description": "IngressOverrides allows SessionManager to override the cluster-wide\ningress secrets for the bare-domain hostnames it serves directly\n(TrainingPortal CRs prefix the domain for individual portals).",
           "properties": {
             "caCertificateSecretRef": {
-              "description": "LocalObjectReference is a name-only reference to an object in the\noperator namespace (or, for cluster-scoped kinds, to the cluster-\nscoped object). Mirrors the shape used in the config API group;\nduplicated here to avoid cross-group Go coupling.",
+              "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding, under ca.crt, the CA certificate that replaces the\ncluster's ingress CA for session-manager and the training portals\nand workshop sessions it creates. Namespace defaults to the\noperator namespace when empty. session-manager never receives this\nSecret: the operator derives the operator-owned\neducates-session-manager-ingress-ca in the operator namespace from\nits ca.crt alone, so any other key it holds, a private key\nincluded, is ignored.",
               "properties": {
                 "name": {
                   "description": "name of the referent.",
+                  "type": "string"
+                },
+                "namespace": {
+                  "description": "namespace of the referent. Empty means the operator namespace.",
                   "type": "string"
                 }
               },
