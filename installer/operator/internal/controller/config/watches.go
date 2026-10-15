@@ -42,10 +42,9 @@ import (
 //
 //  1. Operator-owned resources (wildcard tls Secret, derived CA trust
 //     Secret, copied CustomCA Secret, wildcard ClusterIssuer +
-//     Certificate, cert-manager
-//     namespace's Deployments) always enqueue regardless of CR state.
-//     We need to detect drift on resources we created even if the CR
-//     is mid-deletion.
+//     Certificate, cert-manager namespace's Deployments) always enqueue
+//     regardless of CR state. We need to detect drift on resources we
+//     created even if the CR is mid-deletion.
 //  2. Otherwise, look up the singleton CR. If it doesn't exist, drop
 //     the event — there's nothing to reconcile against. The CR's
 //     own creation event will wake the reconciler when it appears.

@@ -245,7 +245,7 @@ func parseCertificates(data []byte) ([]*x509.Certificate, error) {
 }
 
 func encodeCertificates(certs []*x509.Certificate) []byte {
-	var out []byte
+	out := make([]byte, 0, len(certs)*1024)
 	for _, cert := range certs {
 		out = append(out, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})...)
 	}
