@@ -216,14 +216,14 @@ func main() {
 
 	// Scope the Secret cache to: operator namespace, 'educates-secrets'
 	// (v3 / CLI laptop convention), plus any cross-namespace refs the
-	// current EducatesClusterConfig singleton points at. APIReader still
-	// handles ad-hoc reads from elsewhere; the cache scope here only
-	// affects watch-driven enqueue.
+	// current EducatesClusterConfig and SessionManager singletons point
+	// at. APIReader still handles ad-hoc reads from elsewhere; the cache
+	// scope here only affects watch-driven enqueue.
 	//
-	// Boot-time discovery: if the user later edits the ECC to point at
-	// a new namespace, the operator pod needs to restart to pick up the
-	// watch. The reconciler emits a Warning event in that case so it's
-	// user-visible. Live re-scoping of the cache mid-process is a
+	// Boot-time discovery: if the user later edits either singleton to
+	// point at a new namespace, the operator pod needs to restart to pick
+	// up the watch. The EducatesClusterConfig reconciler logs a warning
+	// in that case. Live re-scoping of the cache mid-process is a
 	// follow-up (would require unwinding the manager / using a separate
 	// informer pool).
 	secretCacheNamespaces, err := discoverCachedSecretNamespaces(signalCtx, restCfg, scheme, operatorNamespace)
