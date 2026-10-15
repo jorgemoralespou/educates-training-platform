@@ -6,8 +6,8 @@ import (
 	"path"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -62,51 +62,6 @@ func LocalCachedSecretForIngressDomain(domain string) string {
 			}
 
 			if value, exists := secretObj.Data["tls.key"]; !exists || len(value) == 0 {
-				continue
-			}
-
-			return name
-		}
-	}
-
-	return ""
-}
-
-func LocalCachedSecretForCertificateAuthority(domain string) string {
-	files, err := os.ReadDir(secretsCacheDir())
-
-	if err != nil {
-		return ""
-	}
-
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".yaml") {
-			name := strings.TrimSuffix(f.Name(), ".yaml")
-			secretObj, err := decodeFileIntoSecret(f.Name())
-			if err != nil {
-				continue
-			}
-
-			annotations := secretObj.ObjectMeta.Annotations
-
-			// Domain name must match.
-			if val, found := annotations["training.educates.dev/domain"]; !found || val != domain {
-				continue
-			}
-
-			// v4 CustomCA flow: cert-manager signs workshop certs from
-			// this CA, so the Secret must carry both the CA cert and
-			// its private key. v3's Opaque+ca.crt shape (cert only,
-			// for trust distribution) is no longer supported — users
-			// who want a non-signing CA reference switch to the
-			// EducatesConfig escape hatch.
-			if secretObj.Type != apiv1.SecretTypeTLS {
-				continue
-			}
-			if v, ok := secretObj.Data["tls.crt"]; !ok || len(v) == 0 {
-				continue
-			}
-			if v, ok := secretObj.Data["tls.key"]; !ok || len(v) == 0 {
 				continue
 			}
 

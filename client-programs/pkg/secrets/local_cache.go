@@ -119,21 +119,8 @@ func RemoveCachedSecret(name string) error {
 
 // NewTLSSecret builds a kubernetes.io/tls Secret from PEM-encoded cert and
 // key bytes. When ingressDomain is non-empty it is recorded in the
-// training.educates.dev/domain annotation so the lookup helpers can match
-// the secret to a wildcard ingress domain.
+// DomainAnnotation annotation.
 func NewTLSSecret(name string, certPEM, keyPEM []byte, ingressDomain string) *apiv1.Secret {
-	return newCertSecret(name, certPEM, keyPEM, ingressDomain)
-}
-
-// NewCASecret builds the Secret for a signing CA. In the v4 CustomCA flow
-// cert-manager signs workshop certificates from this CA, so it carries both
-// tls.crt and tls.key and is structurally a kubernetes.io/tls secret —
-// identical in shape to NewTLSSecret.
-func NewCASecret(name string, certPEM, keyPEM []byte, ingressDomain string) *apiv1.Secret {
-	return newCertSecret(name, certPEM, keyPEM, ingressDomain)
-}
-
-func newCertSecret(name string, certPEM, keyPEM []byte, ingressDomain string) *apiv1.Secret {
 	secret := &apiv1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -147,10 +134,112 @@ func newCertSecret(name string, certPEM, keyPEM []byte, ingressDomain string) *a
 	}
 
 	if ingressDomain != "" {
-		secret.ObjectMeta.Annotations["training.educates.dev/domain"] = ingressDomain
+		secret.ObjectMeta.Annotations[DomainAnnotation] = ingressDomain
 	}
 
 	return secret
+}
+
+// Roles of CA material in the local secrets cache. A root CA named NAME
+// is cached as two Secrets: its CA trust Secret NAME, which holds only the
+// root certificate and is synced to clusters, and its CA root key pair
+// NAME-root-key-pair, which never leaves this machine. Each ingress domain
+// gets a CA key pair <domain>-ca-key-pair, an intermediate CA minted from
+// the root and limited to that domain, which is the only CA key a cluster
+// receives.
+const (
+	// RootKeyPairSuffix ends the name of a CA root key pair.
+	RootKeyPairSuffix = "-root-key-pair"
+
+	// CAKeyPairSuffix ends the name of a CA key pair minted for an
+	// ingress domain.
+	CAKeyPairSuffix = "-ca-key-pair"
+
+	// DomainAnnotation records the ingress domain a cached Secret is
+	// for. A CA key pair carries the domain it was minted for.
+	DomainAnnotation = "training.educates.dev/domain"
+
+	// RootCAAnnotation records, on a CA key pair, the name of the root
+	// CA it was minted from.
+	RootCAAnnotation = "training.educates.dev/root-ca"
+)
+
+// RootKeyPairName is the name of the CA root key pair of root CA root.
+func RootKeyPairName(root string) string {
+	return root + RootKeyPairSuffix
+}
+
+// CAKeyPairName is the name of the CA key pair minted for ingress domain
+// domain.
+func CAKeyPairName(domain string) string {
+	return domain + CAKeyPairSuffix
+}
+
+// NewCATrustSecret builds a CA trust Secret: an Opaque Secret holding
+// only a CA certificate, as ca.crt.
+func NewCATrustSecret(name string, certPEM []byte) *apiv1.Secret {
+	return &apiv1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Type:       apiv1.SecretTypeOpaque,
+		Data:       map[string][]byte{"ca.crt": certPEM},
+	}
+}
+
+// NewCARootKeyPairSecret builds the CA root key pair of root CA root: a
+// kubernetes.io/tls Secret named RootKeyPairName(root) holding the root
+// certificate as tls.crt and its private key as tls.key.
+func NewCARootKeyPairSecret(root string, certPEM, keyPEM []byte) *apiv1.Secret {
+	return &apiv1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: RootKeyPairName(root)},
+		Type:       apiv1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": certPEM,
+			"tls.key": keyPEM,
+		},
+	}
+}
+
+// NewCAKeyPairSecret builds the CA key pair for ingress domain domain,
+// minted from root CA root: a kubernetes.io/tls Secret named
+// CAKeyPairName(domain) holding the CA certificate followed by the root
+// certificate as tls.crt, the CA's private key as tls.key and the root
+// certificate as ca.crt, annotated with its domain and its root.
+func NewCAKeyPairSecret(domain, root string, certPEM, keyPEM, rootPEM []byte) *apiv1.Secret {
+	chain := make([]byte, 0, len(certPEM)+len(rootPEM))
+	chain = append(chain, certPEM...)
+	chain = append(chain, rootPEM...)
+	return &apiv1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: CAKeyPairName(domain),
+			Annotations: map[string]string{
+				DomainAnnotation: domain,
+				RootCAAnnotation: root,
+			},
+		},
+		Type: apiv1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": chain,
+			"tls.key": keyPEM,
+			"ca.crt":  rootPEM,
+		},
+	}
+}
+
+// CachedRootCAs returns the names of the root CAs in the local secrets
+// cache, sorted: one for each CA root key pair, named as its CA trust
+// Secret. It only reads the cache.
+func CachedRootCAs() ([]string, error) {
+	names, err := ListCachedSecretNames()
+	if err != nil {
+		return nil, err
+	}
+	var roots []string
+	for _, name := range names {
+		if root, ok := strings.CutSuffix(name, RootKeyPairSuffix); ok {
+			roots = append(roots, root)
+		}
+	}
+	return roots, nil
 }
 
 // NewDockerRegistrySecret builds a kubernetes.io/dockerconfigjson Secret

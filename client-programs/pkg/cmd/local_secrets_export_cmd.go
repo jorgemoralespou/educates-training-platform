@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -35,7 +36,7 @@ func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 					return utils.CmdError(cmd, "--pem requires exactly one secret name", "NAME")
 				}
 
-				return printSecretCertificatePEM(args[0])
+				return printSecretCertificatePEM(cmd.OutOrStdout(), args[0])
 			}
 
 			secretsCacheDir, err := secrets.CacheDir()
@@ -62,22 +63,25 @@ func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 }
 
 // printSecretCertificatePEM writes the certificate of a cached TLS/CA
-// secret to stdout as PEM, so it can be redirected to a file and
-// imported into an operating system trust store. The private key is
-// never printed.
-func printSecretCertificatePEM(name string) error {
+// secret to w as PEM, so it can be redirected to a file and imported
+// into an operating system trust store: tls.crt, or ca.crt for a CA
+// trust Secret. The private key is never printed.
+func printSecretCertificatePEM(w io.Writer, name string) error {
 	secret, err := secrets.LoadCachedSecret(name)
 	if err != nil {
 		return err
 	}
 
-	certificate, exists := secret.Data["tls.crt"]
+	certificate := secret.Data["tls.crt"]
+	if len(certificate) == 0 {
+		certificate = secret.Data["ca.crt"]
+	}
 
-	if !exists || len(certificate) == 0 {
+	if len(certificate) == 0 {
 		return errors.Errorf("secret %q does not contain a certificate", name)
 	}
 
-	fmt.Print(string(certificate))
+	_, err = fmt.Fprint(w, string(certificate))
 
-	return nil
+	return err
 }
