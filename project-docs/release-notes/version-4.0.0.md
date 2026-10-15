@@ -448,14 +448,15 @@ Features Changed
   ``SUBJECT`` and ``EXPIRES``. ``TYPE`` is the role of the secret, decided
   the same way a deploy decides it: ``CA certificate``, ``CA root key pair``,
   ``CA intermediate key pair``, ``TLS certificate``,
-  ``Registry credentials`` or ``Generic``. A CA certificate with its private
-  key that a deploy does not use, such as a CA cached by a 4.0.0 alpha
-  release, is shown as ``Unused CA key pair``, and a file that cannot be read
-  or decoded is shown as ``invalid`` while the rest of the list still
-  prints. ``DOMAINS`` is what the secret is valid for: every wildcard domain
-  of a TLS certificate, the ingress domain of a CA key pair, and the
-  permitted DNS name constraints of a CA certificate or CA root key pair, or
-  ``any`` when it has none. ``SUBJECT`` is the common name of the
+  ``Registry credentials`` or ``Generic``. A secret to remove from the cache
+  is shown as ``invalid`` while the rest of the list still prints: a file
+  that cannot be read or decoded, or a CA certificate with its private key
+  that is neither a CA root key pair nor a CA key pair, such as a CA cached
+  by a 4.0.0 alpha release, which a deploy does not use. ``DOMAINS`` is
+  what the secret is valid for: every wildcard domain of a TLS certificate,
+  the ingress domain of a CA key pair, and the permitted DNS name
+  constraints of a CA certificate or CA root key pair, or ``any`` when it
+  has none. ``SUBJECT`` is the common name of the
   certificate's subject, or the whole subject when it has no common name,
   and reads as ``<domain> (<root>)`` for a CA key pair. ``EXPIRES`` is the
   date the certificate expires, or ``expired``.
@@ -800,35 +801,37 @@ Deprecations
 
   CAs cached by 4.0.0 alpha releases, ``kubernetes.io/tls`` secrets holding
   a CA certificate and its private key, are not migrated automatically, and
-  a deploy no longer uses them; ``educates local secrets list`` shows them as
-  ``Unused CA key pair``. To keep a CA you have already imported into
-  your trust store, re-register it as the root CA. With ``NAME`` the name of
-  the cached CA, export its certificate and key, replace it with the root CA
-  and delete the exported key:
+  a deploy no longer uses them: ``educates local secrets list`` shows them as
+  ``invalid``. To keep a CA you have already imported into your trust store,
+  re-register it as the root CA, then remove the old entry. With ``NAME``
+  the name of the cached CA and ``ROOT`` a name for the root CA other than
+  ``NAME``, such as ``educates-ca``, export the certificate and key of the
+  cached CA, register them as the root CA, delete the exported key and
+  remove the old entry:
 
   ```
   educates local secrets export NAME --pem > NAME.crt
   educates local secrets export NAME | awk '$1 == "tls.key:" {print $2}' | base64 --decode > NAME.key
-  educates local secrets remove NAME
-  educates local secrets add ca NAME --cert NAME.crt --key NAME.key
+  educates local secrets add ca ROOT --cert NAME.crt --key NAME.key
   rm NAME.key
+  educates local secrets remove NAME
+  ```
+
+  If the CA was the root CA of ``mkcert``, register it straight from
+  ``mkcert`` instead, then remove the old entry:
+
+  ```
+  educates local secrets add ca ROOT --cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"
+  educates local secrets remove NAME
   ```
 
   The cache holds one root CA, so if you cached a CA for each of several
-  domains, re-register only one of them: deploys for the other domains mint
-  their CAs from it, and you can remove the other CAs from the cache with
-  ``educates local secrets remove`` and from your trust store. If the CA was
-  the root CA of ``mkcert``, register it straight from ``mkcert`` instead:
-
-  ```
-  educates local secrets remove NAME
-  educates local secrets add ca NAME --cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"
-  ```
-
-  Then delete and recreate the local cluster with
-  ``educates local cluster delete`` and ``educates local cluster create``:
-  the cluster still holds the old CA secret, whose type has changed, and an
-  alpha cluster received the CA's private key.
+  domains, re-register only one of them and remove the others with
+  ``educates local secrets remove``: deploys for their domains mint their
+  CAs from the root. Remove those CAs from your trust store too. Then delete
+  and recreate the local cluster with ``educates local cluster delete`` and
+  ``educates local cluster create``: an alpha cluster received the CA's
+  private key, and still holds it in the old CA secret.
 
 * The ``imageCache`` configuration setting has been renamed to
   ``imagePrePuller``. It is now enabled by default in the CLI configuration
