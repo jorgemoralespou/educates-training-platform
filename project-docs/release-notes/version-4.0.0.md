@@ -783,7 +783,12 @@ Deprecations
   secret holding a CA private key, apart from the CA key pair selected for
   the ingress domain. ``educates local secrets sync`` selects that CA key
   pair from the ``ingress.domain`` of the local configuration, minting it
-  when needed, and without a local configuration copies none.
+  when needed, and without a local configuration copies none. When the
+  certificates of the local configuration cannot be decided, such as a
+  secure ``ingress.domain`` with neither a root CA nor a wildcard
+  certificate for it cached, ``educates local secrets sync`` warns why and
+  still copies every secret that holds no CA private key, while a deploy of
+  that configuration fails.
 
   CAs cached by 4.0.0 alpha releases, ``kubernetes.io/tls`` secrets holding
   a CA certificate and its private key, are not migrated automatically, and

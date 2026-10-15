@@ -152,21 +152,33 @@ ingress domain. Remove the root CAs you do not use with:
 // <data-home>/config.yaml that has an ingress.domain, it is the plan
 // Resolve makes for that config. Without one, or for a config whose
 // install derives its domain from the host IP and so serves plain HTTP,
-// no CA key pair is selected and none is pushed. It only reads the cache
-// and the config.
+// no CA key pair is selected and none is pushed. When Resolve cannot
+// decide the certificates of the config, such as a secure domain with
+// nothing usable cached, the sync still pushes every Secret that holds
+// no CA key, and the plan warns why no CA key pair is pushed; a deploy
+// of that config fails until it is fixed. It only reads the cache and
+// the config.
 func ResolveSync() (*Plan, error) {
 	cfg, err := config.LoadLocalConfigIfPresent(utils.GetEducatesHomeDir())
 	if err != nil {
 		return nil, err
 	}
-	if cfg != nil && cfg.Ingress.Domain != "" {
-		return Resolve(cfg)
-	}
 	names, err := secrets.ListCachedSecretNames()
 	if err != nil {
 		return nil, err
 	}
-	return &Plan{SyncSecretNames: syncSecretNames(names, "")}, nil
+	plan := &Plan{SyncSecretNames: syncSecretNames(names, "")}
+	if cfg == nil || cfg.Ingress.Domain == "" {
+		return plan, nil
+	}
+	resolved, err := Resolve(cfg)
+	if err != nil {
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf(`the ingress certificates of the local config cannot be decided, so
+no CA key pair is pushed and deploying the local config fails until this
+is fixed: %v`, err))
+		return plan, nil
+	}
+	return resolved, nil
 }
 
 // tlsCertificate is a wildcard TLS certificate in the local secrets

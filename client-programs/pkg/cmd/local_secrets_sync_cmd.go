@@ -26,7 +26,9 @@ type LocalSecretsSyncOptions struct {
 // Run pushes the cached Secrets the local certificate resolution step
 // selects into the cluster. CA root key pairs are never pushed; a CA key
 // pair is pushed only when the local config selects it, and is minted
-// first when it is missing or stale.
+// first when it is missing or stale. When the certificates of the local
+// config cannot be decided, it warns and pushes every Secret that holds
+// no CA key.
 func (o *LocalSecretsSyncOptions) Run(w io.Writer) error {
 	plan, err := localcerts.ResolveSync()
 
@@ -72,7 +74,10 @@ func (p *ProjectInfo) NewLocalSecretsSyncCmd() *cobra.Command {
 CA root key pairs are never copied. A CA key pair is copied only when the
 local config's ingress.domain selects it, and is minted first from the
 root CA when it is missing or stale. Without a local config, no CA key
-pair is copied.`,
+pair is copied. When the local config's certificates cannot be decided,
+such as a secure ingress.domain with neither a root CA nor a wildcard
+certificate for it cached, the command warns why and copies every secret
+that holds no CA key.`,
 		Example: localSecretsSyncExample,
 		RunE:    func(cmd *cobra.Command, _ []string) error { return o.Run(cmd.OutOrStdout()) },
 	}

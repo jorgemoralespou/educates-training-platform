@@ -1167,6 +1167,37 @@ ingress:
 	}
 }
 
+func TestResolveSync_UnresolvableCertificates_WarnsAndPushesSecretsWithoutCAKeys(t *testing.T) {
+	// A secure ingress domain with neither a root CA nor a wildcard
+	// certificate for it cached: a deploy fails, but a sync still pushes
+	// what holds no CA key.
+	dataHome := withDataHome(t)
+	writeCached(t, secrets.NewCATrustSecret("corporate-ca", testpki.NewRootCA().CertPEM))
+	writeCached(t, secrets.NewDockerRegistrySecret("registry", "registry.test", "user", "pass", ""))
+	alpha := testpki.NewRootCA()
+	writeCached(t, withDomainAnnotation(secrets.NewTLSSecret("workshop.test-ca", alpha.CertPEM, alpha.KeyPEM), "workshop.test"))
+	config := "apiVersion: cli.educates.dev/v1alpha1\nkind: EducatesLocalConfig\ningress:\n  domain: workshop.test\n"
+	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := localcerts.ResolveSync()
+	if err != nil {
+		t.Fatalf("ResolveSync: %v", err)
+	}
+	if want := []string{"corporate-ca", "registry"}; !reflect.DeepEqual(plan.SyncSecretNames, want) {
+		t.Errorf("sync pushes %v, want %v", plan.SyncSecretNames, want)
+	}
+	var r noteRecorder
+	if err := plan.Commit(&r); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if len(r.notes) != 1 || !strings.HasPrefix(r.notes[0], "warning: ") ||
+		!strings.Contains(r.notes[0], `no certificate for ingress domain "workshop.test"`) {
+		t.Errorf("Commit printed %q, want one warning carrying why the certificates cannot be resolved", r.notes)
+	}
+}
+
 func TestResolveSync_InvalidLocalConfig_Errors(t *testing.T) {
 	dataHome := withDataHome(t)
 	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte("kind: [not yaml"), 0o600); err != nil {
