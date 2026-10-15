@@ -144,6 +144,15 @@ func (r CachedSecretRole) HoldsCAKey() bool {
 	return r == CARootKeyPairRole || r == CAKeyPairRole || r == InvalidRole
 }
 
+// HoldsCertificate reports whether a Secret of role r holds a
+// certificate it is for: a CA certificate, a TLS certificate, or any
+// Secret that holds a CA's private key, with the CA's certificate. An
+// entry whose file cannot be read or decoded has the invalid role but no
+// Secret, so no certificate.
+func (r CachedSecretRole) HoldsCertificate() bool {
+	return r == CACertificateRole || r == TLSCertificateRole || r.HoldsCAKey()
+}
+
 // CATrustCertificates returns the CA certificates the ca.crt of s
 // holds, or nil when ca.crt is missing, does not parse, or holds a
 // certificate that is not a CA.

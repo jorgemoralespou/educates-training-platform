@@ -96,10 +96,10 @@ func cachedSecretDomains(name string, role secrets.CachedSecretRole, s *apiv1.Se
 // releases cached one. It is nil for any other Secret, and when that
 // certificate does not parse.
 func cachedSecretCertificate(role secrets.CachedSecretRole, s *apiv1.Secret) *x509.Certificate {
-	switch role {
-	case secrets.CACertificateRole:
+	switch {
+	case role == secrets.CACertificateRole:
 		return secrets.CATrustCertificates(s)[0]
-	case secrets.CARootKeyPairRole, secrets.CAKeyPairRole, secrets.TLSCertificateRole, secrets.InvalidRole:
+	case role.HoldsCertificate():
 		return firstTLSCertificate(s)
 	}
 	return nil

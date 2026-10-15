@@ -75,16 +75,15 @@ func (v *secretViewPrinter) secret(name string, role secrets.CachedSecretRole, s
 		}
 	}
 
-	switch role {
-	case secrets.CACertificateRole, secrets.CARootKeyPairRole, secrets.CAKeyPairRole,
-		secrets.TLSCertificateRole, secrets.InvalidRole:
+	switch {
+	case role.HoldsCertificate():
 		for _, key := range []string{"tls.crt", "ca.crt"} {
 			v.certificates(key, secrets.SecretData(s, key), now)
 		}
 		v.field("Private key", presence(len(secrets.SecretData(s, "tls.key")) > 0))
-	case secrets.RegistryCredentialsRole:
+	case role == secrets.RegistryCredentialsRole:
 		v.field("Registries", registryHosts(s))
-	case secrets.GenericRole:
+	case role == secrets.GenericRole:
 		v.field("Keys", secretKeyNames(s))
 	}
 }
