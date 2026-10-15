@@ -36,17 +36,45 @@ type Output struct {
 // Options carries caller-side inputs that are too environmental for the
 // translator to compute on its own.
 type Options struct {
-	// CASecretName is the name of the Secret in CASecretNamespace that
-	// holds the CustomCA's tls.crt + tls.key. Looked up by domain at
-	// the call site (typically via secrets.LocalCachedSecretForCertificateAuthority).
-	// Required for TranslateLocal; ignored for TranslateEscape (which
-	// passes user-declared CRs through verbatim).
-	CASecretName string
+	// LocalCertificates is how an EducatesLocalConfig install gets its
+	// ingress certificates. The CLI's local certificate resolution step
+	// (package localcerts) decides it from the local secrets cache.
+	// Required for TranslateLocal; the other kinds ignore it.
+	LocalCertificates LocalCertificates
+}
 
-	// CASecretNamespace is the namespace of the CA Secret. Empty means
-	// the operator namespace. For laptop-mode installs aligned with v3,
-	// the caller sets this to "educates-secrets".
-	CASecretNamespace string
+// Values of EducatesClusterConfig ingress.certificates.provider that
+// TranslateLocal emits.
+const (
+	CertificatesProviderNone               = "None"
+	CertificatesProviderBundledCertManager = "BundledCertManager"
+)
+
+// SecretRef names a Secret. An empty Namespace means the operator
+// namespace.
+type SecretRef struct {
+	Name      string
+	Namespace string
+}
+
+// LocalCertificates is the certificate decision TranslateLocal emits as
+// EducatesClusterConfig ingress.certificates.
+type LocalCertificates struct {
+	// Provider is ingress.certificates.provider: one of the
+	// CertificatesProvider constants.
+	Provider string
+
+	// CustomCA is set when Provider is BundledCertManager: cert-manager's
+	// CA issuer signs the wildcard certificate from this CA.
+	CustomCA *LocalCustomCA
+}
+
+// LocalCustomCA holds the Secret references of a BundledCertManager
+// install that uses the CustomCA issuer.
+type LocalCustomCA struct {
+	// CAKeyPairSecretRef names the CA key pair (tls.crt and tls.key) the
+	// issuer signs from.
+	CAKeyPairSecretRef SecretRef
 }
 
 // Translate dispatches on kind. Returns ErrUnknownKind if the loaded

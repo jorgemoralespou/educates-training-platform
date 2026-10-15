@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
+	"github.com/educates/educates-training-platform/client-programs/pkg/localcerts"
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -20,6 +21,12 @@ type LocalSecretsSyncOptions struct {
 }
 
 func (o *LocalSecretsSyncOptions) Run() error {
+	names, err := localcerts.ResolveSync()
+
+	if err != nil {
+		return err
+	}
+
 	clusterConfig, err := cluster.NewClusterConfigIfAvailable(o.Kubeconfig, o.Context)
 
 	if err != nil {
@@ -32,7 +39,7 @@ func (o *LocalSecretsSyncOptions) Run() error {
 		return errors.Wrapf(err, "unable to create Kubernetes client")
 	}
 
-	return secrets.SyncLocalCachedSecretsToCluster(client)
+	return secrets.SyncLocalCachedSecretsToCluster(client, names)
 }
 
 func (p *ProjectInfo) NewLocalSecretsSyncCmd() *cobra.Command {
