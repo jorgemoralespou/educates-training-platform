@@ -28,6 +28,22 @@ import (
 // Structural CRD validation only. Reconciler logic is not under test
 // here.
 
+// ingressWithCertificatesProvider returns a Managed-mode ingress block
+// that passes structural validation, with the given certificates
+// provider.
+func ingressWithCertificatesProvider(provider configv1alpha1.CertificatesProvider) *configv1alpha1.Ingress {
+	return &configv1alpha1.Ingress{
+		Domain:           "educates.test",
+		IngressClassName: "contour",
+		Controller: configv1alpha1.IngressController{
+			Provider: configv1alpha1.IngressControllerProviderBundledContour,
+		},
+		Certificates: configv1alpha1.Certificates{
+			Provider: provider,
+		},
+	}
+}
+
 var _ = Describe("EducatesClusterConfig CRD validation", func() {
 	AfterEach(func() {
 		// Clean up the singleton if a prior test created it; ignore not-found.
@@ -72,6 +88,66 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 		err := k8sClient.Update(ctx, obj)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("immutable"))
+	})
+
+	It("rejects a spec.ingress.certificates.provider change on update (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderNone),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress.Certificates.Provider = configv1alpha1.CertificatesProviderBundledCertManager
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.ingress.certificates.provider is immutable"))
+	})
+
+	It("rejects removing spec.ingress once a certificates provider is set (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderBundledCertManager),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress = nil
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.ingress.certificates.provider is immutable"))
+	})
+
+	It("accepts an update that keeps the certificates provider", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderNone),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress.Domain = "other.educates.test"
+		obj.Spec.Ingress.Protocol = configv1alpha1.IngressProtocolHTTP
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
+	})
+
+	It("accepts adding spec.ingress to a resource created without one", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress = ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderBundledCertManager)
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
 	})
 
 	It("accepts a Managed-mode resource with a None certificates provider and http protocol", func() {

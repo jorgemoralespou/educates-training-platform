@@ -67,7 +67,8 @@ const (
 // provisioned. None disables in-cluster TLS entirely: the operator
 // installs no cert-manager, creates no ClusterIssuer and no wildcard
 // Certificate, and Educates serves plain HTTP unless TLS is terminated
-// outside the cluster (see ingress.protocol).
+// outside the cluster (see ingress.protocol). The provider is immutable:
+// changing it requires deleting and recreating the EducatesClusterConfig.
 // +kubebuilder:validation:Enum=BundledCertManager;ExternalCertManager;StaticCertificate;None
 type CertificatesProvider string
 
@@ -787,12 +788,18 @@ type InlineConfig struct {
 //
 // CEL invariants (structural):
 //   - spec.mode is immutable; switching modes requires delete + recreate.
+//   - spec.ingress.certificates.provider is immutable once set; changing
+//     it requires delete + recreate. Removing spec.ingress counts as a
+//     change, so the provider cannot be swapped by dropping the block
+//     and adding it back. Adding spec.ingress to a resource created
+//     without one sets the provider for the first time and is allowed.
 //   - When mode is Inline, the Managed-mode top-level fields
 //     (infrastructure, ingress, dns, policyEnforcement, imageRegistry)
 //     are forbidden.
 //   - When mode is Managed, spec.inline is forbidden.
 //
 // +kubebuilder:validation:XValidation:rule="self.mode == oldSelf.mode",message="spec.mode is immutable; delete and recreate the resource to switch modes"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ingress) || (has(self.ingress) && self.ingress.certificates.provider == oldSelf.ingress.certificates.provider)",message="spec.ingress.certificates.provider is immutable; delete and recreate the resource to change the certificate provider"
 // +kubebuilder:validation:XValidation:rule="self.mode != 'Inline' || (!has(self.infrastructure) && !has(self.ingress) && !has(self.dns) && !has(self.policyEnforcement) && !has(self.imageRegistry))",message="spec.{infrastructure,ingress,dns,policyEnforcement,imageRegistry} are forbidden when mode is Inline"
 // +kubebuilder:validation:XValidation:rule="self.mode != 'Managed' || !has(self.inline)",message="spec.inline is forbidden when mode is Managed"
 type EducatesClusterConfigSpec struct {

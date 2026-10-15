@@ -1,7 +1,7 @@
 {
   "$defs": {
     "EducatesClusterConfigSpec": {
-      "description": "EducatesClusterConfigSpec defines the desired state of\nEducatesClusterConfig.\n\nCEL invariants (structural):\n  - spec.mode is immutable; switching modes requires delete + recreate.\n  - When mode is Inline, the Managed-mode top-level fields\n    (infrastructure, ingress, dns, policyEnforcement, imageRegistry)\n    are forbidden.\n  - When mode is Managed, spec.inline is forbidden.",
+      "description": "EducatesClusterConfigSpec defines the desired state of\nEducatesClusterConfig.\n\nCEL invariants (structural):\n  - spec.mode is immutable; switching modes requires delete + recreate.\n  - spec.ingress.certificates.provider is immutable once set; changing\n    it requires delete + recreate. Removing spec.ingress counts as a\n    change, so the provider cannot be swapped by dropping the block\n    and adding it back. Adding spec.ingress to a resource created\n    without one sets the provider for the first time and is allowed.\n  - When mode is Inline, the Managed-mode top-level fields\n    (infrastructure, ingress, dns, policyEnforcement, imageRegistry)\n    are forbidden.\n  - When mode is Managed, spec.inline is forbidden.",
       "properties": {
         "dns": {
           "description": "dns configures DNS management in Managed mode; ignored in Inline\nmode.",
@@ -425,7 +425,7 @@
                   "type": "object"
                 },
                 "provider": {
-                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. None disables in-cluster TLS entirely: the operator\ninstalls no cert-manager, creates no ClusterIssuer and no wildcard\nCertificate, and Educates serves plain HTTP unless TLS is terminated\noutside the cluster (see ingress.protocol).",
+                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. None disables in-cluster TLS entirely: the operator\ninstalls no cert-manager, creates no ClusterIssuer and no wildcard\nCertificate, and Educates serves plain HTTP unless TLS is terminated\noutside the cluster (see ingress.protocol). The provider is immutable:\nchanging it requires deleting and recreating the EducatesClusterConfig.",
                   "enum": [
                     "BundledCertManager",
                     "ExternalCertManager",
