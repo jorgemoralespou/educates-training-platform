@@ -136,7 +136,7 @@ educates local secrets add ca mkcert-ca \
  --key "$(mkcert -CAROOT)/rootCA-key.pem"
 ```
 
-The command checks that the certificate is a CA and that the key matches it. The local secrets cache holds one root CA, so `educates local secrets add ca` refuses a second root and names the existing one.
+The command checks that the certificate is a CA and that the key matches it. The local secrets cache holds one root CA, so `educates local secrets add ca` refuses a second root and names the existing one. To replace the root, first remove it with `educates local secrets remove NAME`, which also removes its private key and every CA minted from it.
 
 The root's private key never leaves your machine. When a deploy, such as `educates local cluster create` or `educates admin platform deploy --local-config`, needs a CA for the ingress domain, it mints an intermediate CA from the root, caches it as `<domain>-ca-key-pair` and prints a line saying so. The intermediate is limited by an X.509 name constraint to the ingress domain and its subdomains, with every IP address excluded, and it cannot sign further CAs. Only its key pair is copied into the cluster, so a key taken from the cluster cannot sign a certificate your browser accepts for any other site. Later deploys for the same domain reuse the intermediate, and one that has expired, or that was minted from a root you have since replaced, is minted again. Switching to a new ingress domain needs no new trust import, since its intermediate chains to the root you already trust. A root CA that carries name constraints of its own must permit the ingress domain, or the deploy fails saying so. `educates admin platform render` shows the configuration a deploy would use without writing to the cache.
 
@@ -262,6 +262,8 @@ Local secrets cache
 
 The `educates local secrets` commands manage a cache of Kubernetes secrets kept in the `secrets` directory of the CLI data home. A deploy of a local configuration copies them into the `educates-secrets` namespace of the cluster, where the certificates and registry credentials of the install are read from.
 
+The cache holds private keys and registry credentials, so it is readable only by you: the CLI creates the `secrets` directory with mode `0700` and writes each file in it with mode `0600`. A directory that an earlier release created with looser permissions is changed to `0700` the next time the CLI writes to the cache.
+
 Certificate authorities are cached in three roles:
 
 * A CA certificate `NAME` holds a CA certificate as `ca.crt`, and no private key. It is copied to the cluster so components can trust the CA.
@@ -274,9 +276,9 @@ The commands are:
 * `educates local secrets add tls NAME --cert FILE --key FILE` caches a TLS certificate and its private key.
 * `educates local secrets add docker-registry NAME` caches credentials for a container registry, and `educates local secrets add generic NAME` caches a generic secret from literal values or files.
 * `educates local secrets list` lists the cached secrets.
-* `educates local secrets remove NAME` removes a secret from the cache.
-* `educates local secrets export` prints the cached secrets, or the one named, as YAML. With `--pem` it prints the certificate of the named secret as PEM, for importing into a trust store; for a CA certificate that is the CA's own certificate.
-* `educates local secrets import --file FILE` adds the secrets in a YAML file to the cache.
+* `educates local secrets remove NAME` removes a secret from the cache and prints a line for each secret it removes. Removing a root CA, named by its CA certificate `NAME` or by its CA root key pair `NAME-root-key-pair`, removes both together with every CA key pair minted from the root, so no CA material of that root stays in the cache. This is how you replace the root: remove it, then register the new one with `educates local secrets add ca`. Remove the old root certificate from your operating system trust store separately.
+* `educates local secrets export` prints the cached secrets, or the one named, as YAML, including any private keys they hold. With `--pem` it prints only the certificates of the named secret as PEM and never a private key, whatever the secret holds. For a CA it prints the root certificate, which is what you import into a trust store: the CA's own certificate for a CA certificate or a CA root key pair, and the root for a CA key pair. For a TLS certificate it prints the certificate and its chain.
+* `educates local secrets import --file FILE` adds the secrets in a YAML file, such as the output of `educates local secrets export`, to the cache, replacing cached secrets of the same names. Like `add ca`, it keeps the cache to one root CA: it refuses a file holding a CA root key pair when the cache already holds a different root, naming the existing one, and a file holding more than one root. Importing the root the cache already holds is allowed. The file is checked before anything is written, so a refused import leaves the cache unchanged.
 * `educates local secrets sync` copies the cached secrets into the `educates-secrets` namespace of the cluster, the same way a deploy does. It never copies a CA root key pair, and it copies a CA key pair only for the `ingress.domain` of the local configuration, minting it first when it is missing or stale. Without a local configuration it copies no CA key pair.
 
 Local image mirrors

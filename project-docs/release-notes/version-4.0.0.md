@@ -99,19 +99,24 @@ New Features
   ``mkcert``, after checking that the certificate is a CA and that the key
   matches it. The root certificate can be exported as a PEM file using
   ``educates local secrets export NAME --pem`` for importing into the
-  operating system trust store, so browsers trust the workshop URLs; the
-  quick start guide includes per-platform import instructions. The import is
-  needed once: the first deploy for an ingress domain mints an intermediate
-  CA from the root, with a name constraint permitting only that domain and
-  excluding every IP address, and copies only the intermediate's key pair
-  into the cluster, so switching to a new local domain needs no new import
-  and a key taken from a cluster cannot sign for any other site. The deploy
-  prints a line whenever it mints. Later deploys for the same domain reuse
-  the intermediate, and one that has expired or was minted from a root since
-  replaced is minted again. A root that carries its own name constraints
-  must permit the ingress domain. The local secrets cache holds one root CA,
-  and ``add ca`` refuses a second one, naming the existing root. With
-  ``--cert`` alone, ``add ca`` caches a CA certificate for trust only.
+  operating system trust store, so browsers trust the workshop URLs; with
+  ``--pem`` the command prints certificates only and never a private key,
+  and the quick start guide includes per-platform import instructions. The
+  import is needed once: the first deploy for an ingress domain mints an
+  intermediate CA from the root, with a name constraint permitting only that
+  domain and excluding every IP address, and copies only the intermediate's
+  key pair into the cluster, so switching to a new local domain needs no new
+  import and a key taken from a cluster cannot sign for any other site. The
+  deploy prints a line whenever it mints. Later deploys for the same domain
+  reuse the intermediate, and one that has expired or was minted from a root
+  since replaced is minted again. A root that carries its own name
+  constraints must permit the ingress domain. The local secrets cache holds
+  one root CA: ``add ca`` and ``educates local secrets import`` refuse a
+  second one, naming the existing root, and
+  ``educates local secrets remove`` on the root removes its private key and
+  every CA minted from it, so a root is replaced by removing it and
+  registering the new one. With ``--cert`` alone, ``add ca`` caches a CA
+  certificate for trust only.
 
 * TLS termination by an external load balancer or proxy in front of the
   cluster is now supported by setting ``externalTLSTermination`` in the CLI
@@ -907,6 +912,14 @@ Deprecations
 
 Bugs Fixed
 ----------
+
+* The local secrets cache directory and the files in it were created
+  readable by every account on the machine, so other local users could read
+  cached private keys and registry credentials. The CLI now creates the
+  ``secrets`` directory of its data home with mode ``0700`` and writes each
+  cached file with mode ``0600``. A cache directory created with looser
+  permissions by an earlier release is changed to ``0700`` the next time the
+  CLI writes to the cache, for example with ``educates local secrets add``.
 
 * When a CA secret was configured for the cluster ingress without a wildcard
   TLS secret, the session manager did not copy the CA secret into the
