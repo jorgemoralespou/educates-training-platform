@@ -12,7 +12,7 @@
 # the operator validator with "not yet supported in v1alpha1"):
 #
 #   - ingress.controller.provider: ExternalIngressController
-#   - ingress.certificates.provider: ExternalCertManager | StaticCertificate
+#   - ingress.certificates.provider: ExternalCertManager
 #   - acme.solvers.http01 (DNS01 only)
 #   - acme.solvers.dns01.provider: Cloudflare | AzureDNS
 #   - *.credentialsSecretRef static credentials (use Workload Identity
@@ -68,6 +68,22 @@ spec:
         operational:
           replicas: 2
     certificates:
+      # StaticCertificate is the other provider that serves TLS: it
+      # serves a wildcard certificate issued outside the cluster and
+      # installs no cert-manager. The provider is immutable. In place of
+      # provider and bundledCertManager:
+      #
+      #   provider: StaticCertificate
+      #   staticCertificate:
+      #     # tls.crt + tls.key; its SANs must include *.<domain>.
+      #     tlsSecretRef:
+      #       name: wildcard-tls
+      #       namespace: educates-secrets   # empty: operator namespace
+      #     # Optional CA trust Secret (ca.crt only) of the issuing CA;
+      #     # the certificate must verify against it.
+      #     caCertificateSecretRef:
+      #       name: wildcard-ca
+      #       namespace: educates-secrets
       provider: BundledCertManager
       bundledCertManager:
         # CustomCA is the other supported issuerType — see
