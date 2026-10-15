@@ -265,23 +265,45 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	return nil
 }
 
-// certificateProviderImmutableRule is the start of the message the
-// EducatesClusterConfig CRD's validation rule reports when an update
-// changes spec.ingress.certificates.provider.
-const certificateProviderImmutableRule = "spec.ingress.certificates.provider is immutable"
+// providerImmutableRules pairs the start of each message the
+// EducatesClusterConfig CRD's validation rules report, when an update
+// changes how a cluster service is provided, with the setting the CLI
+// names in its explanation.
+var providerImmutableRules = []struct {
+	messagePrefix string
+	setting       string
+}{
+	{"spec.ingress.certificates.provider is immutable", "certificate provider"},
+	{"spec.ingress.controller.provider is immutable", "ingress controller provider"},
+	{"spec.dns.provider is immutable", "DNS provider"},
+	{"spec.policyEnforcement engines and kyverno provider are immutable", "policy enforcement"},
+}
 
 // explainApplyRejection adds the remedy to an API server rejection the
-// user can only resolve outside a redeploy. The certificate provider
-// of an existing install is immutable, so a deploy that would change
-// it, such as toggling ingress.insecure on a local cluster, needs the
-// platform deleted or the cluster recreated first. Any other error is
-// returned unchanged.
+// user can only resolve outside a redeploy. How each cluster service of
+// an existing install is provided is immutable, so a deploy that would
+// change it, such as toggling ingress.insecure on a local cluster,
+// needs the platform deleted or the cluster recreated first. Any other
+// error is returned unchanged.
 func explainApplyRejection(err error) error {
-	if apierrors.IsInvalid(err) && strings.Contains(err.Error(), certificateProviderImmutableRule) {
-		return fmt.Errorf("the certificate provider of an existing Educates install cannot change; "+
-			"run 'educates admin platform delete' and deploy again, or recreate the cluster: %w", err)
+	if !apierrors.IsInvalid(err) {
+		return err
 	}
-	return err
+	var settings []string
+	for _, rule := range providerImmutableRules {
+		if strings.Contains(err.Error(), rule.messagePrefix) {
+			settings = append(settings, rule.setting)
+		}
+	}
+	if len(settings) == 0 {
+		return err
+	}
+	settingsPhrase := settings[len(settings)-1]
+	if len(settings) > 1 {
+		settingsPhrase = strings.Join(settings[:len(settings)-1], ", ") + " and " + settingsPhrase
+	}
+	return fmt.Errorf("the %s of an existing Educates install cannot change; "+
+		"run 'educates admin platform delete' and deploy again, or recreate the cluster: %w", settingsPhrase, err)
 }
 
 // syncLocalSecrets copies the named cached Secrets into the cluster's

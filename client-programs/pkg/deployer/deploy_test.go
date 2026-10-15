@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,10 +24,33 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 )
 
-// providerImmutableRejection is the response a Kubernetes API server
-// returns when an apply changes spec.ingress.certificates.provider of
-// an existing EducatesClusterConfig, recorded from the CRD's CEL rule.
-const providerImmutableRejection = `{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"EducatesClusterConfig.config.educates.dev \"cluster\" is invalid: spec: Invalid value: spec.ingress.certificates.provider is immutable; delete and recreate the resource to change the certificate provider","reason":"Invalid","details":{"name":"cluster","group":"config.educates.dev","kind":"EducatesClusterConfig","causes":[{"reason":"FieldValueInvalid","message":"Invalid value: spec.ingress.certificates.provider is immutable; delete and recreate the resource to change the certificate provider","field":"spec"}]},"code":422}`
+// providerImmutableRejections are the messages the EducatesClusterConfig
+// CRD's validation rules report when an apply changes how a cluster
+// service of an existing install is provided, each paired with the
+// setting the CLI names when it explains the rejection.
+var providerImmutableRejections = []struct {
+	setting string
+	message string
+}{
+	{"certificate provider", "spec.ingress.certificates.provider is immutable; delete and recreate the resource to change the certificate provider"},
+	{"ingress controller provider", "spec.ingress.controller.provider is immutable; delete and recreate the resource to change the ingress controller provider"},
+	{"DNS provider", "spec.dns.provider is immutable; delete and recreate the resource to change the DNS provider"},
+	{"policy enforcement", "spec.policyEnforcement engines and kyverno provider are immutable; delete and recreate the resource to change policy enforcement"},
+}
+
+// specRejection is the response a Kubernetes API server returns when
+// apply of an EducatesClusterConfig fails one of the CEL rules on its
+// spec, in the shape recorded from a real API server.
+func specRejection(messages ...string) string {
+	causes := make([]string, 0, len(messages))
+	for _, m := range messages {
+		causes = append(causes, `{"reason":"FieldValueInvalid","message":"Invalid value: `+m+`","field":"spec"}`)
+	}
+	return `{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"EducatesClusterConfig.config.educates.dev \"cluster\" is invalid: spec: Invalid value: ` +
+		strings.Join(messages, ", spec: Invalid value: ") +
+		`","reason":"Invalid","details":{"name":"cluster","group":"config.educates.dev","kind":"EducatesClusterConfig","causes":[` +
+		strings.Join(causes, ",") + `]},"code":422}`
+}
 
 // protocolRejection is a different validation failure of the same
 // resource, which the CLI must pass through unexplained.
@@ -104,25 +128,43 @@ func applyClusterConfig(t *testing.T, srv *httptest.Server) error {
 	return installStep(context.Background(), opts, applier, waiter, ecc, "EducatesClusterConfig")
 }
 
-func TestDeploy_CertificateProviderChangeIsExplained(t *testing.T) {
-	err := applyClusterConfig(t, rejectingAPIServer(t, providerImmutableRejection))
+func TestDeploy_ProviderChangeIsExplained(t *testing.T) {
+	for _, rejection := range providerImmutableRejections {
+		t.Run(rejection.setting, func(t *testing.T) {
+			err := applyClusterConfig(t, rejectingAPIServer(t, specRejection(rejection.message)))
+			if err == nil {
+				t.Fatal("apply succeeded, want the provider change rejected")
+			}
+			msg := err.Error()
+			for _, want := range []string{
+				"the " + rejection.setting + " of an existing Educates install cannot change",
+				"'educates admin platform delete'",
+				"recreate the cluster",
+				// The API server's own reason stays visible.
+				rejection.message,
+			} {
+				if !strings.Contains(msg, want) {
+					t.Errorf("error %q does not contain %q", msg, want)
+				}
+			}
+			if !apierrors.IsInvalid(err) {
+				t.Errorf("error no longer wraps the API server's Invalid status: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeploy_SeveralProviderChangesAreExplainedTogether(t *testing.T) {
+	err := applyClusterConfig(t, rejectingAPIServer(t, specRejection(
+		providerImmutableRejections[0].message,
+		providerImmutableRejections[2].message,
+	)))
 	if err == nil {
-		t.Fatal("apply succeeded, want the provider change rejected")
+		t.Fatal("apply succeeded, want the provider changes rejected")
 	}
-	msg := err.Error()
-	for _, want := range []string{
-		"certificate provider of an existing Educates install cannot change",
-		"'educates admin platform delete'",
-		"recreate the cluster",
-		// The API server's own reason stays visible.
-		"spec.ingress.certificates.provider is immutable",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("error %q does not contain %q", msg, want)
-		}
-	}
-	if !apierrors.IsInvalid(err) {
-		t.Errorf("error no longer wraps the API server's Invalid status: %v", err)
+	want := "the certificate provider and DNS provider of an existing Educates install cannot change"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error %q does not contain %q", err.Error(), want)
 	}
 }
 
@@ -140,12 +182,13 @@ func TestDeploy_OtherApplyRejectionsAreNotExplained(t *testing.T) {
 	}
 }
 
-// TestCertificateProviderImmutableRule_MatchesEmbeddedCRD keeps the
-// message explainApplyRejection matches, and the rejection recorded for
-// the tests above, in step with the CEL rule of the EducatesClusterConfig
-// CRD the CLI installs, so rewording the rule cannot silently drop the
-// remedy the CLI adds.
-func TestCertificateProviderImmutableRule_MatchesEmbeddedCRD(t *testing.T) {
+// TestProviderImmutableRejections_MatchEmbeddedCRD keeps the rejections
+// the tests above record in step with the CEL rules of the
+// EducatesClusterConfig CRD the CLI installs, both ways: rewording a
+// rule cannot silently drop the remedy the CLI adds, and a new
+// immutability rule cannot go without it. The spec.mode rule is left
+// out, since its own message already names the remedy.
+func TestProviderImmutableRejections_MatchEmbeddedCRD(t *testing.T) {
 	chrt, err := chart.Load()
 	if err != nil {
 		t.Fatalf("chart.Load: %v", err)
@@ -175,14 +218,17 @@ func TestCertificateProviderImmutableRule_MatchesEmbeddedCRD(t *testing.T) {
 	if len(messages) == 0 {
 		t.Fatal("the embedded EducatesClusterConfig CRD has no validation rules on spec")
 	}
-	for _, msg := range messages {
-		if strings.HasPrefix(msg, certificateProviderImmutableRule) {
-			if !strings.Contains(providerImmutableRejection, msg) {
-				t.Errorf("the recorded rejection does not carry the CRD's message %q", msg)
-			}
-			return
+	recorded := make([]string, 0, len(providerImmutableRejections))
+	for _, rejection := range providerImmutableRejections {
+		recorded = append(recorded, rejection.message)
+		if !slices.Contains(messages, rejection.message) {
+			t.Errorf("no validation rule on spec of the embedded EducatesClusterConfig CRD reports %q; its messages are %q",
+				rejection.message, messages)
 		}
 	}
-	t.Errorf("no validation rule on spec of the embedded EducatesClusterConfig CRD starts with %q; its messages are %q",
-		certificateProviderImmutableRule, messages)
+	for _, msg := range messages {
+		if strings.Contains(msg, " immutable; ") && !strings.HasPrefix(msg, "spec.mode ") && !slices.Contains(recorded, msg) {
+			t.Errorf("the embedded EducatesClusterConfig CRD has an immutability rule the CLI does not explain: %q", msg)
+		}
+	}
 }

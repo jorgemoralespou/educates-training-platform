@@ -50,9 +50,13 @@ func (p *ProjectInfo) NewAdminPlatformDeleteCmd() *cobra.Command {
   3. delete SecretsManager → wait gone
   4. delete EducatesClusterConfig → wait gone
        (the ECC finalizer drains kyverno, external-dns, contour,
-        cert-manager and the CustomCA Secret copy in reverse install order;
-        cert-manager only when the certificate provider is
-        BundledCertManager)
+        cert-manager and the CustomCA Secret copy in reverse install order,
+        each only when Educates installed it: kyverno with the Bundled
+        kyverno provider and a Kyverno policy engine, external-dns with
+        the BundledExternalDNS DNS provider, contour with the
+        BundledContour ingress controller provider, and cert-manager with
+        the BundledCertManager certificates provider. A cluster service
+        you provide yourself stays in place)
   5. helm uninstall the operator chart
 
 By default this is idempotent and leaves cluster-shared state alone:
