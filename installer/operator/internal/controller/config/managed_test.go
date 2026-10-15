@@ -861,8 +861,10 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 			Expect(meta.IsStatusConditionFalse(got.Status.Conditions, conditionCertificatesReady)).To(BeTrue())
 			Expect(meta.IsStatusConditionFalse(got.Status.Conditions, conditionReady)).To(BeTrue())
 
-			// Nothing is served, and cert-manager is never involved.
+			// Nothing is served or trusted, and cert-manager is never
+			// involved.
 			Expect(wildcardTLSData()).To(BeNil())
+			Expect(ingressCAData()).To(BeNil())
 			hc, err := helmFac.For(certManagerNamespace)
 			Expect(err).NotTo(HaveOccurred())
 			_, statusErr := hc.Status(certManagerReleaseName)
@@ -923,6 +925,31 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 			},
 			pki.ReasonWildcardCertificateUntrusted),
 	)
+
+	It("keeps educates-ingress-ca when the StaticCertificate's CA trust Secret changes to a CA the certificate does not verify against", func() {
+		root := testpki.NewRootCA()
+		leaf := root.NewLeaf(testpki.WithDNSNames("*.educates.test"))
+		Expect(k8sClient.Create(ctx, staticWildcardSecret(leaf.CertPEM, leaf.KeyPEM))).To(Succeed())
+		trust := staticCASecret(root)
+		Expect(k8sClient.Create(ctx, trust)).To(Succeed())
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       staticCertificateSpec(),
+		})).To(Succeed())
+		driveStaticCertificateToReady()
+		Expect(ingressCAData()).To(Equal(map[string][]byte{"ca.crt": root.CertPEM}))
+
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testCASecretsNamespace, Name: "wildcard-ca"}, trust)).To(Succeed())
+		trust.Data = map[string][]byte{"ca.crt": testpki.NewRootCA().CertPEM}
+		Expect(k8sClient.Update(ctx, trust)).To(Succeed())
+
+		Eventually(certificatesReadyReason, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(pki.ReasonWildcardCertificateUntrusted))
+		// Components keep trusting the CA the served certificate verified
+		// against; the CA that does not verify it never reaches them.
+		Consistently(ingressCAData, 2*time.Second, 200*time.Millisecond).
+			Should(Equal(map[string][]byte{"ca.crt": root.CertPEM}))
+	})
 
 	It("returns CertificatesReady and ValidationSucceeded to True once the StaticCertificate is fixed", func() {
 		root := testpki.NewRootCA()

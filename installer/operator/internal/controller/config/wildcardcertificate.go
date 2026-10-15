@@ -18,7 +18,6 @@ package config
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -95,31 +94,35 @@ func (r *EducatesClusterConfigReconciler) checkWildcardCertificate(
 	return cert, nil
 }
 
-// reconcileStaticCertificatePhase is the certificates phase of the
-// StaticCertificate provider. No cert-manager, ClusterIssuer or
-// Certificate is involved: it checks the referenced wildcard
-// certificate, copies only its tls.crt and tls.key into the
-// operator-owned educates-wildcard-tls, and marks CertificatesReady.
-// The Secret watch maps the referenced Secrets to the singleton, so the
-// copy follows its source.
-//
-// A certificate that fails the check is a validation failure with the
-// check's CertificatesReady reason. On success the phase is done and
-// its Result requeues once the certificate expires, so status reports
-// the expiry without any other event.
-func (r *EducatesClusterConfigReconciler) reconcileStaticCertificatePhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
-	static := obj.Spec.Ingress.Certificates.StaticCertificate
-	cert, err := r.checkWildcardCertificate(ctx,
+// checkStaticCertificate checks the StaticCertificate provider's
+// wildcard certificate, with its chain against the CA trust Secret when
+// one is referenced, and returns it for the certificates phase to
+// serve. A certificate that fails the check is a validation failure
+// with the check's CertificatesReady reason. For any other provider it
+// returns nil and checks nothing.
+func (r *EducatesClusterConfigReconciler) checkStaticCertificate(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (*pki.WildcardCertificate, error) {
+	static := staticCertificateConfig(obj)
+	if static == nil {
+		return nil, nil
+	}
+	return r.checkWildcardCertificate(ctx,
 		static.TLSSecretRef, staticTLSField, obj.Spec.Ingress.Domain,
 		static.CACertificateSecretRef, staticCATrustField)
-	if err != nil {
-		if verr, ok := errors.AsType[*validationError](err); ok {
-			r.markValidationFailed(obj, verr)
-			return false, ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
-		}
-		return false, ctrl.Result{}, err
-	}
+}
 
+// reconcileStaticCertificatePhase is the certificates phase of the
+// StaticCertificate provider. No cert-manager, ClusterIssuer or
+// Certificate is involved: it copies only the tls.crt and tls.key of
+// cert, the wildcard certificate checkStaticCertificate passed, into
+// the operator-owned educates-wildcard-tls, and marks
+// CertificatesReady. The Secret watch maps the referenced Secrets to
+// the singleton, so the copy follows its source.
+//
+// The phase is done once the copy is applied, and its Result requeues
+// once the certificate expires, so status reports the expiry without
+// any other event.
+func (r *EducatesClusterConfigReconciler) reconcileStaticCertificatePhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, cert *pki.WildcardCertificate) (bool, ctrl.Result, error) {
+	static := obj.Spec.Ingress.Certificates.StaticCertificate
 	if err := r.ensureStaticWildcardSecret(ctx, obj, cert); err != nil {
 		r.markCertificatesProgressing(obj, "WildcardSecretApplyFailed", err.Error())
 		_ = r.updateStatusWithTransitionLog(ctx, obj)

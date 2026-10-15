@@ -41,6 +41,7 @@ import (
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 )
 
 // Cert-manager Deployment names installed by the upstream chart with
@@ -212,7 +213,8 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 // BundledCertManager provider that is the full cert-manager + wildcard
 // certificate pipeline; the None provider has nothing to do, and the
 // StaticCertificate provider has its own phase,
-// reconcileStaticCertificatePhase. Caller convention follows
+// reconcileStaticCertificatePhase, which serves staticCert, the
+// certificate checkStaticCertificate passed. Caller convention follows
 // reconcileManaged: done=true means the phase is complete, and its
 // Result may still carry a RequeueAfter by which reconcile must run
 // again; done=false means stop here and return the Result and error
@@ -230,7 +232,7 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 // All cert-manager-specific error classification (CRDs missing,
 // webhook not yet routable) is handled here so the orchestrator
 // in reconcileManaged stays oblivious to cert-manager internals.
-func (r *EducatesClusterConfigReconciler) reconcileCertificatesPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) reconcileCertificatesPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, staticCert *pki.WildcardCertificate) (bool, ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	// phaseStop wraps the (Result, error) returned by helpers like
 	// handleCertManagerCRDsMissing into the (done bool, Result,
@@ -250,7 +252,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertificatesPhase(ctx context
 	}
 
 	if obj.Spec.Ingress.Certificates.Provider == configv1alpha1.CertificatesProviderStaticCertificate {
-		return r.reconcileStaticCertificatePhase(ctx, obj)
+		return r.reconcileStaticCertificatePhase(ctx, obj, staticCert)
 	}
 
 	if !shouldInstallCertManager(obj) {

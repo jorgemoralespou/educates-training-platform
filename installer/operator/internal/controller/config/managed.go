@@ -31,6 +31,7 @@ import (
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
 
@@ -94,6 +95,14 @@ const (
 // Cleanup is the strict reverse.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
 	err := r.validateManaged(ctx, obj)
+	var staticCert *pki.WildcardCertificate
+	if err == nil {
+		// As in Inline mode, a static certificate is checked, its chain
+		// against the CA trust Secret included, before that CA reaches
+		// Educates components, so a CA the served certificate does not
+		// verify against is never published.
+		staticCert, err = r.checkStaticCertificate(ctx, obj)
+	}
 	if err == nil {
 		// CA trust for Educates components comes from the validated
 		// spec alone, so it is derived before any cluster service is
@@ -113,7 +122,7 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 	// certificate. A completed phase may still ask to run again by a
 	// time, such as a static certificate's expiry; every later return
 	// keeps that deadline.
-	done, certRes, err := r.reconcileCertificatesPhase(ctx, obj)
+	done, certRes, err := r.reconcileCertificatesPhase(ctx, obj, staticCert)
 	if !done {
 		return certRes, err
 	}
@@ -575,8 +584,8 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 			}
 		}
 	case configv1alpha1.CertificatesProviderStaticCertificate:
-		// The certificate itself is checked by the certificates phase,
-		// which serves what it checked.
+		// The certificate itself is checked by checkStaticCertificate,
+		// and the certificates phase serves what it checked.
 		if certs.StaticCertificate == nil {
 			return &validationError{
 				Field:  staticCertificateField,
