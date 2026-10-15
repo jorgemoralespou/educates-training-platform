@@ -440,6 +440,24 @@ Features Changed
   ``educates`` command now also includes usage examples in its ``--help``
   output.
 
+* ``educates local secrets list`` now shows what each cached secret is and
+  what a deploy uses it for, where it previously printed only names. It
+  prints a table with the columns ``NAME``, ``TYPE``, ``DOMAINS``,
+  ``SUBJECT`` and ``EXPIRES``. ``TYPE`` is the role of the secret, decided
+  the same way a deploy decides it: ``CA certificate``, ``CA root key pair``,
+  ``CA intermediate key pair``, ``TLS certificate``,
+  ``Registry credentials`` or ``Generic``. A CA certificate with its private
+  key that a deploy does not use, such as a CA cached by a 4.0.0 alpha
+  release, is shown as ``Unused CA key pair``, and a file that cannot be read
+  or decoded is shown as ``invalid`` while the rest of the list still
+  prints. ``DOMAINS`` is what the secret is valid for: every wildcard domain
+  of a TLS certificate, the ingress domain of a CA key pair, and the
+  permitted DNS name constraints of a CA certificate or CA root key pair, or
+  ``any`` when it has none. ``SUBJECT`` is the common name of the
+  certificate's subject, or the whole subject when it has no common name,
+  and reads as ``<domain> (<root>)`` for a CA key pair. ``EXPIRES`` is the
+  date the certificate expires, or ``expired``.
+
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image. Octant
   was archived by its authors, with no release since ``0.25.1`` and no fixes
@@ -765,7 +783,8 @@ Deprecations
 
   CAs cached by 4.0.0 alpha releases, ``kubernetes.io/tls`` secrets holding
   a CA certificate and its private key, are not migrated automatically, and
-  a deploy no longer uses them. To keep a CA you have already imported into
+  a deploy no longer uses them; ``educates local secrets list`` shows them as
+  ``Unused CA key pair``. To keep a CA you have already imported into
   your trust store, re-register it as the root CA. With ``NAME`` the name of
   the cached CA, export its certificate and key, replace it with the root CA
   and delete the exported key:
