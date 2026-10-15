@@ -282,9 +282,10 @@ components knowing the difference.
 - Field names follow Kubernetes conventions: `camelCase` in YAML/JSON,
   `PascalCase` in Go structs, lowercase tags.
 - Use `+kubebuilder:` markers for validation, defaults, printer columns.
-- EducatesClusterConfig has three structural CEL rules on spec — singleton
-  name, mode immutability (`oldSelf`), mode-field exclusivity. The three
-  platform CRDs have singleton-name only.
+- EducatesClusterConfig has four structural CEL rules: singleton name,
+  mode immutability (`oldSelf`), certificate provider immutability
+  (`oldSelf`), and mode-field exclusivity. The three platform CRDs have
+  singleton-name only.
 
 **Status conventions:**
 - Status is the public interface for component CRs and humans. Treat it as
@@ -319,8 +320,14 @@ components knowing the difference.
   IngressClasses), not just CR generation changes. External changes — like
   a deleted TLS secret — must propagate to status within seconds.
 - Secret + IngressClass + Deployment are registered in `SetupWithManager`
-  (operator-namespace-scoped Secret cache; cluster-scoped IngressClass;
-  Deployment cluster-wide).
+  (cluster-scoped IngressClass; Deployments only in the cluster-service and
+  platform namespaces). The Secret cache spans the operator namespace,
+  `educates-secrets`, and every namespace the EducatesClusterConfig and
+  SessionManager singletons reference at operator startup
+  (`cmd/secretcache.go`); a reference edited later to a new namespace needs
+  an operator restart for its watch.
+- The SessionManager reconciler also watches Secrets, narrowed to its CA
+  override's source and the key-free copy it derives from it.
 - cert-manager.io ClusterIssuer + Certificate watches are **deferred** —
   registered at runtime by `CRDWatcher`
   (`internal/controller/config/crd_watcher.go`) once discovery confirms
