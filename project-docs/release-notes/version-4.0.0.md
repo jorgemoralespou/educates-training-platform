@@ -727,8 +727,8 @@ Features Changed
   ``ingressOverrides.caCertificateSecretRef`` also gets the node CA
   injector, even on a cluster that publishes no CA, and nodes then trust the
   override's ``educates-session-manager-ingress-ca`` in place of the
-  cluster's CA, since the session manager serves the registries of workshop
-  sessions with the overriding certificate. With ``nodeCATrust.mode`` set to
+  cluster's CA, the same CA the session manager and the workshop sessions it
+  creates trust. With ``nodeCATrust.mode`` set to
   ``Enabled``, the ``SessionManager`` reports ``Ready`` as ``False`` only
   when neither the cluster nor an override provides a CA. Set
   ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged node CA
