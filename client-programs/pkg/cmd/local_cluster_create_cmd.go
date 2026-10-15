@@ -121,7 +121,7 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	// 0. Preflight: fail fast (before any docker / kind / k8s mutation)
 	//    when the cluster already exists, host 80/443 are bound, or a
 	//    secure install has no certificate source. The host-port case is
-	//    the v3 busybox probe — kind itself fails later with a much less
+	//    the v3 busybox probe; kind itself fails later with a much less
 	//    actionable error if Envoy can't publish. The certificate case is
 	//    the one the deploy resolves later: without this check it would
 	//    only fail after the kind cluster and registry already exist.

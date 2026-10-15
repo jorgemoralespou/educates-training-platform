@@ -753,12 +753,12 @@ Deprecations
   creating anything when neither a root CA nor a wildcard certificate for the
   domain is cached, and prints the commands that generate a root CA,
   register the root CA of ``mkcert``, or cache a ``mkcert`` wildcard
-  certificate. A local configuration with no ingress
-  domain set instead defaults to a plain HTTP install on a
-  ``<host-IP>.nip.io`` address and needs no CA, since that address cannot
-  obtain a trusted certificate. Set ``ingress.insecure`` to request plain
-  HTTP explicitly for a custom domain. See the New Features entry on
-  installing without in-cluster TLS for the full picture.
+  certificate. A local configuration with no ingress domain set instead
+  defaults to a plain HTTP install on a ``<host-IP>.nip.io`` address and
+  needs no CA, since that address cannot obtain a trusted certificate. Set
+  ``ingress.insecure`` to request plain HTTP explicitly for a custom domain.
+  See the New Features entry on installing without in-cluster TLS for the
+  full picture.
 
 * The local secrets cache stores certificate authorities in a new shape,
   and ``educates local secrets add ca`` and ``educates local secrets add tls``
@@ -766,9 +766,9 @@ Deprecations
   domain, a TLS certificate serves the domains of its wildcard DNS names,
   and a deploy decides the domain from ``ingress.domain``.
   ``educates local secrets add tls`` now requires both ``--cert`` and
-  ``--key`` and refuses a certificate it cannot serve. A root CA named ``NAME`` is cached as the
-  CA trust secret ``NAME``, an ``Opaque`` secret holding the root
-  certificate as ``ca.crt``, and the CA root key pair
+  ``--key`` and refuses a certificate it cannot serve. A root CA named
+  ``NAME`` is cached as the CA trust secret ``NAME``, an ``Opaque`` secret
+  holding the root certificate as ``ca.crt``, and the CA root key pair
   ``NAME-root-key-pair``, a ``kubernetes.io/tls`` secret holding the root
   certificate and its private key, which is never copied to a cluster. Each
   ingress domain gets the CA key pair ``<domain>-ca-key-pair``, a
