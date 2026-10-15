@@ -20,10 +20,12 @@ wildcard `Certificate` resource).
 1. `educates local cluster create --cluster-only` provisions kind only.
 2. `pre-install.sh` runs:
    - Creates the `educates-secrets` namespace.
-   - Materialises the CA Secret `local-root-ca` in `educates-secrets`
-     with three keys: `tls.crt` + `tls.key` (consumed by cert-manager's
-     `ca:` issuer) and `ca.crt` (consumed by the v4 runtime for chain
-     trust).
+   - Materialises two Secrets in `educates-secrets`, keeping CA trust
+     apart from CA signing material as the v4 operator does: the CA key
+     pair `local-root-ca-key-pair` with `tls.crt` + `tls.key` (consumed
+     by cert-manager's `ca:` issuer), and the CA trust Secret
+     `local-root-ca` with only `ca.crt` (consumed by the v4 runtime for
+     chain trust).
    - CA material comes from `--ca-cert/--ca-key` flags (or the mkcert
      auto-detected sibling); falls back to a freshly-generated
      self-signed CA when both are absent.
@@ -31,12 +33,12 @@ wildcard `Certificate` resource).
    Contour + Kyverno. The v3 kind overlay sees
    `clusterInfrastructure.caCertificateRef` and wires:
    - cert-manager with `clusterResourceNamespace: educates-secrets`.
-   - certs package with `local.caCertificateRef: local-root-ca` →
+   - certs package with `local.caCertificateRef: local-root-ca-key-pair` →
      creates a `ClusterIssuer` named `educateswildcard` and a
      `Certificate` that produces `educateswildcard` Secret in
      `educates-secrets`.
 4. `helm install` for the chart, referencing `educateswildcard` (TLS)
-   and `local-root-ca` (CA) for SecretCopier propagation into the
+   and `local-root-ca` (CA trust) for SecretCopier propagation into the
    operator namespace.
 
 ## What this proves
@@ -50,6 +52,8 @@ wildcard `Certificate` resource).
 - A trusted CA passed via `--ca-cert/--ca-key` flows all the way
   through to the workshop session pods (which need the CA to validate
   TLS to the portal).
+- The CA's private key stays in `educates-secrets` and `cert-manager`:
+  the runtime only ever receives the key-free CA trust Secret.
 
 ## Out of scope
 

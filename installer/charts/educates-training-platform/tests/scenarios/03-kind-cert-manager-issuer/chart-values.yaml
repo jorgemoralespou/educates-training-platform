@@ -1,10 +1,11 @@
 # Values for `helm install -f <this>` against the v4 chart.
 #
 # The wildcard TLS Secret was issued by cert-manager via the certs
-# package and lands at `educates-secrets/educateswildcard`. The CA is
-# at `educates-secrets/local-root-ca`. Cross-namespace ingress refs
-# auto-derive the SecretCopier rules pulling both into the operator
-# namespace.
+# package and lands at `educates-secrets/educateswildcard`. The CA trust
+# Secret, holding only ca.crt, is at `educates-secrets/local-root-ca`;
+# the CA key pair cert-manager signs with (`local-root-ca-key-pair`) is
+# never referenced here. Cross-namespace ingress refs auto-derive the
+# SecretCopier rules pulling both into the operator namespace.
 
 lookup-service:
   enabled: false
