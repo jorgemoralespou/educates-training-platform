@@ -90,11 +90,7 @@ func (r *EducatesClusterConfigReconciler) ingressCASource(obj *configv1alpha1.Ed
 	if ref := ca.CACertificateSecretRef; ref != nil {
 		return r.caTrustSource(*ref), customCATrustField, true
 	}
-	return pki.CASource{
-		Namespace: r.secretRefNamespace(ca.CAKeyPairSecretRef),
-		Name:      ca.CAKeyPairSecretRef.Name,
-		Rule:      pki.FromCAKeyPair,
-	}, customCAKeyPairField, true
+	return r.caKeyPairSource(ca.CAKeyPairSecretRef), customCAKeyPairField, true
 }
 
 // caTrustSource is the CA source for a reference to a CA trust Secret.
@@ -103,6 +99,15 @@ func (r *EducatesClusterConfigReconciler) caTrustSource(ref configv1alpha1.Secre
 		Namespace: r.secretRefNamespace(ref),
 		Name:      ref.Name,
 		Rule:      pki.FromCATrustSecret,
+	}
+}
+
+// caKeyPairSource is the CA source for a reference to a CA key pair.
+func (r *EducatesClusterConfigReconciler) caKeyPairSource(ref configv1alpha1.SecretReference) pki.CASource {
+	return pki.CASource{
+		Namespace: r.secretRefNamespace(ref),
+		Name:      ref.Name,
+		Rule:      pki.FromCAKeyPair,
 	}
 }
 
@@ -117,11 +122,7 @@ func (r *EducatesClusterConfigReconciler) ingressCASecretRef() *configv1alpha1.N
 // tls.key, and its certificate is a CA. Failures carry a specific
 // CertificatesReady reason.
 func (r *EducatesClusterConfigReconciler) validateCustomCAKeyPair(ctx context.Context, ca *configv1alpha1.CustomCAConfig) error {
-	src := pki.CASource{
-		Namespace: r.secretRefNamespace(ca.CAKeyPairSecretRef),
-		Name:      ca.CAKeyPairSecretRef.Name,
-		Rule:      pki.FromCAKeyPair,
-	}
+	src := r.caKeyPairSource(ca.CAKeyPairSecretRef)
 	r.warnIfCacheMiss(ctx, src.Namespace, customCAKeyPairField)
 	// APIReader bypasses the controller-runtime cache, which covers only
 	// the namespaces collected at startup.

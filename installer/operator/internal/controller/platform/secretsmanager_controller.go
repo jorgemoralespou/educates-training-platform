@@ -105,13 +105,6 @@ const (
 	conditionReady                  = "Ready"
 	conditionClusterConfigAvailable = "ClusterConfigAvailable"
 	conditionDeployed               = "Deployed"
-
-	// managedByLabelValue tags every operator-owned resource so
-	// `kubectl get -l app.kubernetes.io/managed-by=educates-installer`
-	// returns the operator's footprint at a glance. Same value as the
-	// config-controller package — values are intentionally consistent
-	// across reconcilers.
-	managedByLabelValue = "educates-installer"
 )
 
 // SecretsManagerReconciler drives the SecretsManager CR. Per-phase

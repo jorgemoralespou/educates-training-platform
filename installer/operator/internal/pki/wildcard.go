@@ -85,27 +85,27 @@ type WildcardCertificate struct {
 // reason.
 func CheckWildcardCertificate(secret *corev1.Secret, want WildcardRequirements) (*WildcardCertificate, error) {
 	id := secret.Namespace + "/" + secret.Name
-	for _, k := range []string{tlsCertificateKey, tlsPrivateKeyKey} {
+	for _, k := range []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey} {
 		if len(secret.Data[k]) == 0 {
 			return nil, certificateSecretError(ReasonWildcardCertificateIncomplete,
 				"Secret %s is missing required key %q", id, k)
 		}
 	}
-	chain, err := parseCertificates(secret.Data[tlsCertificateKey])
+	chain, err := parseCertificates(secret.Data[corev1.TLSCertKey])
 	if err != nil {
 		return nil, certificateSecretError(ReasonWildcardCertificateUnparseable,
-			"Secret %s key %q: %v", id, tlsCertificateKey, err)
+			"Secret %s key %q: %v", id, corev1.TLSCertKey, err)
 	}
 	leaf := chain[0]
-	key, err := parsePrivateKey(secret.Data[tlsPrivateKeyKey])
+	key, err := parsePrivateKey(secret.Data[corev1.TLSPrivateKeyKey])
 	if err != nil {
 		return nil, certificateSecretError(ReasonWildcardCertificateUnparseable,
-			"Secret %s key %q: %v", id, tlsPrivateKeyKey, err)
+			"Secret %s key %q: %v", id, corev1.TLSPrivateKeyKey, err)
 	}
 	if !publicKeysEqual(leaf.PublicKey, key.Public()) {
 		return nil, certificateSecretError(ReasonWildcardCertificateKeyMismatch,
 			"Secret %s: the private key in %q does not match the certificate in %q",
-			id, tlsPrivateKeyKey, tlsCertificateKey)
+			id, corev1.TLSPrivateKeyKey, corev1.TLSCertKey)
 	}
 	wildcard := "*." + strings.TrimSuffix(want.Domain, ".")
 	if !hasDNSName(leaf, wildcard) {
@@ -125,8 +125,8 @@ func CheckWildcardCertificate(secret *corev1.Secret, want WildcardRequirements) 
 		}
 	}
 	return &WildcardCertificate{
-		Certificate: secret.Data[tlsCertificateKey],
-		PrivateKey:  secret.Data[tlsPrivateKeyKey],
+		Certificate: secret.Data[corev1.TLSCertKey],
+		PrivateKey:  secret.Data[corev1.TLSPrivateKeyKey],
 		NotAfter:    leaf.NotAfter,
 	}, nil
 }

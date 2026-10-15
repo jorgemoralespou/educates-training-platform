@@ -25,6 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
 )
 
 // ensurePlatformNamespace creates the shared platform namespace
@@ -49,7 +51,7 @@ func ensurePlatformNamespace(ctx context.Context, c client.Client) error {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: platformNamespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": managedByLabelValue,
+					ownership.ManagedByLabel: ownership.ManagedByValue,
 				},
 			},
 		}

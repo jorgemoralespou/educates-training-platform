@@ -38,26 +38,13 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+
+	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
 )
 
 // CACertificateKey is the key a CA trust Secret holds its PEM
 // certificates under, and the only key a derived CA trust Secret holds.
 const CACertificateKey = "ca.crt"
-
-// Keys of a CA key pair Secret, the shape cert-manager's CA issuer reads.
-const (
-	tlsCertificateKey = "tls.crt"
-	tlsPrivateKeyKey  = "tls.key"
-)
-
-// fieldManager and the managed-by label match what the rest of the
-// operator applies, so a derived Secret shows the operator as its single
-// owner.
-const (
-	fieldManager        = "educates-installer"
-	managedByLabel      = "app.kubernetes.io/managed-by"
-	managedByLabelValue = "educates-installer"
-)
 
 // CASourceRule says how a source Secret yields the CA certificate. Its
 // value prefixes the reason of every CertificateSecretError the rule
@@ -134,21 +121,21 @@ func CACertificate(secret *corev1.Secret, rule CASourceRule) ([]byte, error) {
 		return encodeCertificates(certs), nil
 
 	case FromCAKeyPair:
-		for _, k := range []string{tlsCertificateKey, tlsPrivateKeyKey} {
+		for _, k := range []string{corev1.TLSCertKey, corev1.TLSPrivateKeyKey} {
 			if len(secret.Data[k]) == 0 {
 				return nil, certificateSecretError(ReasonCAKeyPairIncomplete,
 					"Secret %s is missing required key %q", id, k)
 			}
 		}
-		chain, err := parseCertificates(secret.Data[tlsCertificateKey])
+		chain, err := parseCertificates(secret.Data[corev1.TLSCertKey])
 		if err != nil {
 			return nil, certificateSecretError(ReasonCAKeyPairUnparseable,
-				"Secret %s key %q: %v", id, tlsCertificateKey, err)
+				"Secret %s key %q: %v", id, corev1.TLSCertKey, err)
 		}
 		if !chain[0].IsCA {
 			return nil, certificateSecretError(ReasonCAKeyPairNotCA,
 				"Secret %s: the certificate in %q (subject %q) is not a CA certificate",
-				id, tlsCertificateKey, chain[0].Subject.String())
+				id, corev1.TLSCertKey, chain[0].Subject.String())
 		}
 		if data := secret.Data[CACertificateKey]; len(data) > 0 {
 			certs, err := parseCertificates(data)
@@ -210,7 +197,7 @@ func (a CATrustApplier) Apply(ctx context.Context, src CASource, dst types.Names
 		return fmt.Errorf("resolve owner GVK: %w", err)
 	}
 	secret := corev1ac.Secret(dst.Name, dst.Namespace).
-		WithLabels(map[string]string{managedByLabel: managedByLabelValue}).
+		WithLabels(map[string]string{ownership.ManagedByLabel: ownership.ManagedByValue}).
 		WithOwnerReferences(metav1ac.OwnerReference().
 			WithAPIVersion(gvk.GroupVersion().String()).
 			WithKind(gvk.Kind).
@@ -220,7 +207,7 @@ func (a CATrustApplier) Apply(ctx context.Context, src CASource, dst types.Names
 			WithBlockOwnerDeletion(true)).
 		WithType(corev1.SecretTypeOpaque).
 		WithData(map[string][]byte{CACertificateKey: caPEM})
-	if err := a.Writer.Apply(ctx, secret, client.FieldOwner(fieldManager), client.ForceOwnership); err != nil {
+	if err := a.Writer.Apply(ctx, secret, client.FieldOwner(ownership.FieldManager), client.ForceOwnership); err != nil {
 		return fmt.Errorf("apply CA trust Secret %s: %w", dst, err)
 	}
 	return nil

@@ -45,6 +45,7 @@ import (
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
+	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
 	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 	"github.com/educates/educates-training-platform/installer/operator/internal/testpki"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
@@ -444,7 +445,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 
 		ns := &corev1.Namespace{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: certManagerNamespace}, ns)).To(Succeed())
-		Expect(ns.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", managedByLabelValue))
+		Expect(ns.Labels).To(HaveKeyWithValue(ownership.ManagedByLabel, ownership.ManagedByValue))
 		Expect(ns.OwnerReferences).To(HaveLen(1))
 		Expect(ns.OwnerReferences[0].Kind).To(Equal("EducatesClusterConfig"))
 
@@ -621,7 +622,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 			derived := &corev1.Secret{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: ingressCASecretName}, derived)).To(Succeed())
 			Expect(derived.Type).To(Equal(corev1.SecretTypeOpaque))
-			Expect(derived.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", managedByLabelValue))
+			Expect(derived.Labels).To(HaveKeyWithValue(ownership.ManagedByLabel, ownership.ManagedByValue))
 			Expect(derived.OwnerReferences).To(HaveLen(1))
 			Expect(derived.OwnerReferences[0].Kind).To(Equal("EducatesClusterConfig"))
 			Expect(derived.OwnerReferences[0].Name).To(Equal("cluster"))
@@ -785,7 +786,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: "educates-wildcard-tls"}, served)).To(Succeed())
 		Expect(served.Type).To(Equal(corev1.SecretTypeTLS))
 		Expect(served.Data).To(Equal(map[string][]byte{"tls.crt": leaf.ChainPEM(), "tls.key": leaf.KeyPEM}))
-		Expect(served.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", managedByLabelValue))
+		Expect(served.Labels).To(HaveKeyWithValue(ownership.ManagedByLabel, ownership.ManagedByValue))
 		Expect(served.OwnerReferences).To(HaveLen(1))
 		Expect(served.OwnerReferences[0].Kind).To(Equal("EducatesClusterConfig"))
 

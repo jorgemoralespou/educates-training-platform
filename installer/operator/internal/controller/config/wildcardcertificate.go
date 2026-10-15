@@ -29,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
 	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 )
 
@@ -147,7 +148,7 @@ func (r *EducatesClusterConfigReconciler) ensureStaticWildcardSecret(ctx context
 			Name:      wildcardTLSSecretName,
 			Namespace: r.OperatorNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": managedByLabelValue,
+				ownership.ManagedByLabel: ownership.ManagedByValue,
 			},
 		},
 		Type: corev1.SecretTypeTLS,

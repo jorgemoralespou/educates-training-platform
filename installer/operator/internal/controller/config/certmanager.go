@@ -40,13 +40,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
 )
-
-// fieldManager is the server-side-apply field manager the operator
-// asserts ownership under. One constant for the whole operator so SSA
-// conflicts surface predictably and `kubectl get -o yaml` shows a
-// single owner for operator-created resources.
-const fieldManager = "educates-installer"
 
 // Cert-manager Deployment names installed by the upstream chart with
 // default values. These are the readiness gate before the operator
@@ -445,7 +440,7 @@ func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.C
 			Name:      customCASecretName,
 			Namespace: certManagerNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": managedByLabelValue,
+				ownership.ManagedByLabel: ownership.ManagedByValue,
 			},
 		},
 		Type: corev1.SecretTypeTLS,
@@ -480,7 +475,7 @@ func (r *EducatesClusterConfigReconciler) applySSA(ctx context.Context, obj clie
 	unstructured.RemoveNestedField(u.Object, "status")
 	unstructured.RemoveNestedField(u.Object, "metadata", "creationTimestamp")
 	return r.Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
-		client.FieldOwner(fieldManager), client.ForceOwnership)
+		client.FieldOwner(ownership.FieldManager), client.ForceOwnership)
 }
 
 // copyCASecretData picks the keys cert-manager's CA issuer reads from
@@ -556,7 +551,7 @@ func (r *EducatesClusterConfigReconciler) ensureClusterIssuer(ctx context.Contex
 		ObjectMeta: metav1.ObjectMeta{
 			Name: wildcardClusterIssuer,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": managedByLabelValue,
+				ownership.ManagedByLabel: ownership.ManagedByValue,
 			},
 		},
 		Spec: cmv1.IssuerSpec{IssuerConfig: issuerCfg},
@@ -619,7 +614,7 @@ func (r *EducatesClusterConfigReconciler) ensureWildcardCertificate(ctx context.
 			Name:      wildcardCertificate,
 			Namespace: r.OperatorNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": managedByLabelValue,
+				ownership.ManagedByLabel: ownership.ManagedByValue,
 			},
 		},
 		Spec: cmv1.CertificateSpec{
