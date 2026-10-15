@@ -617,8 +617,8 @@ Features Changed
   that the secret holds both keys and that its certificate is a CA before
   cert-manager is involved, and reports a problem on the
   ``CertificatesReady`` condition with a reason naming it, being
-  ``CAKeyPairNotFound``, ``CAKeyPairIncomplete``,
-  ``CAKeyPairInvalidCertificate`` or ``CAKeyPairNotCA``. A new optional field,
+  ``CAKeyPairNotFound``, ``CAKeyPairIncomplete``, ``CAKeyPairUnparseable``
+  or ``CAKeyPairNotCA``. A new optional field,
   ``customCA.caCertificateSecretRef``, references a CA trust secret holding,
   under ``ca.crt``, the certificate Educates components should trust, for
   example the root of an intermediate CA used as the key pair. Both
@@ -683,7 +683,7 @@ Features Changed
   When the referenced secret is missing or holds no valid certificate under
   ``ca.crt``, the ``SessionManager`` reports ``Ready`` as ``False`` with a
   reason naming the problem, being ``CATrustSecretNotFound``,
-  ``CATrustSecretIncomplete`` or ``CATrustSecretInvalidCertificate``.
+  ``CATrustSecretIncomplete`` or ``CATrustSecretUnparseable``.
 
 * With ``nodeCATrust.mode`` left at ``Auto`` in the ``SessionManager``
   resource, the node CA injector is now installed on clusters that use a

@@ -80,14 +80,14 @@ const (
 // Reasons a source Secret cannot yield a CA certificate. They are
 // condition reasons, so a reconciler can publish them as they are.
 const (
-	ReasonCAKeyPairNotFound           = string(FromCAKeyPair) + "NotFound"
-	ReasonCAKeyPairIncomplete         = string(FromCAKeyPair) + "Incomplete"
-	ReasonCAKeyPairInvalidCertificate = string(FromCAKeyPair) + "InvalidCertificate"
-	ReasonCAKeyPairNotCA              = string(FromCAKeyPair) + "NotCA"
+	ReasonCAKeyPairNotFound    = string(FromCAKeyPair) + "NotFound"
+	ReasonCAKeyPairIncomplete  = string(FromCAKeyPair) + "Incomplete"
+	ReasonCAKeyPairUnparseable = string(FromCAKeyPair) + "Unparseable"
+	ReasonCAKeyPairNotCA       = string(FromCAKeyPair) + "NotCA"
 
-	ReasonCATrustSecretNotFound           = string(FromCATrustSecret) + "NotFound"
-	ReasonCATrustSecretIncomplete         = string(FromCATrustSecret) + "Incomplete"
-	ReasonCATrustSecretInvalidCertificate = string(FromCATrustSecret) + "InvalidCertificate"
+	ReasonCATrustSecretNotFound    = string(FromCATrustSecret) + "NotFound"
+	ReasonCATrustSecretIncomplete  = string(FromCATrustSecret) + "Incomplete"
+	ReasonCATrustSecretUnparseable = string(FromCATrustSecret) + "Unparseable"
 )
 
 // CASource names the Secret a CA certificate is read from and the rule
@@ -123,32 +123,38 @@ func CACertificate(secret *corev1.Secret, rule CASourceRule) ([]byte, error) {
 	case FromCATrustSecret:
 		data := secret.Data[CACertificateKey]
 		if len(data) == 0 {
-			return nil, sourceError(rule, "Incomplete", "Secret %s is missing required key %q", id, CACertificateKey)
+			return nil, certificateSecretError(ReasonCATrustSecretIncomplete,
+				"Secret %s is missing required key %q", id, CACertificateKey)
 		}
 		certs, err := parseCertificates(data)
 		if err != nil {
-			return nil, sourceError(rule, "InvalidCertificate", "Secret %s key %q: %v", id, CACertificateKey, err)
+			return nil, certificateSecretError(ReasonCATrustSecretUnparseable,
+				"Secret %s key %q: %v", id, CACertificateKey, err)
 		}
 		return encodeCertificates(certs), nil
 
 	case FromCAKeyPair:
 		for _, k := range []string{tlsCertificateKey, tlsPrivateKeyKey} {
 			if len(secret.Data[k]) == 0 {
-				return nil, sourceError(rule, "Incomplete", "Secret %s is missing required key %q", id, k)
+				return nil, certificateSecretError(ReasonCAKeyPairIncomplete,
+					"Secret %s is missing required key %q", id, k)
 			}
 		}
 		chain, err := parseCertificates(secret.Data[tlsCertificateKey])
 		if err != nil {
-			return nil, sourceError(rule, "InvalidCertificate", "Secret %s key %q: %v", id, tlsCertificateKey, err)
+			return nil, certificateSecretError(ReasonCAKeyPairUnparseable,
+				"Secret %s key %q: %v", id, tlsCertificateKey, err)
 		}
 		if !chain[0].IsCA {
-			return nil, sourceError(rule, "NotCA", "Secret %s: the certificate in %q (subject %q) is not a CA certificate",
+			return nil, certificateSecretError(ReasonCAKeyPairNotCA,
+				"Secret %s: the certificate in %q (subject %q) is not a CA certificate",
 				id, tlsCertificateKey, chain[0].Subject.String())
 		}
 		if data := secret.Data[CACertificateKey]; len(data) > 0 {
 			certs, err := parseCertificates(data)
 			if err != nil {
-				return nil, sourceError(rule, "InvalidCertificate", "Secret %s key %q: %v", id, CACertificateKey, err)
+				return nil, certificateSecretError(ReasonCAKeyPairUnparseable,
+					"Secret %s key %q: %v", id, CACertificateKey, err)
 			}
 			return encodeCertificates(certs), nil
 		}
@@ -167,7 +173,8 @@ func ReadCACertificate(ctx context.Context, reader client.Reader, src CASource) 
 	secret := &corev1.Secret{}
 	if err := reader.Get(ctx, types.NamespacedName{Namespace: src.Namespace, Name: src.Name}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, sourceError(src.Rule, "NotFound", "Secret %s/%s not found", src.Namespace, src.Name)
+			return nil, certificateSecretError(src.Rule.notFoundReason(),
+				"Secret %s/%s not found", src.Namespace, src.Name)
 		}
 		return nil, fmt.Errorf("read Secret %s/%s: %w", src.Namespace, src.Name, err)
 	}
@@ -219,8 +226,17 @@ func (a CATrustApplier) Apply(ctx context.Context, src CASource, dst types.Names
 	return nil
 }
 
-func sourceError(rule CASourceRule, reason, format string, args ...any) *CertificateSecretError {
-	return &CertificateSecretError{Reason: string(rule) + reason, Message: fmt.Sprintf(format, args...)}
+// notFoundReason is the reason a missing source Secret reports under
+// the rule.
+func (rule CASourceRule) notFoundReason() string {
+	if rule == FromCAKeyPair {
+		return ReasonCAKeyPairNotFound
+	}
+	return ReasonCATrustSecretNotFound
+}
+
+func certificateSecretError(reason, format string, args ...any) *CertificateSecretError {
+	return &CertificateSecretError{Reason: reason, Message: fmt.Sprintf(format, args...)}
 }
 
 // parseCertificates parses every CERTIFICATE block of PEM data, in

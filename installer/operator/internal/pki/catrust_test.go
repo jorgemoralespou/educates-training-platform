@@ -138,13 +138,13 @@ func TestCACertificate_RejectsUnusableSources(t *testing.T) {
 			name:       "key pair whose tls.crt is not a certificate",
 			rule:       pki.FromCAKeyPair,
 			data:       map[string][]byte{"tls.crt": []byte("not a certificate"), "tls.key": root.KeyPEM},
-			wantReason: pki.ReasonCAKeyPairInvalidCertificate,
+			wantReason: pki.ReasonCAKeyPairUnparseable,
 		},
 		{
 			name:       "key pair whose ca.crt is not a certificate",
 			rule:       pki.FromCAKeyPair,
 			data:       map[string][]byte{"tls.crt": root.CertPEM, "tls.key": root.KeyPEM, "ca.crt": []byte("junk")},
-			wantReason: pki.ReasonCAKeyPairInvalidCertificate,
+			wantReason: pki.ReasonCAKeyPairUnparseable,
 		},
 		{
 			name:       "CA trust Secret without ca.crt",
@@ -156,7 +156,7 @@ func TestCACertificate_RejectsUnusableSources(t *testing.T) {
 			name:       "CA trust Secret whose ca.crt holds only a key",
 			rule:       pki.FromCATrustSecret,
 			data:       map[string][]byte{"ca.crt": root.KeyPEM},
-			wantReason: pki.ReasonCATrustSecretInvalidCertificate,
+			wantReason: pki.ReasonCATrustSecretUnparseable,
 		},
 	}
 	for _, tc := range cases {

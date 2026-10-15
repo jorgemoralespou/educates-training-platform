@@ -87,34 +87,41 @@ func CheckWildcardCertificate(secret *corev1.Secret, want WildcardRequirements) 
 	id := secret.Namespace + "/" + secret.Name
 	for _, k := range []string{tlsCertificateKey, tlsPrivateKeyKey} {
 		if len(secret.Data[k]) == 0 {
-			return nil, wildcardError("Incomplete", "Secret %s is missing required key %q", id, k)
+			return nil, certificateSecretError(ReasonWildcardCertificateIncomplete,
+				"Secret %s is missing required key %q", id, k)
 		}
 	}
 	chain, err := parseCertificates(secret.Data[tlsCertificateKey])
 	if err != nil {
-		return nil, wildcardError("Unparseable", "Secret %s key %q: %v", id, tlsCertificateKey, err)
+		return nil, certificateSecretError(ReasonWildcardCertificateUnparseable,
+			"Secret %s key %q: %v", id, tlsCertificateKey, err)
 	}
 	leaf := chain[0]
 	key, err := parsePrivateKey(secret.Data[tlsPrivateKeyKey])
 	if err != nil {
-		return nil, wildcardError("Unparseable", "Secret %s key %q: %v", id, tlsPrivateKeyKey, err)
+		return nil, certificateSecretError(ReasonWildcardCertificateUnparseable,
+			"Secret %s key %q: %v", id, tlsPrivateKeyKey, err)
 	}
 	if !publicKeysEqual(leaf.PublicKey, key.Public()) {
-		return nil, wildcardError("KeyMismatch", "Secret %s: the private key in %q does not match the certificate in %q",
+		return nil, certificateSecretError(ReasonWildcardCertificateKeyMismatch,
+			"Secret %s: the private key in %q does not match the certificate in %q",
 			id, tlsPrivateKeyKey, tlsCertificateKey)
 	}
 	wildcard := "*." + strings.TrimSuffix(want.Domain, ".")
 	if !hasDNSName(leaf, wildcard) {
-		return nil, wildcardError("DomainMismatch", "Secret %s: the certificate's SANs %v do not include %q",
+		return nil, certificateSecretError(ReasonWildcardCertificateDomainMismatch,
+			"Secret %s: the certificate's SANs %v do not include %q",
 			id, leaf.DNSNames, wildcard)
 	}
 	if want.Now.After(leaf.NotAfter) {
-		return nil, wildcardError("Expired", "Secret %s: the certificate expired at %s",
+		return nil, certificateSecretError(ReasonWildcardCertificateExpired,
+			"Secret %s: the certificate expired at %s",
 			id, leaf.NotAfter.UTC().Format(time.RFC3339))
 	}
 	if len(want.CA) > 0 {
 		if err := verifyChain(chain, want.CA, want.Now); err != nil {
-			return nil, wildcardError("Untrusted", "Secret %s: the certificate does not verify against the CA: %v", id, err)
+			return nil, certificateSecretError(ReasonWildcardCertificateUntrusted,
+				"Secret %s: the certificate does not verify against the CA: %v", id, err)
 		}
 	}
 	return &WildcardCertificate{
@@ -132,15 +139,12 @@ func ReadWildcardCertificate(ctx context.Context, reader client.Reader, key type
 	secret := &corev1.Secret{}
 	if err := reader.Get(ctx, key, secret); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, wildcardError("NotFound", "Secret %s not found", key)
+			return nil, certificateSecretError(ReasonWildcardCertificateNotFound,
+				"Secret %s not found", key)
 		}
 		return nil, fmt.Errorf("read Secret %s: %w", key, err)
 	}
 	return CheckWildcardCertificate(secret, want)
-}
-
-func wildcardError(reason, format string, args ...any) *CertificateSecretError {
-	return &CertificateSecretError{Reason: wildcardCertificateReasonPrefix + reason, Message: fmt.Sprintf(format, args...)}
 }
 
 // parsePrivateKey parses the first private key PEM block of data, in
