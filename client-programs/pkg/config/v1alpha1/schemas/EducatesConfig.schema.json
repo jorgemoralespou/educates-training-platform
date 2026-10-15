@@ -442,7 +442,7 @@
                   "type": "object"
                 },
                 "provider": {
-                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. None disables in-cluster TLS entirely: the operator\ninstalls no cert-manager, creates no ClusterIssuer and no wildcard\nCertificate, and Educates serves plain HTTP unless TLS is terminated\noutside the cluster (see ingress.protocol). The provider is immutable:\nchanging it requires deleting and recreating the EducatesClusterConfig.",
+                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. BundledCertManager installs cert-manager and issues the\ncertificate from a ClusterIssuer. StaticCertificate serves a wildcard\ncertificate issued outside the cluster, without cert-manager.\nExternalCertManager is reserved and not yet supported. None disables\nin-cluster TLS entirely: the operator installs no cert-manager,\ncreates no ClusterIssuer and no wildcard Certificate, and Educates\nserves plain HTTP unless TLS is terminated outside the cluster (see\ningress.protocol). The provider is immutable: changing it requires\ndeleting and recreating the EducatesClusterConfig.",
                   "enum": [
                     "BundledCertManager",
                     "ExternalCertManager",
@@ -452,13 +452,17 @@
                   "type": "string"
                 },
                 "staticCertificate": {
-                  "description": "StaticCertificateConfig declares a pre-provisioned wildcard TLS\ncertificate; no cert-manager is involved.",
+                  "description": "StaticCertificateConfig declares a wildcard TLS certificate issued\noutside the cluster. The operator serves it as it is: it installs no\ncert-manager and creates no ClusterIssuer or Certificate.",
                   "properties": {
-                    "caCertificateRef": {
-                      "description": "caCertificateRef optionally references a Secret with the ca.crt\nkey for the issuing CA chain.",
+                    "caCertificateSecretRef": {
+                      "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding the certificate of the CA that issued the wildcard\ncertificate, under ca.crt. When set, the wildcard certificate's\nchain must verify against it, and Educates components trust it\nthrough educates-ingress-ca, which the operator derives from its\nca.crt alone, so any other key it holds, a private key included,\nis ignored. Namespace defaults to the operator namespace when\nempty.",
                       "properties": {
                         "name": {
                           "description": "name of the referent.",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "namespace of the referent. Empty means the operator namespace.",
                           "type": "string"
                         }
                       },
@@ -468,10 +472,14 @@
                       "type": "object"
                     },
                     "tlsSecretRef": {
-                      "description": "tlsSecretRef references a kubernetes.io/tls Secret with keys\ntls.crt and tls.key.",
+                      "description": "tlsSecretRef references the wildcard certificate Educates serves: a\nSecret holding the certificate under tls.crt (optionally followed\nby its intermediates) and its private key under tls.key. The\ncertificate's SANs must include *.\u003cdomain\u003e. Namespace defaults to\nthe operator namespace when empty. The operator copies only tls.crt\nand tls.key into the operator-owned educates-wildcard-tls and keeps\nthat copy current.",
                       "properties": {
                         "name": {
                           "description": "name of the referent.",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "namespace of the referent. Empty means the operator namespace.",
                           "type": "string"
                         }
                       },
