@@ -126,6 +126,26 @@ func makeReadyClusterConfig() {
 	Expect(k8sClient.Status().Update(ctx, cc)).To(Succeed())
 }
 
+// publishIngressCAOnClusterConfig adds to the makeReadyClusterConfig
+// fixture the CA reference a cluster with a custom CA publishes: the
+// operator-owned, key-free educates-ingress-ca in the operator namespace.
+func publishIngressCAOnClusterConfig() {
+	GinkgoHelper()
+	cc := &configv1alpha1.EducatesClusterConfig{}
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: configSingletonName}, cc)).To(Succeed())
+	cc.Status.Ingress.CACertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
+		Namespace: "educates-installer",
+		Name:      "educates-ingress-ca",
+	}
+	Expect(k8sClient.Status().Update(ctx, cc)).To(Succeed())
+}
+
+// ingressCAChartRef is the clusterIngress.caCertificateRef chart value
+// publishIngressCAOnClusterConfig's reference must render to.
+func ingressCAChartRef() map[string]any {
+	return map[string]any{"name": "educates-ingress-ca", "namespace": "educates-installer"}
+}
+
 // markDeploymentAvailable creates (if missing) and patches the named
 // Deployment to Available=True. envtest has no controllers, so specs
 // drive the transition manually.

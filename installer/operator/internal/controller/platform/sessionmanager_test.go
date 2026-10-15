@@ -396,19 +396,11 @@ var _ = Describe("SessionManager reconciler", func() {
 
 	// --- Optional extras: nodeCATrust + remoteAccess --------------
 
-	// makeReadyClusterConfigWithCA augments the shared fixture with a
-	// CA cert ref so resolveNodeCATrust(Auto/Enabled) treats the
-	// prerequisite as satisfied.
-	withCAOnClusterConfig := func() {
-		GinkgoHelper()
-		cc := &configv1alpha1.EducatesClusterConfig{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: configSingletonName}, cc)).To(Succeed())
-		cc.Status.Ingress.CACertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
-			Namespace: "educates-installer",
-			Name:      "wildcard-ca",
-		}
-		Expect(k8sClient.Status().Update(ctx, cc)).To(Succeed())
-	}
+	// withCAOnClusterConfig augments the shared fixture with the CA
+	// trust Secret a custom CA cluster publishes, so
+	// resolveNodeCATrust(Auto/Enabled) treats the prerequisite as
+	// satisfied.
+	withCAOnClusterConfig := publishIngressCAOnClusterConfig
 
 	driveSessionManagerReady := func(smgr *platformv1alpha1.SessionManager) {
 		GinkgoHelper()
@@ -445,17 +437,47 @@ var _ = Describe("SessionManager reconciler", func() {
 			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
 		})
 
+		var rel *release.Release
 		Eventually(func() error {
 			hc, err := helmFac.For(platformNamespace)
 			if err != nil {
 				return err
 			}
-			_, err = hc.Status(nodeCAInjectorReleaseName)
+			rel, err = hc.Status(nodeCAInjectorReleaseName)
 			return err
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 		Eventually(func() string {
 			return extraConditionReason(conditionNodeCATrustDeployed)
 		}, 30*time.Second, 200*time.Millisecond).Should(Equal("Installed"))
+
+		// The injector reads the key-free CA trust Secret, with its namespace.
+		ci, ok := rel.Config["clusterIngress"].(map[string]any)
+		Expect(ok).To(BeTrue(), "clusterIngress missing from node-ca-injector values")
+		Expect(ci["caCertificateRef"]).To(Equal(ingressCAChartRef()))
+	})
+
+	It("carries the cluster's CA trust Secret, with its namespace, into chart values", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		withCAOnClusterConfig()
+
+		Expect(k8sClient.Create(ctx, &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+		})).To(Succeed())
+
+		var rel *release.Release
+		Eventually(func() error {
+			hc, err := helmFac.For(platformNamespace)
+			if err != nil {
+				return err
+			}
+			rel, err = hc.Status(sessionManagerReleaseName)
+			return err
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		ci, ok := rel.Config["clusterIngress"].(map[string]any)
+		Expect(ok).To(BeTrue(), "clusterIngress missing from rendered values")
+		Expect(ci["caCertificateRef"]).To(Equal(ingressCAChartRef()))
 	})
 
 	It("nodeCATrust Auto skips when ECC has no CA cert ref", func() {
