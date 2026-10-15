@@ -276,7 +276,7 @@ const (
 type NodeCATrust struct {
 	// mode defaults to Auto. Auto installs the subchart only when a CA
 	// is configured, either published by the cluster config or set as
-	// ingressOverrides.caCertificateSecretRef; with no CA configured,
+	// spec.ingressOverrides.caCertificateSecretRef; with no CA configured,
 	// Auto skips the install silently. Enabled forces the install
 	// (refuses if no CA is configured). Disabled keeps it uninstalled.
 	// +kubebuilder:default=Auto

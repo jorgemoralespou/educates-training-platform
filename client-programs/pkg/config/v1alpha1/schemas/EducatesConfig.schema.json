@@ -1254,7 +1254,7 @@
           "properties": {
             "mode": {
               "default": "Auto",
-              "description": "mode defaults to Auto. Auto installs the subchart only when a CA\nis configured, either published by the cluster config or set as\ningressOverrides.caCertificateSecretRef; with no CA configured,\nAuto skips the install silently. Enabled forces the install\n(refuses if no CA is configured). Disabled keeps it uninstalled.",
+              "description": "mode defaults to Auto. Auto installs the subchart only when a CA\nis configured, either published by the cluster config or set as\nspec.ingressOverrides.caCertificateSecretRef; with no CA configured,\nAuto skips the install silently. Enabled forces the install\n(refuses if no CA is configured). Disabled keeps it uninstalled.",
               "enum": [
                 "Auto",
                 "Enabled",

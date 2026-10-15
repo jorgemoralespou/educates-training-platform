@@ -263,8 +263,8 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		conditionNodeCATrustDeployed,
 		nodeCAInjectorReleaseName,
 		vendoredcharts.NodeCAInjector,
-		func(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) map[string]any {
-			return renderNodeCAInjectorValues(obj, cfg, r.OperatorNamespace)
+		func(sm *platformv1alpha1.SessionManager, cc *configv1alpha1.EducatesClusterConfig) map[string]any {
+			return renderNodeCAInjectorValues(sm, cc, r.OperatorNamespace)
 		},
 		cfg, nctIntent, nctReason, nctMessage,
 	)
@@ -539,7 +539,7 @@ func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionMa
 		"tlsCertificateRef": map[string]any{"name": tlsName, "namespace": wildcardNS},
 	}
 	caRef := map[string]any{"name": "", "namespace": ""}
-	if ref := sessionManagerIngressCARef(obj, cfg, operatorNamespace); ref != nil {
+	if ref := effectiveIngressCARef(obj, cfg, operatorNamespace); ref != nil {
 		caRef = map[string]any{"name": ref.Name, "namespace": ref.Namespace}
 	}
 	clusterIngress["caCertificateRef"] = caRef

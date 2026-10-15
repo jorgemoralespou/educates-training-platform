@@ -54,12 +54,12 @@ func caOverrideRef(obj *platformv1alpha1.SessionManager) *platformv1alpha1.Secre
 	return obj.Spec.IngressOverrides.CACertificateSecretRef
 }
 
-// sessionManagerIngressCARef returns the CA trust Secret the session
+// effectiveIngressCARef returns the CA trust Secret the session
 // manager, and the workloads it creates, trust: the key-free copy of the
 // SessionManager's CA override when it sets one, which replaces the
 // cluster's CA, otherwise the cluster's published ingress CA. It returns
 // nil when neither is configured.
-func sessionManagerIngressCARef(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig, operatorNamespace string) *configv1alpha1.NamespacedSecretRef {
+func effectiveIngressCARef(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig, operatorNamespace string) *configv1alpha1.NamespacedSecretRef {
 	if caOverrideRef(obj) != nil {
 		return &configv1alpha1.NamespacedSecretRef{Namespace: operatorNamespace, Name: sessionManagerIngressCASecretName}
 	}
