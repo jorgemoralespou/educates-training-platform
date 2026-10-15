@@ -58,7 +58,7 @@ func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 				IssuerType: configv1alpha1.IssuerTypeCustomCA,
 				CustomCA: &configv1alpha1.CustomCAConfig{
-					CACertificateRef: configv1alpha1.CASecretReference{
+					CACertificateRef: configv1alpha1.SecretReference{
 						Name:      "workshop-ca",
 						Namespace: "team-alpha-secrets",
 					},
@@ -90,7 +90,7 @@ func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 			WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
 				Name: "wildcard",
 			},
-			CACertificateSecretRef: &configv1alpha1.CASecretReference{
+			CACertificateSecretRef: &configv1alpha1.SecretReference{
 				Name:      "byo-ca",
 				Namespace: "shared-ca",
 			},
@@ -121,7 +121,7 @@ func TestCollectFromECC_EmptyNamespaceOnRef_Ignored(t *testing.T) {
 			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 				IssuerType: configv1alpha1.IssuerTypeCustomCA,
 				CustomCA: &configv1alpha1.CustomCAConfig{
-					CACertificateRef: configv1alpha1.CASecretReference{
+					CACertificateRef: configv1alpha1.SecretReference{
 						Name: "workshop-ca",
 						// Namespace intentionally empty
 					},
