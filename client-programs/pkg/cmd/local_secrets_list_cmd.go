@@ -151,7 +151,11 @@ certificate, the ingress domain of a CA intermediate key pair, and the
 permitted DNS name constraints of a CA certificate or CA root key pair,
 or "any" when it has none.
 
-EXPIRES is the date the certificate expires, in UTC, or "expired".`,
+EXPIRES is the date the certificate expires, in UTC, or "expired".
+
+"educates local secrets view NAME" shows the details of one secret, such
+as the subject, issuer and name constraints of its certificates, or why
+it is invalid.`,
 		Example: localSecretsListExample,
 		RunE:    func(cmd *cobra.Command, _ []string) error { return o.Run(cmd.OutOrStdout()) },
 	}
