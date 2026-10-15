@@ -755,14 +755,19 @@ type InlineIngress struct {
 	Protocol IngressProtocol `json:"protocol,omitempty"`
 
 	// wildcardCertificateSecretRef references a kubernetes.io/tls Secret
-	// with keys tls.crt and tls.key, valid for *.<domain>. Omit it when
-	// the cluster serves plain HTTP or terminates TLS outside the
-	// cluster.
+	// with keys tls.crt and tls.key, valid for *.<domain>. Namespace
+	// defaults to the operator namespace when empty. Omit it when the
+	// cluster serves plain HTTP or terminates TLS outside the cluster.
 	// +optional
-	WildcardCertificateSecretRef *LocalObjectReference `json:"wildcardCertificateSecretRef,omitempty"`
+	WildcardCertificateSecretRef *SecretReference `json:"wildcardCertificateSecretRef,omitempty"`
 
-	// caCertificateSecretRef references a Secret with the ca.crt key
-	// for the issuing CA chain. Optional.
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding the certificate of the CA that issued the wildcard
+	// certificate, under ca.crt. Namespace defaults to the operator
+	// namespace when empty. Educates components never receive this
+	// Secret: the operator derives educates-ingress-ca from its ca.crt
+	// alone, so any other key it holds, a private key included, is
+	// ignored.
 	// +optional
 	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 
@@ -922,9 +927,11 @@ type StatusIngress struct {
 	// +required
 	Protocol IngressProtocol `json:"protocol"`
 
-	// wildcardCertificateSecretRef points at the operator-namespace
-	// Secret holding the wildcard cert+key. Unset when the certificates
-	// provider is None, in which case there is no in-cluster TLS.
+	// wildcardCertificateSecretRef points at the Secret holding the
+	// wildcard cert+key: the operator-owned educates-wildcard-tls in the
+	// operator namespace in Managed mode, the referenced Secret in Inline
+	// mode. Unset when there is no in-cluster TLS (the None certificates
+	// provider, or no wildcard certificate in Inline mode).
 	// +optional
 	WildcardCertificateSecretRef *NamespacedSecretRef `json:"wildcardCertificateSecretRef,omitempty"`
 

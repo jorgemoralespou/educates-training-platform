@@ -678,7 +678,7 @@ func (in *InlineIngress) DeepCopyInto(out *InlineIngress) {
 	*out = *in
 	if in.WildcardCertificateSecretRef != nil {
 		in, out := &in.WildcardCertificateSecretRef, &out.WildcardCertificateSecretRef
-		*out = new(LocalObjectReference)
+		*out = new(SecretReference)
 		**out = **in
 	}
 	if in.CACertificateSecretRef != nil {

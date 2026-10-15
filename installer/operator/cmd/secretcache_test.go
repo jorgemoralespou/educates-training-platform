@@ -91,7 +91,7 @@ func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 		Ingress: configv1alpha1.InlineIngress{
 			Domain:           "workshop.example.com",
 			IngressClassName: "contour",
-			WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+			WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 				Name: "wildcard",
 			},
 			CACertificateSecretRef: &configv1alpha1.SecretReference{

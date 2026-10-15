@@ -32,11 +32,12 @@ import (
 // Educates components receive CA trust and never a CA private key.
 const ingressCASecretName = "educates-ingress-ca"
 
-// Spec paths of the Managed-mode CustomCA references, used in condition
-// messages and cache-miss warnings.
+// Spec paths of the CA references, used in condition messages and
+// cache-miss warnings.
 const (
 	customCAKeyPairField = "spec.ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef"
 	customCATrustField   = "spec.ingress.certificates.bundledCertManager.customCA.caCertificateSecretRef"
+	inlineCATrustField   = "spec.inline.ingress.caCertificateSecretRef"
 )
 
 // customCAConfig returns the Managed-mode CustomCA configuration, or nil
@@ -64,9 +65,21 @@ func (r *EducatesClusterConfigReconciler) secretRefNamespace(ref configv1alpha1.
 }
 
 // ingressCASource returns the Secret the ingress CA trust is derived
-// from, the field that names it, and false when no CA is configured. A
-// CA trust Secret, when referenced, wins over the CA key pair.
+// from, the field that names it, and false when no CA is configured. In
+// Inline mode the source is the CA trust Secret. In Managed mode a CA
+// trust Secret, when referenced, wins over the CA key pair.
 func (r *EducatesClusterConfigReconciler) ingressCASource(obj *configv1alpha1.EducatesClusterConfig) (pki.CASource, string, bool) {
+	if obj.Spec.Mode == configv1alpha1.ClusterConfigModeInline {
+		if obj.Spec.Inline == nil || obj.Spec.Inline.Ingress.CACertificateSecretRef == nil {
+			return pki.CASource{}, "", false
+		}
+		ref := obj.Spec.Inline.Ingress.CACertificateSecretRef
+		return pki.CASource{
+			Namespace: r.secretRefNamespace(*ref),
+			Name:      ref.Name,
+			Rule:      pki.FromCATrustSecret,
+		}, inlineCATrustField, true
+	}
 	ca := customCAConfig(obj)
 	if ca == nil {
 		return pki.CASource{}, "", false
@@ -121,7 +134,23 @@ func (r *EducatesClusterConfigReconciler) ensureIngressCATrust(ctx context.Conte
 	r.warnIfCacheMiss(ctx, src.Namespace, field)
 	applier := pki.CATrustApplier{Reader: r.APIReader, Writer: r.Client, Scheme: r.Scheme}
 	dst := types.NamespacedName{Namespace: r.OperatorNamespace, Name: ingressCASecretName}
-	return asCertificatesValidationError(applier.Apply(ctx, src, dst, obj), field)
+	err := applier.Apply(ctx, src, dst, obj)
+	if obj.Spec.Mode == configv1alpha1.ClusterConfigModeInline {
+		// Inline mode reports a reference it cannot use on
+		// ValidationSucceeded alone, like its other references.
+		return asValidationError(err, field)
+	}
+	return asCertificatesValidationError(err, field)
+}
+
+// asValidationError turns a source Secret that cannot yield a CA
+// certificate into a validation failure. Other errors pass through for
+// retry.
+func asValidationError(err error, field string) error {
+	if serr, ok := errors.AsType[*pki.SourceError](err); ok {
+		return &validationError{Field: field, Reason: serr.Message}
+	}
+	return err
 }
 
 // asCertificatesValidationError turns a source Secret that cannot yield

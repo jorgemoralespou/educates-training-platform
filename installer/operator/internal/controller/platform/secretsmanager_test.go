@@ -81,7 +81,7 @@ func makeReadyClusterConfig() {
 				Ingress: configv1alpha1.InlineIngress{
 					Domain:           "test.example.com",
 					IngressClassName: "contour",
-					WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+					WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 						Name: "wildcard-tls",
 					},
 				},

@@ -88,8 +88,8 @@ type EducatesClusterConfigReconciler struct {
 	Scheme *runtime.Scheme
 
 	// APIReader is an uncached client used for cross-namespace Secret
-	// reads (the CustomCA key pair or CA trust Secret in a namespace
-	// outside the operator's cache scope). The cached Client only
+	// reads (a referenced CA key pair, CA trust Secret or Inline wildcard
+	// Secret in a namespace outside the operator's cache scope). The cached Client only
 	// watches Secrets in the namespaces collected at startup; reads
 	// against other namespaces fail with "unknown namespace for the
 	// cache".
@@ -98,9 +98,11 @@ type EducatesClusterConfigReconciler struct {
 	// fake.NewClientBuilder() client (which serves any namespace).
 	APIReader client.Reader
 
-	// OperatorNamespace is where user-supplied Secrets (TLS, CA, image-
-	// pull) referenced from spec.inline are expected to live. Sourced
-	// from the OPERATOR_NAMESPACE env var (downward API).
+	// OperatorNamespace is where the operator writes the Secrets it owns
+	// (educates-ingress-ca, educates-wildcard-tls) and where
+	// user-supplied Secrets live when a reference names no namespace
+	// (image pull Secrets always live here). Sourced from the
+	// OPERATOR_NAMESPACE env var (downward API).
 	OperatorNamespace string
 
 	// CachedSecretNamespaces is the set of namespaces the operator's
@@ -153,9 +155,11 @@ type EducatesClusterConfigReconciler struct {
 // their kinds.
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=secretsmanagers;lookupservices;sessionmanagers,verbs=get;list;watch
 
-// Inline-mode validation reads user-supplied references in the operator
-// namespace (Secrets) plus cluster-scoped objects (ClusterIssuers,
-// IngressClasses). All read-only.
+// Inline-mode validation reads user-supplied references (Secrets, in
+// the operator namespace or the namespace a reference names) plus
+// cluster-scoped objects (ClusterIssuers, IngressClasses). All
+// read-only; the derived educates-ingress-ca is written under the
+// Secret write verbs below.
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingressclasses,verbs=get;list;watch
@@ -164,7 +168,8 @@ type EducatesClusterConfigReconciler struct {
 
 // Managed-mode operations:
 //   - Namespaces (create/patch for cluster-service installs).
-//   - Secrets (write — copy CustomCA into cert-manager namespace).
+//   - Secrets (write — copy CustomCA into cert-manager namespace, and
+//     derive educates-ingress-ca in the operator namespace).
 //   - Deployments (watch — cert-manager readiness gate).
 //   - cert-manager ClusterIssuers + Certificates (SSA + watch).
 // Helm-managed resources (cert-manager's own ConfigMaps, Services,
@@ -275,6 +280,11 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	statusIngress, err := r.validateInline(ctx, obj.Spec.Inline)
+	if err == nil {
+		// As in Managed mode, CA trust reaches components only as the
+		// key-free educates-ingress-ca, kept current on every reconcile.
+		err = r.ensureIngressCATrust(ctx, obj)
+	}
 	if err != nil {
 		if verr, ok := errors.AsType[*validationError](err); ok {
 			r.markValidationFailed(obj, verr)
