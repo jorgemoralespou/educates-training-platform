@@ -51,7 +51,9 @@ const singletonName = "cluster"
 //
 // Boot-time only: if the user later edits either singleton to point at a
 // new namespace, the operator needs to restart to pick up watches there.
-// The EducatesClusterConfig reconciler logs a warning in that case.
+// The EducatesClusterConfig reconciler logs a message at Info level when
+// one of its own references names such a namespace; a SessionManager CA
+// override there is not reported.
 func discoverCachedSecretNamespaces(
 	ctx context.Context,
 	restCfg *rest.Config,

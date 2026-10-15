@@ -17,8 +17,9 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// warnIfCacheMiss surfaces a structured log warning when a Secret ref
-// points at a namespace the operator's Secret informer doesn't cover.
+// warnIfCacheMiss logs a structured message at Info level (logr has no
+// warning level) when a Secret ref points at a namespace the operator's
+// Secret informer doesn't cover.
 // APIReader reads (used everywhere cross-namespace) succeed regardless,
 // so the install proceeds — but Secret-change watches in that namespace
 // will never fire, so rotations won't trigger re-reconciliation until
@@ -29,7 +30,7 @@ import (
 // ECC at boot). A user editing the ECC to point at a fresh namespace
 // post-deploy is the case this warns about.
 //
-// Empty CachedSecretNamespaces disables the warning — used by tests
+// Empty CachedSecretNamespaces disables the message, as used by tests
 // that don't populate the field.
 //
 // TODO(followup): once the operator gains an EventRecorder, also emit

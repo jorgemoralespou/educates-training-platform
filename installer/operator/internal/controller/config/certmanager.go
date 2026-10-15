@@ -363,8 +363,9 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 // shouldInstallCertManager reports whether the operator is
 // responsible for installing cert-manager based on the spec: only the
 // BundledCertManager provider installs it. The StaticCertificate and
-// None providers never do, and ExternalCertManager, not yet supported,
-// would use a cert-manager the administrator installed.
+// None providers never do, and ExternalCertManager names a cert-manager
+// the administrator installed (validateManaged rejects it as not yet
+// supported).
 func shouldInstallCertManager(obj *configv1alpha1.EducatesClusterConfig) bool {
 	if obj.Spec.Ingress == nil {
 		return false

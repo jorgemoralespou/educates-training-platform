@@ -85,8 +85,8 @@ const (
 //
 //  1. cert-manager + wildcard Certificate + ClusterIssuer, or the
 //     static certificate's educates-wildcard-tls (CertificatesReady).
-//     Wildcard Cert placement may shift to post-Contour when
-//     ACME-HTTP01 issuer types are added later.
+//     TODO: an ACME HTTP-01 issuer type would need the wildcard
+//     Certificate after Contour.
 //  2. Contour + IngressClass (IngressReady).
 //  3. external-dns (DNSReady).
 //  4. Kyverno (PolicyEnforcementReady).

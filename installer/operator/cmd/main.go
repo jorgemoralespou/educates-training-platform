@@ -222,10 +222,12 @@ func main() {
 	//
 	// Boot-time discovery: if the user later edits either singleton to
 	// point at a new namespace, the operator pod needs to restart to pick
-	// up the watch. The EducatesClusterConfig reconciler logs a warning
-	// in that case. Live re-scoping of the cache mid-process is a
-	// follow-up (would require unwinding the manager / using a separate
-	// informer pool).
+	// up the watch. The EducatesClusterConfig reconciler logs a message at
+	// Info level when one of its own references names such a namespace; a
+	// SessionManager CA override there is not reported.
+	//
+	// TODO: re-scope the cache live, which needs unwinding the manager or
+	// a separate informer pool.
 	secretCacheNamespaces, err := discoverCachedSecretNamespaces(signalCtx, restCfg, scheme, operatorNamespace)
 	if err != nil {
 		setupLog.Error(err, "failed to discover cached Secret namespaces")
