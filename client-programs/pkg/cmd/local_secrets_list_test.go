@@ -208,7 +208,8 @@ func cacheAlphaCA(t *testing.T, name string, ca *testpki.Certificate, domain str
 func TestLocalSecretsList_AlphaCAListedAsInvalid(t *testing.T) {
 	// Deploys neither use nor copy a CA cached by an alpha release, so it
 	// is valid for no domain and lists as invalid, for the user to
-	// migrate and remove. Its subject and expiry still identify it.
+	// migrate and remove. Its expiry still shows, and
+	// `educates local secrets view` identifies it.
 	withSecretsCache(t)
 	cacheAlphaCA(t, "workshops-ca", testpki.NewRootCA(testpki.WithCommonName("alpha root"), validUntil(2034, time.May, 9)), "workshops.test")
 	corporate := testpki.NewRootCA(testpki.WithCommonName("corporate root"), validUntil(2031, time.March, 4))
