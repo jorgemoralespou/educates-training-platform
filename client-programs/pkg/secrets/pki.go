@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -86,6 +87,24 @@ func KeyMatchesCertificate(cert *x509.Certificate, key crypto.Signer) bool {
 // IsCACertificate reports whether cert may sign other certificates.
 func IsCACertificate(cert *x509.Certificate) bool {
 	return cert.BasicConstraintsValid && cert.IsCA
+}
+
+// WildcardDomains returns the domains cert is a wildcard certificate
+// for: <domain> for each *.<domain> DNS SAN, lowercased, without a
+// trailing dot, sorted and without duplicates.
+func WildcardDomains(cert *x509.Certificate) []string {
+	seen := map[string]bool{}
+	var domains []string
+	for _, san := range cert.DNSNames {
+		domain, ok := strings.CutPrefix(strings.ToLower(strings.TrimSuffix(san, ".")), "*.")
+		if !ok || domain == "" || seen[domain] {
+			continue
+		}
+		seen[domain] = true
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+	return domains
 }
 
 // EncodeCertificatePEM returns cert as a CERTIFICATE PEM block.
