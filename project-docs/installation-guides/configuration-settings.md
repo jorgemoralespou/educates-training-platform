@@ -139,6 +139,29 @@ lookupService: {}           # omit the block entirely to not deploy the componen
 sessionManager: {}
 ```
 
+For example, the `StaticCertificate` certificates provider, which serves a wildcard certificate you already have and installs no cert-manager, is selected through this kind:
+
+```yaml
+educatesClusterConfig:
+  mode: Managed
+  ingress:
+    domain: workshops.example.com
+    ingressClassName: contour
+    controller:
+      provider: BundledContour
+    certificates:
+      provider: StaticCertificate
+      staticCertificate:
+        tlsSecretRef:               # tls.crt and tls.key, SANs including *.{domain}
+          name: wildcard-tls
+          namespace: educates-secrets
+        caCertificateSecretRef:     # optional, ca.crt of a CA that is not publicly trusted
+          name: wildcard-ca
+          namespace: educates-secrets
+```
+
+See [secure HTTP connections](secure-http-connections) for how the operator checks and serves the certificate.
+
 The spec blocks are validated by the cluster's CRD schemas at apply time, not by the CLI. The `EducatesConfig` JSON schema is generated from the CRDs, so editors still get full completion. For the custom resource spec reference, see the sample scenarios in [installer/samples](https://github.com/educates/educates-training-platform/tree/develop/installer/samples) and `kubectl explain educatesclusterconfig.spec` against an installed cluster.
 
 (delivery-of-extension-packages)=
@@ -196,7 +219,7 @@ Runtime behavior settings live on the `SessionManager` custom resource spec, rea
 * `images` — per-image overrides for runtime-spawned images.
 * `themes`/`defaultTheme` — Secret-sourced workshop themes.
 * `imagePrePuller` — pre-pull key images on cluster nodes.
-* `nodeCATrust`, `remoteAccess`: node-level CA trust injection and cross-cluster CLI access. With `nodeCATrust.mode` at its default, `Auto`, the node CA injector is installed whenever the cluster publishes a CA, which includes every Managed mode install with a custom CA and every Inline mode install that names a CA Secret. Set it to `Disabled` to keep the privileged node CA injector DaemonSet off.
+* `nodeCATrust`, `remoteAccess`: node-level CA trust injection and cross-cluster CLI access. With `nodeCATrust.mode` at its default, `Auto`, the node CA injector is installed whenever the cluster publishes a CA, which includes every Managed mode install with a custom CA, every `StaticCertificate` install that names a CA trust Secret, and every Inline mode install that names a CA Secret. Set it to `Disabled` to keep the privileged node CA injector DaemonSet off.
 
 Use `kubectl explain sessionmanager.spec` for the full schema. A few spec blocks (`defaultAccessCredentials`, `registryMirrors`, and ConfigMap/URL-sourced themes) are reserved in the CRD but rejected as not yet supported in this release.
 

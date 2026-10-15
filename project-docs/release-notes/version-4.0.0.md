@@ -41,6 +41,34 @@ New Features
   (using IAM Roles for Service Accounts on EKS) and Google Cloud DNS (using
   Workload Identity on GKE).
 
+* In ``Managed`` mode, a wildcard TLS certificate issued outside the cluster
+  can be served with the ``StaticCertificate`` certificates provider, which
+  installs no cert-manager and creates no ``ClusterIssuer`` or
+  ``Certificate``. ``ingress.certificates.staticCertificate.tlsSecretRef``
+  references a secret holding the certificate under ``tls.crt`` and its
+  private key under ``tls.key``, and the optional
+  ``staticCertificate.caCertificateSecretRef``, which replaces
+  ``caCertificateRef``, references a CA trust secret holding, under
+  ``ca.crt``, the certificate of the CA that issued it. Both take an optional
+  ``namespace``, which defaults to the operator namespace. The operator
+  copies only ``tls.crt`` and ``tls.key`` into a secret named
+  ``educates-wildcard-tls`` in its own namespace, keeps the copy updated when
+  the referenced secret changes, publishes it as
+  ``status.ingress.wildcardCertificateSecretRef`` with no
+  ``clusterIssuerRef``, and derives ``educates-ingress-ca`` from the CA trust
+  secret. Before serving the certificate the operator checks it, and reports
+  each problem on the ``CertificatesReady`` condition with its own reason:
+  ``WildcardCertificateNotFound``, ``WildcardCertificateIncomplete``,
+  ``WildcardCertificateUnparseable``, ``WildcardCertificateKeyMismatch``,
+  ``WildcardCertificateDomainMismatch`` when its SANs do not include
+  ``*.<domain>``, ``WildcardCertificateExpired``, or
+  ``WildcardCertificateUntrusted`` when its chain does not verify against the
+  CA trust secret. A certificate that expires while the cluster runs is
+  reported without any change to the configuration. The provider is selected
+  through the ``EducatesConfig`` configuration kind or by applying the
+  ``EducatesClusterConfig`` directly. The ``ExternalCertManager`` provider
+  remains reserved and is rejected as not yet supported.
+
 * A standalone ``educates-training-platform`` umbrella Helm chart, with
   subcharts for the secrets-manager, lookup-service and session-manager
   components, can be used to install the Educates runtime without the
@@ -563,6 +591,19 @@ Features Changed
   secrets in the operator namespace; use the ``EducatesConfig`` escape hatch
   to name another namespace.
 
+* In ``Inline`` mode the wildcard certificate named by
+  ``inline.ingress.wildcardCertificateSecretRef`` is now checked in the same
+  way as one served with the ``StaticCertificate`` provider, against the CA
+  trust secret named by ``inline.ingress.caCertificateSecretRef`` when there
+  is one. Previously only the presence of its ``tls.crt`` and ``tls.key``
+  keys was checked. ``Inline`` mode now also sets the ``CertificatesReady``
+  condition: ``True`` once the wildcard certificate and CA secret pass
+  validation, and ``False`` with the same reasons as ``StaticCertificate``
+  when the certificate is not usable, or with a reason such as
+  ``CATrustSecretIncomplete`` when the CA secret is not. A wildcard
+  certificate that does not cover ``*.<domain>``, has expired, or was not
+  issued by the named CA now leaves the ``EducatesClusterConfig`` not ready.
+
 * The ``ingressOverrides.caCertificateSecretRef`` field of the
   ``SessionManager`` resource now takes an optional ``namespace``, which
   defaults to the operator namespace. Previously the secret was looked up in
@@ -1003,3 +1044,9 @@ Bugs Fixed
   deletes the wildcard ``Certificate`` and the ``ClusterIssuer``, now runs only
   when the provider is ``BundledCertManager``, the one case in which Educates
   installed cert-manager.
+
+* In ``Managed`` mode, the ``ValidationSucceeded`` condition of the
+  ``EducatesClusterConfig`` stayed ``False`` after a validation failure, such
+  as a missing CA secret, had been corrected, even once the resource became
+  ready. It now returns to ``True`` once the spec and the secrets it
+  references pass validation.

@@ -94,7 +94,9 @@ The `EducatesClusterConfig` reconciler renders a values map for each vendored up
 | `dns.bundledExternalDNS.*` | `external-dns` / `external-dns` | `provider`, `sources`, `domainFilters: [<domain>]`, `txtOwnerId`, Workload Identity / IRSA ServiceAccount annotations |
 | `policyEnforcement.*` | `kyverno` / `kyverno` | chart defaults plus `global.image.registry` when an image-registry prefix is set |
 
-In Inline mode this stage installs nothing: the reconciler only validates that the referenced Secrets, IngressClass, and engines exist, and derives `educates-ingress-ca` from the CA Secret when one is named.
+With the `StaticCertificate` certificates provider no cert-manager is installed: the reconciler checks the wildcard certificate you name and copies only its `tls.crt` and `tls.key` into the operator-owned `educates-wildcard-tls`, which it publishes in place of a cert-manager issued one.
+
+In Inline mode this stage installs nothing: the reconciler only validates that the referenced Secrets, IngressClass, and engines exist, checks the wildcard certificate as it checks a `StaticCertificate`, and derives `educates-ingress-ca` from the CA Secret when one is named.
 
 Either way, the stage ends by publishing **status**: the validated ingress contract (`status.ingress.domain`, wildcard certificate and CA Secret references, optional ClusterIssuer; whenever a CA is configured, in either mode, the CA Secret reference names `educates-ingress-ca`, an operator-owned Secret in the operator namespace holding only `ca.crt`, which the operator derives from your CA Secrets and keeps up to date), resolved policy engines, image registry, the resolved extension package delivery (`status.packageDelivery.imageMount`, settled against what the cluster supports), and installed chart versions.
 
