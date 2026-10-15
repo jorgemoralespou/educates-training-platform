@@ -206,6 +206,11 @@ func TestTranslateLocal_WithoutCertificatesDecision_Errors(t *testing.T) {
 			Provider: CertificatesProviderBundledCertManager,
 			CustomCA: &LocalCustomCA{},
 		},
+		"StaticCertificate without a TLS certificate": {Provider: CertificatesProviderStaticCertificate},
+		"StaticCertificate with an unnamed TLS certificate": {
+			Provider:          CertificatesProviderStaticCertificate,
+			StaticCertificate: &LocalStaticCertificate{},
+		},
 		"unknown provider": {Provider: "Unknown"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -248,6 +253,54 @@ func TestTranslateLocal_CustomCA_CATrustSecretRef(t *testing.T) {
 	}
 	spec = out.EducatesClusterConfig["spec"].(map[string]interface{})
 	if got, found := getNested(spec, customCA+".caCertificateSecretRef"); found {
+		t.Errorf("caCertificateSecretRef emitted without a CA trust Secret in the decision: %v", got)
+	}
+}
+
+// TestTranslateLocal_StaticCertificate asserts that a StaticCertificate
+// decision emits the wildcard certificate Secret as
+// staticCertificate.tlsSecretRef, the CA trust Secret, when the decision
+// names one, as staticCertificate.caCertificateSecretRef, and no
+// cert-manager configuration.
+func TestTranslateLocal_StaticCertificate(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	const static = "ingress.certificates.staticCertificate"
+	decision := func(ca *SecretRef) Options {
+		return Options{LocalCertificates: LocalCertificates{
+			Provider: CertificatesProviderStaticCertificate,
+			StaticCertificate: &LocalStaticCertificate{
+				TLSSecretRef:           SecretRef{Name: "workshop-tls", Namespace: "educates-secrets"},
+				CACertificateSecretRef: ca,
+			},
+		}}
+	}
+
+	out, err := Translate(cfg, decision(&SecretRef{Name: "mkcert-ca", Namespace: "educates-secrets"}))
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec := out.EducatesClusterConfig["spec"].(map[string]interface{})
+	for path, want := range map[string]interface{}{
+		"ingress.certificates.provider":              "StaticCertificate",
+		static + ".tlsSecretRef.name":                "workshop-tls",
+		static + ".tlsSecretRef.namespace":           "educates-secrets",
+		static + ".caCertificateSecretRef.name":      "mkcert-ca",
+		static + ".caCertificateSecretRef.namespace": "educates-secrets",
+	} {
+		if got, _ := getNested(spec, path); got != want {
+			t.Errorf("EducatesClusterConfig.spec.%s = %v, want %v", path, got, want)
+		}
+	}
+	if got, found := getNested(spec, "ingress.certificates.bundledCertManager"); found {
+		t.Errorf("bundledCertManager emitted for a StaticCertificate decision: %v", got)
+	}
+
+	out, err = Translate(cfg, decision(nil))
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec = out.EducatesClusterConfig["spec"].(map[string]interface{})
+	if got, found := getNested(spec, static+".caCertificateSecretRef"); found {
 		t.Errorf("caCertificateSecretRef emitted without a CA trust Secret in the decision: %v", got)
 	}
 }

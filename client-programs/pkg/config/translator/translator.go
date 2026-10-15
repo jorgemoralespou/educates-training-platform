@@ -48,6 +48,7 @@ type Options struct {
 const (
 	CertificatesProviderNone               = "None"
 	CertificatesProviderBundledCertManager = "BundledCertManager"
+	CertificatesProviderStaticCertificate  = "StaticCertificate"
 )
 
 // SecretRef names a Secret. An empty Namespace means the operator
@@ -67,6 +68,11 @@ type LocalCertificates struct {
 	// CustomCA is set when Provider is BundledCertManager: cert-manager's
 	// CA issuer signs the wildcard certificate from this CA.
 	CustomCA *LocalCustomCA
+
+	// StaticCertificate is set when Provider is StaticCertificate: the
+	// cluster serves this wildcard certificate and installs no
+	// cert-manager.
+	StaticCertificate *LocalStaticCertificate
 }
 
 // LocalCustomCA holds the Secret references of a BundledCertManager
@@ -79,6 +85,19 @@ type LocalCustomCA struct {
 	// CACertificateSecretRef optionally names the CA trust Secret
 	// (ca.crt) Educates components trust. When nil the operator reads the
 	// trust from the CA key pair.
+	CACertificateSecretRef *SecretRef
+}
+
+// LocalStaticCertificate holds the Secret references of a
+// StaticCertificate install.
+type LocalStaticCertificate struct {
+	// TLSSecretRef names the wildcard certificate (tls.crt and tls.key)
+	// the cluster serves.
+	TLSSecretRef SecretRef
+
+	// CACertificateSecretRef optionally names the CA trust Secret
+	// (ca.crt) holding the CA the wildcard certificate verifies against,
+	// which Educates components trust. When nil no CA is configured.
 	CACertificateSecretRef *SecretRef
 }
 

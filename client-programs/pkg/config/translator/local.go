@@ -16,11 +16,13 @@ import (
 //
 // ingress.certificates comes from opts.LocalCertificates, the decision
 // the CLI's local certificate resolution step made from the local
-// secrets cache: provider None, or BundledCertManager with the CustomCA
+// secrets cache: provider None; BundledCertManager with the CustomCA
 // issuer, its CA key pair reference and, optionally, the CA trust Secret
-// reference. Returns an error when that
-// decision is missing or incomplete, so an install that cannot get its
-// certificates fails at translate time rather than at deploy time.
+// reference; or StaticCertificate with the wildcard certificate
+// reference and, optionally, the CA trust Secret reference. Returns an
+// error when that decision is missing or incomplete, so an install that
+// cannot get its certificates fails at translate time rather than at
+// deploy time.
 //
 // When ingress.insecure is set the cluster serves plain HTTP
 // (ingress.protocol http).
@@ -75,6 +77,20 @@ func localCertificates(lc LocalCertificates) (map[string]interface{}, error) {
 				"issuerType": "CustomCA",
 				"customCA":   customCA,
 			},
+		}, nil
+	case CertificatesProviderStaticCertificate:
+		if lc.StaticCertificate == nil || lc.StaticCertificate.TLSSecretRef.Name == "" {
+			return nil, fmt.Errorf("translator: the StaticCertificate decision for EducatesLocalConfig has no TLS certificate Secret name")
+		}
+		static := map[string]interface{}{
+			"tlsSecretRef": secretRef(lc.StaticCertificate.TLSSecretRef),
+		}
+		if ref := lc.StaticCertificate.CACertificateSecretRef; ref != nil {
+			static["caCertificateSecretRef"] = secretRef(*ref)
+		}
+		return map[string]interface{}{
+			"provider":          CertificatesProviderStaticCertificate,
+			"staticCertificate": static,
 		}, nil
 	case "":
 		return nil, fmt.Errorf("translator: EducatesLocalConfig needs a certificates decision; the caller must resolve it from the local secrets cache before translating")
