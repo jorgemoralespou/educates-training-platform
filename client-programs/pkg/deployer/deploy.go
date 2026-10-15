@@ -18,7 +18,6 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/chart"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/crds"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/helm"
-	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/prereq"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
@@ -59,11 +58,6 @@ type Options struct {
 	// Timeout overrides DefaultTimeout per CR wait.
 	Timeout time.Duration
 
-	// SkipPrereqCheck bypasses the educates-custom-ca Secret existence
-	// check. Set when the caller has already verified, or for advanced
-	// users who manage the Secret asynchronously.
-	SkipPrereqCheck bool
-
 	// SkipCRDApply bypasses the operator CRD apply step. The default
 	// is to push CRDs from the embedded chart before helm-install so a
 	// CRD shape change reaches the cluster on re-deploy (helm itself
@@ -92,10 +86,9 @@ type Options struct {
 //
 //  1. Helm install/upgrade the operator chart in the operator namespace.
 //  2. Apply EducatesClusterConfig → wait Ready.
-//  3. Verify the educates-custom-ca prerequisite Secret (unless skipped).
-//  4. Apply SecretsManager → wait Ready.
-//  5. Apply LookupService (if present) → wait Ready.
-//  6. Apply SessionManager → wait Ready.
+//  3. Apply SecretsManager → wait Ready.
+//  4. Apply LookupService (if present) → wait Ready.
+//  5. Apply SessionManager → wait Ready.
 //
 // Returns the last LookupService/SessionManager objects observed so the
 // caller can print URLs from .status.
@@ -166,25 +159,12 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		return err
 	}
 
-	// 4. Prereq check — only meaningful when the caller didn't sync
-	//    local secrets. With SyncLocalSecrets the cache push is the
-	//    prereq; the render-time lookup already verified the cache had
-	//    a CA matching the domain.
-	if !opts.SkipPrereqCheck && !opts.SyncLocalSecrets {
-		step := opts.Progress.Start(fmt.Sprintf("check prerequisite Secret %s", prereq.CustomCASecretName))
-		if err := prereq.CheckCustomCASecret(ctx, opts.Getter, OperatorNamespace); err != nil {
-			step.Fail(err)
-			return err
-		}
-		step.Done("present")
-	}
-
-	// 5. SecretsManager + wait.
+	// 4. SecretsManager + wait.
 	if err := installStep(ctx, opts, applier, waiter, out.SecretsManager, "SecretsManager"); err != nil {
 		return err
 	}
 
-	// 6. SessionManager + LookupService. There's a Ready cycle between
+	// 5. SessionManager + LookupService. There's a Ready cycle between
 	//    them: LookupService's pod mounts a remote-access-token Secret that
 	//    SessionManager's remote-access install creates, and in Auto mode
 	//    SessionManager installs remote-access only when a LookupService CR

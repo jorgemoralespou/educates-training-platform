@@ -550,7 +550,7 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 // namespace). Mirrors checkCASecret for Inline mode but expects
 // tls.crt + tls.key (cert-manager's CA-issuer needs the private key),
 // not ca.crt.
-func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Context, ref configv1alpha1.CASecretReference) error {
+func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Context, ref configv1alpha1.SecretReference) error {
 	ns := ref.Namespace
 	if ns == "" {
 		ns = r.OperatorNamespace

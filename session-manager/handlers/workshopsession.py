@@ -1789,12 +1789,17 @@ def workshop_session_create(name, body, meta, uid, spec, status, patch, retry, *
         )
 
     if INGRESS_CA_SECRET:
+        # Only ca.crt is projected from the CA secret. The workshop
+        # environment copies the CA secret into the workshop namespace
+        # whenever a CA is configured, so it exists here even when there
+        # is no wildcard TLS secret.
         deployment_pod_template_spec["volumes"].extend(
             [
                 {
                     "name": "workshop-ca",
                     "secret": {
                         "secretName": INGRESS_CA_SECRET,
+                        "items": [{"key": "ca.crt", "path": "ca.crt"}],
                     },
                 },
                 {

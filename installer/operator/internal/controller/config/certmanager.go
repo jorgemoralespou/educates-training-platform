@@ -424,7 +424,7 @@ func deploymentAvailable(d *appsv1.Deployment) bool {
 // data without read-modify-write races. Owner reference on the copy
 // is the EducatesClusterConfig so `kubectl delete educatesclusterconfig`
 // cascades the copy.
-func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig, src configv1alpha1.CASecretReference) error {
+func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig, src configv1alpha1.SecretReference) error {
 	srcNS := src.Namespace
 	if srcNS == "" {
 		srcNS = r.OperatorNamespace
