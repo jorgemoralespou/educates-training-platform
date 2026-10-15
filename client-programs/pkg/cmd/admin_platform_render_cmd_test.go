@@ -262,7 +262,7 @@ func TestRender_TLSCertificate_ReportsStaticCertificateWithoutWriting(t *testing
 		t.Run(name, func(t *testing.T) {
 			dataHome := t.TempDir()
 			t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
-			if err := secrets.WriteCachedSecret(secrets.NewTLSSecret("workshop-tls", leaf.CertPEM, leaf.KeyPEM, "")); err != nil {
+			if err := secrets.WriteCachedSecret(secrets.NewTLSSecret("workshop-tls", leaf.CertPEM, leaf.KeyPEM)); err != nil {
 				t.Fatal(err)
 			}
 			if tc.cacheCA {

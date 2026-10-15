@@ -51,7 +51,7 @@ func stageRootAndOthers(t *testing.T) {
 			return secrets.WriteCachedSecret(secrets.NewCATrustSecret("corporate-ca", other.CertPEM))
 		}},
 		{"wildcard-tls", func() error {
-			return secrets.WriteCachedSecret(secrets.NewTLSSecret("wildcard-tls", leaf.ChainPEM(), leaf.KeyPEM, ""))
+			return secrets.WriteCachedSecret(secrets.NewTLSSecret("wildcard-tls", leaf.ChainPEM(), leaf.KeyPEM))
 		}},
 		{"registry", func() error {
 			return secrets.WriteCachedSecret(secrets.NewDockerRegistrySecret("registry", "registry.test", "user", "pass", ""))

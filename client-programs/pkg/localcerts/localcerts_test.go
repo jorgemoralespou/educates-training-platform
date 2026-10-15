@@ -68,6 +68,16 @@ func nested(t *testing.T, root map[string]interface{}, path string) interface{} 
 	return cur
 }
 
+// withDomainAnnotation records domain on s with the domain annotation, as
+// caches from earlier releases do, and returns s.
+func withDomainAnnotation(s *apiv1.Secret, domain string) *apiv1.Secret {
+	if s.Annotations == nil {
+		s.Annotations = map[string]string{}
+	}
+	s.Annotations[secrets.DomainAnnotation] = domain
+	return s
+}
+
 func writeCached(t *testing.T, s *apiv1.Secret) {
 	t.Helper()
 	if err := secrets.WriteCachedSecret(s); err != nil {
@@ -511,14 +521,14 @@ func TestResolve_NoRoot_ErrorsWithRemediation(t *testing.T) {
 		},
 		"CA cached by an alpha release": func(t *testing.T) {
 			ca := testpki.NewRootCA()
-			writeCached(t, secrets.NewTLSSecret("workshop.test-ca", ca.CertPEM, ca.KeyPEM, "workshop.test"))
+			writeCached(t, withDomainAnnotation(secrets.NewTLSSecret("workshop.test-ca", ca.CertPEM, ca.KeyPEM), "workshop.test"))
 		},
 		"TLS certificate for another domain": func(t *testing.T) {
 			cacheTLS(t, "other-tls", wildcardLeaf(testpki.NewRootCA(), "other.test", "sub.workshop.test"))
 		},
 		"TLS certificate annotated with the domain but without its wildcard": func(t *testing.T) {
 			leaf := testpki.NewRootCA().NewLeaf(testpki.WithDNSNames("workshop.test", "portal.workshop.test"))
-			writeCached(t, secrets.NewTLSSecret("workshop.test-tls", leaf.CertPEM, leaf.KeyPEM, "workshop.test"))
+			writeCached(t, withDomainAnnotation(secrets.NewTLSSecret("workshop.test-tls", leaf.CertPEM, leaf.KeyPEM), "workshop.test"))
 		},
 	}
 	for name, stage := range cases {
@@ -621,7 +631,7 @@ func cacheTLS(t *testing.T, name string, leaf *testpki.Certificate, chain ...*te
 	for _, c := range chain {
 		certPEM = append(certPEM, c.CertPEM...)
 	}
-	writeCached(t, secrets.NewTLSSecret(name, certPEM, leaf.KeyPEM, ""))
+	writeCached(t, secrets.NewTLSSecret(name, certPEM, leaf.KeyPEM))
 }
 
 // wildcardLeaf returns a server certificate signed by ca for the
@@ -939,7 +949,7 @@ func TestResolve_TLSCertificateWithAMismatchedKey_Errors(t *testing.T) {
 	mkcert := testpki.NewRootCA()
 	cacheRoot(t, "mkcert-ca", mkcert)
 	leaf := wildcardLeaf(mkcert, "workshop.test")
-	writeCached(t, secrets.NewTLSSecret("workshop-tls", leaf.CertPEM, wildcardLeaf(mkcert, "workshop.test").KeyPEM, ""))
+	writeCached(t, secrets.NewTLSSecret("workshop-tls", leaf.CertPEM, wildcardLeaf(mkcert, "workshop.test").KeyPEM))
 
 	_, err := localcerts.Resolve(localConfig("workshop.test", false))
 	if err == nil {
@@ -1027,10 +1037,10 @@ func stageMixedCache(t *testing.T) {
 	resolveAndCommit(t, localConfig("other.test", false))
 	writeCached(t, secrets.NewCATrustSecret("corporate-ca", testpki.NewRootCA().CertPEM))
 	leaf := root.NewLeaf(testpki.WithDNSNames("*.wildcard.test"))
-	writeCached(t, secrets.NewTLSSecret("wildcard-tls", leaf.ChainPEM(), leaf.KeyPEM, ""))
+	writeCached(t, secrets.NewTLSSecret("wildcard-tls", leaf.ChainPEM(), leaf.KeyPEM))
 	writeCached(t, secrets.NewDockerRegistrySecret("registry", "registry.test", "user", "pass", ""))
 	alpha := testpki.NewRootCA()
-	writeCached(t, secrets.NewTLSSecret("workshop.test-ca", alpha.CertPEM, alpha.KeyPEM, "workshop.test"))
+	writeCached(t, withDomainAnnotation(secrets.NewTLSSecret("workshop.test-ca", alpha.CertPEM, alpha.KeyPEM), "workshop.test"))
 }
 
 func TestResolve_SyncsOnlyTheSelectedCAKeyPair(t *testing.T) {

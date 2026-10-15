@@ -54,15 +54,15 @@ func TestLocalSecretsExportPEM_PrintsCertificatesOnly(t *testing.T) {
 			want:   []*x509.Certificate{root.Cert},
 		},
 		"CA cached by an alpha release prints the CA certificate": {
-			secret: secrets.NewTLSSecret("workshop.test-ca", alpha.CertPEM, alpha.KeyPEM, "workshop.test"),
+			secret: withDomainAnnotation(secrets.NewTLSSecret("workshop.test-ca", alpha.CertPEM, alpha.KeyPEM), "workshop.test"),
 			want:   []*x509.Certificate{alpha.Cert},
 		},
 		"TLS certificate prints its certificate chain": {
-			secret: secrets.NewTLSSecret("wildcard-tls", leaf.ChainPEM(), leaf.KeyPEM, ""),
+			secret: secrets.NewTLSSecret("wildcard-tls", leaf.ChainPEM(), leaf.KeyPEM),
 			want:   []*x509.Certificate{leaf.Cert, intermediate.Cert, root.Cert},
 		},
 		"TLS certificate with its key in tls.crt prints only the certificate": {
-			secret: secrets.NewTLSSecret("combined-tls", combined, leaf.KeyPEM, ""),
+			secret: secrets.NewTLSSecret("combined-tls", combined, leaf.KeyPEM),
 			want:   []*x509.Certificate{leaf.Cert},
 		},
 	}
@@ -102,7 +102,7 @@ func TestLocalSecretsExportPEM_SecretWithoutCertificate_ErrorsPrintingNothing(t 
 			Type:       apiv1.SecretTypeOpaque,
 			Data:       map[string][]byte{"key.pem": key, "ca.crt": key},
 		},
-		"TLS secret holding a key as tls.crt": secrets.NewTLSSecret("broken-tls", key, key, ""),
+		"TLS secret holding a key as tls.crt": secrets.NewTLSSecret("broken-tls", key, key),
 	} {
 		t.Run(name, func(t *testing.T) {
 			withSecretsCache(t)

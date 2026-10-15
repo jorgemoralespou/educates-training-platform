@@ -25,6 +25,16 @@ func withSecretsCache(t *testing.T) {
 	t.Setenv("EDUCATES_CLI_DATA_HOME", t.TempDir())
 }
 
+// withDomainAnnotation records domain on s with the domain annotation, as
+// caches from earlier releases do, and returns s.
+func withDomainAnnotation(s *apiv1.Secret, domain string) *apiv1.Secret {
+	if s.Annotations == nil {
+		s.Annotations = map[string]string{}
+	}
+	s.Annotations[secrets.DomainAnnotation] = domain
+	return s
+}
+
 // cachedSecretNames lists the local secrets cache.
 func cachedSecretNames(t *testing.T) []string {
 	t.Helper()

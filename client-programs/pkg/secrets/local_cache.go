@@ -222,26 +222,17 @@ func RemoveCachedSecretAndDependents(name string) ([]string, error) {
 }
 
 // NewTLSSecret builds a kubernetes.io/tls Secret from PEM-encoded cert and
-// key bytes. When ingressDomain is non-empty it is recorded in the
-// DomainAnnotation annotation.
-func NewTLSSecret(name string, certPEM, keyPEM []byte, ingressDomain string) *apiv1.Secret {
-	secret := &apiv1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Annotations: map[string]string{},
-		},
-		Type: apiv1.SecretTypeTLS,
+// key bytes. It records no domain: a TLS certificate serves the domains
+// of its wildcard DNS names.
+func NewTLSSecret(name string, certPEM, keyPEM []byte) *apiv1.Secret {
+	return &apiv1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Type:       apiv1.SecretTypeTLS,
 		Data: map[string][]byte{
 			"tls.crt": certPEM,
 			"tls.key": keyPEM,
 		},
 	}
-
-	if ingressDomain != "" {
-		secret.ObjectMeta.Annotations[DomainAnnotation] = ingressDomain
-	}
-
-	return secret
 }
 
 // Roles of CA material in the local secrets cache. A root CA named NAME

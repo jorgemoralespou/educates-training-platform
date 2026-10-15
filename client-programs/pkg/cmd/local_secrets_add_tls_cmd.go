@@ -81,7 +81,7 @@ func (o *LocalSecretsAddTlsOptions) Run(name string) error {
 		return err
 	}
 
-	return secrets.WriteCachedSecret(secrets.NewTLSSecret(name, certPEM, keyPEM, ""))
+	return secrets.WriteCachedSecret(secrets.NewTLSSecret(name, certPEM, keyPEM))
 }
 
 // reservedNameSuffix returns the suffix of name that the local secrets

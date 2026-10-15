@@ -201,7 +201,7 @@ func TestLocalSecretsList_AlphaCAShownAsUnusedCAKeyPair(t *testing.T) {
 	// Deploys neither use nor copy it, so it is valid for no domain.
 	withSecretsCache(t)
 	alpha := testpki.NewRootCA(testpki.WithCommonName("alpha root"), validUntil(2034, time.May, 9))
-	if err := secrets.WriteCachedSecret(secrets.NewTLSSecret("workshops-ca", alpha.CertPEM, alpha.KeyPEM, "workshops.test")); err != nil {
+	if err := secrets.WriteCachedSecret(withDomainAnnotation(secrets.NewTLSSecret("workshops-ca", alpha.CertPEM, alpha.KeyPEM), "workshops.test")); err != nil {
 		t.Fatal(err)
 	}
 
@@ -217,7 +217,7 @@ func TestLocalSecretsList_ExpiredCertificateShowsExpired(t *testing.T) {
 		testpki.WithDNSNames("*.workshops.test"),
 		testpki.WithValidity(time.Now().AddDate(-2, 0, 0), time.Now().AddDate(-1, 0, 0)),
 	)
-	if err := secrets.WriteCachedSecret(secrets.NewTLSSecret("old-tls", leaf.CertPEM, leaf.KeyPEM, "")); err != nil {
+	if err := secrets.WriteCachedSecret(secrets.NewTLSSecret("old-tls", leaf.CertPEM, leaf.KeyPEM)); err != nil {
 		t.Fatal(err)
 	}
 
