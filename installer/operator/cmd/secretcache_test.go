@@ -44,14 +44,10 @@ func TestCollectFromECC_NoCR_DefaultsOnly(t *testing.T) {
 	}
 }
 
-// eccSingletonName mirrors the CEL-enforced singleton name every
-// EducatesClusterConfig must carry.
-const eccSingletonName = "cluster"
-
 func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = eccSingletonName
+	ecc.Name = singletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
 	ecc.Spec.Ingress = &configv1alpha1.Ingress{
 		Certificates: configv1alpha1.Certificates{
@@ -86,7 +82,7 @@ func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 func TestCollectFromECC_ManagedStaticCertificateNS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = eccSingletonName
+	ecc.Name = singletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
 	ecc.Spec.Ingress = &configv1alpha1.Ingress{
 		Certificates: configv1alpha1.Certificates{
@@ -118,7 +114,7 @@ func TestCollectFromECC_ManagedStaticCertificateNS_Added(t *testing.T) {
 func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = eccSingletonName
+	ecc.Name = singletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeInline
 	ecc.Spec.Inline = &configv1alpha1.InlineConfig{
 		Ingress: configv1alpha1.InlineIngress{
@@ -149,7 +145,7 @@ func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 func TestCollectFromECC_SessionManagerCAOverrideNS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	sm := &platformv1alpha1.SessionManager{}
-	sm.Name = eccSingletonName
+	sm.Name = singletonName
 	sm.Spec.IngressOverrides = &platformv1alpha1.IngressOverrides{
 		CACertificateSecretRef: &platformv1alpha1.SecretReference{
 			Name:      "portal-ca",
@@ -174,7 +170,7 @@ func TestCollectFromECC_EmptyNamespaceOnRef_Ignored(t *testing.T) {
 	// default set, so no new entry should be added.
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = eccSingletonName
+	ecc.Name = singletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
 	ecc.Spec.Ingress = &configv1alpha1.Ingress{
 		Certificates: configv1alpha1.Certificates{

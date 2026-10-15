@@ -221,9 +221,9 @@ func TestCheckWildcardCertificate_RejectsUnusableCertificates(t *testing.T) {
 				CA:     tc.ca,
 				Now:    time.Now(),
 			})
-			var serr *pki.SourceError
+			var serr *pki.CertificateSecretError
 			if !errors.As(err, &serr) {
-				t.Fatalf("CheckWildcardCertificate error = %v, want a *pki.SourceError", err)
+				t.Fatalf("CheckWildcardCertificate error = %v, want a *pki.CertificateSecretError", err)
 			}
 			if serr.Reason != tc.wantReason {
 				t.Errorf("reason = %q, want %q (message %q)", serr.Reason, tc.wantReason, serr.Message)

@@ -113,7 +113,7 @@ func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, 
 	// certificate. A completed phase may still ask to run again by a
 	// time, such as a static certificate's expiry; every later return
 	// keeps that deadline.
-	done, certRes, err := r.reconcileCertManagerPhase(ctx, obj)
+	done, certRes, err := r.reconcileCertificatesPhase(ctx, obj)
 	if !done {
 		return certRes, err
 	}

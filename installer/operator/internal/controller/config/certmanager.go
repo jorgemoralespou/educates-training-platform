@@ -213,7 +213,7 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 	return nil
 }
 
-// reconcileCertManagerPhase runs the certificates phase. For the
+// reconcileCertificatesPhase runs the certificates phase. For the
 // BundledCertManager provider that is the full cert-manager + wildcard
 // certificate pipeline; the None provider has nothing to do, and the
 // StaticCertificate provider has its own phase,
@@ -235,7 +235,7 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 // All cert-manager-specific error classification (CRDs missing,
 // webhook not yet routable) is handled here so the orchestrator
 // in reconcileManaged stays oblivious to cert-manager internals.
-func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) reconcileCertificatesPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	// phaseStop wraps the (Result, error) returned by helpers like
 	// handleCertManagerCRDsMissing into the (done bool, Result,

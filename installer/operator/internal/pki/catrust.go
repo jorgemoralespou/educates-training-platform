@@ -60,7 +60,8 @@ const (
 )
 
 // CASourceRule says how a source Secret yields the CA certificate. Its
-// value prefixes the reason of every SourceError the rule reports.
+// value prefixes the reason of every CertificateSecretError the rule
+// reports.
 type CASourceRule string
 
 const (
@@ -98,23 +99,24 @@ type CASource struct {
 	Rule      CASourceRule
 }
 
-// SourceError reports a source Secret that cannot yield a CA
-// certificate: it is missing, lacks a required key, holds no parseable
-// certificate, or, for a CA key pair, holds a certificate that is not a
-// CA. Reason is a PascalCase condition reason; Message names the Secret.
-type SourceError struct {
+// CertificateSecretError reports a Secret holding certificates that the
+// operator cannot use: a CA source that cannot yield a CA certificate,
+// or a wildcard certificate Secret that cannot be served. Reason is a
+// PascalCase condition reason; Message names the Secret.
+type CertificateSecretError struct {
 	Reason  string
 	Message string
 }
 
-func (e *SourceError) Error() string {
+func (e *CertificateSecretError) Error() string {
 	return e.Message
 }
 
 // CACertificate derives the PEM certificates for ca.crt from a source
 // Secret by rule. The result holds only CERTIFICATE blocks, re-encoded,
 // so it never carries a private key whatever else the source holds. A
-// source that cannot yield a CA certificate returns a *SourceError.
+// source that cannot yield a CA certificate returns a
+// *CertificateSecretError.
 func CACertificate(secret *corev1.Secret, rule CASourceRule) ([]byte, error) {
 	id := secret.Namespace + "/" + secret.Name
 	switch rule {
@@ -159,7 +161,8 @@ func CACertificate(secret *corev1.Secret, rule CASourceRule) ([]byte, error) {
 
 // ReadCACertificate reads the source Secret through reader and derives
 // its CA certificate by the source's rule. A missing Secret is a
-// *SourceError; any other read failure is returned as it is, for retry.
+// *CertificateSecretError; any other read failure is returned as it is,
+// for retry.
 func ReadCACertificate(ctx context.Context, reader client.Reader, src CASource) ([]byte, error) {
 	secret := &corev1.Secret{}
 	if err := reader.Get(ctx, types.NamespacedName{Namespace: src.Namespace, Name: src.Name}, secret); err != nil {
@@ -188,8 +191,8 @@ type CATrustApplier struct {
 // as an Opaque Secret holding only ca.crt, labelled as managed by the
 // operator and controlled by owner, so it follows its source on every
 // call and is garbage collected with its owner. A source that cannot
-// yield a CA certificate returns a *SourceError and leaves dst as it
-// was.
+// yield a CA certificate returns a *CertificateSecretError and leaves
+// dst as it was.
 func (a CATrustApplier) Apply(ctx context.Context, src CASource, dst types.NamespacedName, owner client.Object) error {
 	caPEM, err := ReadCACertificate(ctx, a.Reader, src)
 	if err != nil {
@@ -216,8 +219,8 @@ func (a CATrustApplier) Apply(ctx context.Context, src CASource, dst types.Names
 	return nil
 }
 
-func sourceError(rule CASourceRule, reason, format string, args ...any) *SourceError {
-	return &SourceError{Reason: string(rule) + reason, Message: fmt.Sprintf(format, args...)}
+func sourceError(rule CASourceRule, reason, format string, args ...any) *CertificateSecretError {
+	return &CertificateSecretError{Reason: string(rule) + reason, Message: fmt.Sprintf(format, args...)}
 }
 
 // parseCertificates parses every CERTIFICATE block of PEM data, in

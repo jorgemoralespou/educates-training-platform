@@ -69,7 +69,7 @@ func (r *SessionManagerReconciler) secretRefNamespace(ref platformv1alpha1.Secre
 // Secret watch maps the source to the singleton, so the copy follows
 // changes to its source. Without one it deletes the copy an earlier
 // override left. An override Secret that cannot yield a CA certificate
-// returns a *pki.SourceError.
+// returns a *pki.CertificateSecretError.
 func (r *SessionManagerReconciler) ensureIngressCAOverride(ctx context.Context, obj *platformv1alpha1.SessionManager) error {
 	dst := types.NamespacedName{Namespace: r.OperatorNamespace, Name: sessionManagerIngressCASecretName}
 	ref := caOverrideRef(obj)
@@ -103,7 +103,7 @@ func (r *SessionManagerReconciler) reconcileIngressCAOverride(ctx context.Contex
 	if err == nil {
 		return true, ctrl.Result{}, nil
 	}
-	serr, ok := errors.AsType[*pki.SourceError](err)
+	serr, ok := errors.AsType[*pki.CertificateSecretError](err)
 	if !ok {
 		return false, ctrl.Result{}, fmt.Errorf("derive CA override trust: %w", err)
 	}

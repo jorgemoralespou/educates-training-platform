@@ -32,7 +32,7 @@ import (
 )
 
 // wildcardCertificateReasonPrefix prefixes the reason of every
-// SourceError the wildcard certificate check reports.
+// CertificateSecretError the wildcard certificate check reports.
 const wildcardCertificateReasonPrefix = "WildcardCertificate"
 
 // Reasons a wildcard certificate Secret cannot be served. They are
@@ -81,7 +81,8 @@ type WildcardCertificate struct {
 // parse, the key matches the first certificate of tls.crt, its SANs
 // include *.<domain>, it has not expired, and, when a CA is given, its
 // chain, through any intermediates tls.crt carries, verifies against
-// that CA. Each failure is a *SourceError with its own reason.
+// that CA. Each failure is a *CertificateSecretError with its own
+// reason.
 func CheckWildcardCertificate(secret *corev1.Secret, want WildcardRequirements) (*WildcardCertificate, error) {
 	id := secret.Namespace + "/" + secret.Name
 	for _, k := range []string{tlsCertificateKey, tlsPrivateKeyKey} {
@@ -125,8 +126,8 @@ func CheckWildcardCertificate(secret *corev1.Secret, want WildcardRequirements) 
 
 // ReadWildcardCertificate reads a wildcard certificate Secret through
 // reader and checks it with CheckWildcardCertificate. A missing Secret
-// is a *SourceError; any other read failure is returned as it is, for
-// retry.
+// is a *CertificateSecretError; any other read failure is returned as it
+// is, for retry.
 func ReadWildcardCertificate(ctx context.Context, reader client.Reader, key types.NamespacedName, want WildcardRequirements) (*WildcardCertificate, error) {
 	secret := &corev1.Secret{}
 	if err := reader.Get(ctx, key, secret); err != nil {
@@ -138,8 +139,8 @@ func ReadWildcardCertificate(ctx context.Context, reader client.Reader, key type
 	return CheckWildcardCertificate(secret, want)
 }
 
-func wildcardError(reason, format string, args ...any) *SourceError {
-	return &SourceError{Reason: wildcardCertificateReasonPrefix + reason, Message: fmt.Sprintf(format, args...)}
+func wildcardError(reason, format string, args ...any) *CertificateSecretError {
+	return &CertificateSecretError{Reason: wildcardCertificateReasonPrefix + reason, Message: fmt.Sprintf(format, args...)}
 }
 
 // parsePrivateKey parses the first private key PEM block of data, in

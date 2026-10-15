@@ -162,9 +162,9 @@ func TestCACertificate_RejectsUnusableSources(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := pki.CACertificate(secretWith(tc.data), tc.rule)
-			var serr *pki.SourceError
+			var serr *pki.CertificateSecretError
 			if !errors.As(err, &serr) {
-				t.Fatalf("CACertificate error = %v, want a *pki.SourceError", err)
+				t.Fatalf("CACertificate error = %v, want a *pki.CertificateSecretError", err)
 			}
 			if serr.Reason != tc.wantReason {
 				t.Errorf("reason = %q, want %q (message %q)", serr.Reason, tc.wantReason, serr.Message)

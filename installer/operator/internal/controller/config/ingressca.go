@@ -150,7 +150,7 @@ func (r *EducatesClusterConfigReconciler) ensureIngressCATrust(ctx context.Conte
 // reported on CertificatesReady with the specific reason. Other errors
 // pass through for retry.
 func asCertificatesValidationError(err error, field string) error {
-	if serr, ok := errors.AsType[*pki.SourceError](err); ok {
+	if serr, ok := errors.AsType[*pki.CertificateSecretError](err); ok {
 		return &validationError{
 			Field:           field,
 			Reason:          serr.Message,
