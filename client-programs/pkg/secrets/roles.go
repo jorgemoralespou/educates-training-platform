@@ -54,9 +54,9 @@ const (
 // key pair it uses. Any other Secret gets the first role that fits it,
 // in the order: unused CA key pair, TLS certificate, CA certificate,
 // registry credentials, generic. A TLS certificate that also carries CA
-// certificates as ca.crt is classified as a TLS certificate, although
-// those CA certificates can still verify another TLS certificate's
-// chain.
+// certificates as ca.crt is classified as a TLS certificate, and a
+// deploy does not trust those CA certificates: only a CA certificate is
+// CA trust.
 func ClassifyCachedSecret(name string, s *apiv1.Secret) CachedSecretRole {
 	if role, ok := ClassifyCachedSecretName(name); ok {
 		return role

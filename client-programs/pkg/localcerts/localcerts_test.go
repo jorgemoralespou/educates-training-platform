@@ -922,6 +922,17 @@ func TestResolve_TLSCertificate_CATrust(t *testing.T) {
 				writeCached(t, secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM))
 			},
 		},
+		// Only what `local secrets list` shows as a CA certificate is CA
+		// trust; a TLS certificate's ca.crt is not.
+		"only a TLS certificate for another domain carrying the CA as ca.crt": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+				other := wildcardLeaf(mkcert, "other.test")
+				otherTLS := secrets.NewTLSSecret("other-tls", other.CertPEM, other.KeyPEM)
+				otherTLS.Data["ca.crt"] = mkcert.CertPEM
+				writeCached(t, otherTLS)
+			},
+		},
 		// A CA key pair is synced only when a deploy selects it, so it
 		// cannot be the CA trust of a StaticCertificate.
 		"only a CA key pair holding the CA": {

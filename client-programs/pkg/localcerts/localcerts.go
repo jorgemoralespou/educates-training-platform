@@ -295,26 +295,21 @@ remove the certificate with:
 // verifyingCACertificate returns the name of the first cached CA
 // certificate in names that c's chain, through the intermediates it
 // carries, verifies against for a TLS server, or "" when none does. A CA
-// certificate is a cached Secret whose ca.crt holds only CA certificates
-// (secrets.CATrustCertificates) and which holds no CA private key, such
-// as a CA trust Secret; it is what the operator reads CA trust from.
+// certificate is a cached Secret secrets.ClassifyCachedSecret classifies
+// as one, as `local secrets list` shows it: its ca.crt holds only CA
+// certificates, and it holds no CA private key and no TLS certificate.
+// The operator reads CA trust from its ca.crt.
 func verifyingCACertificate(names []string, c *tlsCertificate) string {
 	intermediates := x509.NewCertPool()
 	for _, cert := range c.chain[1:] {
 		intermediates.AddCert(cert)
 	}
 	for _, name := range names {
-		if holdsCAKey(name) {
-			continue
-		}
 		s, err := secrets.LoadCachedSecret(name)
-		if err != nil {
+		if err != nil || secrets.ClassifyCachedSecret(name, s) != secrets.CACertificateRole {
 			continue
 		}
 		cas := secrets.CATrustCertificates(s)
-		if cas == nil {
-			continue
-		}
 		roots := x509.NewCertPool()
 		for _, ca := range cas {
 			roots.AddCert(ca)
