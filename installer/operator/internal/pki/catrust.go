@@ -18,7 +18,9 @@ limitations under the License.
 // one reconciler shares. Its CA trust derivation turns a Secret supplied
 // by the user, which may hold a private key, into a key-free CA trust
 // Secret holding only ca.crt: the only form in which CA trust reaches
-// Educates components.
+// Educates components. Its wildcard certificate check decides whether a
+// wildcard certificate Secret supplied by the user can be served for
+// the ingress domain, with one reason per problem.
 package pki
 
 import (
