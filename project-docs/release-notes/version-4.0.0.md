@@ -688,13 +688,15 @@ Features Changed
   ``CATrustSecretIncomplete`` or ``CATrustSecretUnparseable``.
 
 * With ``nodeCATrust.mode`` left at ``Auto`` in the ``SessionManager``
-  resource, the node CA injector is now installed on clusters that use a
-  custom CA in ``Managed`` mode, which includes every local cluster created
-  with ``educates local cluster create`` that serves HTTPS, since such a
-  cluster now publishes its CA. Cluster nodes then trust registries served
-  through the cluster ingress, such as the image registry of a workshop
-  session. Set ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged
-  node CA injector daemon set off.
+  resource, the node CA injector is now installed on every cluster that
+  publishes a CA: a ``Managed`` mode cluster with a custom CA, a
+  ``StaticCertificate`` cluster that names a CA trust secret, and an
+  ``Inline`` mode cluster that names a CA secret. This includes every local
+  cluster created with ``educates local cluster create`` that serves HTTPS,
+  since such a cluster now publishes its CA. Cluster nodes then trust
+  registries served through the cluster ingress, such as the image registry
+  of a workshop session. Set ``nodeCATrust.mode`` to ``Disabled`` to keep
+  the privileged node CA injector daemon set off.
 
 Deprecations
 ------------
