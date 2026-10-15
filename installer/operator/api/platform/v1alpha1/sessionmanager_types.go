@@ -269,14 +269,16 @@ const (
 // NodeCATrust controls installation of the node-ca-injector
 // subchart, which writes per-host containerd registry-CA configuration
 // on every node so workshop image pulls trust a private/self-signed
-// CA. The subchart depends on
+// CA. Nodes trust the CA the session manager uses: the key-free copy of
+// spec.ingressOverrides.caCertificateSecretRef when it is set, which
+// replaces the cluster's CA, otherwise
 // `EducatesClusterConfig.status.ingress.caCertificateSecretRef`.
 type NodeCATrust struct {
-	// mode defaults to Auto. Auto installs the subchart only when
-	// the cluster config publishes a CA Secret reference; with no CA
-	// configured, Auto skips the install silently. Enabled forces
-	// the install (refuses if no CA is configured). Disabled keeps
-	// it uninstalled.
+	// mode defaults to Auto. Auto installs the subchart only when a CA
+	// is configured, either published by the cluster config or set as
+	// ingressOverrides.caCertificateSecretRef; with no CA configured,
+	// Auto skips the install silently. Enabled forces the install
+	// (refuses if no CA is configured). Disabled keeps it uninstalled.
 	// +kubebuilder:default=Auto
 	// +optional
 	Mode ComponentMode `json:"mode,omitempty"`

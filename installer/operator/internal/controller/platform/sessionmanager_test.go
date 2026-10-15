@@ -607,6 +607,97 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(ci["caCertificateRef"]).To(Equal(ingressCAChartRef()))
 	})
 
+	// nodeCAInjectorCACertificateRefValue returns the
+	// clusterIngress.caCertificateRef value of the node-ca-injector
+	// release, or nil while there is no release.
+	nodeCAInjectorCACertificateRefValue := func() any {
+		hc, err := helmFac.For(platformNamespace)
+		if err != nil {
+			return nil
+		}
+		rel, err := hc.Status(nodeCAInjectorReleaseName)
+		if err != nil {
+			return nil
+		}
+		ci, _ := rel.Config["clusterIngress"].(map[string]any)
+		return ci["caCertificateRef"]
+	}
+
+	// createOverrideCASecret creates a CA trust Secret a SessionManager
+	// can name as its CA override.
+	createOverrideCASecret := func(name string) {
+		GinkgoHelper()
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testCAOverrideNamespace},
+			Data:       map[string][]byte{"ca.crt": testpki.NewRootCA().CertPEM},
+		})).To(Succeed())
+	}
+
+	overrideCAChartRef := map[string]any{
+		"name":      sessionManagerIngressCASecretName,
+		"namespace": testOperatorNamespace,
+	}
+
+	It("nodeCATrust Auto installs with the CA override's key-free copy when the cluster has no CA", func() {
+		makeReadyClusterConfig() // no CA on the fixture
+		makeReadySecretsManager()
+		createOverrideCASecret("override-ca")
+
+		driveSessionManagerReady(withCAOverride("override-ca"))
+
+		Eventually(nodeCAInjectorCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(overrideCAChartRef))
+		Eventually(func() string {
+			return extraConditionReason(conditionNodeCATrustDeployed)
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("Installed"))
+	})
+
+	It("nodeCATrust trusts only the CA override when the cluster also has a CA", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		withCAOnClusterConfig()
+		createOverrideCASecret("override-ca")
+
+		driveSessionManagerReady(withCAOverride("override-ca"))
+
+		Eventually(nodeCAInjectorCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(overrideCAChartRef))
+	})
+
+	It("nodeCATrust Enabled installs with only a CA override", func() {
+		makeReadyClusterConfig() // no CA on the fixture
+		makeReadySecretsManager()
+		createOverrideCASecret("override-ca")
+		smgr := withCAOverride("override-ca")
+		smgr.Spec.NodeCATrust = &platformv1alpha1.NodeCATrust{Mode: platformv1alpha1.ComponentModeEnabled}
+
+		driveSessionManagerReady(smgr)
+
+		Eventually(func() string {
+			return extraConditionReason(conditionNodeCATrustDeployed)
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("Installed"))
+		Eventually(nodeCAInjectorCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(overrideCAChartRef))
+	})
+
+	It("nodeCATrust Disabled installs nothing even with a CA override", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		createOverrideCASecret("override-ca")
+		smgr := withCAOverride("override-ca")
+		smgr.Spec.NodeCATrust = &platformv1alpha1.NodeCATrust{Mode: platformv1alpha1.ComponentModeDisabled}
+
+		driveSessionManagerReady(smgr)
+
+		Eventually(func() string {
+			return extraConditionReason(conditionNodeCATrustDeployed)
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("ModeDisabled"))
+		hc, err := helmFac.For(platformNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, statusErr := hc.Status(nodeCAInjectorReleaseName)
+		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+	})
+
 	It("carries the cluster's CA trust Secret, with its namespace, into chart values", func() {
 		makeReadyClusterConfig()
 		makeReadySecretsManager()
@@ -693,7 +784,7 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(hc.SeedRelease(
 			nodeCAInjectorReleaseName, 1, releasecommon.StatusFailed,
-			chrt, renderNodeCAInjectorValues(smObj, cc),
+			chrt, renderNodeCAInjectorValues(smObj, cc, testOperatorNamespace),
 			"node-ca-injector DaemonSet is invalid: spec.template.spec.containers: Required value",
 		)).To(Succeed())
 

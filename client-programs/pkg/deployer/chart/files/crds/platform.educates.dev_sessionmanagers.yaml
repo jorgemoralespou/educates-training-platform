@@ -233,11 +233,11 @@ spec:
                   mode:
                     default: Auto
                     description: |-
-                      mode defaults to Auto. Auto installs the subchart only when
-                      the cluster config publishes a CA Secret reference; with no CA
-                      configured, Auto skips the install silently. Enabled forces
-                      the install (refuses if no CA is configured). Disabled keeps
-                      it uninstalled.
+                      mode defaults to Auto. Auto installs the subchart only when a CA
+                      is configured, either published by the cluster config or set as
+                      ingressOverrides.caCertificateSecretRef; with no CA configured,
+                      Auto skips the install silently. Enabled forces the install
+                      (refuses if no CA is configured). Disabled keeps it uninstalled.
                     enum:
                     - Auto
                     - Enabled

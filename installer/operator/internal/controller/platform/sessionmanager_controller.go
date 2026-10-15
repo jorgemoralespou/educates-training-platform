@@ -263,7 +263,9 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		conditionNodeCATrustDeployed,
 		nodeCAInjectorReleaseName,
 		vendoredcharts.NodeCAInjector,
-		renderNodeCAInjectorValues,
+		func(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) map[string]any {
+			return renderNodeCAInjectorValues(obj, cfg, r.OperatorNamespace)
+		},
 		cfg, nctIntent, nctReason, nctMessage,
 	)
 	if err != nil {
@@ -537,17 +539,8 @@ func applySMIngressValues(values map[string]any, obj *platformv1alpha1.SessionMa
 		"tlsCertificateRef": map[string]any{"name": tlsName, "namespace": wildcardNS},
 	}
 	caRef := map[string]any{"name": "", "namespace": ""}
-	if cfg.Status.Ingress.CACertificateSecretRef != nil {
-		caRef = map[string]any{
-			"name":      cfg.Status.Ingress.CACertificateSecretRef.Name,
-			"namespace": cfg.Status.Ingress.CACertificateSecretRef.Namespace,
-		}
-	}
-	if caOverrideRef(obj) != nil {
-		caRef = map[string]any{
-			"name":      sessionManagerIngressCASecretName,
-			"namespace": operatorNamespace,
-		}
+	if ref := sessionManagerIngressCARef(obj, cfg, operatorNamespace); ref != nil {
+		caRef = map[string]any{"name": ref.Name, "namespace": ref.Namespace}
 	}
 	clusterIngress["caCertificateRef"] = caRef
 	// Publish the resolved scheme from the cluster-config contract; a

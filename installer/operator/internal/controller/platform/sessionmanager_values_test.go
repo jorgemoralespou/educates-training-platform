@@ -173,7 +173,7 @@ func TestRenderNodeCAInjectorValues_ImageOverride(t *testing.T) {
 			},
 		},
 	}
-	values := renderNodeCAInjectorValues(withOverride, cfg)
+	values := renderNodeCAInjectorValues(withOverride, cfg, testOperatorNamespace)
 	image, ok := values["image"].(map[string]any)
 	if !ok {
 		t.Fatal("node-ca-injector override did not land on the subchart's values.image")
@@ -183,7 +183,7 @@ func TestRenderNodeCAInjectorValues_ImageOverride(t *testing.T) {
 	}
 
 	without := &platformv1alpha1.SessionManager{}
-	values = renderNodeCAInjectorValues(without, cfg)
+	values = renderNodeCAInjectorValues(without, cfg, testOperatorNamespace)
 	if _, present := values["image"]; present {
 		t.Errorf("values.image should be absent without an override, got %v", values["image"])
 	}

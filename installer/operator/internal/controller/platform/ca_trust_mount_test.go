@@ -125,7 +125,7 @@ func TestLookupServiceChart_MountsOnlyCACrtFromCATrustSecret(t *testing.T) {
 
 func TestNodeCAInjectorChart_MountsOnlyCACrtFromCATrustSecret(t *testing.T) {
 	cfg := valuesTestClusterConfig()
-	values := renderNodeCAInjectorValues(&platformv1alpha1.SessionManager{}, cfg)
+	values := renderNodeCAInjectorValues(&platformv1alpha1.SessionManager{}, cfg, testOperatorNamespace)
 
 	workloads := renderWorkloads(t, vendoredcharts.NodeCAInjector, values)
 
