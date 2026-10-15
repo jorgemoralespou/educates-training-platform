@@ -48,10 +48,10 @@ kubectl create namespace "$SECRETS_NS" --dry-run=client -o yaml | kubectl apply 
 
 # CA trust and CA signing material are separate Secrets, so the CA's
 # private key never reaches the runtime:
-#   local-root-ca-key-pair — the CA key pair (tls.crt + tls.key) consumed
-#                            by cert-manager's `ca:` ClusterIssuer.
-#   local-root-ca          — the CA trust Secret, only ca.crt, which the
-#                            chart copies to the runtime for chain trust.
+#   local-root-ca-key-pair: the CA key pair (tls.crt + tls.key) consumed
+#                           by cert-manager's `ca:` ClusterIssuer.
+#   local-root-ca:          the CA trust Secret, only ca.crt, which the
+#                           chart copies to the runtime for chain trust.
 #
 # Note that the v3 ytt overlay-localca.yaml uses a different Secret
 # layout when caCertificate is given inline (it stores the CA *key* in
