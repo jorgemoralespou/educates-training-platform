@@ -425,6 +425,19 @@ Educates uses domain-specific terms that have precise meanings:
 - **Operator namespace** — the namespace where the operator runs and where
   it expects to find user-provided Secrets (TLS, CA, image-pull secrets)
   referenced by name in CRs.
+- **CA trust Secret**: a Secret holding only a CA's public certificate,
+  under `ca.crt`. Components receive CA trust solely as the operator's
+  key-free copy, `educates-ingress-ca`, named in
+  `EducatesClusterConfig.status.ingress.caCertificateSecretRef`.
+- **CA key pair**: a `kubernetes.io/tls` Secret holding a CA's `tls.crt`,
+  `tls.key` and `ca.crt`, from which cert-manager's CA issuer signs the
+  wildcard certificate. In the local flow it is an intermediate CA the CLI
+  mints per ingress domain from the CA root key pair, named
+  `<domain>-ca-key-pair` and name-constrained to that domain; in the cluster
+  it stays in `educates-secrets` and the `cert-manager` namespace.
+- **CA root key pair**: the local flow's root CA, cached by the CLI as
+  `<name>-root-key-pair` next to its CA trust Secret `<name>`. One per CLI
+  data home; its key never leaves the laptop.
 
 ---
 
