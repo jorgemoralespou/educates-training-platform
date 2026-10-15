@@ -144,6 +144,24 @@ func LoadCachedSecret(name string) (*apiv1.Secret, error) {
 	return secret, nil
 }
 
+// LoadClassifiedCachedSecret reads the cached Secret name and classifies
+// it as ClassifyCachedSecret does, returning the Secret, its role and, for
+// an invalid entry, why it is invalid. A cached file that cannot be read
+// or decoded is invalid too, with the problem CachedSecretUnreadable, and
+// has no Secret. A name the cache does not hold is an error, as
+// LoadCachedSecret reports it.
+func LoadClassifiedCachedSecret(name string) (s *apiv1.Secret, role CachedSecretRole, invalid *InvalidCachedSecretError, err error) {
+	s, err = LoadCachedSecret(name)
+	if errors.As(err, &invalid) {
+		return nil, InvalidRole, invalid, nil
+	}
+	if err != nil {
+		return nil, "", nil, err
+	}
+	role, invalid = ClassifyCachedSecret(name, s)
+	return s, role, invalid, nil
+}
+
 // ListCachedSecretNames returns the names (without the .yaml suffix) of all
 // secrets in the cache, sorted. It only reads: a cache directory that does
 // not exist yet holds no secrets.

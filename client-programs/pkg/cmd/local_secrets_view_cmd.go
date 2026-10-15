@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -38,32 +37,29 @@ type LocalSecretsViewOptions struct{}
 // it, after, for a CA cached by a 4.0.0 alpha release, how to keep the CA.
 // A name the cache does not hold is an error.
 func (o *LocalSecretsViewOptions) Run(w io.Writer, name string) error {
-	s, err := secrets.LoadCachedSecret(name)
-	var unreadable *secrets.InvalidCachedSecretError
-	if err != nil && !errors.As(err, &unreadable) {
+	s, role, invalid, err := secrets.LoadClassifiedCachedSecret(name)
+	if err != nil {
 		return err
 	}
 
 	var v secretViewPrinter
 	v.field("Name", name)
-	if unreadable != nil {
-		v.field("Type", string(secrets.InvalidRole))
-		v.field("Location", secrets.CachedSecretPath(name))
-		v.invalid(name, unreadable)
-	} else {
-		v.secret(name, s, time.Now())
+	v.field("Type", string(role))
+	v.field("Location", secrets.CachedSecretPath(name))
+	if s != nil {
+		v.secret(name, role, s, time.Now())
+	}
+	if invalid != nil {
+		v.invalid(name, invalid)
 	}
 
 	_, err = w.Write(v.buf.Bytes())
 	return err
 }
 
-// secret prints the fields of the Secret s, cached under name, after
-// its name.
-func (v *secretViewPrinter) secret(name string, s *apiv1.Secret, now time.Time) {
-	role := secrets.ClassifyCachedSecret(name, s)
-	v.field("Type", string(role))
-	v.field("Location", secrets.CachedSecretPath(name))
+// secret prints the fields of the Secret s, cached under name with role
+// role, that follow its location.
+func (v *secretViewPrinter) secret(name string, role secrets.CachedSecretRole, s *apiv1.Secret, now time.Time) {
 	v.field("Secret type", secretTypeOf(s))
 	if domains := cachedSecretDomains(name, role, s); domains != "" {
 		v.field("Domains", domains)
@@ -91,20 +87,15 @@ func (v *secretViewPrinter) secret(name string, s *apiv1.Secret, now time.Time) 
 	case secrets.GenericRole:
 		v.field("Keys", secretKeyNames(s))
 	}
-
-	if reason := secrets.InvalidCachedSecretReason(name, s); reason != nil {
-		v.invalid(name, reason)
-	}
 }
 
 // invalid prints why the cached entry name is invalid, and the command
 // that removes it. For a CA cached with its key by a 4.0.0 alpha release,
 // whose removal removes the CA's key, it first says how to keep the CA by
 // registering it as the root CA, as the documented migration does.
-func (v *secretViewPrinter) invalid(name string, reason error) {
+func (v *secretViewPrinter) invalid(name string, reason *secrets.InvalidCachedSecretError) {
 	v.field("Invalid because", reason.Error())
-	var invalid *secrets.InvalidCachedSecretError
-	if errors.As(reason, &invalid) && invalid.Problem == secrets.CachedSecretUnmanagedCAKey {
+	if reason.Problem == secrets.CachedSecretUnmanagedCAKey {
 		v.field("To keep the CA", fmt.Sprintf(`register it as the root CA under a name other than %s before removing it, as "CAs cached by alpha releases" in the Local Environment documentation describes`, name))
 		v.field("Register with", "educates local secrets add ca ROOT --cert FILE --key FILE")
 	}

@@ -38,22 +38,29 @@ func (o *LocalSecretsListOptions) Run(w io.Writer) error {
 	now := time.Now()
 	rows := make([][]string, 0, len(names))
 	for _, name := range names {
-		rows = append(rows, cachedSecretListRow(name, now))
+		if row := cachedSecretListRow(name, now); row != nil {
+			rows = append(rows, row)
+		}
 	}
 
 	_, err = fmt.Fprintln(w, utils.PrintTable([]string{"NAME", "TYPE", "DOMAINS", "EXPIRES"}, rows))
 	return err
 }
 
-// cachedSecretListRow returns the list row of the cached Secret name.
+// cachedSecretListRow returns the list row of the cached Secret name, or
+// nil when the cache no longer holds it.
 func cachedSecretListRow(name string, now time.Time) []string {
-	s, err := secrets.LoadCachedSecret(name)
+	s, role, _, err := secrets.LoadClassifiedCachedSecret(name)
 	if err != nil {
-		return []string{name, string(secrets.InvalidRole), "", ""}
+		return nil
 	}
 
-	role := secrets.ClassifyCachedSecret(name, s)
-	row := []string{name, string(role), cachedSecretDomains(name, role, s), ""}
+	row := []string{name, string(role), "", ""}
+	if s == nil {
+		// A file that cannot be read or decoded is valid for no domain.
+		return row
+	}
+	row[2] = cachedSecretDomains(name, role, s)
 	if cert := cachedSecretCertificate(role, s); cert != nil {
 		row[3] = expiresCell(cert, now)
 	}

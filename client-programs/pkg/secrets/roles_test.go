@@ -35,30 +35,39 @@ func TestInvalidCachedSecret_ReasonTellsAnAlphaCAFromAnUnreadableFile(t *testing
 		t.Fatal(err)
 	}
 
-	alpha, err := secrets.LoadCachedSecret("workshop.test-ca")
+	s, role, invalid, err := secrets.LoadClassifiedCachedSecret("workshop.test-ca")
 	if err != nil {
 		t.Fatalf("load the alpha CA: %v", err)
 	}
-	if role := secrets.ClassifyCachedSecret("workshop.test-ca", alpha); role != secrets.InvalidRole {
-		t.Errorf("alpha CA classified as %q, want %q", role, secrets.InvalidRole)
+	if s == nil || role != secrets.InvalidRole {
+		t.Errorf("alpha CA loaded as %q with Secret %v, want %q with its Secret", role, s, secrets.InvalidRole)
 	}
-	var invalid *secrets.InvalidCachedSecretError
-	reason := secrets.InvalidCachedSecretReason("workshop.test-ca", alpha)
-	if !errors.As(reason, &invalid) || invalid.Problem != secrets.CachedSecretUnmanagedCAKey {
-		t.Fatalf("alpha CA invalid because %v, want an unmanaged CA key", reason)
+	if invalid == nil || invalid.Problem != secrets.CachedSecretUnmanagedCAKey {
+		t.Fatalf("alpha CA invalid because %v, want an unmanaged CA key", invalid)
 	}
 	for _, want := range []string{`"workshop.test-ca"`, "private key", "4.0.0 alpha"} {
-		if !strings.Contains(reason.Error(), want) {
-			t.Errorf("reason %q does not mention %q", reason, want)
+		if !strings.Contains(invalid.Error(), want) {
+			t.Errorf("reason %q does not mention %q", invalid, want)
 		}
 	}
 
-	_, err = secrets.LoadCachedSecret("broken")
-	if !errors.As(err, &invalid) || invalid.Problem != secrets.CachedSecretUnreadable {
-		t.Fatalf("loading the broken file failed with %v, want an unreadable cached secret", err)
+	s, role, invalid, err = secrets.LoadClassifiedCachedSecret("broken")
+	if err != nil {
+		t.Fatalf("load the broken file: %v", err)
 	}
-	if !strings.Contains(err.Error(), "broken.yaml") {
-		t.Errorf("reason %q does not name the file", err)
+	if s != nil || role != secrets.InvalidRole {
+		t.Errorf("broken file loaded as %q with Secret %v, want %q without one", role, s, secrets.InvalidRole)
+	}
+	if invalid == nil || invalid.Problem != secrets.CachedSecretUnreadable {
+		t.Fatalf("broken file invalid because %v, want an unreadable cached secret", invalid)
+	}
+	if !strings.Contains(invalid.Error(), "broken.yaml") {
+		t.Errorf("reason %q does not name the file", invalid)
+	}
+
+	var unreadable *secrets.InvalidCachedSecretError
+	if _, err := secrets.LoadCachedSecret("broken"); !errors.As(err, &unreadable) || unreadable.Problem != secrets.CachedSecretUnreadable {
+		t.Errorf("loading the broken file failed with %v, want an unreadable cached secret", err)
 	}
 }
 
@@ -81,16 +90,16 @@ func TestInvalidCachedSecret_NoReasonForAUsableSecretOrAMissingOne(t *testing.T)
 		if err := s.secret(); err != nil {
 			t.Fatal(err)
 		}
-		cached, err := secrets.LoadCachedSecret(s.name)
+		_, role, invalid, err := secrets.LoadClassifiedCachedSecret(s.name)
 		if err != nil {
 			t.Fatalf("load %s: %v", s.name, err)
 		}
-		if reason := secrets.InvalidCachedSecretReason(s.name, cached); reason != nil {
-			t.Errorf("%s is invalid because %v, want it valid", s.name, reason)
+		if role == secrets.InvalidRole || invalid != nil {
+			t.Errorf("%s is %q because %v, want it valid", s.name, role, invalid)
 		}
 	}
 
-	_, err := secrets.LoadCachedSecret("missing")
+	_, _, _, err := secrets.LoadClassifiedCachedSecret("missing")
 	var invalid *secrets.InvalidCachedSecretError
 	if err == nil || errors.As(err, &invalid) {
 		t.Errorf("loading a name the cache does not hold failed with %v, want a plain error", err)

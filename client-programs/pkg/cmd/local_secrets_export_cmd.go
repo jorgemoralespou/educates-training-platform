@@ -98,8 +98,9 @@ func printSecretCertificatePEM(w io.Writer, name string) error {
 		return certs
 	}
 
+	role, _ := secrets.ClassifyCachedSecret(name, secret)
 	var certs []*x509.Certificate
-	switch secrets.ClassifyCachedSecret(name, secret) {
+	switch role {
 	case secrets.CACertificateRole:
 		certs = parse("ca.crt")
 	case secrets.CARootKeyPairRole, secrets.CAKeyPairRole, secrets.InvalidRole:

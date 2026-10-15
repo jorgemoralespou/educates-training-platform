@@ -252,7 +252,10 @@ with:
 // returning nil when it is not one or cannot be read.
 func loadTLSCertificate(name string) *tlsCertificate {
 	s, err := secrets.LoadCachedSecret(name)
-	if err != nil || secrets.ClassifyCachedSecret(name, s) != secrets.TLSCertificateRole {
+	if err != nil {
+		return nil
+	}
+	if role, _ := secrets.ClassifyCachedSecret(name, s); role != secrets.TLSCertificateRole {
 		return nil
 	}
 	chain, err := secrets.ParseCertificatesPEM(secrets.SecretData(s, "tls.crt"))
@@ -318,7 +321,10 @@ func verifyingCACertificate(names []string, c *tlsCertificate) string {
 	}
 	for _, name := range names {
 		s, err := secrets.LoadCachedSecret(name)
-		if err != nil || secrets.ClassifyCachedSecret(name, s) != secrets.CACertificateRole {
+		if err != nil {
+			continue
+		}
+		if role, _ := secrets.ClassifyCachedSecret(name, s); role != secrets.CACertificateRole {
 			continue
 		}
 		cas := secrets.CATrustCertificates(s)
@@ -550,7 +556,11 @@ func holdsCAKey(name string) bool {
 		return role.HoldsCAKey()
 	}
 	s, err := secrets.LoadCachedSecret(name)
-	return err == nil && secrets.ClassifyCachedSecret(name, s).HoldsCAKey()
+	if err != nil {
+		return false
+	}
+	role, _ := secrets.ClassifyCachedSecret(name, s)
+	return role.HoldsCAKey()
 }
 
 func listOrNone(values []string) string {
