@@ -165,21 +165,24 @@ var _ = Describe("SessionManager reconciler", func() {
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testCAOverrideNamespace))
 	})
 
-	// smCACertificateRefValue returns the clusterIngress.caCertificateRef
-	// value of the session-manager release, or nil while there is no
-	// release.
-	smCACertificateRefValue := func() any {
-		hc, err := helmFac.For(platformNamespace)
-		if err != nil {
-			return nil
+	// caCertificateRefValue returns a poller for the
+	// clusterIngress.caCertificateRef value of the named release, which
+	// yields nil while there is no release.
+	caCertificateRefValue := func(releaseName string) func() any {
+		return func() any {
+			hc, err := helmFac.For(platformNamespace)
+			if err != nil {
+				return nil
+			}
+			rel, err := hc.Status(releaseName)
+			if err != nil {
+				return nil
+			}
+			ci, _ := rel.Config["clusterIngress"].(map[string]any)
+			return ci["caCertificateRef"]
 		}
-		rel, err := hc.Status(sessionManagerReleaseName)
-		if err != nil {
-			return nil
-		}
-		ci, _ := rel.Config["clusterIngress"].(map[string]any)
-		return ci["caCertificateRef"]
 	}
+	smCACertificateRefValue := caCertificateRefValue(sessionManagerReleaseName)
 
 	// overrideCAData returns the data of the key-free copy of the CA
 	// override, or nil while it does not exist.
@@ -607,28 +610,14 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(ci["caCertificateRef"]).To(Equal(ingressCAChartRef()))
 	})
 
-	// nodeCAInjectorCACertificateRefValue returns the
-	// clusterIngress.caCertificateRef value of the node-ca-injector
-	// release, or nil while there is no release.
-	nodeCAInjectorCACertificateRefValue := func() any {
-		hc, err := helmFac.For(platformNamespace)
-		if err != nil {
-			return nil
-		}
-		rel, err := hc.Status(nodeCAInjectorReleaseName)
-		if err != nil {
-			return nil
-		}
-		ci, _ := rel.Config["clusterIngress"].(map[string]any)
-		return ci["caCertificateRef"]
-	}
+	nodeCAInjectorCACertificateRefValue := caCertificateRefValue(nodeCAInjectorReleaseName)
 
-	// createOverrideCASecret creates a CA trust Secret a SessionManager
-	// can name as its CA override.
-	createOverrideCASecret := func(name string) {
+	// createOverrideCASecret creates the CA trust Secret "override-ca"
+	// that withCAOverride("override-ca") names.
+	createOverrideCASecret := func() {
 		GinkgoHelper()
 		Expect(k8sClient.Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: testCAOverrideNamespace},
+			ObjectMeta: metav1.ObjectMeta{Name: "override-ca", Namespace: testCAOverrideNamespace},
 			Data:       map[string][]byte{"ca.crt": testpki.NewRootCA().CertPEM},
 		})).To(Succeed())
 	}
@@ -641,7 +630,7 @@ var _ = Describe("SessionManager reconciler", func() {
 	It("nodeCATrust Auto installs with the CA override's key-free copy when the cluster has no CA", func() {
 		makeReadyClusterConfig() // no CA on the fixture
 		makeReadySecretsManager()
-		createOverrideCASecret("override-ca")
+		createOverrideCASecret()
 
 		driveSessionManagerReady(withCAOverride("override-ca"))
 
@@ -656,7 +645,7 @@ var _ = Describe("SessionManager reconciler", func() {
 		makeReadyClusterConfig()
 		makeReadySecretsManager()
 		withCAOnClusterConfig()
-		createOverrideCASecret("override-ca")
+		createOverrideCASecret()
 
 		driveSessionManagerReady(withCAOverride("override-ca"))
 
@@ -664,10 +653,28 @@ var _ = Describe("SessionManager reconciler", func() {
 			Should(Equal(overrideCAChartRef))
 	})
 
+	It("nodeCATrust returns to the cluster CA when the CA override is removed", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		withCAOnClusterConfig()
+		createOverrideCASecret()
+		driveSessionManagerReady(withCAOverride("override-ca"))
+		Eventually(nodeCAInjectorCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(overrideCAChartRef))
+
+		smgr := &platformv1alpha1.SessionManager{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, smgr)).To(Succeed())
+		smgr.Spec.IngressOverrides = nil
+		Expect(k8sClient.Update(ctx, smgr)).To(Succeed())
+
+		Eventually(nodeCAInjectorCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(ingressCAChartRef()))
+	})
+
 	It("nodeCATrust Enabled installs with only a CA override", func() {
 		makeReadyClusterConfig() // no CA on the fixture
 		makeReadySecretsManager()
-		createOverrideCASecret("override-ca")
+		createOverrideCASecret()
 		smgr := withCAOverride("override-ca")
 		smgr.Spec.NodeCATrust = &platformv1alpha1.NodeCATrust{Mode: platformv1alpha1.ComponentModeEnabled}
 
@@ -683,7 +690,7 @@ var _ = Describe("SessionManager reconciler", func() {
 	It("nodeCATrust Disabled installs nothing even with a CA override", func() {
 		makeReadyClusterConfig()
 		makeReadySecretsManager()
-		createOverrideCASecret("override-ca")
+		createOverrideCASecret()
 		smgr := withCAOverride("override-ca")
 		smgr.Spec.NodeCATrust = &platformv1alpha1.NodeCATrust{Mode: platformv1alpha1.ComponentModeDisabled}
 
