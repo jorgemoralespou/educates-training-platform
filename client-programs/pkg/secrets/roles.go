@@ -3,7 +3,6 @@ package secrets
 import (
 	"crypto/x509"
 	"fmt"
-	"strings"
 
 	apiv1 "k8s.io/api/core/v1"
 )
@@ -129,7 +128,7 @@ func ClassifyCachedSecretName(name string) (CachedSecretRole, bool) {
 	if _, ok := RootCAName(name); ok {
 		return CARootKeyPairRole, true
 	}
-	if strings.HasSuffix(name, CAKeyPairSuffix) {
+	if _, ok := CAKeyPairDomain(name); ok {
 		return CAKeyPairRole, true
 	}
 	return "", false
@@ -151,6 +150,50 @@ func (r CachedSecretRole) HoldsCAKey() bool {
 // Secret, so no certificate.
 func (r CachedSecretRole) HoldsCertificate() bool {
 	return r == CACertificateRole || r == TLSCertificateRole || r.HoldsCAKey()
+}
+
+// CachedSecretCertificate returns the certificate the Secret s, of role
+// role, is for: the first CA certificate of the ca.crt of a CA
+// certificate, and the first certificate of the tls.crt of any other
+// Secret that holds a certificate, which for an invalid Secret is a CA
+// as 4.0.0 alpha releases cached one. It is nil for a Secret that holds
+// no certificate, and when that certificate does not parse.
+func CachedSecretCertificate(role CachedSecretRole, s *apiv1.Secret) *x509.Certificate {
+	switch {
+	case role == CACertificateRole:
+		return CATrustCertificates(s)[0]
+	case role.HoldsCertificate():
+		cert, err := ParseCertificatePEM(SecretData(s, "tls.crt"))
+		if err != nil {
+			return nil
+		}
+		return cert
+	}
+	return nil
+}
+
+// CachedSecretDomains returns the ingress domains the Secret s, cached
+// under name with role role, is valid for: every wildcard domain of a TLS
+// certificate, the ingress domain of a CA key pair, which a deploy for
+// that domain uses, and the permitted DNS name constraints of a CA
+// certificate or CA root key pair. anyDomain is true for a CA certificate
+// or CA root key pair without permitted DNS name constraints, which is
+// valid for any domain. Any other Secret, including an invalid one, which
+// no deploy uses, is valid for no domain.
+func CachedSecretDomains(name string, role CachedSecretRole, s *apiv1.Secret) (domains []string, anyDomain bool) {
+	switch role {
+	case CACertificateRole, CARootKeyPairRole:
+		if ca := CachedSecretCertificate(role, s); ca != nil {
+			return ca.PermittedDNSDomains, len(ca.PermittedDNSDomains) == 0
+		}
+	case CAKeyPairRole:
+		if domain, ok := CAKeyPairDomain(name); ok {
+			return []string{domain}, false
+		}
+	case TLSCertificateRole:
+		return WildcardDomains(CachedSecretCertificate(role, s)), false
+	}
+	return nil, false
 }
 
 // CATrustCertificates returns the CA certificates the ca.crt of s

@@ -61,7 +61,7 @@ func (o *LocalSecretsViewOptions) Run(w io.Writer, name string) error {
 // role, that follow its location.
 func (v *secretViewPrinter) secret(name string, role secrets.CachedSecretRole, s *apiv1.Secret, now time.Time) {
 	v.field("Secret type", secretTypeOf(s))
-	if domains := cachedSecretDomains(name, role, s); domains != "" {
+	if domains := domainsCell(name, role, s); domains != "" {
 		v.field("Domains", domains)
 	}
 	if role == secrets.CAKeyPairRole {

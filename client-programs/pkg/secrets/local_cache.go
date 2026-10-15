@@ -315,6 +315,13 @@ func CAKeyPairName(domain string) string {
 	return domain + CAKeyPairSuffix
 }
 
+// CAKeyPairDomain is the inverse of CAKeyPairName: the ingress domain
+// whose CA key pair is named keyPair, and false when keyPair is not the
+// name of a CA key pair.
+func CAKeyPairDomain(keyPair string) (string, bool) {
+	return strings.CutSuffix(keyPair, CAKeyPairSuffix)
+}
+
 // NewCATrustSecret builds a CA trust Secret: an Opaque Secret holding
 // only a CA certificate, as ca.crt.
 func NewCATrustSecret(name string, certPEM []byte) *apiv1.Secret {
