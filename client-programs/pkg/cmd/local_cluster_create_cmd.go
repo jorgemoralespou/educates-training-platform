@@ -120,18 +120,20 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 
 	// 0. Preflight: fail fast (before any docker / kind / k8s mutation)
 	//    when the cluster already exists, host 80/443 are bound, or a
-	//    secure install is missing its CA. The host-port case is the v3
-	//    busybox probe — kind itself fails later with a much less
-	//    actionable error if Envoy can't publish. The CA case is the one
-	//    the deploy looks up later: without this check it would only fail
-	//    after the kind cluster and registry already exist.
+	//    secure install has no certificate source. The host-port case is
+	//    the v3 busybox probe — kind itself fails later with a much less
+	//    actionable error if Envoy can't publish. The certificate case is
+	//    the one the deploy resolves later: without this check it would
+	//    only fail after the kind cluster and registry already exist.
 	// A secure install (the default; ingress.insecure not set) serves
-	// HTTPS from a cached CA. Defaults have already run, so an empty
-	// domain has become a <host-IP>.nip.io insecure install that needs no
-	// CA; only a domain with insecure left false requires one. Resolving
-	// the local certificates is a pure local-cache read, so do it first:
-	// a missing CA is reported without touching Docker or the cluster at
-	// all. The deploy at the end uses this same plan.
+	// HTTPS from a cached wildcard TLS certificate or a cached root CA.
+	// Defaults have already run, so an empty domain has become a
+	// <host-IP>.nip.io insecure install that needs neither; only a domain
+	// with insecure left false requires one. Resolving the local
+	// certificates is a pure local-cache read, so do it first: a missing
+	// certificate source is reported, naming the generated root and the
+	// mkcert paths, without touching Docker or the cluster at all. The
+	// deploy at the end uses this same plan.
 	plan, err := localcerts.Resolve(cfg)
 	if err != nil {
 		return err

@@ -2,6 +2,8 @@ package localcerts_test
 
 import (
 	"crypto/x509"
+	"encoding/base64"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -511,6 +513,13 @@ func TestResolve_NoRoot_ErrorsWithRemediation(t *testing.T) {
 			ca := testpki.NewRootCA()
 			writeCached(t, secrets.NewTLSSecret("workshop.test-ca", ca.CertPEM, ca.KeyPEM, "workshop.test"))
 		},
+		"TLS certificate for another domain": func(t *testing.T) {
+			cacheTLS(t, "other-tls", wildcardLeaf(testpki.NewRootCA(), "other.test", "sub.workshop.test"))
+		},
+		"TLS certificate annotated with the domain but without its wildcard": func(t *testing.T) {
+			leaf := testpki.NewRootCA().NewLeaf(testpki.WithDNSNames("workshop.test", "portal.workshop.test"))
+			writeCached(t, secrets.NewTLSSecret("workshop.test-tls", leaf.CertPEM, leaf.KeyPEM, "workshop.test"))
+		},
 	}
 	for name, stage := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -525,6 +534,10 @@ func TestResolve_NoRoot_ErrorsWithRemediation(t *testing.T) {
 				`"workshop.test"`,
 				"educates local secrets add ca <name>\n",
 				`--cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"`,
+				`mkcert -cert-file workshop.test.pem -key-file workshop.test-key.pem "*.workshop.test"`,
+				"educates local secrets add tls workshop.test-tls --cert workshop.test.pem --key workshop.test-key.pem",
+				`educates local secrets add ca mkcert-ca --cert "$(mkcert -CAROOT)/rootCA.pem"` + "\n",
+				"installs no\ncert-manager",
 				"educates local config set ingress.insecure true",
 			} {
 				if !strings.Contains(err.Error(), want) {
@@ -597,6 +610,409 @@ func TestResolve_UnusableRoot_Errors(t *testing.T) {
 				t.Errorf("error does not name the root and mention %q:\n%v", tc.want, err)
 			}
 		})
+	}
+}
+
+// cacheTLS caches leaf, with the chain it carries, as TLS certificate
+// name, as `educates local secrets add tls NAME --cert --key` does.
+func cacheTLS(t *testing.T, name string, leaf *testpki.Certificate, chain ...*testpki.Certificate) {
+	t.Helper()
+	certPEM := append([]byte{}, leaf.CertPEM...)
+	for _, c := range chain {
+		certPEM = append(certPEM, c.CertPEM...)
+	}
+	writeCached(t, secrets.NewTLSSecret(name, certPEM, leaf.KeyPEM, ""))
+}
+
+// wildcardLeaf returns a server certificate signed by ca for the
+// wildcard of each domain.
+func wildcardLeaf(ca *testpki.Certificate, domains ...string) *testpki.Certificate {
+	var names []string
+	for _, d := range domains {
+		names = append(names, "*."+d)
+	}
+	return ca.NewLeaf(testpki.WithDNSNames(names...))
+}
+
+func staticCertificate(tls, ca string) translator.LocalCertificates {
+	static := &translator.LocalStaticCertificate{
+		TLSSecretRef: translator.SecretRef{Name: tls, Namespace: "educates-secrets"},
+	}
+	if ca != "" {
+		static.CACertificateSecretRef = &translator.SecretRef{Name: ca, Namespace: "educates-secrets"}
+	}
+	return translator.LocalCertificates{Provider: "StaticCertificate", StaticCertificate: static}
+}
+
+func TestResolve_OneTLSCertificate_SelectsStaticCertificateWithTheCAThatVerifiesIt(t *testing.T) {
+	dataHome := withDataHome(t)
+	mkcert := testpki.NewRootCA(testpki.WithCommonName("mkcert development CA"))
+	cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+	writeCached(t, secrets.NewCATrustSecret("corporate-ca", testpki.NewRootCA().CertPEM))
+	writeCached(t, secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM))
+	before := cacheFiles(t, dataHome)
+	cfg := localConfig("workshop.test", false)
+
+	plan, err := localcerts.Resolve(cfg)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if want := staticCertificate("workshop-tls", "mkcert-ca"); !reflect.DeepEqual(plan.Certificates, want) {
+		t.Errorf("plan certificates = %+v, want %+v", plan.Certificates, want)
+	}
+	if want := []string{"corporate-ca", "mkcert-ca", "workshop-tls"}; !reflect.DeepEqual(plan.SyncSecretNames, want) {
+		t.Errorf("plan syncs %v, want %v", plan.SyncSecretNames, want)
+	}
+	if len(plan.Warnings) != 0 {
+		t.Errorf("plan warns %q, want no warning", plan.Warnings)
+	}
+
+	ingress := translatedIngress(t, cfg, plan)
+	for path, want := range map[string]interface{}{
+		"certificates.provider":                                           "StaticCertificate",
+		"certificates.staticCertificate.tlsSecretRef.name":                "workshop-tls",
+		"certificates.staticCertificate.tlsSecretRef.namespace":           "educates-secrets",
+		"certificates.staticCertificate.caCertificateSecretRef.name":      "mkcert-ca",
+		"certificates.staticCertificate.caCertificateSecretRef.namespace": "educates-secrets",
+	} {
+		if got := nested(t, ingress, path); got != want {
+			t.Errorf("ingress.%s = %v, want %v", path, got, want)
+		}
+	}
+
+	var r noteRecorder
+	if err := plan.Commit(&r); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if after := cacheFiles(t, dataHome); !reflect.DeepEqual(after, before) {
+		t.Error("deploying with a TLS certificate changed the cache")
+	}
+}
+
+func TestResolve_TLSCertificate_NoticeNamesItAndTheOtherDomainsItCovers(t *testing.T) {
+	withDataHome(t)
+	mkcert := testpki.NewRootCA()
+	writeCached(t, secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM))
+	cacheTLS(t, "projects-tls", mkcert.NewLeaf(testpki.WithDNSNames(
+		"*.workshop.test", "workshop.test", "*.Other.test", "*.third.test.", "portal.fourth.test")))
+	cacheTLS(t, "single-tls", wildcardLeaf(mkcert, "single.test"))
+
+	for domain, wantOthers := range map[string]string{
+		"workshop.test": "other.test, third.test",
+		"other.test":    "third.test, workshop.test",
+	} {
+		t.Run(domain, func(t *testing.T) {
+			plan, err := localcerts.Resolve(localConfig(domain, false))
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if want := staticCertificate("projects-tls", "mkcert-ca"); !reflect.DeepEqual(plan.Certificates, want) {
+				t.Errorf("plan certificates = %+v, want %+v", plan.Certificates, want)
+			}
+			if len(plan.Notices) != 1 {
+				t.Fatalf("plan notices = %q, want one", plan.Notices)
+			}
+			notice := plan.Notices[0]
+			for _, want := range []string{
+				`TLS certificate "projects-tls"`,
+				fmt.Sprintf("%q", domain),
+				"cert-manager will not be installed",
+				"educates local secrets remove projects-tls",
+				"other domains, which removing it affects too: " + wantOthers + ".",
+			} {
+				if !strings.Contains(notice, want) {
+					t.Errorf("notice does not mention %q:\n%s", want, notice)
+				}
+			}
+		})
+	}
+
+	t.Run("a certificate for one domain", func(t *testing.T) {
+		plan, err := localcerts.Resolve(localConfig("single.test", false))
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if len(plan.Notices) != 1 || strings.Contains(plan.Notices[0], "other domains") {
+			t.Errorf("plan notices = %q, want one naming no other domain", plan.Notices)
+		}
+	})
+}
+
+func TestResolve_TLSCertificateBesideARoot_ServedWithoutMinting(t *testing.T) {
+	dataHome := withDataHome(t)
+	mkcert := testpki.NewRootCA()
+	cacheRoot(t, "mkcert-ca", mkcert)
+	cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+	before := cacheFiles(t, dataHome)
+
+	plan, notes := resolveAndCommit(t, localConfig("workshop.test", false))
+
+	if want := staticCertificate("workshop-tls", "mkcert-ca"); !reflect.DeepEqual(plan.Certificates, want) {
+		t.Errorf("plan certificates = %+v, want %+v", plan.Certificates, want)
+	}
+	if want := []string{"mkcert-ca", "workshop-tls"}; !reflect.DeepEqual(plan.SyncSecretNames, want) {
+		t.Errorf("plan syncs %v, want %v", plan.SyncSecretNames, want)
+	}
+	if after := cacheFiles(t, dataHome); !reflect.DeepEqual(after, before) {
+		t.Errorf("deploy changed the cache: %v", keys(after))
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "cert-manager will not be installed") {
+		t.Errorf("Commit printed %q, want only the StaticCertificate notice", notes)
+	}
+}
+
+func TestResolve_MoreThanOneTLSCertificate_ErrorsNamingThem(t *testing.T) {
+	withDataHome(t)
+	mkcert := testpki.NewRootCA()
+	cacheRoot(t, "mkcert-ca", mkcert)
+	cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+	cacheTLS(t, "projects-tls", wildcardLeaf(mkcert, "other.test", "workshop.test"))
+	cacheTLS(t, "other-tls", wildcardLeaf(mkcert, "other.test"))
+	cacheTLS(t, "expired-tls", mkcert.NewLeaf(testpki.WithDNSNames("*.workshop.test"),
+		testpki.WithValidity(time.Now().AddDate(0, -2, 0), time.Now().AddDate(0, -1, 0))))
+
+	_, err := localcerts.Resolve(localConfig("workshop.test", false))
+	if err == nil {
+		t.Fatal("Resolve chose between two TLS certificates for the domain")
+	}
+	for _, want := range []string{`"projects-tls", "workshop-tls"`, `"workshop.test"`, "educates local secrets remove NAME"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q:\n%v", want, err)
+		}
+	}
+	for _, unwanted := range []string{"other-tls", "expired-tls"} {
+		if strings.Contains(err.Error(), unwanted) {
+			t.Errorf("error names %q, which does not count:\n%v", unwanted, err)
+		}
+	}
+}
+
+func TestResolve_ExpiredTLSCertificate_SkippedWithANotice(t *testing.T) {
+	mkcert := testpki.NewRootCA()
+	expired := mkcert.NewLeaf(testpki.WithDNSNames("*.workshop.test"),
+		testpki.WithValidity(time.Now().AddDate(0, -2, 0), time.Now().AddDate(0, -1, 0)))
+	expiredOn := expired.Cert.NotAfter.UTC().Format(time.DateOnly)
+	wantNotice := `Skipped TLS certificate "old-tls" for ingress domain "workshop.test": it expired on ` + expiredOn + "."
+
+	t.Run("beside a valid one", func(t *testing.T) {
+		withDataHome(t)
+		writeCached(t, secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM))
+		cacheTLS(t, "old-tls", expired)
+		cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+
+		plan, err := localcerts.Resolve(localConfig("workshop.test", false))
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if want := staticCertificate("workshop-tls", "mkcert-ca"); !reflect.DeepEqual(plan.Certificates, want) {
+			t.Errorf("plan certificates = %+v, want %+v", plan.Certificates, want)
+		}
+		if len(plan.Notices) != 2 || plan.Notices[0] != wantNotice || !strings.Contains(plan.Notices[1], `"workshop-tls"`) {
+			t.Errorf("plan notices = %q, want the skipped certificate and then the one served", plan.Notices)
+		}
+	})
+
+	t.Run("beside a root", func(t *testing.T) {
+		withDataHome(t)
+		cacheRoot(t, "educates-ca", testpki.NewRootCA())
+		cacheTLS(t, "old-tls", expired)
+
+		plan, err := localcerts.Resolve(localConfig("workshop.test", false))
+		if err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+		if got := plan.Certificates.Provider; got != "BundledCertManager" {
+			t.Errorf("plan provider = %q, want BundledCertManager", got)
+		}
+		if !reflect.DeepEqual(plan.Notices, []string{wantNotice}) {
+			t.Errorf("plan notices = %q, want %q", plan.Notices, wantNotice)
+		}
+	})
+
+	t.Run("alone", func(t *testing.T) {
+		withDataHome(t)
+		cacheTLS(t, "old-tls", expired)
+
+		_, err := localcerts.Resolve(localConfig("workshop.test", false))
+		if err == nil {
+			t.Fatal("Resolve served an expired TLS certificate")
+		}
+		for _, want := range []string{`have expired: "old-tls"`, "educates local secrets add tls", "educates local secrets add ca <name>\n"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("error does not mention %q:\n%v", want, err)
+			}
+		}
+	})
+}
+
+func TestResolve_TLSCertificate_CATrust(t *testing.T) {
+	mkcert := testpki.NewRootCA()
+	intermediate := mkcert.NewIntermediateCA()
+	otherDomainCA := mkcert.NewIntermediateCA(testpki.WithPermittedDNSDomains("other.test"))
+
+	cases := map[string]struct {
+		stage  func(t *testing.T)
+		wantCA string
+	}{
+		"verified through the intermediates tls.crt carries": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(intermediate, "workshop.test"), intermediate)
+				writeCached(t, secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM))
+			},
+			wantCA: "mkcert-ca",
+		},
+		"first of two CA certificates that verify it": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+				writeCached(t, secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM))
+				writeCached(t, secrets.NewCATrustSecret("a-copy-ca", mkcert.CertPEM))
+			},
+			wantCA: "a-copy-ca",
+		},
+		"CA bundle holding the issuer": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+				bundle := append(append([]byte{}, testpki.NewRootCA().CertPEM...), mkcert.CertPEM...)
+				writeCached(t, secrets.NewCATrustSecret("bundle-ca", bundle))
+			},
+			wantCA: "bundle-ca",
+		},
+		"no CA certificate cached": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+			},
+		},
+		"only an unrelated CA certificate": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+				writeCached(t, secrets.NewCATrustSecret("corporate-ca", testpki.NewRootCA().CertPEM))
+			},
+		},
+		"an issuer whose name constraints exclude the domain": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(otherDomainCA, "workshop.test"), otherDomainCA)
+				writeCached(t, secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM))
+			},
+		},
+		// A CA key pair is synced only when a deploy selects it, so it
+		// cannot be the CA trust of a StaticCertificate.
+		"only a CA key pair holding the CA": {
+			stage: func(t *testing.T) {
+				cacheTLS(t, "workshop-tls", wildcardLeaf(intermediate, "workshop.test"), intermediate)
+				writeCached(t, secrets.NewCAKeyPairSecret("workshop.test", "mkcert-ca", intermediate.CertPEM, intermediate.KeyPEM, mkcert.CertPEM))
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			withDataHome(t)
+			tc.stage(t)
+			cfg := localConfig("workshop.test", false)
+
+			plan, err := localcerts.Resolve(cfg)
+			if err != nil {
+				t.Fatalf("Resolve: %v", err)
+			}
+			if want := staticCertificate("workshop-tls", tc.wantCA); !reflect.DeepEqual(plan.Certificates, want) {
+				t.Errorf("plan certificates = %+v, want %+v", plan.Certificates, want)
+			}
+			if tc.wantCA != "" {
+				if len(plan.Warnings) != 0 {
+					t.Errorf("plan warns %q, want no warning", plan.Warnings)
+				}
+				return
+			}
+			if len(plan.Warnings) != 1 || !strings.Contains(plan.Warnings[0], `"workshop-tls"`) ||
+				!strings.Contains(plan.Warnings[0], `educates local secrets add ca mkcert-ca --cert "$(mkcert -CAROOT)/rootCA.pem"`) {
+				t.Errorf("plan warns %q, want one naming the certificate and how to register its CA", plan.Warnings)
+			}
+			certs := nested(t, translatedIngress(t, cfg, plan), "certificates.staticCertificate").(map[string]interface{})
+			if _, present := certs["caCertificateSecretRef"]; present {
+				t.Errorf("caCertificateSecretRef emitted with no CA certificate that verifies the certificate: %v", certs)
+			}
+		})
+	}
+}
+
+func TestResolve_TLSCertificateWithAMismatchedKey_Errors(t *testing.T) {
+	withDataHome(t)
+	mkcert := testpki.NewRootCA()
+	cacheRoot(t, "mkcert-ca", mkcert)
+	leaf := wildcardLeaf(mkcert, "workshop.test")
+	writeCached(t, secrets.NewTLSSecret("workshop-tls", leaf.CertPEM, wildcardLeaf(mkcert, "workshop.test").KeyPEM, ""))
+
+	_, err := localcerts.Resolve(localConfig("workshop.test", false))
+	if err == nil {
+		t.Fatal("Resolve served a TLS certificate whose key does not match")
+	}
+	for _, want := range []string{`TLS certificate "workshop-tls"`, "private key", "educates local secrets remove workshop-tls"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q:\n%v", want, err)
+		}
+	}
+}
+
+// A v3 local secrets cache holds the wildcard certificate and the CA
+// certificate that issued it, both annotated with the ingress domain.
+const (
+	v3CACertificateSecret = `apiVersion: v1
+kind: Secret
+metadata:
+  name: workshop.test-ca
+  annotations:
+    training.educates.dev/domain: workshop.test
+type: Opaque
+data:
+  ca.crt: %s
+`
+	v3TLSSecret = `apiVersion: v1
+kind: Secret
+metadata:
+  name: workshop.test-tls
+  annotations:
+    training.educates.dev/domain: workshop.test
+type: kubernetes.io/tls
+data:
+  tls.crt: %s
+  tls.key: %s
+`
+)
+
+func TestResolve_V3Cache_ServedWithStaticCertificateAsItIs(t *testing.T) {
+	dataHome := withDataHome(t)
+	mkcert := testpki.NewRootCA(testpki.WithCommonName("mkcert development CA"))
+	leaf := wildcardLeaf(mkcert, "workshop.test")
+	b64 := func(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+	secretsDir := filepath.Join(dataHome, "secrets")
+	if err := os.MkdirAll(secretsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"workshop.test-ca.yaml":  fmt.Sprintf(v3CACertificateSecret, b64(mkcert.CertPEM)),
+		"workshop.test-tls.yaml": fmt.Sprintf(v3TLSSecret, b64(leaf.CertPEM), b64(leaf.KeyPEM)),
+	} {
+		if err := os.WriteFile(filepath.Join(secretsDir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := cacheFiles(t, dataHome)
+
+	plan, notes := resolveAndCommit(t, localConfig("workshop.test", false))
+
+	if want := staticCertificate("workshop.test-tls", "workshop.test-ca"); !reflect.DeepEqual(plan.Certificates, want) {
+		t.Errorf("plan certificates = %+v, want %+v", plan.Certificates, want)
+	}
+	if want := []string{"workshop.test-ca", "workshop.test-tls"}; !reflect.DeepEqual(plan.SyncSecretNames, want) {
+		t.Errorf("plan syncs %v, want %v", plan.SyncSecretNames, want)
+	}
+	if len(plan.Warnings) != 0 {
+		t.Errorf("plan warns %q, want no warning", plan.Warnings)
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "cert-manager will not be installed") {
+		t.Errorf("Commit printed %q, want only the StaticCertificate notice", notes)
+	}
+	if after := cacheFiles(t, dataHome); !reflect.DeepEqual(after, before) {
+		t.Errorf("deploying a v3 cache changed it: %v", keys(after))
 	}
 }
 

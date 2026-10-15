@@ -231,6 +231,74 @@ func TestRender_RootCA_ReferencesTheDomainCAKeyPairWithoutWritingIt(t *testing.T
 	}
 }
 
+func TestRender_TLSCertificate_ReportsStaticCertificateWithoutWriting(t *testing.T) {
+	mkcert := testpki.NewRootCA()
+	leaf := mkcert.NewLeaf(testpki.WithDNSNames("*.workshop.test", "*.other.test"))
+
+	for name, tc := range map[string]struct {
+		cacheCA bool
+		want    []string
+		absent  []string
+	}{
+		"with the CA that issued it": {
+			cacheCA: true,
+			want: []string{
+				"tlsSecretRef:\n          name: workshop-tls\n          namespace: educates-secrets",
+				"caCertificateSecretRef:\n          name: mkcert-ca\n          namespace: educates-secrets",
+				"# Serving TLS certificate \"workshop-tls\" for ingress domain \"workshop.test\" with the\n# StaticCertificate provider: cert-manager will not be installed.",
+				"#   educates local secrets remove workshop-tls\n",
+				"# It also serves these other domains, which removing it affects too: other.test.\n",
+			},
+			absent: []string{"warning:", "caKeyPairSecretRef"},
+		},
+		"without it": {
+			want: []string{
+				"tlsSecretRef:\n          name: workshop-tls",
+				"# warning: no CA certificate in the local secrets cache verifies TLS certificate\n# \"workshop-tls\"",
+			},
+			absent: []string{"caCertificateSecretRef"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dataHome := t.TempDir()
+			t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+			if err := secrets.WriteCachedSecret(secrets.NewTLSSecret("workshop-tls", leaf.CertPEM, leaf.KeyPEM, "")); err != nil {
+				t.Fatal(err)
+			}
+			if tc.cacheCA {
+				if err := secrets.WriteCachedSecret(secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			before := cachedSecretNames(t)
+
+			p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
+			var buf bytes.Buffer
+			if err := p.runRender(&buf, &PlatformRenderOptions{LocalConfig: true}); err != nil {
+				t.Fatalf("runRender: %v", err)
+			}
+
+			s := buf.String()
+			for _, want := range append(tc.want, "provider: StaticCertificate") {
+				if !strings.Contains(s, want) {
+					t.Errorf("render output missing %q:\n%s", want, s)
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(s, absent) {
+					t.Errorf("render output contains %q:\n%s", absent, s)
+				}
+			}
+			if after := cachedSecretNames(t); !reflect.DeepEqual(after, before) {
+				t.Errorf("render changed the local secrets cache from %v to %v", before, after)
+			}
+		})
+	}
+}
+
 func TestRender_EscapeKind_PureUserOutput(t *testing.T) {
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
 	o := &PlatformRenderOptions{Config: writeFixture(t, escapeMinimal)}

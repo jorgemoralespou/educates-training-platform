@@ -5,20 +5,25 @@
 // renders, deploys or syncs a local install takes its certificate
 // decisions from here and nowhere else.
 //
-// A secure install issues its ingress certificate from the CA key pair
-// <domain>-ca-key-pair: an intermediate CA limited to the ingress domain,
-// minted from the one root CA in the cache. The root's key never leaves
-// this machine, and the cluster trusts the root through its CA trust
-// Secret.
+// A secure install serves the one unexpired wildcard TLS certificate in
+// the cache that covers the ingress domain, with the StaticCertificate
+// provider and no cert-manager, and trusts the cached CA certificate its
+// chain verifies against. Without such a certificate it issues its
+// ingress certificate from the CA key pair <domain>-ca-key-pair: an
+// intermediate CA limited to the ingress domain, minted from the one root
+// CA in the cache. The root's key never leaves this machine, and the
+// cluster trusts the root through its CA trust Secret.
 package localcerts
 
 import (
 	"crypto"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -89,9 +94,27 @@ func Resolve(cfg *v1alpha1.EducatesLocalConfig) (*Plan, error) {
 		return nil, fmt.Errorf("ingress.domain is empty; cannot decide the ingress certificates")
 	}
 
-	// A root CA mints the CA key pair cert-manager issues the ingress
-	// certificate from.
+	// A wildcard TLS certificate covering the domain is served as it is,
+	// with no cert-manager.
+	selected, expired, err := selectTLSCertificate(names, domain)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range expired {
+		plan.Notices = append(plan.Notices, fmt.Sprintf("Skipped TLS certificate %q for ingress domain %q: it expired on %s.",
+			c.name, domain, c.cert().NotAfter.UTC().Format(time.DateOnly)))
+	}
+	if selected != nil {
+		plan.useStaticCertificate(selected, domain, names)
+		return plan, nil
+	}
+
+	// Otherwise a root CA mints the CA key pair cert-manager issues the
+	// ingress certificate from.
 	root, err := loadRootCA(domain)
+	if errors.Is(err, errNoRootCA) {
+		return nil, noCertificateError(domain, expired)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +170,185 @@ func loadLocalConfig() (*v1alpha1.EducatesLocalConfig, error) {
 	return local, nil
 }
 
+// tlsCertificate is a wildcard TLS certificate in the local secrets
+// cache: a kubernetes.io/tls Secret whose certificate is not a CA. It
+// serves every domain it has a *.<domain> DNS SAN for; any domain
+// annotation it carries is ignored.
+type tlsCertificate struct {
+	name   string
+	secret *apiv1.Secret
+	// chain is tls.crt: the certificate followed by any intermediates.
+	chain []*x509.Certificate
+}
+
+func (c *tlsCertificate) cert() *x509.Certificate { return c.chain[0] }
+
+// covers reports whether the certificate has a *.<domain> DNS SAN.
+func (c *tlsCertificate) covers(domain string) bool {
+	return slices.Contains(secrets.WildcardDomains(c.cert()), normalizeDomain(domain))
+}
+
+// selectTLSCertificate returns the one unexpired TLS certificate among
+// the cached Secrets names that covers domain, or nil when there is
+// none, and the TLS certificates for domain it skipped because they
+// expired. More than one unexpired certificate for domain is an error
+// naming them.
+func selectTLSCertificate(names []string, domain string) (selected *tlsCertificate, expired []*tlsCertificate, err error) {
+	var valid []*tlsCertificate
+	now := time.Now()
+	for _, name := range names {
+		c := loadTLSCertificate(name)
+		if c == nil || !c.covers(domain) {
+			continue
+		}
+		if now.After(c.cert().NotAfter) {
+			expired = append(expired, c)
+			continue
+		}
+		valid = append(valid, c)
+	}
+	switch len(valid) {
+	case 0:
+		return nil, expired, nil
+	case 1:
+	default:
+		names := make([]string, len(valid))
+		for i, c := range valid {
+			names[i] = c.name
+		}
+		return nil, nil, fmt.Errorf(`more than one TLS certificate in the local secrets cache covers ingress
+domain %q: %s.
+
+A deploy serves one wildcard certificate for the domain. Remove the ones
+you do not want to use with:
+
+  educates local secrets remove NAME`, domain, quoteAll(names))
+	}
+
+	c := valid[0]
+	key, err := secrets.ParsePrivateKeyPEM(secretData(c.secret, "tls.key"))
+	if err != nil || !secrets.KeyMatchesCertificate(c.cert(), key) {
+		return nil, nil, fmt.Errorf(`TLS certificate %q covers ingress domain %q but cannot be served: its
+tls.key is not the private key of its certificate. Cache it again with
+'educates local secrets add tls %s --cert FILE --key FILE', or remove it
+with:
+
+  educates local secrets remove %s`, c.name, domain, c.name, c.name)
+	}
+	return c, expired, nil
+}
+
+// loadTLSCertificate reads the cached Secret name as a TLS certificate,
+// returning nil when it is not one or cannot be read.
+func loadTLSCertificate(name string) *tlsCertificate {
+	s, err := secrets.LoadCachedSecret(name)
+	if err != nil || s.Type != apiv1.SecretTypeTLS {
+		return nil
+	}
+	chain, err := secrets.ParseCertificatesPEM(secretData(s, "tls.crt"))
+	if err != nil || secrets.IsCACertificate(chain[0]) {
+		return nil
+	}
+	return &tlsCertificate{name: name, secret: s, chain: chain}
+}
+
+// useStaticCertificate makes the plan serve TLS certificate c for domain
+// with the StaticCertificate provider, trusting the first cached CA
+// certificate, by name, that c's chain verifies against. It notices the
+// choice, the certificate to remove for cert-manager and the other
+// domains c covers, and warns when no cached CA certificate verifies c.
+func (p *Plan) useStaticCertificate(c *tlsCertificate, domain string, names []string) {
+	static := &translator.LocalStaticCertificate{
+		TLSSecretRef: translator.SecretRef{Name: c.name, Namespace: secrets.SyncNamespace},
+	}
+	if ca := verifyingCACertificate(names, c); ca != "" {
+		static.CACertificateSecretRef = &translator.SecretRef{Name: ca, Namespace: secrets.SyncNamespace}
+	} else {
+		p.Warnings = append(p.Warnings, fmt.Sprintf(`no CA certificate in the local secrets cache verifies TLS certificate
+%q, so the training portal and workshop sessions will not trust the
+ingress. Register the CA that issued it, for mkcert its root CA, with:
+
+  educates local secrets add ca mkcert-ca --cert "$(mkcert -CAROOT)/rootCA.pem"`, c.name))
+	}
+	p.Certificates = translator.LocalCertificates{
+		Provider:          translator.CertificatesProviderStaticCertificate,
+		StaticCertificate: static,
+	}
+	p.SyncSecretNames = syncSecretNames(names, "")
+
+	notice := fmt.Sprintf(`Serving TLS certificate %q for ingress domain %q with the
+StaticCertificate provider: cert-manager will not be installed. To have
+cert-manager issue the ingress certificates from a root CA instead,
+remove the certificate with:
+
+  educates local secrets remove %s`, c.name, domain, c.name)
+	var others []string
+	for _, d := range secrets.WildcardDomains(c.cert()) {
+		if d != normalizeDomain(domain) {
+			others = append(others, d)
+		}
+	}
+	if len(others) > 0 {
+		notice += fmt.Sprintf("\n\nIt also serves these other domains, which removing it affects too: %s.", strings.Join(others, ", "))
+	}
+	p.Notices = append(p.Notices, notice)
+}
+
+// verifyingCACertificate returns the name of the first cached CA
+// certificate in names that c's chain, through the intermediates it
+// carries, verifies against for a TLS server, or "" when none does. A CA
+// certificate is a cached Secret whose ca.crt holds only CA certificates
+// and which holds no CA private key, such as a CA trust Secret; it is
+// what the operator reads CA trust from.
+func verifyingCACertificate(names []string, c *tlsCertificate) string {
+	intermediates := x509.NewCertPool()
+	for _, cert := range c.chain[1:] {
+		intermediates.AddCert(cert)
+	}
+	for _, name := range names {
+		if holdsCAKey(name) {
+			continue
+		}
+		s, err := secrets.LoadCachedSecret(name)
+		if err != nil {
+			continue
+		}
+		cas, err := secrets.ParseCertificatesPEM(secretData(s, "ca.crt"))
+		if err != nil || slices.ContainsFunc(cas, func(ca *x509.Certificate) bool { return !secrets.IsCACertificate(ca) }) {
+			continue
+		}
+		roots := x509.NewCertPool()
+		for _, ca := range cas {
+			roots.AddCert(ca)
+		}
+		if _, err := c.cert().Verify(x509.VerifyOptions{
+			Roots:         roots,
+			Intermediates: intermediates,
+			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		}); err == nil {
+			return name
+		}
+	}
+	return ""
+}
+
+// secretData returns the value of key in s, from data or stringData.
+func secretData(s *apiv1.Secret, key string) []byte {
+	if v, ok := s.Data[key]; ok {
+		return v
+	}
+	if v, ok := s.StringData[key]; ok {
+		return []byte(v)
+	}
+	return nil
+}
+
+// normalizeDomain lowercases domain and drops a trailing dot, as
+// secrets.WildcardDomains reports domains.
+func normalizeDomain(domain string) string {
+	return strings.ToLower(strings.TrimSuffix(domain, "."))
+}
+
 // rootCA is the root CA of the local secrets cache, read from its CA root
 // key pair.
 type rootCA struct {
@@ -165,7 +367,7 @@ func loadRootCA(domain string) (*rootCA, error) {
 	}
 	switch len(roots) {
 	case 0:
-		return nil, noRootCAError(domain)
+		return nil, errNoRootCA
 	case 1:
 	default:
 		return nil, fmt.Errorf(`the local secrets cache holds more than one root CA: %s.
@@ -228,17 +430,31 @@ whose name constraints permit this domain.`,
 	return &rootCA{name: name, cert: cert, certPEM: secrets.EncodeCertificatePEM(cert), key: key}, nil
 }
 
-// noRootCAError is the error for a secure install whose cache has no
-// root CA, naming the commands that fix it.
-func noRootCAError(domain string) error {
-	return fmt.Errorf(`no root CA in the local secrets cache to issue certificates for ingress
-domain %q.
+// errNoRootCA is loadRootCA's error for a cache with no root CA.
+var errNoRootCA = errors.New("no root CA in the local secrets cache")
+
+// noCertificateError is the error for a secure install whose cache has
+// neither a usable wildcard TLS certificate for domain nor a root CA,
+// naming the commands that fix it. expired are the TLS certificates for
+// domain that were skipped because they expired.
+func noCertificateError(domain string, expired []*tlsCertificate) error {
+	var skipped string
+	if len(expired) > 0 {
+		names := make([]string, len(expired))
+		for i, c := range expired {
+			names[i] = c.name
+		}
+		skipped = fmt.Sprintf("\n\nThe cached TLS certificates for the domain have expired: %s.", quoteAll(names))
+	}
+	return fmt.Errorf(`no certificate for ingress domain %q in the local secrets cache: it holds
+no root CA and no unexpired wildcard TLS certificate for %q.%s
 
 A secure install is the default (ingress.insecure is false): Educates
-serves workshops over HTTPS with certificates from a CA it mints for the
-ingress domain from a root CA cached on this machine. The root's private
-key never leaves this machine, and you trust its certificate once for
-every local ingress domain.
+serves workshops over HTTPS, either with certificates from a CA it mints
+for the ingress domain from a root CA cached on this machine, or with a
+wildcard TLS certificate you cache. A root CA's private key never leaves
+this machine, and you trust its certificate once for every local ingress
+domain.
 
 To generate a root CA:
 
@@ -248,12 +464,17 @@ To register an existing root CA with its private key, such as mkcert's:
 
   educates local secrets add ca <name> --cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"
 
+To serve a mkcert wildcard certificate instead, which installs no
+cert-manager, cache it and mkcert's root CA certificate:
+
+  mkcert -cert-file %s.pem -key-file %s-key.pem "*.%s"
+  educates local secrets add tls %s-tls --cert %s.pem --key %s-key.pem
+  educates local secrets add ca mkcert-ca --cert "$(mkcert -CAROOT)/rootCA.pem"
+
 To serve plain HTTP with no CA instead:
 
-  educates local config set ingress.insecure true
-
-The CA minted for the domain is pushed into the %q namespace at deploy
-time; the root's private key is not.`, domain, secrets.SyncNamespace)
+  educates local config set ingress.insecure true`,
+		domain, "*."+domain, skipped, domain, domain, domain, domain, domain, domain)
 }
 
 // caKeyPairFor returns the name of the CA key pair for domain. When the
