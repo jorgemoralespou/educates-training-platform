@@ -56,8 +56,10 @@ New Features
   the referenced secret changes, publishes it as
   ``status.ingress.wildcardCertificateSecretRef`` with no
   ``clusterIssuerRef``, and derives ``educates-ingress-ca`` from the CA trust
-  secret. Before serving the certificate the operator checks it, and reports
-  each problem on the ``CertificatesReady`` condition with its own reason:
+  secret. Before serving the certificate or deriving ``educates-ingress-ca``
+  the operator checks the certificate, so a CA it does not verify against
+  never reaches Educates components, and reports each problem on the
+  ``CertificatesReady`` condition with its own reason:
   ``WildcardCertificateNotFound``, ``WildcardCertificateIncomplete``,
   ``WildcardCertificateUnparseable``, ``WildcardCertificateKeyMismatch``,
   ``WildcardCertificateDomainMismatch`` when its SANs do not include
