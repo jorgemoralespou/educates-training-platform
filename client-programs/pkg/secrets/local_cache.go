@@ -31,19 +31,46 @@ func ValidateSecretName(name string) error {
 	return nil
 }
 
+// The cache holds private keys and credentials, so it is readable only by
+// its owner.
+const (
+	// cacheDirMode is the mode of the secrets cache directory.
+	cacheDirMode os.FileMode = 0o700
+
+	// cacheFileMode is the mode of each file in the secrets cache.
+	cacheFileMode os.FileMode = 0o600
+)
+
 // CacheDir returns the on-disk secrets cache directory, creating it if it
-// does not yet exist. The path is resolved at call time so
-// $EDUCATES_CLI_DATA_HOME (and tests using t.Setenv) take effect.
+// does not yet exist. The directory is owner-only: it is created with
+// mode 0700, and an existing directory with any other mode, such as one
+// created by an earlier release, is changed to 0700. The path is resolved
+// at call time so $EDUCATES_CLI_DATA_HOME (and tests using t.Setenv) take
+// effect.
 func CacheDir() (string, error) {
 	dir := secretsCacheDir()
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(path.Dir(dir), os.ModePerm); err != nil {
 		return "", errors.Wrapf(err, "unable to create secrets cache directory")
+	}
+	if err := os.Mkdir(dir, cacheDirMode); err != nil && !os.IsExist(err) {
+		return "", errors.Wrapf(err, "unable to create secrets cache directory")
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", errors.Wrapf(err, "unable to read secrets cache directory")
+	}
+	if info.Mode().Perm() != cacheDirMode {
+		if err := os.Chmod(dir, cacheDirMode); err != nil {
+			return "", errors.Wrapf(err, "unable to make secrets cache directory %q readable only by its owner", dir)
+		}
 	}
 	return dir, nil
 }
 
 // WriteCachedSecret marshals secret to YAML and writes it to the cache as
-// <name>.yaml, replacing any existing file of that name.
+// <name>.yaml with mode 0600, replacing any existing file of that name.
+// The file is written in full under a temporary name and then renamed, so
+// a replaced file never holds partial content or keeps a looser mode.
 func WriteCachedSecret(secret *apiv1.Secret) error {
 	dir, err := CacheDir()
 	if err != nil {
@@ -61,11 +88,37 @@ func WriteCachedSecret(secret *apiv1.Secret) error {
 	}
 
 	secretFilePath := path.Join(dir, secret.ObjectMeta.Name+".yaml")
-	if err := os.WriteFile(secretFilePath, secretData, os.ModePerm); err != nil {
+	if err := writeFileOwnerOnly(dir, secretFilePath, secretData); err != nil {
 		return errors.Wrapf(err, "unable to write secret file %q", secretFilePath)
 	}
 
 	return nil
+}
+
+// writeFileOwnerOnly writes data to filePath, in directory dir, with mode
+// cacheFileMode, through a temporary file renamed over filePath. The
+// temporary name does not end in .yaml, so a leftover is never read as a
+// cached secret.
+func writeFileOwnerOnly(dir, filePath string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, "."+path.Base(filePath)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if err := tmp.Chmod(cacheFileMode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, filePath)
 }
 
 // LoadCachedSecret reads and decodes the cached secret named name. It
