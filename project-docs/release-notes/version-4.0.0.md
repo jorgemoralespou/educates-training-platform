@@ -473,6 +473,16 @@ Features Changed
   continue to use an init container, as the many command line tools they
   provide need the CA in the operating system trust store.
 
+* Every pod that mounts the CA secret, being the ``session-manager``,
+  ``lookup-service`` and ``node-ca-injector`` deployments, the training
+  portal and workshop sessions, now mounts only its ``ca.crt`` key, the only
+  key these components read. Previously the ``session-manager``,
+  ``lookup-service`` and ``node-ca-injector`` deployments and the training
+  portal mounted every key the secret held, so a CA secret which also carried
+  a private key exposed that key inside their containers. The CA secret is
+  still mounted as a directory rather than as a single file, so a replaced CA
+  certificate is picked up when the pod next restarts.
+
 * The container images for the ``secrets-manager``, ``session-manager``,
   ``lookup-service``, ``tunnel-manager`` and ``training-portal`` components
   are now based on Debian (``debian:trixie-slim``) instead of Fedora, and the
@@ -740,6 +750,20 @@ Deprecations
 
 Bugs Fixed
 ----------
+
+* When a CA secret was configured for the cluster ingress without a wildcard
+  TLS secret, the session manager did not copy the CA secret into the
+  namespace of each workshop environment, as the copy was only made together
+  with the wildcard TLS secret. Workshop sessions still mounted the CA secret,
+  so their pods could not start. The CA secret is now copied into the
+  workshop environment namespace whenever a CA is configured.
+
+* When a ``TrainingPortal`` named its own TLS secret using
+  ``portal.ingress.tlsCertificateRef`` without giving a different namespace
+  for it, and a CA secret was configured for the cluster ingress, the session
+  manager failed with an error while creating the training portal and kept
+  retrying. The CA secret is now copied into the training portal namespace in
+  this case as well.
 
 * The Contour ingress controller deployed inside a vcluster workshop session
   (when the ``vcluster`` application enables ingress) used hardcoded upstream
