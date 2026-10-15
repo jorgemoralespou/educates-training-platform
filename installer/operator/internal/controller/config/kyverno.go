@@ -93,7 +93,7 @@ func (r *EducatesClusterConfigReconciler) reconcileKyvernoPhase(ctx context.Cont
 
 	if err := r.validateBundledKyverno(ctx, obj); err != nil {
 		if verr, ok := errors.AsType[*validationError](err); ok {
-			r.markDegraded(obj, verr.Field, verr.Reason)
+			r.markValidationFailed(obj, verr)
 			return phaseStop(ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj))
 		}
 		return phaseStop(ctrl.Result{}, err)

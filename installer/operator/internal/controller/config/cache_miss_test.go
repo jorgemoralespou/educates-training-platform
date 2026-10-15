@@ -42,14 +42,14 @@ func TestWarnIfCacheMiss_UncachedNamespace_Logs(t *testing.T) {
 		},
 	}
 	buf, ctx := bufLogContext()
-	r.warnIfCacheMiss(ctx, "team-namespace", "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef")
+	r.warnIfCacheMiss(ctx, "team-namespace", "spec.ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef")
 
 	s := buf.String()
 	for _, want := range []string{
 		"cache miss",
 		"team-namespace",
 		"restart the operator pod",
-		"spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
+		"spec.ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef",
 		"educates-installer",
 		"educates-secrets",
 	} {

@@ -296,7 +296,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 	// owns. Each helper is idempotent (SSA) so re-running converges.
 	bcm := obj.Spec.Ingress.Certificates.BundledCertManager
 	if bcm.IssuerType == configv1alpha1.IssuerTypeCustomCA {
-		if err := r.ensureCustomCASecretCopy(ctx, obj, bcm.CustomCA.CACertificateRef); err != nil {
+		if err := r.ensureCustomCASecretCopy(ctx, obj, bcm.CustomCA.CAKeyPairSecretRef); err != nil {
 			if isCertManagerCRDMissingErr(err) {
 				return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, err))
 			}

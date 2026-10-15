@@ -38,6 +38,13 @@ import (
 type validationError struct {
 	Field  string
 	Reason string
+
+	// ConditionType and ConditionReason, when set, also report the
+	// failure on a per-concern condition (such as CertificatesReady)
+	// with a machine-readable reason, so a reader can tell failures
+	// apart without parsing the message.
+	ConditionType   string
+	ConditionReason string
 }
 
 func (e *validationError) Error() string {

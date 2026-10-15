@@ -58,9 +58,13 @@ func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 				IssuerType: configv1alpha1.IssuerTypeCustomCA,
 				CustomCA: &configv1alpha1.CustomCAConfig{
-					CACertificateRef: configv1alpha1.SecretReference{
+					CAKeyPairSecretRef: configv1alpha1.SecretReference{
 						Name:      "workshop-ca",
 						Namespace: "team-alpha-secrets",
+					},
+					CACertificateSecretRef: &configv1alpha1.SecretReference{
+						Name:      "workshop-ca-trust",
+						Namespace: "team-alpha-trust",
 					},
 				},
 			},
@@ -72,9 +76,9 @@ func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"educates-installer", "educates-secrets", "team-alpha-secrets"}
+	want := []string{"educates-installer", "educates-secrets", "team-alpha-secrets", "team-alpha-trust"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Managed CustomCA NS not folded in: got %v, want %v", got, want)
+		t.Errorf("Managed CustomCA namespaces not folded in: got %v, want %v", got, want)
 	}
 }
 
@@ -121,7 +125,7 @@ func TestCollectFromECC_EmptyNamespaceOnRef_Ignored(t *testing.T) {
 			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 				IssuerType: configv1alpha1.IssuerTypeCustomCA,
 				CustomCA: &configv1alpha1.CustomCAConfig{
-					CACertificateRef: configv1alpha1.SecretReference{
+					CAKeyPairSecretRef: configv1alpha1.SecretReference{
 						Name: "workshop-ca",
 						// Namespace intentionally empty
 					},

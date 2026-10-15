@@ -39,7 +39,8 @@ const defaultExternalSecretsNS = "educates-secrets"
 //     exists)
 //   - any additional namespaces referenced by the current
 //     EducatesClusterConfig singleton's SecretReference fields
-//     (CustomCA in Managed mode, CACertificateSecretRef in Inline mode)
+//     (CustomCA's CA key pair and CA trust Secret in Managed mode,
+//     CACertificateSecretRef in Inline mode)
 //
 // Boot-time only: if the user later edits the ECC to point at a new
 // namespace, the operator needs to restart to pick up watches there.
@@ -83,12 +84,16 @@ func collectFromClient(ctx context.Context, c client.Reader, operatorNamespace s
 		return nil, err
 	}
 
-	// Managed mode: CustomCA.caCertificateRef
+	// Managed mode: CustomCA's CA key pair and optional CA trust Secret.
 	if ecc.Spec.Ingress != nil &&
 		ecc.Spec.Ingress.Certificates.BundledCertManager != nil &&
 		ecc.Spec.Ingress.Certificates.BundledCertManager.CustomCA != nil {
-		if ns := ecc.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Namespace; ns != "" {
+		ca := ecc.Spec.Ingress.Certificates.BundledCertManager.CustomCA
+		if ns := ca.CAKeyPairSecretRef.Namespace; ns != "" {
 			set[ns] = struct{}{}
+		}
+		if ca.CACertificateSecretRef != nil && ca.CACertificateSecretRef.Namespace != "" {
+			set[ca.CACertificateSecretRef.Namespace] = struct{}{}
 		}
 	}
 

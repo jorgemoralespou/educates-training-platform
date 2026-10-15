@@ -460,14 +460,36 @@ spec:
                             - solvers
                             type: object
                           customCA:
-                            description: CustomCAConfig configures a self-signed/custom
-                              CA-backed ClusterIssuer.
+                            description: CustomCAConfig configures a ClusterIssuer
+                              backed by your own CA.
                             properties:
-                              caCertificateRef:
+                              caCertificateSecretRef:
                                 description: |-
-                                  caCertificateRef references a Secret holding the CA's own cert and
-                                  key (keys: tls.crt, tls.key). Namespace defaults to the operator
-                                  namespace when empty.
+                                  caCertificateSecretRef optionally references a CA trust Secret
+                                  holding the CA certificate Educates components trust, under ca.crt.
+                                  When unset, the trust is read from the CA key pair: its ca.crt,
+                                  or else the root-most certificate of its tls.crt chain. Namespace
+                                  defaults to the operator namespace when empty.
+                                properties:
+                                  name:
+                                    description: name of the referent.
+                                    type: string
+                                  namespace:
+                                    description: namespace of the referent. Empty
+                                      means the operator namespace.
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                              caKeyPairSecretRef:
+                                description: |-
+                                  caKeyPairSecretRef references the CA key pair cert-manager signs
+                                  the wildcard certificate with: a Secret holding the CA certificate
+                                  under tls.crt (optionally followed by its issuers) and its private
+                                  key under tls.key, and optionally the root certificate under
+                                  ca.crt. The certificate in tls.crt must be a CA. Namespace defaults
+                                  to the operator namespace when empty. Educates components never
+                                  receive this Secret; they receive only the CA certificate.
                                 properties:
                                   name:
                                     description: name of the referent.
@@ -480,7 +502,7 @@ spec:
                                 - name
                                 type: object
                             required:
-                            - caCertificateRef
+                            - caKeyPairSecretRef
                             type: object
                           issuerType:
                             description: |-
@@ -1108,8 +1130,11 @@ spec:
                   consume. Populated once validation succeeds.
                 properties:
                   caCertificateSecretRef:
-                    description: caCertificateSecretRef is set when a CA Secret is
-                      configured.
+                    description: |-
+                      caCertificateSecretRef is set when a CA is configured. It names
+                      the operator-owned Opaque Secret educates-ingress-ca in the
+                      operator namespace, which holds exactly one key, ca.crt, and never
+                      a private key.
                     properties:
                       name:
                         type: string

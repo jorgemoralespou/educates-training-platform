@@ -428,13 +428,25 @@ type ACMEConfig struct {
 	Solvers ACMESolvers `json:"solvers"`
 }
 
-// CustomCAConfig configures a self-signed/custom CA-backed ClusterIssuer.
+// CustomCAConfig configures a ClusterIssuer backed by your own CA.
 type CustomCAConfig struct {
-	// caCertificateRef references a Secret holding the CA's own cert and
-	// key (keys: tls.crt, tls.key). Namespace defaults to the operator
-	// namespace when empty.
+	// caKeyPairSecretRef references the CA key pair cert-manager signs
+	// the wildcard certificate with: a Secret holding the CA certificate
+	// under tls.crt (optionally followed by its issuers) and its private
+	// key under tls.key, and optionally the root certificate under
+	// ca.crt. The certificate in tls.crt must be a CA. Namespace defaults
+	// to the operator namespace when empty. Educates components never
+	// receive this Secret; they receive only the CA certificate.
 	// +required
-	CACertificateRef SecretReference `json:"caCertificateRef"`
+	CAKeyPairSecretRef SecretReference `json:"caKeyPairSecretRef"`
+
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding the CA certificate Educates components trust, under ca.crt.
+	// When unset, the trust is read from the CA key pair: its ca.crt,
+	// or else the root-most certificate of its tls.crt chain. Namespace
+	// defaults to the operator namespace when empty.
+	// +optional
+	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 }
 
 // BundledCertManagerConfig configures the operator-installed cert-manager
@@ -909,7 +921,10 @@ type StatusIngress struct {
 	// +optional
 	WildcardCertificateSecretRef *NamespacedSecretRef `json:"wildcardCertificateSecretRef,omitempty"`
 
-	// caCertificateSecretRef is set when a CA Secret is configured.
+	// caCertificateSecretRef is set when a CA is configured. It names
+	// the operator-owned Opaque Secret educates-ingress-ca in the
+	// operator namespace, which holds exactly one key, ca.crt, and never
+	// a private key.
 	// +optional
 	CACertificateSecretRef *NamespacedSecretRef `json:"caCertificateSecretRef,omitempty"`
 

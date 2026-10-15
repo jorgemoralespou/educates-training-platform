@@ -88,10 +88,11 @@ type EducatesClusterConfigReconciler struct {
 	Scheme *runtime.Scheme
 
 	// APIReader is an uncached client used for cross-namespace Secret
-	// reads (CustomCA flow when the user points caCertificateRef at a
-	// namespace outside the operator's cache scope). The cached Client
-	// only watches Secrets in OperatorNamespace; reads against other
-	// namespaces fail with "unknown namespace for the cache".
+	// reads (the CustomCA key pair or CA trust Secret in a namespace
+	// outside the operator's cache scope). The cached Client only
+	// watches Secrets in the namespaces collected at startup; reads
+	// against other namespaces fail with "unknown namespace for the
+	// cache".
 	//
 	// Production wiring uses mgr.GetAPIReader(); tests can inject a
 	// fake.NewClientBuilder() client (which serves any namespace).
@@ -276,7 +277,7 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	statusIngress, err := r.validateInline(ctx, obj.Spec.Inline)
 	if err != nil {
 		if verr, ok := errors.AsType[*validationError](err); ok {
-			r.markDegraded(obj, verr.Field, verr.Reason)
+			r.markValidationFailed(obj, verr)
 			// Requeue so a recreated/repaired referenced resource is
 			// re-detected even if its watch event is missed.
 			return ctrl.Result{RequeueAfter: inlineSteadyStateResync}, r.updateStatusWithTransitionLog(ctx, obj)
@@ -538,6 +539,23 @@ func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.Educa
 		Status:             metav1.ConditionFalse,
 		Reason:             "ValidationFailed",
 		Message:            msg,
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markValidationFailed publishes a validation failure: markDegraded's
+// ValidationSucceeded and Ready conditions, plus the per-concern
+// condition the failure names, if any, with its specific reason.
+func (r *EducatesClusterConfigReconciler) markValidationFailed(obj *configv1alpha1.EducatesClusterConfig, verr *validationError) {
+	r.markDegraded(obj, verr.Field, verr.Reason)
+	if verr.ConditionType == "" {
+		return
+	}
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               verr.ConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             verr.ConditionReason,
+		Message:            verr.Error(),
 		ObservedGeneration: obj.Generation,
 	})
 }

@@ -22,11 +22,9 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -91,9 +89,16 @@ const (
 //
 // Cleanup is the strict reverse.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
-	if err := r.validateManaged(ctx, obj); err != nil {
+	err := r.validateManaged(ctx, obj)
+	if err == nil {
+		// CA trust for Educates components comes from the validated
+		// spec alone, so it is derived before any cluster service is
+		// installed and kept current on every reconcile.
+		err = r.ensureIngressCATrust(ctx, obj)
+	}
+	if err != nil {
 		if verr, ok := errors.AsType[*validationError](err); ok {
-			r.markDegraded(obj, verr.Field, verr.Reason)
+			r.markValidationFailed(obj, verr)
 			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		return ctrl.Result{}, err
@@ -313,6 +318,11 @@ func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.E
 			Name: wildcardClusterIssuer,
 		}
 	}
+	// A configured CA reaches components only through the key-free
+	// Secret ensureIngressCATrust derived.
+	if _, _, ok := r.ingressCASource(obj); ok {
+		status.CACertificateSecretRef = r.ingressCASecretRef()
+	}
 	obj.Status.Ingress = status
 
 	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
@@ -522,7 +532,7 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 					Reason: "required when issuerType is CustomCA",
 				}
 			}
-			if err := r.checkCustomCASecret(ctx, certs.BundledCertManager.CustomCA.CACertificateRef); err != nil {
+			if err := r.validateCustomCAKeyPair(ctx, certs.BundledCertManager.CustomCA); err != nil {
 				return err
 			}
 		case configv1alpha1.IssuerTypeACME:
@@ -542,43 +552,6 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 		}
 	}
 
-	return nil
-}
-
-// checkCustomCASecret validates the CustomCA Secret reference in
-// the namespace specified on the reference (defaulting to the operator
-// namespace). Mirrors checkCASecret for Inline mode but expects
-// tls.crt + tls.key (cert-manager's CA-issuer needs the private key),
-// not ca.crt.
-func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Context, ref configv1alpha1.SecretReference) error {
-	ns := ref.Namespace
-	if ns == "" {
-		ns = r.OperatorNamespace
-	}
-	r.warnIfCacheMiss(ctx, ns, "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef")
-	s := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
-	// APIReader bypasses the controller-runtime cache, which is only
-	// configured to watch Secrets in the operator namespace. Cross-
-	// namespace caCertificateRef (laptop flow uses educates-secrets)
-	// would otherwise fail with "unknown namespace for the cache".
-	if err := r.APIReader.Get(ctx, key, s); err != nil {
-		if apierrors.IsNotFound(err) {
-			return &validationError{
-				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
-				Reason: fmt.Sprintf("Secret %s/%s not found", ns, ref.Name),
-			}
-		}
-		return fmt.Errorf("get CustomCA Secret %s: %w", key, err)
-	}
-	for _, k := range []string{"tls.crt", "tls.key"} {
-		if _, ok := s.Data[k]; !ok {
-			return &validationError{
-				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
-				Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", ns, ref.Name, k),
-			}
-		}
-	}
 	return nil
 }
 

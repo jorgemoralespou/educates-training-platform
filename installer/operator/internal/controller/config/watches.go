@@ -40,8 +40,9 @@ import (
 //
 // All mappers share a common shape:
 //
-//  1. Operator-owned resources (wildcard tls Secret, copied CustomCA
-//     Secret, wildcard ClusterIssuer + Certificate, cert-manager
+//  1. Operator-owned resources (wildcard tls Secret, derived CA trust
+//     Secret, copied CustomCA Secret, wildcard ClusterIssuer +
+//     Certificate, cert-manager
 //     namespace's Deployments) always enqueue regardless of CR state.
 //     We need to detect drift on resources we created even if the CR
 //     is mid-deletion.
@@ -89,9 +90,10 @@ func (r *EducatesClusterConfigReconciler) getSingleton(ctx context.Context) (*co
 func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Context, obj client.Object) []reconcile.Request {
 	name, ns := obj.GetName(), obj.GetNamespace()
 
-	// Operator-owned: wildcard tls Secret (operator ns) and the
-	// CustomCA copy (cert-manager ns). Always enqueue.
-	if ns == r.OperatorNamespace && name == wildcardTLSSecretName {
+	// Operator-owned: wildcard tls Secret and derived CA trust Secret
+	// (operator ns) and the CustomCA copy (cert-manager ns). Always
+	// enqueue.
+	if ns == r.OperatorNamespace && (name == wildcardTLSSecretName || name == ingressCASecretName) {
 		return singletonRequest
 	}
 	if ns == certManagerNamespace && name == customCASecretName {
@@ -135,20 +137,19 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 			}
 		}
 	case configv1alpha1.ClusterConfigModeManaged:
-		if bcm := cr.Spec.Ingress; bcm != nil &&
-			bcm.Certificates.BundledCertManager != nil &&
-			bcm.Certificates.BundledCertManager.CustomCA != nil {
-			ref := bcm.Certificates.BundledCertManager.CustomCA.CACertificateRef
-			refNS := ref.Namespace
-			if refNS == "" {
-				refNS = r.OperatorNamespace
-			}
+		if ca := customCAConfig(cr); ca != nil {
 			// SecretReference allows cross-namespace; compare both
-			// namespace and name. Without this, watches on a CA Secret
-			// in (e.g.) educates-secrets never enqueued a reconcile and
-			// rotations went unnoticed.
-			if ns == refNS && name == ref.Name {
-				return singletonRequest
+			// namespace and name. The CA key pair feeds the ClusterIssuer
+			// copy and, like the CA trust Secret, the derived
+			// educates-ingress-ca, so a change to either must reconcile.
+			refs := []configv1alpha1.SecretReference{ca.CAKeyPairSecretRef}
+			if ca.CACertificateSecretRef != nil {
+				refs = append(refs, *ca.CACertificateSecretRef)
+			}
+			for _, ref := range refs {
+				if ns == r.secretRefNamespace(ref) && name == ref.Name {
+					return singletonRequest
+				}
 			}
 		}
 		if cr.Spec.ImageRegistry != nil {

@@ -45,8 +45,15 @@ import (
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
+	"github.com/educates/educates-training-platform/installer/operator/internal/testpki"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
+
+// testCASecretsNamespace stands in for educates-secrets: a namespace
+// other than the operator namespace that CA Secret references may name
+// and that the operator's Secret cache covers.
+const testCASecretsNamespace = "test-ca-secrets"
 
 // validManagedSpec returns a minimal Managed-mode spec that satisfies
 // Managed-mode validation: BundledContour + BundledCertManager
@@ -66,7 +73,7 @@ func validManagedSpec() configv1alpha1.EducatesClusterConfigSpec {
 				BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 					IssuerType: configv1alpha1.IssuerTypeCustomCA,
 					CustomCA: &configv1alpha1.CustomCAConfig{
-						CACertificateRef: configv1alpha1.SecretReference{
+						CAKeyPairSecretRef: configv1alpha1.SecretReference{
 							Name: "custom-ca",
 						},
 					},
@@ -76,17 +83,48 @@ func validManagedSpec() configv1alpha1.EducatesClusterConfigSpec {
 	}
 }
 
-// makeCustomCASecret returns a tls.crt + tls.key Secret in the operator
-// namespace. checkCustomCASecret only verifies key presence, so byte
-// values are irrelevant — the validator never parses them.
+// makeCustomCASecret returns the CA key pair validManagedSpec references:
+// a self-signed root CA's tls.crt + tls.key in the operator namespace,
+// with no ca.crt, the shape the local CLI cache produces.
 func makeCustomCASecret() *corev1.Secret {
+	root := testpki.NewRootCA()
+	return makeSecret(testOperatorNamespace, "custom-ca", map[string][]byte{
+		"tls.crt": root.CertPEM,
+		"tls.key": root.KeyPEM,
+	})
+}
+
+// makeSecret returns a Secret with the given data, for CA key pairs and
+// CA trust Secrets built from testpki material.
+func makeSecret(namespace, name string, data map[string][]byte) *corev1.Secret {
 	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "custom-ca", Namespace: testOperatorNamespace},
-		Data: map[string][]byte{
-			"tls.crt": []byte("dummy-ca-cert"),
-			"tls.key": []byte("dummy-ca-key"),
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Data:       data,
 	}
+}
+
+// certificatesReadyReason returns the reason of the singleton's
+// CertificatesReady condition, or "" when it is not set yet.
+func certificatesReadyReason() string {
+	got := &configv1alpha1.EducatesClusterConfig{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got); err != nil {
+		return ""
+	}
+	cond := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
+	if cond == nil {
+		return ""
+	}
+	return cond.Reason
+}
+
+// ingressCAData returns the data of the derived CA trust Secret, or nil
+// while it does not exist.
+func ingressCAData() map[string][]byte {
+	s := &corev1.Secret{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: ingressCASecretName}, s); err != nil {
+		return nil
+	}
+	return s.Data
 }
 
 // markDeploymentAvailable creates the named Deployment (if missing) and
@@ -238,6 +276,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 
 	BeforeEach(func() {
 		ensureNamespace(testOperatorNamespace)
+		ensureNamespace(testCASecretsNamespace)
 		// Previous specs that exercised cleanupManaged leave the
 		// cert-manager + contour namespaces in Terminating; envtest
 		// has no namespace controller to actually delete them.
@@ -258,7 +297,8 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 				ByObject: map[client.Object]cache.ByObject{
 					&corev1.Secret{}: {
 						Namespaces: map[string]cache.Config{
-							testOperatorNamespace: {},
+							testOperatorNamespace:  {},
+							testCASecretsNamespace: {},
 						},
 					},
 				},
@@ -294,6 +334,7 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		_ = k8sClient.DeleteAllOf(ctx, &platformv1alpha1.SessionManager{})
 		drainCR()
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testCASecretsNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.Certificate{}, client.InNamespace(testOperatorNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &appsv1.Deployment{}, client.InNamespace(certManagerNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(certManagerNamespace))
@@ -437,6 +478,156 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
 	})
 
+	DescribeTable("rejects an unusable CA key pair with a specific reason before installing cert-manager",
+		func(data func() map[string][]byte, wantReason, wantMessage string) {
+			Expect(k8sClient.Create(ctx, makeSecret(testOperatorNamespace, "custom-ca", data()))).To(Succeed())
+			obj := &configv1alpha1.EducatesClusterConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       validManagedSpec(),
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			Eventually(certificatesReadyReason, 30*time.Second, 200*time.Millisecond).Should(Equal(wantReason))
+
+			got := &configv1alpha1.EducatesClusterConfig{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+			Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+			cond := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
+			Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+			Expect(cond.Message).To(ContainSubstring(wantMessage))
+			Expect(meta.IsStatusConditionFalse(got.Status.Conditions, conditionReady)).To(BeTrue())
+
+			// cert-manager is never involved, and no CA trust is derived.
+			hc, err := helmFac.For(certManagerNamespace)
+			Expect(err).NotTo(HaveOccurred())
+			_, statusErr := hc.Status(certManagerReleaseName)
+			Expect(statusErr).To(MatchError(helm.ErrReleaseNotFound))
+			Expect(ingressCAData()).To(BeNil())
+		},
+		Entry("when tls.key is missing",
+			func() map[string][]byte {
+				return map[string][]byte{"tls.crt": testpki.NewRootCA().CertPEM}
+			},
+			pki.ReasonCAKeyPairIncomplete, `"tls.key"`),
+		Entry("when tls.crt is missing",
+			func() map[string][]byte {
+				return map[string][]byte{"tls.key": testpki.NewRootCA().KeyPEM}
+			},
+			pki.ReasonCAKeyPairIncomplete, `"tls.crt"`),
+		Entry("when its certificate is not a CA",
+			func() map[string][]byte {
+				leaf := testpki.NewRootCA().NewLeaf(testpki.WithDNSNames("*.educates.test"))
+				return map[string][]byte{"tls.crt": leaf.ChainPEM(), "tls.key": leaf.KeyPEM}
+			},
+			pki.ReasonCAKeyPairNotCA, "not a CA certificate"),
+	)
+
+	It("rejects a referenced CA trust Secret without ca.crt with a specific reason", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeSecret(testOperatorNamespace, "custom-ca-trust", map[string][]byte{
+			"tls.crt": testpki.NewRootCA().CertPEM,
+		}))).To(Succeed())
+		spec := validManagedSpec()
+		spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateSecretRef = &configv1alpha1.SecretReference{
+			Name: "custom-ca-trust",
+		}
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		Eventually(certificatesReadyReason, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(pki.ReasonCATrustSecretIncomplete))
+		Expect(ingressCAData()).To(BeNil())
+	})
+
+	DescribeTable("derives educates-ingress-ca holding only ca.crt",
+		func(setup func(spec *configv1alpha1.EducatesClusterConfigSpec) (want []byte)) {
+			spec := validManagedSpec()
+			want := setup(&spec)
+			Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       spec,
+			})).To(Succeed())
+
+			Eventually(ingressCAData, 30*time.Second, 200*time.Millisecond).
+				Should(Equal(map[string][]byte{"ca.crt": want}))
+
+			derived := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: ingressCASecretName}, derived)).To(Succeed())
+			Expect(derived.Type).To(Equal(corev1.SecretTypeOpaque))
+			Expect(derived.Labels).To(HaveKeyWithValue("app.kubernetes.io/managed-by", managedByLabelValue))
+			Expect(derived.OwnerReferences).To(HaveLen(1))
+			Expect(derived.OwnerReferences[0].Kind).To(Equal("EducatesClusterConfig"))
+			Expect(derived.OwnerReferences[0].Name).To(Equal("cluster"))
+			Expect(*derived.OwnerReferences[0].Controller).To(BeTrue())
+		},
+		Entry("from the root-most certificate of the CA key pair's tls.crt chain",
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) []byte {
+				root := testpki.NewRootCA()
+				inter := root.NewIntermediateCA()
+				Expect(k8sClient.Create(ctx, makeSecret(testOperatorNamespace, "custom-ca", map[string][]byte{
+					"tls.crt": inter.ChainPEM(),
+					"tls.key": inter.KeyPEM,
+				}))).To(Succeed())
+				return root.CertPEM
+			}),
+		Entry("from the CA key pair's ca.crt",
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) []byte {
+				root := testpki.NewRootCA()
+				inter := root.NewIntermediateCA()
+				// tls.crt alone would yield the intermediate; ca.crt wins.
+				Expect(k8sClient.Create(ctx, makeSecret(testCASecretsNamespace, "custom-ca", map[string][]byte{
+					"tls.crt": inter.CertPEM,
+					"tls.key": inter.KeyPEM,
+					"ca.crt":  root.CertPEM,
+				}))).To(Succeed())
+				spec.Ingress.Certificates.BundledCertManager.CustomCA.CAKeyPairSecretRef.Namespace = testCASecretsNamespace
+				return root.CertPEM
+			}),
+		Entry("from the CA trust Secret, ignoring a key it also holds",
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) []byte {
+				Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
+				trusted := testpki.NewRootCA()
+				Expect(k8sClient.Create(ctx, makeSecret(testCASecretsNamespace, "custom-ca-trust", map[string][]byte{
+					"ca.crt":  trusted.CertPEM,
+					"tls.crt": trusted.CertPEM,
+					"tls.key": trusted.KeyPEM,
+				}))).To(Succeed())
+				spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateSecretRef = &configv1alpha1.SecretReference{
+					Name:      "custom-ca-trust",
+					Namespace: testCASecretsNamespace,
+				}
+				return trusted.CertPEM
+			}),
+	)
+
+	It("refreshes educates-ingress-ca when its source Secret changes", func() {
+		Expect(k8sClient.Create(ctx, makeCustomCASecret())).To(Succeed())
+		first, second := testpki.NewRootCA(), testpki.NewRootCA()
+		trust := makeSecret(testCASecretsNamespace, "custom-ca-trust", map[string][]byte{"ca.crt": first.CertPEM})
+		Expect(k8sClient.Create(ctx, trust)).To(Succeed())
+		spec := validManagedSpec()
+		spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateSecretRef = &configv1alpha1.SecretReference{
+			Name:      "custom-ca-trust",
+			Namespace: testCASecretsNamespace,
+		}
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+		Eventually(ingressCAData, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(map[string][]byte{"ca.crt": first.CertPEM}))
+
+		// No spec change: only the Secret watch can carry this through.
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testCASecretsNamespace, Name: "custom-ca-trust"}, trust)).To(Succeed())
+		trust.Data = map[string][]byte{"ca.crt": second.CertPEM}
+		Expect(k8sClient.Update(ctx, trust)).To(Succeed())
+
+		Eventually(ingressCAData, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(map[string][]byte{"ca.crt": second.CertPEM}))
+	})
+
 	It("rejects not-yet-supported providers with explicit validation errors", func() {
 		spec := validManagedSpec()
 		spec.Ingress.Certificates.Provider = configv1alpha1.CertificatesProviderStaticCertificate
@@ -529,6 +720,14 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		Expect(got.Status.Ingress.WildcardCertificateSecretRef.Name).To(Equal(wildcardTLSSecretName))
 		Expect(got.Status.Ingress.ClusterIssuerRef).NotTo(BeNil())
 		Expect(got.Status.Ingress.ClusterIssuerRef.Name).To(Equal(wildcardClusterIssuer))
+
+		// The CA reaches components only as the key-free derived Secret.
+		Expect(got.Status.Ingress.CACertificateSecretRef).To(Equal(&configv1alpha1.NamespacedSecretRef{
+			Namespace: testOperatorNamespace,
+			Name:      "educates-ingress-ca",
+		}))
+		Expect(ingressCAData()).To(HaveLen(1))
+		Expect(ingressCAData()).To(HaveKey("ca.crt"))
 
 		// CustomCA Secret was copied into cert-manager namespace.
 		copied := &corev1.Secret{}
