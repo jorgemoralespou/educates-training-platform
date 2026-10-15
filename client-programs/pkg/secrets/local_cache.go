@@ -117,6 +117,57 @@ func RemoveCachedSecret(name string) error {
 	return nil
 }
 
+// RemoveCachedSecretAndDependents deletes the cached secret named name
+// together with the CA material that depends on it, and returns the
+// names it deleted, sorted.
+//
+// A root CA is removed as a whole: naming either its CA trust Secret or
+// its CA root key pair deletes both, and every CA key pair minted from
+// the root, which is any cached Secret whose RootCAAnnotation names it.
+// A cached file that cannot be decoded names no root, so it is left in
+// place. Removing a secret that is not cached is not an error.
+func RemoveCachedSecretAndDependents(name string) ([]string, error) {
+	root := strings.TrimSuffix(name, RootKeyPairSuffix)
+
+	names, err := ListCachedSecretNames()
+	if err != nil {
+		return nil, err
+	}
+
+	// CA key pairs first and the root last, so an interrupted removal
+	// leaves a root that can still mint, and running it again finishes.
+	var targets []string
+	for _, cached := range names {
+		if cached == name || cached == root || cached == RootKeyPairName(root) {
+			continue
+		}
+		secret, err := decodeFileIntoSecret(cached + ".yaml")
+		if err != nil {
+			continue
+		}
+		if secret.Annotations[RootCAAnnotation] == root {
+			targets = append(targets, cached)
+		}
+	}
+	targets = append(targets, RootKeyPairName(root), root)
+
+	var removed []string
+	for _, target := range targets {
+		secretFilePath := path.Join(secretsCacheDir(), target+".yaml")
+		err := os.Remove(secretFilePath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return removed, errors.Wrapf(err, "unable to remove secret file %q", secretFilePath)
+		}
+		removed = append(removed, target)
+	}
+	sort.Strings(removed)
+
+	return removed, nil
+}
+
 // NewTLSSecret builds a kubernetes.io/tls Secret from PEM-encoded cert and
 // key bytes. When ingressDomain is non-empty it is recorded in the
 // DomainAnnotation annotation.
