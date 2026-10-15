@@ -615,20 +615,27 @@ Features Changed
   changes. The workshop base environment image and the images derived from it
   remain based on Fedora for now.
 
-* The certificates provider of an ``EducatesClusterConfig``,
-  ``spec.ingress.certificates.provider``, can no longer be changed once the
-  resource exists, in the same way as ``spec.mode``. The Kubernetes API server
-  rejects an update that changes the provider, or that removes
-  ``spec.ingress`` once it has been set, since switching providers in place
-  could leave a bundled cert-manager installed or certificates half switched.
-  To change the provider, delete the ``EducatesClusterConfig`` and create it
+* How each cluster service of an ``EducatesClusterConfig`` is provided can no
+  longer be changed once the resource exists, in the same way as
+  ``spec.mode``. The Kubernetes API server rejects an update that changes the
+  certificates provider, ``spec.ingress.certificates.provider``, the ingress
+  controller provider, ``spec.ingress.controller.provider``, the DNS provider,
+  ``spec.dns.provider``, or the policy enforcement settings, which are the
+  ``clusterPolicy`` and ``workshopPolicy`` engines and ``kyverno.provider``
+  under ``spec.policyEnforcement``. It also rejects removing ``spec.ingress``
+  once it has been set, adding or removing a ``spec.dns`` whose provider is not
+  ``None``, and adding or removing ``spec.policyEnforcement`` or its
+  ``kyverno`` block. Switching how a service is provided in place could leave
+  a bundled cluster service installed beside its replacement, or certificates
+  half switched. Settings within a bundled service, such as the Route53
+  options of the bundled external-dns, can still be changed. To change how a
+  service is provided, delete the ``EducatesClusterConfig`` and create it
   again, for example with ``educates admin platform delete`` followed by a new
   deploy, or install into a new cluster. When ``educates admin platform
-  deploy`` would change the provider of an existing installation, for example
+  deploy`` would make such a change to an existing installation, for example
   because ``ingress.insecure`` was set or cleared in the local configuration,
-  it now fails with a message saying that the certificate provider cannot
-  change and pointing at ``educates admin platform delete`` or recreating the
-  cluster.
+  it now fails with a message naming the setting that cannot change and
+  pointing at ``educates admin platform delete`` or recreating the cluster.
 
 * The custom CA of the ``BundledCertManager`` certificates provider in
   ``Managed`` mode is now named by
@@ -1217,14 +1224,18 @@ Bugs Fixed
   and reports a missing or invalid secret in the status of that resource.
 
 * Deleting an ``EducatesClusterConfig`` in ``Managed`` mode, which
-  ``educates admin platform delete`` does, uninstalled the Helm release named
-  ``cert-manager`` and deleted the ``cert-manager`` namespace whatever the
-  certificates provider was. With the ``None`` or ``StaticCertificate``
-  provider, a cert-manager the administrator had installed under those names
-  was removed along with Educates. The cert-manager cleanup, which also
-  deletes the wildcard ``Certificate`` and the ``ClusterIssuer``, now runs only
-  when the provider is ``BundledCertManager``, the one case in which Educates
-  installed cert-manager.
+  ``educates admin platform delete`` does, uninstalled the Helm releases named
+  ``cert-manager``, ``contour``, ``external-dns`` and ``kyverno`` and deleted
+  the namespaces of the same names, whatever the resource said about how each
+  service was provided. A cert-manager, Contour, external-dns or Kyverno the
+  administrator had installed under those names was removed along with
+  Educates. Each cleanup now runs only when Educates installed that service:
+  cert-manager, whose cleanup also deletes the wildcard ``Certificate`` and the
+  ``ClusterIssuer``, with the ``BundledCertManager`` certificates provider;
+  Contour with the ``BundledContour`` ingress controller provider;
+  external-dns with the ``BundledExternalDNS`` DNS provider; and Kyverno with
+  the ``Bundled`` Kyverno provider and at least one policy engine set to
+  ``Kyverno``.
 
 * In ``Managed`` mode, the ``ValidationSucceeded`` condition of the
   ``EducatesClusterConfig`` stayed ``False`` after a validation failure, such
