@@ -30,7 +30,8 @@ resources: {}
 #   - `tlsCertificateRef` — TLS Secret backing this Ingress. Typically the
 #     wildcard cert covering `*.<domain>` (which includes the lookup-service
 #     hostname). Empty disables TLS on the Ingress.
-#   - `caCertificateRef` — CA Secret. When set, the chart mounts it at
+#   - `caCertificateRef` — CA Secret. When set, the chart mounts its
+#     `ca.crt` key, and only that key, at
 #     `/opt/app-root/certs/ingress-ca` and the image's start script appends
 #     the CA to the bundle its TLS environment variables point at. Required
 #     when the lookup-service must verify TLS against a private/self-signed

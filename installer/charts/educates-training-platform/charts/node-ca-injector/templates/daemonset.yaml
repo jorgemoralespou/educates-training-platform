@@ -53,9 +53,14 @@ spec:
           configMap:
             name: educates-registry-hosts
             optional: true
+        # Only ca.crt is projected from the CA Secret; the sync loop reads
+        # /config/ca/ca.crt.
         - name: ca-secret
           secret:
             secretName: {{ include "node-ca-injector.caSecretName" . | quote }}
+            items:
+              - key: ca.crt
+                path: ca.crt
         - name: containerd-certs-d
           hostPath:
             path: /etc/containerd/certs.d
