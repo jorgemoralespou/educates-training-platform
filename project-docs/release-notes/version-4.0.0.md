@@ -444,9 +444,9 @@ Features Changed
 
 * ``educates local secrets list`` now shows what each cached secret is and
   what a deploy uses it for, where it previously printed only names. It
-  prints a table with the columns ``NAME``, ``TYPE``, ``DOMAINS``,
-  ``SUBJECT`` and ``EXPIRES``. ``TYPE`` is the role of the secret, decided
-  the same way a deploy decides it: ``CA certificate``, ``CA root key pair``,
+  prints a table with the columns ``NAME``, ``TYPE``, ``DOMAINS`` and
+  ``EXPIRES``. ``TYPE`` is the role of the secret, decided the same way a
+  deploy decides it: ``CA certificate``, ``CA root key pair``,
   ``CA intermediate key pair``, ``TLS certificate``,
   ``Registry credentials`` or ``Generic``. A secret to remove from the cache
   is shown as ``invalid`` while the rest of the list still prints: a file
@@ -456,10 +456,21 @@ Features Changed
   what the secret is valid for: every wildcard domain of a TLS certificate,
   the ingress domain of a CA key pair, and the permitted DNS name
   constraints of a CA certificate or CA root key pair, or ``any`` when it
-  has none. ``SUBJECT`` is the common name of the
-  certificate's subject, or the whole subject when it has no common name,
-  and reads as ``<domain> (<root>)`` for a CA key pair. ``EXPIRES`` is the
-  date the certificate expires, or ``expired``.
+  has none. ``EXPIRES`` is the date the certificate expires, or
+  ``expired``.
+
+  The new ``educates local secrets view NAME`` command shows the details of
+  one cached secret that do not fit the table, so you can inspect it
+  without decoding its YAML. For each certificate the secret holds, those
+  of ``tls.crt`` and then those of ``ca.crt``, it shows the common name,
+  subject, issuer, subject alternative names, validity, whether it is a CA
+  and its path length, the name constraints of a CA, the serial number and
+  the SHA-256 fingerprint, and for a CA key pair it shows the ingress domain
+  it was minted for and its root CA. It never prints key material: it shows
+  only whether the secret holds a private key, the registries of registry
+  credentials and the names of the keys of a generic secret. For an
+  ``invalid`` secret it shows why it is invalid and the
+  ``educates local secrets remove`` command that removes it.
 
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image. Octant

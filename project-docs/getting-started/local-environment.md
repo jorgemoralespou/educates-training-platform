@@ -292,16 +292,62 @@ The commands are:
 * `educates local secrets add ca NAME` generates a root CA. With `--cert` and `--key` it registers an existing root CA with its private key instead, after checking that the certificate is a CA and that the key matches it. Either way it caches the CA certificate `NAME` and the CA root key pair `NAME-root-key-pair`, and it refuses a second root, naming the existing one. With `--cert` alone it caches only the CA certificate `NAME`, for trust.
 * `educates local secrets add tls NAME --cert FILE --key FILE` caches a wildcard TLS certificate, with any intermediate certificates that follow it in the `--cert` file, and its private key. Both flags are required. It refuses a CA certificate, a key that does not match the certificate, and a certificate with no `*.<domain>` DNS name. It has no `--domain` flag: the certificate serves every domain it has a wildcard DNS name for, and a deploy whose ingress domain it covers serves it with the `StaticCertificate` provider and installs no cert-manager.
 * `educates local secrets add docker-registry NAME` caches credentials for a container registry, and `educates local secrets add generic NAME` caches a generic secret from literal values or files.
-* `educates local secrets list` lists the cached secrets as a table, so you can see what each one is and what a deploy uses it for without reading its YAML. The `TYPE` column is the role of the secret, decided the same way a deploy decides it: `CA certificate`, `CA root key pair`, `CA intermediate key pair` for a CA key pair, `TLS certificate`, `Registry credentials` or `Generic`. A secret to remove from the cache is shown as `invalid`, and the rest of the list still prints. A file that cannot be read or decoded is `invalid`, and `educates local secrets export NAME` reports what is wrong with it. So is a CA certificate with its private key that is neither a CA root key pair nor a CA key pair, such as a CA cached by a 4.0.0 alpha release, which deploys neither use nor copy to a cluster; [CAs cached by alpha releases](local-secrets-cache-alpha-cas) says how to keep using such a CA. The `DOMAINS` column is what the secret is valid for: every wildcard domain of a TLS certificate, the ingress domain of a CA key pair, and the permitted DNS name constraints of a CA certificate or CA root key pair, or `any` when it has none. The `SUBJECT` column is the common name of the certificate's subject, or the whole subject when it has no common name, and reads as `<domain> (<root>)` for a CA key pair. The `EXPIRES` column is the date the certificate expires, in UTC, or `expired`. For example, with a generated root CA, the CA key pair minted from it for `workshops.test`, a `mkcert` wildcard certificate for two other domains with the `mkcert` root CA certificate, and registry credentials:
+* `educates local secrets list` lists the cached secrets as a table, so you can see what each one is and what a deploy uses it for without reading its YAML. The `TYPE` column is the role of the secret, decided the same way a deploy decides it: `CA certificate`, `CA root key pair`, `CA intermediate key pair` for a CA key pair, `TLS certificate`, `Registry credentials` or `Generic`. A secret to remove from the cache is shown as `invalid`, and the rest of the list still prints. A file that cannot be read or decoded is `invalid`, and `educates local secrets view NAME` says what is wrong with it. So is a CA certificate with its private key that is neither a CA root key pair nor a CA key pair, such as a CA cached by a 4.0.0 alpha release, which deploys neither use nor copy to a cluster; [CAs cached by alpha releases](local-secrets-cache-alpha-cas) says how to keep using such a CA. The `DOMAINS` column is what the secret is valid for: every wildcard domain of a TLS certificate, the ingress domain of a CA key pair, and the permitted DNS name constraints of a CA certificate or CA root key pair, or `any` when it has none. The `EXPIRES` column is the date the certificate expires, in UTC, or `expired`. For example, with a generated root CA, the CA key pair minted from it for `workshops.test`, a `mkcert` wildcard certificate for two other domains with the `mkcert` root CA certificate, and registry credentials:
 
   ```text
-  NAME                         TYPE                       DOMAINS                SUBJECT                                          EXPIRES
-  educates-ca                  CA certificate             any                    educates-dev-ca (educates-ca)                    2036-10-15
-  educates-ca-root-key-pair    CA root key pair           any                    educates-dev-ca (educates-ca)                    2036-10-15
-  labs-tls                     TLS certificate            demo.test, labs.test   OU=dev@laptop,O=mkcert development certificate   2029-01-15
-  mkcert-ca                    CA certificate             any                    mkcert dev@laptop                                2035-10-15
+  NAME                         TYPE                       DOMAINS                EXPIRES
+  educates-ca                  CA certificate             any                    2036-10-15
+  educates-ca-root-key-pair    CA root key pair           any                    2036-10-15
+  labs-tls                     TLS certificate            demo.test, labs.test   2029-01-15
+  mkcert-ca                    CA certificate             any                    2035-10-15
   registry-credentials         Registry credentials
-  workshops.test-ca-key-pair   CA intermediate key pair   workshops.test         workshops.test (educates-ca)                     2036-10-15
+  workshops.test-ca-key-pair   CA intermediate key pair   workshops.test         2036-10-15
+  ```
+* `educates local secrets view NAME` shows the details of one cached secret that do not fit the table of `educates local secrets list`, so you can inspect it without decoding its YAML. It never prints key material. It shows the type and domains of the secret as `educates local secrets list` shows them, the file it is cached in and its Kubernetes secret type, and for a CA key pair the ingress domain it was minted for and its root CA. For each certificate the secret holds, those of `tls.crt` and then those of `ca.crt`, it shows the common name, the subject, the issuer, the subject alternative names, the times it is valid from and expires, in UTC and followed by `(expired)` once it has expired, whether it is a CA and its path length, the name constraints of a CA, or `any` when it has none, the serial number and the SHA-256 fingerprint. It shows whether the secret holds a private key, never the key itself, only the registries of registry credentials, never their usernames or passwords, and only the names of the keys of a generic secret. For a secret that `educates local secrets list` shows as `invalid` it shows why, such as a file that cannot be decoded or a CA cached by a 4.0.0 alpha release, and the `educates local secrets remove` command that removes it. Naming a secret the cache does not hold is an error. For example, for the CA key pair of the list above:
+
+  ```text
+  Name:                  workshops.test-ca-key-pair
+  Type:                  CA intermediate key pair
+  Location:              /Users/dev/Library/Application Support/educates/secrets/workshops.test-ca-key-pair.yaml
+  Secret type:           kubernetes.io/tls
+  Domains:               workshops.test
+  Ingress domain:        workshops.test
+  Root CA:               educates-ca
+
+  Certificate (tls.crt, 1 of 2):
+    Common name:         workshops.test
+    Subject:             CN=workshops.test,O=Educates
+    Issuer:              CN=educates-dev-ca (educates-ca),O=Educates
+    Valid from:          2026-10-15 12:44:58 UTC
+    Expires:             2036-10-15 13:44:58 UTC
+    CA:                  yes, path length 0
+    Name constraints:    permitted: workshops.test; excluded: 0.0.0.0/0, ::/0
+    Serial:              E4:B1:7D:82:B5:1F:FD:51:FB:12:76:24:DA:53:54:5A
+    SHA-256 fingerprint: 1A:BB:05:B8:CE:B2:03:2E:9A:85:70:A1:49:45:E1:FB:AD:17:F1:DD:15:83:52:22:A3:78:EF:08:8C:93:98:CA
+
+  Certificate (tls.crt, 2 of 2):
+    Common name:         educates-dev-ca (educates-ca)
+    Subject:             CN=educates-dev-ca (educates-ca),O=Educates
+    Issuer:              CN=educates-dev-ca (educates-ca),O=Educates
+    Valid from:          2026-10-15 12:44:58 UTC
+    Expires:             2036-10-15 13:44:58 UTC
+    CA:                  yes, no path length limit
+    Name constraints:    any
+    Serial:              60:F2:29:3C:7D:3B:5B:A4:E3:16:F6:C2:13:0E:66:E7
+    SHA-256 fingerprint: FA:23:02:9D:7C:33:95:E4:BF:5B:49:E2:AB:A7:59:42:52:41:2F:5D:DD:57:E7:53:A5:23:A8:9B:39:88:44:6B
+
+  Certificate (ca.crt):
+    Common name:         educates-dev-ca (educates-ca)
+    Subject:             CN=educates-dev-ca (educates-ca),O=Educates
+    Issuer:              CN=educates-dev-ca (educates-ca),O=Educates
+    Valid from:          2026-10-15 12:44:58 UTC
+    Expires:             2036-10-15 13:44:58 UTC
+    CA:                  yes, no path length limit
+    Name constraints:    any
+    Serial:              60:F2:29:3C:7D:3B:5B:A4:E3:16:F6:C2:13:0E:66:E7
+    SHA-256 fingerprint: FA:23:02:9D:7C:33:95:E4:BF:5B:49:E2:AB:A7:59:42:52:41:2F:5D:DD:57:E7:53:A5:23:A8:9B:39:88:44:6B
+
+  Private key:           present
   ```
 * `educates local secrets remove NAME` removes a secret from the cache and prints a line for each secret it removes. Removing a root CA, named by its CA certificate `NAME` or by its CA root key pair `NAME-root-key-pair`, removes both together with every CA key pair minted from the root, so no CA material of that root stays in the cache. This is how you replace the root: remove it, then register the new one with `educates local secrets add ca`. Remove the old root certificate from your operating system trust store separately.
 * `educates local secrets export` prints the cached secrets, or the one named, as YAML, including any private keys they hold. With `--pem` it prints only the certificates of the named secret as PEM and never a private key, whatever the secret holds. For a CA it prints the root certificate, which is what you import into a trust store: the CA's own certificate for a CA certificate, a CA root key pair or an `invalid` CA cached by a 4.0.0 alpha release, and the root for a CA key pair. For a TLS certificate it prints the certificate and its chain. It goes by the type `educates local secrets list` shows for the secret, so a secret of any other type, such as registry credentials or a generic secret, has no certificate to print.
