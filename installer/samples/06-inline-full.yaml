@@ -7,21 +7,24 @@
 # In Inline mode the operator installs nothing — it validates that each
 # referenced resource exists (and, for clusterIssuerRef, is Ready) and
 # republishes the assertions in status for the platform components to
-# consume.
+# consume. The one thing it writes is educates-ingress-ca in the
+# operator namespace: a copy of the CA Secret's ca.crt and nothing else,
+# which is what status publishes and components mount.
 #
 # Prerequisites (must exist before applying this CR):
 #
-#   1. The wildcard TLS Secret, valid for `*.<domain>`:
-#
-#        kubectl -n educates-installer create secret tls \
-#          educates-wildcard-tls --cert=tls.crt --key=tls.key
-#
-#   2. The CA Secret (key ca.crt) for the chain that issued the
-#      wildcard. Lives in its own namespace here to show the optional
-#      cross-namespace reference; omit `namespace` to default to the
+#   1. The wildcard TLS Secret, valid for `*.<domain>`. Both Secrets
+#      live in their own namespace here to show the optional
+#      cross-namespace references; omit `namespace` to default to the
 #      operator namespace:
 #
 #        kubectl create namespace educates-secrets
+#        kubectl -n educates-secrets create secret tls \
+#          educates-wildcard-tls --cert=tls.crt --key=tls.key
+#
+#   2. The CA Secret (key ca.crt) for the chain that issued the
+#      wildcard. Any other key it holds is ignored:
+#
 #        kubectl -n educates-secrets create secret generic \
 #          educates-wildcard-ca --from-file=ca.crt=ca.pem
 #
@@ -47,6 +50,8 @@ spec:
       ingressClassName: nginx
       wildcardCertificateSecretRef:
         name: educates-wildcard-tls
+        # Optional; empty means the operator namespace.
+        namespace: educates-secrets
       caCertificateSecretRef:
         name: educates-wildcard-ca
         # Optional; empty means the operator namespace.
