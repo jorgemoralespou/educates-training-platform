@@ -282,10 +282,13 @@ components knowing the difference.
 - Field names follow Kubernetes conventions: `camelCase` in YAML/JSON,
   `PascalCase` in Go structs, lowercase tags.
 - Use `+kubebuilder:` markers for validation, defaults, printer columns.
-- EducatesClusterConfig has four structural CEL rules: singleton name,
-  mode immutability (`oldSelf`), certificate provider immutability
-  (`oldSelf`), and mode-field exclusivity. The three platform CRDs have
-  singleton-name only.
+- EducatesClusterConfig's structural CEL rules cover the singleton name,
+  mode immutability (`oldSelf`), immutability of how each cluster service
+  is provided (certificates, ingress controller, DNS and policy
+  enforcement; `oldSelf`), and mode-field exclusivity. Teardown relies on
+  the provider rules: it removes a cluster service only when the spec says
+  the operator installed it. The three platform CRDs have singleton-name
+  only.
 
 **Status conventions:**
 - Status is the public interface for component CRs and humans. Treat it as
