@@ -46,19 +46,19 @@ func (o *LocalSecretsViewOptions) Run(w io.Writer, name string) error {
 	v.field("Type", string(role))
 	v.field("Location", secrets.CachedSecretPath(name))
 	if s != nil {
-		v.secret(name, role, s, time.Now())
+		v.printSecret(name, role, s, time.Now())
 	}
 	if invalid != nil {
-		v.invalid(name, invalid)
+		v.printInvalid(name, invalid)
 	}
 
 	_, err = w.Write(v.buf.Bytes())
 	return err
 }
 
-// secret prints the fields of the Secret s, cached under name with role
-// role, that follow its location.
-func (v *secretViewPrinter) secret(name string, role secrets.CachedSecretRole, s *apiv1.Secret, now time.Time) {
+// printSecret prints the fields of the Secret s, cached under name with
+// role role, that follow its location.
+func (v *secretViewPrinter) printSecret(name string, role secrets.CachedSecretRole, s *apiv1.Secret, now time.Time) {
 	v.field("Secret type", secretTypeOf(s))
 	if domains := domainsCell(name, role, s); domains != "" {
 		v.field("Domains", domains)
@@ -79,7 +79,7 @@ func (v *secretViewPrinter) secret(name string, role secrets.CachedSecretRole, s
 		for _, key := range []string{"tls.crt", "ca.crt"} {
 			v.certificates(key, secrets.SecretData(s, key), now)
 		}
-		v.field("Private key", presence(len(secrets.SecretData(s, "tls.key")) > 0))
+		v.field("Private key", privateKeyField(s))
 	case role == secrets.RegistryCredentialsRole:
 		v.field("Registries", registriesField(s))
 	case role == secrets.GenericRole:
@@ -87,11 +87,12 @@ func (v *secretViewPrinter) secret(name string, role secrets.CachedSecretRole, s
 	}
 }
 
-// invalid prints why the cached entry name is invalid, and the command
-// that removes it. For a CA cached with its key by a 4.0.0 alpha release,
-// whose removal removes the CA's key, it first says how to keep the CA by
-// registering it as the root CA, as the documented migration does.
-func (v *secretViewPrinter) invalid(name string, reason *secrets.InvalidCachedSecretError) {
+// printInvalid prints why the cached entry name is invalid, and the
+// command that removes it. For a CA cached with its key by a 4.0.0 alpha
+// release, whose removal removes the CA's key, it first says how to keep
+// the CA by registering it as the root CA, as the documented migration
+// does.
+func (v *secretViewPrinter) printInvalid(name string, reason *secrets.InvalidCachedSecretError) {
 	v.field("Invalid because", reason.Error())
 	if reason.Problem == secrets.CachedSecretUnmanagedCAKey {
 		v.field("To keep the CA", fmt.Sprintf(`register it as the root CA under a name other than %s before removing it, as "CAs cached by alpha releases" in the Local Environment documentation describes`, name))
@@ -136,9 +137,10 @@ func secretTypeOf(s *apiv1.Secret) string {
 	return string(s.Type)
 }
 
-// presence is "present" when present is true, else "absent".
-func presence(present bool) string {
-	if present {
+// privateKeyField says whether s holds a private key as tls.key:
+// "present" or "absent", never the key itself.
+func privateKeyField(s *apiv1.Secret) string {
+	if len(secrets.SecretData(s, "tls.key")) > 0 {
 		return "present"
 	}
 	return "absent"
@@ -213,8 +215,8 @@ func (v *secretViewPrinter) certificate(cert *x509.Certificate, now time.Time) {
 	if sans := subjectAltNames(cert); sans != "" {
 		v.blockField("SANs", sans)
 	}
-	v.blockField("Valid from", viewTime(cert.NotBefore))
-	expires := viewTime(cert.NotAfter)
+	v.blockField("Valid from", certificateTime(cert.NotBefore))
+	expires := certificateTime(cert.NotAfter)
 	if now.After(cert.NotAfter) {
 		expires += " (expired)"
 	}
@@ -223,13 +225,14 @@ func (v *secretViewPrinter) certificate(cert *x509.Certificate, now time.Time) {
 	if secrets.IsCACertificate(cert) {
 		v.blockField("Name constraints", nameConstraints(cert))
 	}
-	v.blockField("Serial", colonHex(cert.SerialNumber.Bytes()))
+	v.blockField("Serial", certificateHex(cert.SerialNumber.Bytes()))
 	sum := sha256.Sum256(cert.Raw)
-	v.blockField("SHA-256 fingerprint", colonHex(sum[:]))
+	v.blockField("SHA-256 fingerprint", certificateHex(sum[:]))
 }
 
-// viewTime is t in UTC, to the second.
-func viewTime(t time.Time) string {
+// certificateTime is t, a time of a certificate's validity, in UTC to the
+// second.
+func certificateTime(t time.Time) string {
 	return t.UTC().Format(time.DateTime) + " UTC"
 }
 
@@ -285,9 +288,10 @@ func constrainedNames(dns []string, ips []*net.IPNet, emails, uris []string) []s
 	return append(names, uris...)
 }
 
-// colonHex is b as colon separated pairs of uppercase hexadecimal
-// digits, "00" when b is empty.
-func colonHex(b []byte) string {
+// certificateHex is b, the serial number or a fingerprint of a
+// certificate, as colon separated pairs of uppercase hexadecimal digits,
+// "00" when b is empty.
+func certificateHex(b []byte) string {
 	if len(b) == 0 {
 		return "00"
 	}
