@@ -60,7 +60,7 @@ func localCertificates(lc LocalCertificates) (map[string]interface{}, error) {
 	switch lc.Provider {
 	case CertificatesProviderNone:
 		// No cert-manager, no issuer, no certificate.
-		return map[string]interface{}{"provider": CertificatesProviderNone}, nil
+		return map[string]interface{}{"provider": string(CertificatesProviderNone)}, nil
 	case CertificatesProviderBundledCertManager:
 		if lc.CustomCA == nil || lc.CustomCA.CAKeyPairSecretRef.Name == "" {
 			return nil, fmt.Errorf("translator: the BundledCertManager decision for EducatesLocalConfig has no CA key pair Secret name")
@@ -72,7 +72,7 @@ func localCertificates(lc LocalCertificates) (map[string]interface{}, error) {
 			customCA["caCertificateSecretRef"] = secretRef(*ref)
 		}
 		return map[string]interface{}{
-			"provider": CertificatesProviderBundledCertManager,
+			"provider": string(CertificatesProviderBundledCertManager),
 			"bundledCertManager": map[string]interface{}{
 				"issuerType": "CustomCA",
 				"customCA":   customCA,
@@ -89,7 +89,7 @@ func localCertificates(lc LocalCertificates) (map[string]interface{}, error) {
 			static["caCertificateSecretRef"] = secretRef(*ref)
 		}
 		return map[string]interface{}{
-			"provider":          CertificatesProviderStaticCertificate,
+			"provider":          string(CertificatesProviderStaticCertificate),
 			"staticCertificate": static,
 		}, nil
 	case "":

@@ -43,12 +43,14 @@ type Options struct {
 	LocalCertificates LocalCertificates
 }
 
-// Values of EducatesClusterConfig ingress.certificates.provider that
-// TranslateLocal emits.
+// CertificatesProvider is a value of EducatesClusterConfig
+// ingress.certificates.provider the translators emit.
+type CertificatesProvider string
+
 const (
-	CertificatesProviderNone               = "None"
-	CertificatesProviderBundledCertManager = "BundledCertManager"
-	CertificatesProviderStaticCertificate  = "StaticCertificate"
+	CertificatesProviderNone               CertificatesProvider = "None"
+	CertificatesProviderBundledCertManager CertificatesProvider = "BundledCertManager"
+	CertificatesProviderStaticCertificate  CertificatesProvider = "StaticCertificate"
 )
 
 // SecretRef names a Secret. An empty Namespace means the operator
@@ -61,9 +63,8 @@ type SecretRef struct {
 // LocalCertificates is the certificate decision TranslateLocal emits as
 // EducatesClusterConfig ingress.certificates.
 type LocalCertificates struct {
-	// Provider is ingress.certificates.provider: one of the
-	// CertificatesProvider constants.
-	Provider string
+	// Provider is ingress.certificates.provider.
+	Provider CertificatesProvider
 
 	// CustomCA is set when Provider is BundledCertManager: cert-manager's
 	// CA issuer signs the wildcard certificate from this CA.

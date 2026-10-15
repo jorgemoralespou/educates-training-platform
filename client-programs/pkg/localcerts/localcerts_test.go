@@ -208,7 +208,7 @@ func TestResolve_Insecure_NoneProviderOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
-	if got, want := plan.Certificates.Provider, "None"; got != want {
+	if got, want := plan.Certificates.Provider, translator.CertificatesProviderNone; got != want {
 		t.Errorf("plan provider = %q, want %q", got, want)
 	}
 
