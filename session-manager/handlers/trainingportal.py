@@ -921,7 +921,11 @@ def training_portal_create(name, uid, body, spec, status, patch, runtime, retry,
             }
         )
 
-    ingress_secret_copier_body = ""
+    # Setup rules for copying the ingress TLS and CA secrets into the portal
+    # namespace. The CA secret is copied whenever the portal pod mounts it,
+    # including when the portal's own TLS secret needs no copying.
+
+    ingress_secret_copier_rules = []
 
     if INGRESS_SECRET:
         ingress_secret_name = xget(spec, "portal.ingress.tlsCertificateRef.name")
@@ -941,31 +945,17 @@ def training_portal_create(name, uid, body, spec, status, patch, runtime, retry,
                 ingress_secret_namespace
                 and ingress_secret_namespace != portal_namespace
             ):
-                ingress_secret_copier_body = {
-                    "apiVersion": "secrets.educates.dev/v1beta1",
-                    "kind": "SecretCopier",
-                    "metadata": {
-                        "name": f"educates-ingress-secret-{portal_namespace}",
-                        "labels": {
-                            "training.educates.dev/component": "portal",
-                            "training.educates.dev/portal.name": portal_name,
-                            "training.educates.dev/portal.uid": portal_uid,
+                ingress_secret_copier_rules.append(
+                    {
+                        "sourceSecret": {
+                            "name": ingress_secret_name,
+                            "namespace": ingress_secret_namespace,
                         },
-                    },
-                    "spec": {
-                        "rules": [
-                            {
-                                "sourceSecret": {
-                                    "name": ingress_secret_name,
-                                    "namespace": ingress_secret_namespace,
-                                },
-                                "targetNamespaces": {
-                                    "nameSelector": {"matchNames": [portal_namespace]}
-                                },
-                            }
-                        ]
-                    },
-                }
+                        "targetNamespaces": {
+                            "nameSelector": {"matchNames": [portal_namespace]}
+                        },
+                    }
+                )
 
         else:
             ingress_body["spec"]["tls"] = [
@@ -975,34 +965,20 @@ def training_portal_create(name, uid, body, spec, status, patch, runtime, retry,
                 }
             ]
 
-            ingress_secret_copier_body = {
-                "apiVersion": "secrets.educates.dev/v1beta1",
-                "kind": "SecretCopier",
-                "metadata": {
-                    "name": f"educates-ingress-secret-{portal_namespace}",
-                    "labels": {
-                        "training.educates.dev/component": "portal",
-                        "training.educates.dev/portal.name": portal_name,
-                        "training.educates.dev/portal.uid": portal_uid,
+            ingress_secret_copier_rules.append(
+                {
+                    "sourceSecret": {
+                        "name": INGRESS_SECRET,
+                        "namespace": OPERATOR_NAMESPACE,
                     },
-                },
-                "spec": {
-                    "rules": [
-                        {
-                            "sourceSecret": {
-                                "name": INGRESS_SECRET,
-                                "namespace": OPERATOR_NAMESPACE,
-                            },
-                            "targetNamespaces": {
-                                "nameSelector": {"matchNames": [portal_namespace]}
-                            },
-                        }
-                    ]
-                },
-            }
+                    "targetNamespaces": {
+                        "nameSelector": {"matchNames": [portal_namespace]}
+                    },
+                }
+            )
 
         if INGRESS_CA_SECRET:
-            xget(ingress_secret_copier_body, "spec.rules").append(
+            ingress_secret_copier_rules.append(
                 {
                     "sourceSecret": {
                         "name": INGRESS_CA_SECRET,
@@ -1015,8 +991,26 @@ def training_portal_create(name, uid, body, spec, status, patch, runtime, retry,
                 }
             )
 
-        if ingress_secret_copier_body:
-            kopf.adopt(ingress_secret_copier_body, namespace_instance.obj)
+    ingress_secret_copier_body = None
+
+    if ingress_secret_copier_rules:
+        ingress_secret_copier_body = {
+            "apiVersion": "secrets.educates.dev/v1beta1",
+            "kind": "SecretCopier",
+            "metadata": {
+                "name": f"educates-ingress-secret-{portal_namespace}",
+                "labels": {
+                    "training.educates.dev/component": "portal",
+                    "training.educates.dev/portal.name": portal_name,
+                    "training.educates.dev/portal.uid": portal_uid,
+                },
+            },
+            "spec": {
+                "rules": ingress_secret_copier_rules,
+            },
+        }
+
+        kopf.adopt(ingress_secret_copier_body, namespace_instance.obj)
 
     theme_secret_copier_body = {
         "apiVersion": "secrets.educates.dev/v1beta1",
