@@ -105,7 +105,7 @@ type EducatesClusterConfigReconciler struct {
 	// CachedSecretNamespaces is the set of namespaces the operator's
 	// Secret informer covers. Determined at startup from
 	// (operatorNamespace ∪ educates-secrets ∪ namespaces referenced by
-	// the current ECC's CASecretReference fields). The reconciler uses
+	// the current ECC's SecretReference fields). The reconciler uses
 	// this to detect when a freshly-edited ref points outside the
 	// cached set — in that case Secret watch events won't fire there,
 	// so a Warning event is emitted asking the user to restart the
