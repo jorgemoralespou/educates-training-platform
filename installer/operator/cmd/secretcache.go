@@ -44,7 +44,8 @@ const singletonName = "cluster"
 //     exists)
 //   - any additional namespaces referenced by the SecretReference
 //     fields of the current EducatesClusterConfig singleton (CustomCA's
-//     CA key pair and CA trust Secret in Managed mode, the wildcard
+//     CA key pair and CA trust Secret, or StaticCertificate's wildcard
+//     certificate and CA trust Secret, in Managed mode; the wildcard
 //     certificate and CA trust Secret in Inline mode) and of the
 //     SessionManager singleton (its CA override)
 //
@@ -117,6 +118,17 @@ func addECCSecretNamespaces(set map[string]struct{}, ecc *configv1alpha1.Educate
 		}
 		if ca.CACertificateSecretRef != nil && ca.CACertificateSecretRef.Namespace != "" {
 			set[ca.CACertificateSecretRef.Namespace] = struct{}{}
+		}
+	}
+
+	// Managed mode: StaticCertificate's wildcard Secret and optional CA
+	// trust Secret.
+	if ecc.Spec.Ingress != nil && ecc.Spec.Ingress.Certificates.StaticCertificate != nil {
+		static := ecc.Spec.Ingress.Certificates.StaticCertificate
+		for _, ref := range []*configv1alpha1.SecretReference{&static.TLSSecretRef, static.CACertificateSecretRef} {
+			if ref != nil && ref.Namespace != "" {
+				set[ref.Namespace] = struct{}{}
+			}
 		}
 	}
 

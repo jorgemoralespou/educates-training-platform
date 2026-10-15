@@ -37,6 +37,7 @@ const ingressCASecretName = "educates-ingress-ca"
 const (
 	customCAKeyPairField = "spec.ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef"
 	customCATrustField   = "spec.ingress.certificates.bundledCertManager.customCA.caCertificateSecretRef"
+	staticCATrustField   = "spec.ingress.certificates.staticCertificate.caCertificateSecretRef"
 	inlineCATrustField   = "spec.inline.ingress.caCertificateSecretRef"
 )
 
@@ -66,36 +67,43 @@ func (r *EducatesClusterConfigReconciler) secretRefNamespace(ref configv1alpha1.
 
 // ingressCASource returns the Secret the ingress CA trust is derived
 // from, the field that names it, and false when no CA is configured. In
-// Inline mode the source is the CA trust Secret. In Managed mode a CA
-// trust Secret, when referenced, wins over the CA key pair.
+// Inline mode and for the StaticCertificate provider the source is the
+// CA trust Secret. For a custom CA a CA trust Secret, when referenced,
+// wins over the CA key pair.
 func (r *EducatesClusterConfigReconciler) ingressCASource(obj *configv1alpha1.EducatesClusterConfig) (pki.CASource, string, bool) {
 	if obj.Spec.Mode == configv1alpha1.ClusterConfigModeInline {
 		if obj.Spec.Inline == nil || obj.Spec.Inline.Ingress.CACertificateSecretRef == nil {
 			return pki.CASource{}, "", false
 		}
-		ref := obj.Spec.Inline.Ingress.CACertificateSecretRef
-		return pki.CASource{
-			Namespace: r.secretRefNamespace(*ref),
-			Name:      ref.Name,
-			Rule:      pki.FromCATrustSecret,
-		}, inlineCATrustField, true
+		return r.caTrustSource(*obj.Spec.Inline.Ingress.CACertificateSecretRef), inlineCATrustField, true
+	}
+	if static := staticCertificateConfig(obj); static != nil {
+		if static.CACertificateSecretRef == nil {
+			return pki.CASource{}, "", false
+		}
+		return r.caTrustSource(*static.CACertificateSecretRef), staticCATrustField, true
 	}
 	ca := customCAConfig(obj)
 	if ca == nil {
 		return pki.CASource{}, "", false
 	}
 	if ref := ca.CACertificateSecretRef; ref != nil {
-		return pki.CASource{
-			Namespace: r.secretRefNamespace(*ref),
-			Name:      ref.Name,
-			Rule:      pki.FromCATrustSecret,
-		}, customCATrustField, true
+		return r.caTrustSource(*ref), customCATrustField, true
 	}
 	return pki.CASource{
 		Namespace: r.secretRefNamespace(ca.CAKeyPairSecretRef),
 		Name:      ca.CAKeyPairSecretRef.Name,
 		Rule:      pki.FromCAKeyPair,
 	}, customCAKeyPairField, true
+}
+
+// caTrustSource is the CA source for a reference to a CA trust Secret.
+func (r *EducatesClusterConfigReconciler) caTrustSource(ref configv1alpha1.SecretReference) pki.CASource {
+	return pki.CASource{
+		Namespace: r.secretRefNamespace(ref),
+		Name:      ref.Name,
+		Rule:      pki.FromCATrustSecret,
+	}
 }
 
 // ingressCASecretRef is the status contract's reference to the derived
@@ -134,29 +142,13 @@ func (r *EducatesClusterConfigReconciler) ensureIngressCATrust(ctx context.Conte
 	r.warnIfCacheMiss(ctx, src.Namespace, field)
 	applier := pki.CATrustApplier{Reader: r.APIReader, Writer: r.Client, Scheme: r.Scheme}
 	dst := types.NamespacedName{Namespace: r.OperatorNamespace, Name: ingressCASecretName}
-	err := applier.Apply(ctx, src, dst, obj)
-	if obj.Spec.Mode == configv1alpha1.ClusterConfigModeInline {
-		// Inline mode reports a reference it cannot use on
-		// ValidationSucceeded alone, like its other references.
-		return asValidationError(err, field)
-	}
-	return asCertificatesValidationError(err, field)
+	return asCertificatesValidationError(applier.Apply(ctx, src, dst, obj), field)
 }
 
-// asValidationError turns a source Secret that cannot yield a CA
-// certificate into a validation failure. Other errors pass through for
-// retry.
-func asValidationError(err error, field string) error {
-	if serr, ok := errors.AsType[*pki.SourceError](err); ok {
-		return &validationError{Field: field, Reason: serr.Message}
-	}
-	return err
-}
-
-// asCertificatesValidationError turns a source Secret that cannot yield
-// a CA certificate into a validation failure reported on
-// CertificatesReady with the source's specific reason. Other errors pass
-// through for retry.
+// asCertificatesValidationError turns a Secret the pki package cannot
+// use, a CA source or a wildcard certificate, into a validation failure
+// reported on CertificatesReady with the specific reason. Other errors
+// pass through for retry.
 func asCertificatesValidationError(err error, field string) error {
 	if serr, ok := errors.AsType[*pki.SourceError](err); ok {
 		return &validationError{

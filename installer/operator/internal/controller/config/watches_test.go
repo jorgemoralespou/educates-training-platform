@@ -180,8 +180,11 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 
 	It("refreshes educates-ingress-ca when the CA Secret in another namespace changes", func() {
 		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
-		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 		first, second := testpki.NewRootCA(), testpki.NewRootCA()
+		// The wildcard certificate must keep verifying against the CA, so
+		// the change adds a second root to the bundle.
+		Expect(k8sClient.Create(ctx, makeWildcardSecretIssuedBy(first))).To(Succeed())
+		bundle := append(append([]byte{}, first.CertPEM...), second.CertPEM...)
 		trust := makeSecret(testCASecretsNamespace, "byo-ca", map[string][]byte{"ca.crt": first.CertPEM})
 		Expect(k8sClient.Create(ctx, trust)).To(Succeed())
 
@@ -198,11 +201,11 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 			Should(Equal(map[string][]byte{"ca.crt": first.CertPEM}))
 
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testCASecretsNamespace, Name: "byo-ca"}, trust)).To(Succeed())
-		trust.Data = map[string][]byte{"ca.crt": second.CertPEM}
+		trust.Data = map[string][]byte{"ca.crt": bundle}
 		Expect(k8sClient.Update(ctx, trust)).To(Succeed())
 
 		Eventually(ingressCAData, watchDelivery, 200*time.Millisecond).
-			Should(Equal(map[string][]byte{"ca.crt": second.CertPEM}))
+			Should(Equal(map[string][]byte{"ca.crt": bundle}))
 	})
 
 	It("flips status from Ready to Degraded when the wildcard Secret is deleted", func() {

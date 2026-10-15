@@ -140,6 +140,14 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 				return singletonRequest
 			}
 		}
+		if static := staticCertificateConfig(cr); static != nil {
+			// The wildcard Secret feeds educates-wildcard-tls, and the CA
+			// trust Secret both verifies it and feeds
+			// educates-ingress-ca.
+			if matchesSecretRef(&static.TLSSecretRef) || matchesSecretRef(static.CACertificateSecretRef) {
+				return singletonRequest
+			}
+		}
 		if cr.Spec.ImageRegistry != nil {
 			for _, ref := range cr.Spec.ImageRegistry.PullSecrets {
 				if matchesOpNamespaceRef(ref.Name) {

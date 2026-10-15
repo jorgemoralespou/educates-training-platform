@@ -213,12 +213,17 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 	return nil
 }
 
-// reconcileCertManagerPhase runs the full cert-manager + wildcard
-// certificate pipeline as a single phase. Caller convention follows
-// `isPhaseComplete`: (zero Result + nil err) = phase done; anything
-// else = stop here and return verbatim.
+// reconcileCertManagerPhase runs the certificates phase. For the
+// BundledCertManager provider that is the full cert-manager + wildcard
+// certificate pipeline; the None provider has nothing to do, and the
+// StaticCertificate provider has its own phase,
+// reconcileStaticCertificatePhase. Caller convention follows
+// reconcileManaged: done=true means the phase is complete, and its
+// Result may still carry a RequeueAfter by which reconcile must run
+// again; done=false means stop here and return the Result and error
+// verbatim.
 //
-// Steps:
+// BundledCertManager steps:
 //
 //  1. helm install/upgrade cert-manager from the vendored chart.
 //  2. Wait for cert-manager Deployments to report Available.
@@ -230,11 +235,6 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 // All cert-manager-specific error classification (CRDs missing,
 // webhook not yet routable) is handled here so the orchestrator
 // in reconcileManaged stays oblivious to cert-manager internals.
-//
-// When ExternalCertManager/StaticCertificate provider variants are
-// added, this phase early-returns "done, proceed" without running
-// the install path — the user supplies the issuer/secret and the
-// validator already required them to exist.
 func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	// phaseStop wraps the (Result, error) returned by helpers like
@@ -254,11 +254,13 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 		return true, ctrl.Result{}, nil
 	}
 
+	if obj.Spec.Ingress.Certificates.Provider == configv1alpha1.CertificatesProviderStaticCertificate {
+		return r.reconcileStaticCertificatePhase(ctx, obj)
+	}
+
 	if !shouldInstallCertManager(obj) {
-		// External provider variants are validated elsewhere; nothing
-		// to install or apply here. Future: also populate
-		// status.bundledChartVersions with the user-supplied
-		// cert-manager version, if known.
+		// validateManaged rejects every other provider, so nothing
+		// reaches here; there is nothing to install or apply.
 		return true, ctrl.Result{}, nil
 	}
 
@@ -359,12 +361,10 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 }
 
 // shouldInstallCertManager reports whether the operator is
-// responsible for installing cert-manager based on the spec.
-// Currently only BundledCertManager is supported by the validator;
-// ExternalCertManager and StaticCertificate return "not yet
-// supported in v1alpha1" validation errors. The helper makes the
-// conditional-install pattern explicit for when those variants are
-// added later.
+// responsible for installing cert-manager based on the spec: only the
+// BundledCertManager provider installs it. The StaticCertificate and
+// None providers never do, and ExternalCertManager, not yet supported,
+// would use a cert-manager the administrator installed.
 func shouldInstallCertManager(obj *configv1alpha1.EducatesClusterConfig) bool {
 	if obj.Spec.Ingress == nil {
 		return false

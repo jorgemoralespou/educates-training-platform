@@ -22,7 +22,6 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
-	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -68,9 +67,13 @@ func (r *EducatesClusterConfigReconciler) validateInline(ctx context.Context, in
 	}
 
 	// No wildcard certificate means plain HTTP or TLS terminated outside
-	// the cluster; components read the absent ref accordingly.
+	// the cluster; components read the absent ref accordingly. A
+	// declared one gets the same check as the StaticCertificate
+	// provider's, against the declared CA when there is one.
 	if ref := inline.Ingress.WildcardCertificateSecretRef; ref != nil {
-		if err := r.checkWildcardSecret(ctx, *ref); err != nil {
+		if _, err := r.checkWildcardCertificate(ctx,
+			*ref, inlineWildcardField, inline.Ingress.Domain,
+			inline.Ingress.CACertificateSecretRef, inlineCATrustField); err != nil {
 			return nil, err
 		}
 		out.WildcardCertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
@@ -122,35 +125,6 @@ func (r *EducatesClusterConfigReconciler) checkIngressClass(ctx context.Context,
 			}
 		}
 		return fmt.Errorf("get IngressClass %q: %w", name, err)
-	}
-	return nil
-}
-
-// checkWildcardSecret validates the Inline-mode
-// wildcardCertificateSecretRef: the Secret exists in the referenced
-// namespace and holds tls.crt and tls.key. It reads through APIReader,
-// so a namespace outside the Secret cache scope still reads.
-func (r *EducatesClusterConfigReconciler) checkWildcardSecret(ctx context.Context, ref configv1alpha1.SecretReference) error {
-	const field = "spec.inline.ingress.wildcardCertificateSecretRef"
-	key := types.NamespacedName{Namespace: r.secretRefNamespace(ref), Name: ref.Name}
-	r.warnIfCacheMiss(ctx, key.Namespace, field)
-	s := &corev1.Secret{}
-	if err := r.APIReader.Get(ctx, key, s); err != nil {
-		if apierrors.IsNotFound(err) {
-			return &validationError{
-				Field:  field,
-				Reason: fmt.Sprintf("Secret %s not found", key),
-			}
-		}
-		return fmt.Errorf("get wildcard Secret %s: %w", key, err)
-	}
-	for _, k := range []string{"tls.crt", "tls.key"} {
-		if _, ok := s.Data[k]; !ok {
-			return &validationError{
-				Field:  field,
-				Reason: fmt.Sprintf("Secret %s is missing required key %q", key, k),
-			}
-		}
 	}
 	return nil
 }

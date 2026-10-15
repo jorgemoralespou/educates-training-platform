@@ -517,6 +517,20 @@ func (r *EducatesClusterConfigReconciler) markReady(obj *configv1alpha1.Educates
 		Message:            "All Inline-mode references validated",
 		ObservedGeneration: obj.Generation,
 	})
+	// A wildcard certificate or CA that fails validation sets
+	// CertificatesReady False with a specific reason; it returns to True
+	// here once validation passes.
+	certsMessage := "no wildcard certificate declared; the cluster serves no in-cluster TLS"
+	if ingress.WildcardCertificateSecretRef != nil {
+		certsMessage = "the declared wildcard certificate passed validation"
+	}
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionCertificatesReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "InlineCertificatesValid",
+		Message:            certsMessage,
+		ObservedGeneration: obj.Generation,
+	})
 	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
 		Type:               conditionReady,
 		Status:             metav1.ConditionTrue,

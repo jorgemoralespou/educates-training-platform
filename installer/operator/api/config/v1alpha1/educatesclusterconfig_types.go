@@ -64,11 +64,15 @@ const (
 )
 
 // CertificatesProvider selects how the wildcard TLS certificate is
-// provisioned. None disables in-cluster TLS entirely: the operator
-// installs no cert-manager, creates no ClusterIssuer and no wildcard
-// Certificate, and Educates serves plain HTTP unless TLS is terminated
-// outside the cluster (see ingress.protocol). The provider is immutable:
-// changing it requires deleting and recreating the EducatesClusterConfig.
+// provisioned. BundledCertManager installs cert-manager and issues the
+// certificate from a ClusterIssuer. StaticCertificate serves a wildcard
+// certificate issued outside the cluster, without cert-manager.
+// ExternalCertManager is reserved and not yet supported. None disables
+// in-cluster TLS entirely: the operator installs no cert-manager,
+// creates no ClusterIssuer and no wildcard Certificate, and Educates
+// serves plain HTTP unless TLS is terminated outside the cluster (see
+// ingress.protocol). The provider is immutable: changing it requires
+// deleting and recreating the EducatesClusterConfig.
 // +kubebuilder:validation:Enum=BundledCertManager;ExternalCertManager;StaticCertificate;None
 type CertificatesProvider string
 
@@ -471,18 +475,30 @@ type ExternalCertManagerConfig struct {
 	ClusterIssuerRef LocalObjectReference `json:"clusterIssuerRef"`
 }
 
-// StaticCertificateConfig declares a pre-provisioned wildcard TLS
-// certificate; no cert-manager is involved.
+// StaticCertificateConfig declares a wildcard TLS certificate issued
+// outside the cluster. The operator serves it as it is: it installs no
+// cert-manager and creates no ClusterIssuer or Certificate.
 type StaticCertificateConfig struct {
-	// tlsSecretRef references a kubernetes.io/tls Secret with keys
-	// tls.crt and tls.key.
+	// tlsSecretRef references the wildcard certificate Educates serves: a
+	// Secret holding the certificate under tls.crt (optionally followed
+	// by its intermediates) and its private key under tls.key. The
+	// certificate's SANs must include *.<domain>. Namespace defaults to
+	// the operator namespace when empty. The operator copies only tls.crt
+	// and tls.key into the operator-owned educates-wildcard-tls and keeps
+	// that copy current.
 	// +required
-	TLSSecretRef LocalObjectReference `json:"tlsSecretRef"`
+	TLSSecretRef SecretReference `json:"tlsSecretRef"`
 
-	// caCertificateRef optionally references a Secret with the ca.crt
-	// key for the issuing CA chain.
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding the certificate of the CA that issued the wildcard
+	// certificate, under ca.crt. When set, the wildcard certificate's
+	// chain must verify against it, and Educates components trust it
+	// through educates-ingress-ca, which the operator derives from its
+	// ca.crt alone, so any other key it holds, a private key included,
+	// is ignored. Namespace defaults to the operator namespace when
+	// empty.
 	// +optional
-	CACertificateRef *LocalObjectReference `json:"caCertificateRef,omitempty"`
+	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 }
 
 // Certificates groups certificate-provider configuration.
@@ -943,8 +959,10 @@ type StatusIngress struct {
 	CACertificateSecretRef *NamespacedSecretRef `json:"caCertificateSecretRef,omitempty"`
 
 	// clusterIssuerRef names a cluster-wide ClusterIssuer when one was
-	// configured. Components use this informationally; nothing in the
-	// status pipeline depends on it.
+	// configured: the operator's own with the BundledCertManager
+	// provider, the referenced one in Inline mode. Unset for the
+	// StaticCertificate and None providers. Components use this
+	// informationally; nothing in the status pipeline depends on it.
 	// +optional
 	ClusterIssuerRef *LocalObjectReference `json:"clusterIssuerRef,omitempty"`
 }
@@ -1010,10 +1028,12 @@ type EducatesClusterConfigStatus struct {
 
 	// conditions report the resource's state:
 	//   - Ready                (aggregate)
-	//   - ValidationSucceeded  (Inline mode: refs validated)
-	// Managed-mode conditions (IngressReady, CertificatesReady,
-	// DNSReady, PolicyEnforcementReady, InfrastructureConfigured) are
-	// published by their producing reconcilers.
+	//   - ValidationSucceeded  (spec and referenced resources validated)
+	//   - CertificatesReady    (certificate material usable; on failure
+	//                           its reason names the specific problem)
+	// Managed-mode conditions (IngressReady, DNSReady,
+	// PolicyEnforcementReady, InfrastructureConfigured) are published
+	// by their producing reconcilers.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

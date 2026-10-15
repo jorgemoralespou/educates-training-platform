@@ -907,9 +907,9 @@ func (in *SecretReference) DeepCopy() *SecretReference {
 func (in *StaticCertificateConfig) DeepCopyInto(out *StaticCertificateConfig) {
 	*out = *in
 	out.TLSSecretRef = in.TLSSecretRef
-	if in.CACertificateRef != nil {
-		in, out := &in.CACertificateRef, &out.CACertificateRef
-		*out = new(LocalObjectReference)
+	if in.CACertificateSecretRef != nil {
+		in, out := &in.CACertificateSecretRef, &out.CACertificateSecretRef
+		*out = new(SecretReference)
 		**out = **in
 	}
 }
