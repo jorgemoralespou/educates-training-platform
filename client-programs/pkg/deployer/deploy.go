@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -266,6 +268,7 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	step := opts.Progress.Start("Installing " + label)
 	step.Update("applying")
 	if _, err := applier.Apply(ctx, u); err != nil {
+		err = explainApplyRejection(err)
 		step.Fail(err)
 		return err
 	}
@@ -275,6 +278,25 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	}
 	step.Done("")
 	return nil
+}
+
+// certificateProviderImmutableRule is the start of the message the
+// EducatesClusterConfig CRD's validation rule reports when an update
+// changes spec.ingress.certificates.provider.
+const certificateProviderImmutableRule = "spec.ingress.certificates.provider is immutable"
+
+// explainApplyRejection adds the remedy to an API server rejection the
+// user can only resolve outside a redeploy. The certificate provider
+// of an existing install is immutable, so a deploy that would change
+// it, such as toggling ingress.insecure on a local cluster, needs the
+// platform deleted or the cluster recreated first. Any other error is
+// returned unchanged.
+func explainApplyRejection(err error) error {
+	if apierrors.IsInvalid(err) && strings.Contains(err.Error(), certificateProviderImmutableRule) {
+		return fmt.Errorf("the certificate provider of an existing Educates install cannot change; "+
+			"run 'educates admin platform delete' and deploy again, or recreate the cluster: %w", err)
+	}
+	return err
 }
 
 // syncLocalSecrets copies <data-home>/secrets/*.yaml into the cluster's
