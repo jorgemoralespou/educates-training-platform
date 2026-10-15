@@ -834,10 +834,16 @@ def training_portal_create(name, uid, body, spec, status, patch, runtime, retry,
         ]
 
     if INGRESS_SECRET and INGRESS_CA_SECRET:
+            # Only ca.crt is projected from the CA secret. Mounted as a
+            # directory, not via subPath, so a rotated secret propagates
+            # into the pod for the next restart.
             deployment_body["spec"]["template"]["spec"]["volumes"].append(
                 {
                     "name": "ingress-ca",
-                    "secret": {"secretName": INGRESS_CA_SECRET},
+                    "secret": {
+                        "secretName": INGRESS_CA_SECRET,
+                        "items": [{"key": "ca.crt", "path": "ca.crt"}],
+                    },
                 }
             )
             deployment_body["spec"]["template"]["spec"]["containers"][0]["volumeMounts"].append(
