@@ -826,13 +826,28 @@ type InlineConfig struct {
 //     change, so the provider cannot be swapped by dropping the block
 //     and adding it back. Adding spec.ingress to a resource created
 //     without one sets the provider for the first time and is allowed.
+//   - spec.ingress.controller.provider is immutable in the same way.
+//   - spec.dns.provider is immutable, reading an absent spec.dns or
+//     provider as None, its default. Adding or removing spec.dns is
+//     therefore allowed only when the block's provider is None.
+//   - The policyEnforcement engines and kyverno provider are immutable,
+//     and so is the presence of spec.policyEnforcement and of its
+//     kyverno block: the operator installs no Kyverno without that
+//     block, whatever its provider's default.
 //   - When mode is Inline, the Managed-mode top-level fields
 //     (infrastructure, ingress, dns, policyEnforcement, imageRegistry)
 //     are forbidden.
 //   - When mode is Managed, spec.inline is forbidden.
 //
+// The provider rules fix how each cluster service is provided for the
+// life of an install, so teardown removes exactly what the spec says
+// the operator installed.
+//
 // +kubebuilder:validation:XValidation:rule="self.mode == oldSelf.mode",message="spec.mode is immutable; delete and recreate the resource to switch modes"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.ingress) || (has(self.ingress) && self.ingress.certificates.provider == oldSelf.ingress.certificates.provider)",message="spec.ingress.certificates.provider is immutable; delete and recreate the resource to change the certificate provider"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ingress) || (has(self.ingress) && self.ingress.controller.provider == oldSelf.ingress.controller.provider)",message="spec.ingress.controller.provider is immutable; delete and recreate the resource to change the ingress controller provider"
+// +kubebuilder:validation:XValidation:rule="(has(self.dns) && has(self.dns.provider) ? self.dns.provider : 'None') == (has(oldSelf.dns) && has(oldSelf.dns.provider) ? oldSelf.dns.provider : 'None')",message="spec.dns.provider is immutable; delete and recreate the resource to change the DNS provider"
+// +kubebuilder:validation:XValidation:rule="has(self.policyEnforcement) == has(oldSelf.policyEnforcement) && (!has(self.policyEnforcement) || (self.policyEnforcement.clusterPolicy.engine == oldSelf.policyEnforcement.clusterPolicy.engine && self.policyEnforcement.workshopPolicy.engine == oldSelf.policyEnforcement.workshopPolicy.engine && has(self.policyEnforcement.kyverno) == has(oldSelf.policyEnforcement.kyverno) && (!has(self.policyEnforcement.kyverno) || self.policyEnforcement.kyverno.provider == oldSelf.policyEnforcement.kyverno.provider)))",message="spec.policyEnforcement engines and kyverno provider are immutable; delete and recreate the resource to change policy enforcement"
 // +kubebuilder:validation:XValidation:rule="self.mode != 'Inline' || (!has(self.infrastructure) && !has(self.ingress) && !has(self.dns) && !has(self.policyEnforcement) && !has(self.imageRegistry))",message="spec.{infrastructure,ingress,dns,policyEnforcement,imageRegistry} are forbidden when mode is Inline"
 // +kubebuilder:validation:XValidation:rule="self.mode != 'Managed' || !has(self.inline)",message="spec.inline is forbidden when mode is Managed"
 type EducatesClusterConfigSpec struct {
