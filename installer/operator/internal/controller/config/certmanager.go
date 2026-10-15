@@ -168,11 +168,16 @@ func isCertManagerCRDMissingErr(err error) bool {
 // NotFound + NoMatchError), so a retried reconcile after partial
 // drain re-attempts only what's still present.
 //
-// When the user picks an External / Static certificates provider
-// (no operator-managed install), shouldInstallCertManager returned
-// false in reconcileCertManagerPhase and there's nothing to undo
-// here either; helm Uninstall is a no-op on a non-existent release.
-func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context, _ *configv1alpha1.EducatesClusterConfig) error {
+// The cleanup runs only when the provider is BundledCertManager. For
+// any other provider the operator installed nothing here, and a
+// cert-manager release or namespace under the same names belongs to
+// the administrator, so it must survive the teardown. The provider is
+// immutable, so the spec seen at deletion is the one the install ran
+// with.
+func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
+	if !shouldInstallCertManager(obj) {
+		return nil
+	}
 	if err := r.deleteIfPresent(ctx, &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: r.OperatorNamespace, Name: wildcardCertificate},
 	}); err != nil {
@@ -191,8 +196,7 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 
 	// Helm uninstall is idempotent in the wrapper (IgnoreNotFound on
 	// the action). Safe to call even when the release was never
-	// created (External provider, or validation failed before
-	// reconcileCertManager ran).
+	// created (validation failed before reconcileCertManager ran).
 	hc, err := r.HelmClientFor(certManagerNamespace)
 	if err != nil {
 		return fmt.Errorf("build helm client for cleanup: %w", err)
