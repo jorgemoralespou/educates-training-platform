@@ -8,7 +8,7 @@ import (
 // output. ECC.spec is mode: Inline; everything funnels under spec.inline.
 // No cluster services are installed by the operator.
 //
-// opts.CASecretName is ignored — Inline mode brings its own CA reference
+// opts.LocalCertificates is ignored: Inline mode brings its own CA reference
 // via the optional caCertificateSecret field. The signature stays uniform
 // with TranslateLocal so the dispatcher in Translate() doesn't have to
 // special-case.

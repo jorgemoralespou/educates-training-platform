@@ -70,12 +70,17 @@ type Options struct {
 	// kubectl apply, etc.).
 	SkipCRDApply bool
 
-	// SyncLocalSecrets, when true, copies <data-home>/secrets/*.yaml into
-	// the cluster's 'educates-secrets' namespace before applying the
-	// platform CRs. Matches the v3 laptop flow: cached CA/TLS material
-	// is pushed at deploy time, ECC's caCertificateRef points there.
-	// Only meaningful for EducatesLocalConfig deploys.
+	// SyncLocalSecrets, when true, ensures the cluster's
+	// 'educates-secrets' namespace and copies the cached Secrets named in
+	// LocalSecretNames into it before applying the platform CRs. Matches
+	// the v3 laptop flow: cached CA/TLS material is pushed at deploy
+	// time, ECC's caCertificateRef points there. Only meaningful for
+	// EducatesLocalConfig deploys.
 	SyncLocalSecrets bool
+
+	// LocalSecretNames names the cached Secrets SyncLocalSecrets copies:
+	// the local certificate resolution plan's SyncSecretNames.
+	LocalSecretNames []string
 
 	// Progress is the structured progress reporter. When nil, plain
 	// io.Discard-backed reporter is used (no progress output, but the
@@ -114,7 +119,7 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	// Push cached local secrets so the operator can consume them.
 	if opts.SyncLocalSecrets {
 		step := opts.Progress.Start("syncing cached local secrets to cluster")
-		if err := syncLocalSecrets(opts.Getter); err != nil {
+		if err := syncLocalSecrets(opts.Getter, opts.LocalSecretNames); err != nil {
 			step.Fail(err)
 			return err
 		}
@@ -277,10 +282,10 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	return nil
 }
 
-// syncLocalSecrets copies <data-home>/secrets/*.yaml into the cluster's
+// syncLocalSecrets copies the named cached Secrets into the cluster's
 // 'educates-secrets' namespace. Reuses the secrets package so the
 // laptop flow stays the same.
-func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
+func syncLocalSecrets(getter genericclioptions.RESTClientGetter, names []string) error {
 	cfg, err := getter.ToRESTConfig()
 	if err != nil {
 		return fmt.Errorf("REST config for secrets sync: %w", err)
@@ -289,7 +294,7 @@ func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
 	if err != nil {
 		return fmt.Errorf("kubernetes client for secrets sync: %w", err)
 	}
-	if err := secrets.SyncLocalCachedSecretsToCluster(cs); err != nil {
+	if err := secrets.SyncLocalCachedSecretsToCluster(cs, names); err != nil {
 		return fmt.Errorf("sync local secrets: %w", err)
 	}
 	return nil

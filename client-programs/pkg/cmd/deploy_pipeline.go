@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
+	"github.com/educates/educates-training-platform/client-programs/pkg/localcerts"
 )
 
 // deployPipelineFlags collects the kubectl/helm connection flags shared
@@ -32,21 +32,23 @@ type deployPipelineFlags struct {
 // fully-loaded+defaulted config. Keeps the deploy.Options + Getter
 // construction in one place so a new flag or default reaches both.
 //
-// caSecret{Name,Namespace} are required when cfg is *EducatesLocalConfig
-// and ignored otherwise (the dispatcher in translator.Translate routes
-// the opts only to TranslateLocal today).
+// plan is the local certificate resolution plan when cfg is
+// *EducatesLocalConfig, and nil for every other kind. It supplies the
+// translator's certificate decision and the cached Secrets to sync, and
+// is committed (its cache changes made and its notices printed) before
+// the install starts.
 func translateAndDeploy(
 	ctx context.Context,
 	w io.Writer,
 	cfg v1alpha1.Config,
-	caSecretName, caSecretNamespace string,
-	syncLocalSecrets bool,
+	plan *localcerts.Plan,
 	flags deployPipelineFlags,
 ) error {
-	out, err := translator.Translate(cfg, translator.Options{
-		CASecretName:      caSecretName,
-		CASecretNamespace: caSecretNamespace,
-	})
+	opts := translator.Options{}
+	if plan != nil {
+		opts = plan.TranslatorOptions()
+	}
+	out, err := translator.Translate(cfg, opts)
 	if err != nil {
 		return err
 	}
@@ -66,18 +68,26 @@ func translateAndDeploy(
 		helmLog = w
 	}
 
-	return deployer.Deploy(ctx, out, deployer.Options{
-		Getter:           cf,
-		Out:              w,
-		HelmLog:          helmLog,
-		Timeout:          flags.Timeout,
-		SyncLocalSecrets: syncLocalSecrets,
+	deployOpts := deployer.Options{
+		Getter:  cf,
+		Out:     w,
+		HelmLog: helmLog,
+		Timeout: flags.Timeout,
 		// Verbose turns off the in-place line morphing: helm debug
 		// streams to the same writer, so every step state change is
 		// committed as its own line to interleave cleanly with that
 		// detail instead of being overwritten (or corrupted).
 		Progress: progress.New(w, 0, isStdoutTTY(w) && !flags.Verbose),
-	})
+	}
+	if plan != nil {
+		if err := plan.Commit(deployOpts.Progress); err != nil {
+			return err
+		}
+		deployOpts.SyncLocalSecrets = true
+		deployOpts.LocalSecretNames = plan.SyncSecretNames
+	}
+
+	return deployer.Deploy(ctx, out, deployOpts)
 }
 
 // isStdoutTTY tells the progress reporter whether to use \r-based
@@ -94,33 +104,4 @@ func isStdoutTTY(w io.Writer) bool {
 		return false
 	}
 	return info.Mode()&os.ModeCharDevice != 0
-}
-
-// caRefForLocal looks up the cached CA Secret name + the conventional
-// 'educates-secrets' namespace for an EducatesLocalConfig at translate
-// time. Returns ("", "", err) when no cached CA matches the domain.
-// Caller has already applied host-IP defaulting so c.Ingress.Domain is
-// non-empty when we get here.
-func caRefForLocal(c *v1alpha1.EducatesLocalConfig) (name, namespace string, err error) {
-	if c.Ingress.Domain == "" {
-		return "", "", fmt.Errorf("internal: ingress.domain is empty at CA-lookup time (host-IP defaulting should have run)")
-	}
-	name, err = lookupLocalCAByDomain(c.Ingress.Domain)
-	if err != nil {
-		return "", "", err
-	}
-	return name, LocalCASecretNamespace, nil
-}
-
-// localCASecretIfSecure returns the cached CA Secret name + namespace a
-// Local-mode install needs, or ("", "", nil) when ingress.insecure is
-// set (an insecure install serves plain HTTP and needs no CA). It is the
-// shared fail-fast check used by deploy and cluster create. Host-IP
-// defaulting must already have run, so an empty domain has become an
-// insecure nip.io install by this point.
-func localCASecretIfSecure(c *v1alpha1.EducatesLocalConfig) (name, namespace string, err error) {
-	if c.Ingress.Insecure {
-		return "", "", nil
-	}
-	return caRefForLocal(c)
 }
