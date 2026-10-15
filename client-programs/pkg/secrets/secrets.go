@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path"
-	"strings"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 	"github.com/pkg/errors"
@@ -28,49 +27,6 @@ func secretsCacheDir() string {
 // SyncNamespace is the cluster namespace the local secrets cache is
 // synced into.
 const SyncNamespace = "educates-secrets"
-
-func LocalCachedSecretForIngressDomain(domain string) string {
-	files, err := os.ReadDir(secretsCacheDir())
-
-	if err != nil {
-		return ""
-	}
-
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".yaml") {
-			name := strings.TrimSuffix(f.Name(), ".yaml")
-			secretObj, err := decodeFileIntoSecret(f.Name())
-			if err != nil {
-				continue
-			}
-
-			annotations := secretObj.ObjectMeta.Annotations
-
-			// Domain name must match.
-			if val, found := annotations["training.educates.dev/domain"]; !found || val != domain {
-				continue
-			}
-
-			// Type of secret needs to be kubernetes.io/tls.
-			if secretObj.Type != "kubernetes.io/tls" {
-				continue
-			}
-
-			// Needs contain tls.crt and tls.key data.
-			if value, exists := secretObj.Data["tls.crt"]; !exists || len(value) == 0 {
-				continue
-			}
-
-			if value, exists := secretObj.Data["tls.key"]; !exists || len(value) == 0 {
-				continue
-			}
-
-			return name
-		}
-	}
-
-	return ""
-}
 
 // SyncLocalCachedSecretsToCluster ensures the SyncNamespace namespace
 // exists and copies the named Secrets from the local cache into it,
