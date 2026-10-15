@@ -28,6 +28,8 @@ The `EducatesClusterConfig` resource always carries a certificates configuration
 
 In all cases other than the `None` provider, TLS is terminated by the cluster's ingress controller, and Educates handles HTTPS natively. With the `None` provider the cluster serves plain HTTP, either for a local insecure install or behind an external proxy that terminates TLS for it.
 
+The provider is chosen when Educates is installed and cannot be changed afterwards: the Kubernetes API server rejects an update to `ingress.certificates.provider`, and `educates admin platform deploy` reports that the certificate provider cannot change. To switch providers, delete the installation with `educates admin platform delete` and deploy again, or install into a new cluster. Deleting the installation removes cert-manager only when the provider is `BundledCertManager`, so a cert-manager you installed yourself stays in place.
+
 External proxies and CDNs
 -------------------------
 

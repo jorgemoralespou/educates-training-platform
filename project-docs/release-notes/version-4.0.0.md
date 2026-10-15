@@ -487,6 +487,21 @@ Features Changed
   changes. The workshop base environment image and the images derived from it
   remain based on Fedora for now.
 
+* The certificates provider of an ``EducatesClusterConfig``,
+  ``spec.ingress.certificates.provider``, can no longer be changed once the
+  resource exists, in the same way as ``spec.mode``. The Kubernetes API server
+  rejects an update that changes the provider, or that removes
+  ``spec.ingress`` once it has been set, since switching providers in place
+  could leave a bundled cert-manager installed or certificates half switched.
+  To change the provider, delete the ``EducatesClusterConfig`` and create it
+  again, for example with ``educates admin platform delete`` followed by a new
+  deploy, or install into a new cluster. When ``educates admin platform
+  deploy`` would change the provider of an existing installation, for example
+  because ``ingress.insecure`` was set or cleared in the local configuration,
+  it now fails with a message saying that the certificate provider cannot
+  change and pointing at ``educates admin platform delete`` or recreating the
+  cluster.
+
 Deprecations
 ------------
 
@@ -868,3 +883,13 @@ Bugs Fixed
   ``kind`` network, as do older versions until Docker is restarted for the
   first time after the network is created, in which case Docker picks the
   address as before and a warning is shown.
+
+* Deleting an ``EducatesClusterConfig`` in ``Managed`` mode, which
+  ``educates admin platform delete`` does, uninstalled the Helm release named
+  ``cert-manager`` and deleted the ``cert-manager`` namespace whatever the
+  certificates provider was. With the ``None`` or ``StaticCertificate``
+  provider, a cert-manager the administrator had installed under those names
+  was removed along with Educates. The cert-manager cleanup, which also
+  deletes the wildcard ``Certificate`` and the ``ClusterIssuer``, now runs only
+  when the provider is ``BundledCertManager``, the one case in which Educates
+  installed cert-manager.

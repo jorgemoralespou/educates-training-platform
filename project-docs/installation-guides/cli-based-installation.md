@@ -69,6 +69,8 @@ educates admin platform deploy --config config.yaml
 
 The Helm release is upgraded and the custom resources re-applied; the operator reconciles the differences in place. Note that configuration changes will not necessarily affect training portals or workshop environments which have already been created, and may only affect those created after that point.
 
+The certificates provider cannot be changed on an existing installation. A deploy that would change it, such as one that sets or clears `ingress.insecure` on the local configuration, fails with a message saying the certificate provider cannot change. To switch providers, delete the installation with `educates admin platform delete` and deploy again, or install into a new cluster.
+
 Deleting the installation
 -------------------------
 
@@ -77,6 +79,8 @@ educates admin platform delete
 ```
 
 This is the reverse of deploy: it deletes `SessionManager`, `LookupService`, `SecretsManager`, and `EducatesClusterConfig` in order, waiting for each to finish draining (the `EducatesClusterConfig` finalizer removes the operator-installed cluster services in reverse install order), and finally uninstalls the operator chart. No configuration file is needed — the resources are always the four singletons named `cluster`.
+
+cert-manager is removed only when Educates installed it, which is when the certificates provider is `BundledCertManager`. With any other provider, a cert-manager you installed yourself is left in place, even when it uses the `cert-manager` release name and namespace.
 
 A confirmation prompt lists everything about to be deleted; pass `--yes` to skip it (required in CI and other non-interactive shells).
 
