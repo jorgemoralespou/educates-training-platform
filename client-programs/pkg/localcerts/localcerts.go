@@ -18,7 +18,6 @@ package localcerts
 import (
 	"crypto"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -93,6 +92,22 @@ func Resolve(cfg *v1alpha1.EducatesLocalConfig) (*Plan, error) {
 		return nil, fmt.Errorf("ingress.domain is empty; cannot decide the ingress certificates")
 	}
 
+	// The cache holds at most one root CA. More is an error whatever the
+	// cache would otherwise serve, so no install depends on which root
+	// was meant.
+	roots, err := secrets.CachedRootCAs()
+	if err != nil {
+		return nil, err
+	}
+	if len(roots) > 1 {
+		return nil, fmt.Errorf(`the local secrets cache holds more than one root CA: %s.
+
+It can hold only one root CA, from which deploys mint a CA for each
+ingress domain. Remove the root CAs you do not use with:
+
+  educates local secrets remove NAME`, secrets.QuoteNames(roots))
+	}
+
 	// A wildcard TLS certificate covering the domain is served as it is,
 	// with no cert-manager.
 	selected, expired, err := selectTLSCertificate(names, domain)
@@ -108,12 +123,12 @@ func Resolve(cfg *v1alpha1.EducatesLocalConfig) (*Plan, error) {
 		return plan, nil
 	}
 
-	// Otherwise a root CA mints the CA key pair cert-manager issues the
+	// Otherwise the root CA mints the CA key pair cert-manager issues the
 	// ingress certificate from.
-	root, err := loadRootCA(domain)
-	if errors.Is(err, errNoRootCA) {
+	if len(roots) == 0 {
 		return nil, noCertificateError(domain, expired)
 	}
+	root, err := loadRootCA(roots[0], domain)
 	if err != nil {
 		return nil, err
 	}
@@ -330,27 +345,9 @@ type rootCA struct {
 	key     crypto.Signer
 }
 
-// loadRootCA loads the one root CA of the cache, checking it can mint a
+// loadRootCA loads the root CA name of the cache, checking it can mint a
 // CA for domain.
-func loadRootCA(domain string) (*rootCA, error) {
-	roots, err := secrets.CachedRootCAs()
-	if err != nil {
-		return nil, err
-	}
-	switch len(roots) {
-	case 0:
-		return nil, errNoRootCA
-	case 1:
-	default:
-		return nil, fmt.Errorf(`the local secrets cache holds more than one root CA: %s.
-
-It can hold only one root CA, from which deploys mint a CA for each
-ingress domain. Remove the root CAs you do not use with:
-
-  educates local secrets remove NAME`, secrets.QuoteNames(roots))
-	}
-
-	name := roots[0]
+func loadRootCA(name, domain string) (*rootCA, error) {
 	keyPairName := secrets.RootKeyPairName(name)
 	unusable := func(format string, args ...any) error {
 		return fmt.Errorf("root CA %q cannot be used: %s", name, fmt.Sprintf(format, args...))
@@ -395,9 +392,6 @@ whose name constraints permit this domain.`,
 
 	return &rootCA{name: name, cert: cert, certPEM: secrets.EncodeCertificatePEM(cert), key: kp.Key}, nil
 }
-
-// errNoRootCA is loadRootCA's error for a cache with no root CA.
-var errNoRootCA = errors.New("no root CA in the local secrets cache")
 
 // noCertificateError is the error for a secure install whose cache has
 // neither a usable wildcard TLS certificate for domain nor a root CA,

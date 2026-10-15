@@ -574,6 +574,24 @@ func TestResolve_MoreThanOneRoot_ErrorsNamingThem(t *testing.T) {
 	}
 }
 
+func TestResolve_MoreThanOneRoot_ErrorsBeforeSelectingAWildcardCertificate(t *testing.T) {
+	withDataHome(t)
+	mkcert := testpki.NewRootCA()
+	cacheRoot(t, "educates-ca", testpki.NewRootCA())
+	cacheRoot(t, "mkcert-ca", mkcert)
+	cacheTLS(t, "workshop-tls", wildcardLeaf(mkcert, "workshop.test"))
+
+	_, err := localcerts.Resolve(localConfig("workshop.test", false))
+	if err == nil {
+		t.Fatal("Resolve served a wildcard certificate from a cache holding two root CAs")
+	}
+	for _, want := range []string{`"educates-ca"`, `"mkcert-ca"`, "one root CA"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not mention %q:\n%v", want, err)
+		}
+	}
+}
+
 func TestResolve_UnusableRoot_Errors(t *testing.T) {
 	root := testpki.NewRootCA()
 	cases := map[string]struct {
