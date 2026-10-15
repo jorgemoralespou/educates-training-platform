@@ -18,10 +18,14 @@ package platform
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -88,6 +92,27 @@ func (r *SessionManagerReconciler) ensureIngressCAOverride(ctx context.Context, 
 	// namespaces collected at operator startup.
 	applier := pki.CATrustApplier{Reader: r.APIReader, Writer: r.Client, Scheme: r.Scheme}
 	return applier.Apply(ctx, src, dst, obj)
+}
+
+// reconcileIngressCAOverride runs ensureIngressCAOverride and reports
+// whether the install may proceed. An override Secret that cannot yield
+// a CA certificate sets Ready=False with the derivation's reason and
+// stops the reconcile; any other error is returned for retry.
+func (r *SessionManagerReconciler) reconcileIngressCAOverride(ctx context.Context, obj *platformv1alpha1.SessionManager) (bool, ctrl.Result, error) {
+	err := r.ensureIngressCAOverride(ctx, obj)
+	if err == nil {
+		return true, ctrl.Result{}, nil
+	}
+	serr, ok := errors.AsType[*pki.SourceError](err)
+	if !ok {
+		return false, ctrl.Result{}, fmt.Errorf("derive CA override trust: %w", err)
+	}
+	r.markSMReady(obj, metav1.ConditionFalse, serr.Reason, caOverrideField+": "+serr.Message)
+	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
+	obj.Status.ObservedGeneration = obj.Generation
+	// The Secret watch sees a repaired source only in a namespace the
+	// operator's Secret cache covers; the requeue covers the rest.
+	return false, ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
 }
 
 // mapSecretToSessionManager enqueues the SessionManager for the key-free

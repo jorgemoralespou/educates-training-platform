@@ -18,7 +18,6 @@ package platform
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -43,7 +42,6 @@ import (
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
-	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
 
@@ -211,30 +209,8 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	r.markSMSecretsManagerAvailable(obj, metav1.ConditionTrue, "SecretsManagerReady",
 		"SecretsManager 'cluster' is Ready")
 
-	// Reserved-but-unsupported spec surface is rejected explicitly,
-	// never silently discarded — same convention as the cluster
-	// config's "not yet supported in v1alpha1" providers. A spec
-	// change re-triggers reconcile via the generation watch.
-	if err := validateSessionManagerSpec(obj); err != nil {
-		r.markSMReady(obj, metav1.ConditionFalse, "ValidationFailed", err.Error())
-		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
-		obj.Status.ObservedGeneration = obj.Generation
-		return ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
-	}
-
-	// A CA override reaches session-manager only as its key-free copy,
-	// derived before every install or upgrade that references it.
-	if err := r.ensureIngressCAOverride(ctx, obj); err != nil {
-		serr, ok := errors.AsType[*pki.SourceError](err)
-		if !ok {
-			return ctrl.Result{}, fmt.Errorf("derive CA override trust: %w", err)
-		}
-		r.markSMReady(obj, metav1.ConditionFalse, serr.Reason, caOverrideField+": "+serr.Message)
-		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
-		obj.Status.ObservedGeneration = obj.Generation
-		// The Secret watch sees a repaired source only in a namespace
-		// the operator's Secret cache covers; the requeue covers the rest.
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
+	if proceed, result, err := r.prepareInstall(ctx, obj); !proceed {
+		return result, err
 	}
 
 	r.markSMPhase(obj, platformv1alpha1.ComponentPhaseInstalling)
@@ -743,6 +719,26 @@ func applySMStylingValues(values map[string]any, obj *platformv1alpha1.SessionMa
 	if len(styling) > 0 {
 		values["websiteStyling"] = styling
 	}
+}
+
+// prepareInstall runs the steps that must succeed before the chart is
+// installed or upgraded, and reports whether the install may proceed.
+// When it may not, the status is already written.
+func (r *SessionManagerReconciler) prepareInstall(ctx context.Context, obj *platformv1alpha1.SessionManager) (bool, ctrl.Result, error) {
+	// Reserved-but-unsupported spec surface is rejected explicitly,
+	// never silently discarded — same convention as the cluster
+	// config's "not yet supported in v1alpha1" providers. A spec
+	// change re-triggers reconcile via the generation watch.
+	if err := validateSessionManagerSpec(obj); err != nil {
+		r.markSMReady(obj, metav1.ConditionFalse, "ValidationFailed", err.Error())
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhaseDegraded)
+		obj.Status.ObservedGeneration = obj.Generation
+		return false, ctrl.Result{}, r.updateSMStatusWithTransitionLog(ctx, obj)
+	}
+
+	// A CA override reaches session-manager only as its key-free copy,
+	// derived before every install or upgrade that references it.
+	return r.reconcileIngressCAOverride(ctx, obj)
 }
 
 // validateSessionManagerSpec enforces the v1alpha1 support envelope on
