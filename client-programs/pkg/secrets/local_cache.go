@@ -417,3 +417,22 @@ func NewDockerRegistrySecret(name, server, username, password, email string) *ap
 		},
 	}
 }
+
+// RegistryHosts returns the registries the .dockerconfigjson of the
+// Secret s holds credentials for, sorted. It decodes only the registry
+// names, never the credentials, and errors when .dockerconfigjson is
+// missing or does not decode.
+func RegistryHosts(s *apiv1.Secret) ([]string, error) {
+	var config struct {
+		Auths map[string]json.RawMessage `json:"auths"`
+	}
+	if err := json.Unmarshal(SecretData(s, apiv1.DockerConfigJsonKey), &config); err != nil {
+		return nil, errors.Wrapf(err, "unable to decode %s", apiv1.DockerConfigJsonKey)
+	}
+	hosts := make([]string, 0, len(config.Auths))
+	for host := range config.Auths {
+		hosts = append(hosts, host)
+	}
+	sort.Strings(hosts)
+	return hosts, nil
+}

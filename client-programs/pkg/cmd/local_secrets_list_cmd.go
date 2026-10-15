@@ -67,14 +67,18 @@ func cachedSecretListRow(name string, now time.Time) []string {
 	return row
 }
 
+// unconstrainedNames is how list and view show the names a CA without
+// name constraints is valid for: any.
+const unconstrainedNames = "any"
+
 // domainsCell is what the Secret s, cached under name with role role, is
 // valid for, as the DOMAINS column and the Domains field of
 // `educates local secrets view` show it: its domains comma separated, or
-// "any" for a CA without permitted DNS name constraints.
+// unconstrainedNames for a CA without permitted DNS name constraints.
 func domainsCell(name string, role secrets.CachedSecretRole, s *apiv1.Secret) string {
 	domains, anyDomain := secrets.CachedSecretDomains(name, role, s)
 	if anyDomain {
-		return "any"
+		return unconstrainedNames
 	}
 	return strings.Join(domains, ", ")
 }

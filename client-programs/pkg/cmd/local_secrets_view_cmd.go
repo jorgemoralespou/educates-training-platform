@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
@@ -82,7 +81,7 @@ func (v *secretViewPrinter) secret(name string, role secrets.CachedSecretRole, s
 		}
 		v.field("Private key", presence(len(secrets.SecretData(s, "tls.key")) > 0))
 	case role == secrets.RegistryCredentialsRole:
-		v.field("Registries", registryHosts(s))
+		v.field("Registries", registriesField(s))
 	case role == secrets.GenericRole:
 		v.field("Keys", secretKeyNames(s))
 	}
@@ -101,17 +100,15 @@ func (v *secretViewPrinter) invalid(name string, reason *secrets.InvalidCachedSe
 	v.field("Remove with", "educates local secrets remove "+name)
 }
 
-// registryHosts is the registries the .dockerconfigjson of s holds
-// credentials for, sorted and comma separated, or "none". It decodes
-// only the registry names, never the credentials.
-func registryHosts(s *apiv1.Secret) string {
-	var config struct {
-		Auths map[string]json.RawMessage `json:"auths"`
-	}
-	if err := json.Unmarshal(secrets.SecretData(s, apiv1.DockerConfigJsonKey), &config); err != nil || len(config.Auths) == 0 {
+// registriesField is the registries the registry credentials s hold
+// credentials for, comma separated, or "none". It shows only the
+// registry names, never the credentials.
+func registriesField(s *apiv1.Secret) string {
+	hosts, err := secrets.RegistryHosts(s)
+	if err != nil || len(hosts) == 0 {
 		return "none"
 	}
-	return strings.Join(slices.Sorted(maps.Keys(config.Auths)), ", ")
+	return strings.Join(hosts, ", ")
 }
 
 // secretKeyNames is the names of the keys of s, from data and
@@ -260,7 +257,7 @@ func caField(cert *x509.Certificate) string {
 }
 
 // nameConstraints is the names CA certificate ca permits and excludes,
-// or "any" when it has no name constraints.
+// or unconstrainedNames when it has no name constraints.
 func nameConstraints(ca *x509.Certificate) string {
 	permitted := constrainedNames(ca.PermittedDNSDomains, ca.PermittedIPRanges, ca.PermittedEmailAddresses, ca.PermittedURIDomains)
 	excluded := constrainedNames(ca.ExcludedDNSDomains, ca.ExcludedIPRanges, ca.ExcludedEmailAddresses, ca.ExcludedURIDomains)
@@ -272,7 +269,7 @@ func nameConstraints(ca *x509.Certificate) string {
 		parts = append(parts, "excluded: "+strings.Join(excluded, ", "))
 	}
 	if len(parts) == 0 {
-		return "any"
+		return unconstrainedNames
 	}
 	return strings.Join(parts, "; ")
 }
