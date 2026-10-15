@@ -75,6 +75,11 @@ type LocalCustomCA struct {
 	// CAKeyPairSecretRef names the CA key pair (tls.crt and tls.key) the
 	// issuer signs from.
 	CAKeyPairSecretRef SecretRef
+
+	// CACertificateSecretRef optionally names the CA trust Secret
+	// (ca.crt) Educates components trust. When nil the operator reads the
+	// trust from the CA key pair.
+	CACertificateSecretRef *SecretRef
 }
 
 // Translate dispatches on kind. Returns ErrUnknownKind if the loaded

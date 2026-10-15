@@ -216,6 +216,42 @@ func TestTranslateLocal_WithoutCertificatesDecision_Errors(t *testing.T) {
 	}
 }
 
+// TestTranslateLocal_CustomCA_CATrustSecretRef asserts that a CustomCA
+// decision naming the root's CA trust Secret emits it as
+// customCA.caCertificateSecretRef beside the CA key pair, and that a
+// decision without one emits no caCertificateSecretRef.
+func TestTranslateLocal_CustomCA_CATrustSecretRef(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	const customCA = "ingress.certificates.bundledCertManager.customCA"
+
+	withTrust := testOpts()
+	withTrust.LocalCertificates.CustomCA.CACertificateSecretRef = &SecretRef{Name: "educates-ca", Namespace: "educates-secrets"}
+	out, err := Translate(cfg, withTrust)
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec := out.EducatesClusterConfig["spec"].(map[string]interface{})
+	for path, want := range map[string]interface{}{
+		customCA + ".caKeyPairSecretRef.name":          "test-ca",
+		customCA + ".caKeyPairSecretRef.namespace":     "educates-secrets",
+		customCA + ".caCertificateSecretRef.name":      "educates-ca",
+		customCA + ".caCertificateSecretRef.namespace": "educates-secrets",
+	} {
+		if got, _ := getNested(spec, path); got != want {
+			t.Errorf("EducatesClusterConfig.spec.%s = %v, want %v", path, got, want)
+		}
+	}
+
+	out, err = Translate(cfg, testOpts())
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec = out.EducatesClusterConfig["spec"].(map[string]interface{})
+	if got, found := getNested(spec, customCA+".caCertificateSecretRef"); found {
+		t.Errorf("caCertificateSecretRef emitted without a CA trust Secret in the decision: %v", got)
+	}
+}
+
 // TestTranslateLocal_Insecure_NoneProviderHTTP asserts that an insecure
 // local config with the None certificates decision produces a None
 // certificates provider with http protocol and needs no CA.

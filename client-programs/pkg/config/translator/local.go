@@ -17,7 +17,8 @@ import (
 // ingress.certificates comes from opts.LocalCertificates, the decision
 // the CLI's local certificate resolution step made from the local
 // secrets cache: provider None, or BundledCertManager with the CustomCA
-// issuer and its CA key pair reference. Returns an error when that
+// issuer, its CA key pair reference and, optionally, the CA trust Secret
+// reference. Returns an error when that
 // decision is missing or incomplete, so an install that cannot get its
 // certificates fails at translate time rather than at deploy time.
 //
@@ -62,17 +63,17 @@ func localCertificates(lc LocalCertificates) (map[string]interface{}, error) {
 		if lc.CustomCA == nil || lc.CustomCA.CAKeyPairSecretRef.Name == "" {
 			return nil, fmt.Errorf("translator: the BundledCertManager decision for EducatesLocalConfig has no CA key pair Secret name")
 		}
-		caRef := map[string]interface{}{"name": lc.CustomCA.CAKeyPairSecretRef.Name}
-		if ns := lc.CustomCA.CAKeyPairSecretRef.Namespace; ns != "" {
-			caRef["namespace"] = ns
+		customCA := map[string]interface{}{
+			"caKeyPairSecretRef": secretRef(lc.CustomCA.CAKeyPairSecretRef),
+		}
+		if ref := lc.CustomCA.CACertificateSecretRef; ref != nil {
+			customCA["caCertificateSecretRef"] = secretRef(*ref)
 		}
 		return map[string]interface{}{
 			"provider": CertificatesProviderBundledCertManager,
 			"bundledCertManager": map[string]interface{}{
 				"issuerType": "CustomCA",
-				"customCA": map[string]interface{}{
-					"caKeyPairSecretRef": caRef,
-				},
+				"customCA":   customCA,
 			},
 		}, nil
 	case "":
@@ -80,6 +81,15 @@ func localCertificates(lc LocalCertificates) (map[string]interface{}, error) {
 	default:
 		return nil, fmt.Errorf("translator: unsupported certificates provider %q for EducatesLocalConfig", lc.Provider)
 	}
+}
+
+// secretRef builds a SecretReference, leaving out an empty namespace.
+func secretRef(ref SecretRef) map[string]interface{} {
+	out := map[string]interface{}{"name": ref.Name}
+	if ref.Namespace != "" {
+		out["namespace"] = ref.Namespace
+	}
+	return out
 }
 
 // localECCSpec builds the EducatesClusterConfig.spec for Local mode.
