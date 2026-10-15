@@ -151,6 +151,27 @@ func TestLocalSecretsRemove_OtherSecret_RemovesOnlyIt(t *testing.T) {
 	}
 }
 
+func TestLocalSecretsRemove_AlphaCAEntry_RemovesOnlyIt(t *testing.T) {
+	// A CA cached with its key by an alpha release lists as invalid and
+	// is removed like any other secret, leaving the root CA in place.
+	withSecretsCache(t)
+	stageRootAndOthers(t)
+	before := cachedSecretNames(t)
+	cacheAlphaCA(t, "workshop.test-ca", testpki.NewRootCA(), "workshop.test")
+
+	var out bytes.Buffer
+	if err := (&LocalSecretsRemoveOptions{}).Run(&out, "workshop.test-ca"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if got := cachedSecretNames(t); !reflect.DeepEqual(got, before) {
+		t.Errorf("cache holds %v, want %v", got, before)
+	}
+	if got, want := out.String(), "Removed \"workshop.test-ca\" from the local secrets cache.\n"; got != want {
+		t.Errorf("output = %q, want %q", got, want)
+	}
+}
+
 func TestLocalSecretsRemove_NotCached_IsNotAnError(t *testing.T) {
 	withSecretsCache(t)
 	stageRootAndOthers(t)

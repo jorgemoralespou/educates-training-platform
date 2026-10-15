@@ -21,10 +21,6 @@ var localSecretsListExample = `
   educates local secrets list
 `
 
-// invalidCachedSecretType is the TYPE of a cached file that cannot be
-// read or decoded as a Secret.
-const invalidCachedSecretType = "invalid"
-
 type LocalSecretsListOptions struct{}
 
 // Run prints the local secrets cache to w as a table with the columns
@@ -32,7 +28,8 @@ type LocalSecretsListOptions struct{}
 // certificate resolution step gives the Secret, through
 // secrets.ClassifyCachedSecret, so the table shows each Secret as a
 // deploy treats it. A file that cannot be read or decoded is listed as
-// invalid; failing to read the cache directory is an error.
+// invalid too, and the rest of the table still prints. Failing to read
+// the cache directory is an error.
 func (o *LocalSecretsListOptions) Run(w io.Writer) error {
 	names, err := secrets.ListCachedSecretNames()
 	if err != nil {
@@ -53,7 +50,7 @@ func (o *LocalSecretsListOptions) Run(w io.Writer) error {
 func cachedSecretListRow(name string, now time.Time) []string {
 	s, err := secrets.LoadCachedSecret(name)
 	if err != nil {
-		return []string{name, invalidCachedSecretType, "", "", ""}
+		return []string{name, string(secrets.InvalidRole), "", "", ""}
 	}
 
 	role := secrets.ClassifyCachedSecret(name, s)
@@ -78,8 +75,9 @@ func cachedSecretListRow(name string, now time.Time) []string {
 	case secrets.TLSCertificateRole:
 		cert = firstTLSCertificate(s)
 		domains = strings.Join(secrets.WildcardDomains(cert), ", ")
-	case secrets.UnusedCAKeyPairRole:
-		// No deploy uses it, so it is valid for no domain.
+	case secrets.InvalidRole:
+		// No deploy uses it, so it is valid for no domain, but the
+		// subject and expiry of the CA it holds identify it.
 		cert = firstTLSCertificate(s)
 	}
 
@@ -141,11 +139,14 @@ func (p *ProjectInfo) NewLocalSecretsListCmd() *cobra.Command {
 what a deploy uses it for.
 
 TYPE is the role of the secret: CA certificate, CA root key pair, CA
-intermediate key pair, TLS certificate, Registry credentials or Generic.
-A CA certificate with its private key that is neither a CA root key pair
-nor a CA intermediate key pair, such as a CA cached by a 4.0.0 alpha
-release, is an Unused CA key pair: deploys neither use it nor copy it to
-a cluster. A file that cannot be read or decoded is invalid.
+intermediate key pair, TLS certificate, Registry credentials or Generic,
+or invalid for a secret to remove with "educates local secrets remove
+NAME". A file that cannot be read or decoded is invalid, and so is a CA
+certificate with its private key that is neither a CA root key pair nor
+a CA intermediate key pair, which is how 4.0.0 alpha releases cached a
+CA: deploys neither use it nor copy it to a cluster. To keep using such
+a CA, register it as the root CA with "educates local secrets add ca"
+before removing it.
 
 DOMAINS is what the secret is valid for: every wildcard domain of a TLS
 certificate, the ingress domain of a CA intermediate key pair, and the

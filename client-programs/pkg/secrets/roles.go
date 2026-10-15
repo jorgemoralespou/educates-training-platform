@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"crypto/x509"
+	"fmt"
 	"strings"
 
 	apiv1 "k8s.io/api/core/v1"
@@ -34,48 +35,103 @@ const (
 	// it has a *.<domain> DNS name for; see WildcardDomains.
 	TLSCertificateRole CachedSecretRole = "TLS certificate"
 
-	// UnusedCAKeyPairRole is any other Secret holding a CA certificate
-	// as tls.crt with its private key as tls.key, such as a CA cached by
-	// a 4.0.0 alpha release. Deploys neither use it nor copy it to a
-	// cluster.
-	UnusedCAKeyPairRole CachedSecretRole = "Unused CA key pair"
-
 	// RegistryCredentialsRole is a kubernetes.io/dockerconfigjson Secret
 	// holding container registry credentials.
 	RegistryCredentialsRole CachedSecretRole = "Registry credentials"
 
 	// GenericRole is any other Secret.
 	GenericRole CachedSecretRole = "Generic"
+
+	// InvalidRole is a cached entry that no deploy can use, to remove
+	// from the cache. LoadCachedSecret and InvalidCachedSecretReason say
+	// why, as an *InvalidCachedSecretError.
+	InvalidRole CachedSecretRole = "invalid"
 )
+
+// InvalidCachedSecretProblem is why a cached entry is invalid.
+type InvalidCachedSecretProblem int
+
+const (
+	// CachedSecretUnreadable is a cached file that cannot be read or
+	// decoded as a Secret. LoadCachedSecret reports it.
+	CachedSecretUnreadable InvalidCachedSecretProblem = iota
+
+	// CachedSecretUnmanagedCAKey is a Secret holding a CA certificate as
+	// tls.crt with its private key as tls.key under a name that is
+	// neither a CA root key pair nor a CA key pair, so not a CA key the
+	// local secrets cache manages. It is how 4.0.0 alpha releases cached
+	// a CA. Deploys neither use it nor copy it to a cluster.
+	// InvalidCachedSecretReason reports it.
+	CachedSecretUnmanagedCAKey
+)
+
+// InvalidCachedSecretError says why the cached entry Name is invalid.
+type InvalidCachedSecretError struct {
+	Name    string
+	Problem InvalidCachedSecretProblem
+
+	// Err is the read or decode error, for CachedSecretUnreadable.
+	Err error
+}
+
+func (e *InvalidCachedSecretError) Error() string {
+	switch e.Problem {
+	case CachedSecretUnreadable:
+		return e.Err.Error()
+	default:
+		return fmt.Sprintf("cached secret %q holds a CA certificate with its private key under a name that is neither a CA root key pair nor a CA key pair, as 4.0.0 alpha releases cached a CA, so no deploy uses it", e.Name)
+	}
+}
+
+func (e *InvalidCachedSecretError) Unwrap() error {
+	return e.Err
+}
 
 // ClassifyCachedSecret returns the role of the Secret s, cached under
 // name. The names of CA root key pairs and CA key pairs decide their
 // roles, as they decide which root CA a deploy mints from and which CA
 // key pair it uses. Any other Secret gets the first role that fits it,
-// in the order: unused CA key pair, TLS certificate, CA certificate,
-// registry credentials, generic. A TLS certificate that also carries CA
+// in the order: invalid, TLS certificate, CA certificate, registry
+// credentials, generic. A TLS certificate that also carries CA
 // certificates as ca.crt is classified as a TLS certificate, and a
 // deploy does not trust those CA certificates: only a CA certificate is
-// CA trust.
+// CA trust. InvalidCachedSecretReason says why a Secret is invalid.
 func ClassifyCachedSecret(name string, s *apiv1.Secret) CachedSecretRole {
+	role, _ := classifyCachedSecret(name, s)
+	return role
+}
+
+// InvalidCachedSecretReason returns why ClassifyCachedSecret classifies
+// the Secret s, cached under name, as invalid, as an
+// *InvalidCachedSecretError, or nil when it gives s any other role.
+func InvalidCachedSecretReason(name string, s *apiv1.Secret) error {
+	if _, invalid := classifyCachedSecret(name, s); invalid != nil {
+		return invalid
+	}
+	return nil
+}
+
+// classifyCachedSecret is ClassifyCachedSecret, returning for an invalid
+// Secret why it is invalid.
+func classifyCachedSecret(name string, s *apiv1.Secret) (CachedSecretRole, *InvalidCachedSecretError) {
 	if role, ok := ClassifyCachedSecretName(name); ok {
-		return role
+		return role, nil
 	}
 	if cert, err := ParseCertificatePEM(SecretData(s, "tls.crt")); err == nil {
 		switch {
 		case IsCACertificate(cert) && len(SecretData(s, "tls.key")) > 0:
-			return UnusedCAKeyPairRole
+			return InvalidRole, &InvalidCachedSecretError{Name: name, Problem: CachedSecretUnmanagedCAKey}
 		case s.Type == apiv1.SecretTypeTLS && !IsCACertificate(cert):
-			return TLSCertificateRole
+			return TLSCertificateRole, nil
 		}
 	}
 	if CATrustCertificates(s) != nil {
-		return CACertificateRole
+		return CACertificateRole, nil
 	}
 	if s.Type == apiv1.SecretTypeDockerConfigJson {
-		return RegistryCredentialsRole
+		return RegistryCredentialsRole, nil
 	}
-	return GenericRole
+	return GenericRole, nil
 }
 
 // ClassifyCachedSecretName returns the role the name of a cached Secret
@@ -95,9 +151,11 @@ func ClassifyCachedSecretName(name string) (CachedSecretRole, bool) {
 
 // HoldsCAKey reports whether a Secret of role r holds a CA's private
 // key. Such a Secret is copied to a cluster only when it is the CA key
-// pair a deploy selected.
+// pair a deploy selected. A Secret ClassifyCachedSecret classifies as
+// invalid holds one: it holds a CA key the local secrets cache does not
+// manage.
 func (r CachedSecretRole) HoldsCAKey() bool {
-	return r == CARootKeyPairRole || r == CAKeyPairRole || r == UnusedCAKeyPairRole
+	return r == CARootKeyPairRole || r == CAKeyPairRole || r == InvalidRole
 }
 
 // CATrustCertificates returns the CA certificates the ca.crt of s

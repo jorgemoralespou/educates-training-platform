@@ -78,11 +78,12 @@ certificate, the certificate and its chain.`,
 //
 // What it prints follows the secret's role, as `local secrets list` shows
 // it. For a CA certificate it prints ca.crt. For CA material holding a
-// key, a CA root key pair, a CA key pair or an unused CA key pair, it
-// prints the root certificate: ca.crt when the secret records its root
-// there, else tls.crt. For a TLS certificate it prints tls.crt, the
-// certificate and its chain. Any other secret holds no certificate to
-// print.
+// key, a CA root key pair, a CA key pair or an invalid secret, which
+// holds a CA with its key as 4.0.0 alpha releases cached one, it prints
+// the root certificate: ca.crt when the secret records its root there,
+// else tls.crt. So the CA of an invalid secret can be registered as the
+// root CA. For a TLS certificate it prints tls.crt, the certificate and
+// its chain. Any other secret holds no certificate to print.
 func printSecretCertificatePEM(w io.Writer, name string) error {
 	secret, err := secrets.LoadCachedSecret(name)
 	if err != nil {
@@ -101,7 +102,7 @@ func printSecretCertificatePEM(w io.Writer, name string) error {
 	switch secrets.ClassifyCachedSecret(name, secret) {
 	case secrets.CACertificateRole:
 		certs = parse("ca.crt")
-	case secrets.CARootKeyPairRole, secrets.CAKeyPairRole, secrets.UnusedCAKeyPairRole:
+	case secrets.CARootKeyPairRole, secrets.CAKeyPairRole, secrets.InvalidRole:
 		if certs = parse("ca.crt"); certs == nil {
 			certs = parse("tls.crt")
 		}

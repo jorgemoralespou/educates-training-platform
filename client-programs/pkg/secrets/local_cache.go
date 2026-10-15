@@ -123,7 +123,9 @@ func writeFileOwnerOnly(dir, filePath string, data []byte) error {
 
 // LoadCachedSecret reads and decodes the cached secret named name. It
 // returns a clear "no secret named" error when the secret is not cached,
-// so callers can surface that directly.
+// so callers can surface that directly. A cached file that cannot be
+// read or decoded is an invalid entry, and its error is an
+// *InvalidCachedSecretError with the problem CachedSecretUnreadable.
 func LoadCachedSecret(name string) (*apiv1.Secret, error) {
 	secretFilePath := cachedSecretPath(name)
 
@@ -131,10 +133,15 @@ func LoadCachedSecret(name string) (*apiv1.Secret, error) {
 		if os.IsNotExist(err) {
 			return nil, errors.Errorf("no secret named %q in the local secrets cache", name)
 		}
-		return nil, errors.Wrapf(err, "unable to read secret file %q", secretFilePath)
+		return nil, &InvalidCachedSecretError{Name: name, Problem: CachedSecretUnreadable,
+			Err: errors.Wrapf(err, "unable to read secret file %q", secretFilePath)}
 	}
 
-	return decodeCachedSecret(name)
+	secret, err := decodeCachedSecret(name)
+	if err != nil {
+		return nil, &InvalidCachedSecretError{Name: name, Problem: CachedSecretUnreadable, Err: err}
+	}
+	return secret, nil
 }
 
 // ListCachedSecretNames returns the names (without the .yaml suffix) of all

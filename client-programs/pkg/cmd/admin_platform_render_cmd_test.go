@@ -299,6 +299,53 @@ func TestRender_TLSCertificate_ReportsStaticCertificateWithoutWriting(t *testing
 	}
 }
 
+func TestRender_AlphaCAEntry_Ignored(t *testing.T) {
+	// A CA cached with its key by an alpha release, for the very domain
+	// rendered, lists as invalid: render neither references it nor
+	// accepts it in place of a root CA.
+	t.Run("beside a root CA", func(t *testing.T) {
+		dataHome := withRootCA(t)
+		cacheAlphaCA(t, "workshop.test-ca", testpki.NewRootCA(), "workshop.test")
+		if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
+		var buf bytes.Buffer
+		if err := p.runRender(&buf, &PlatformRenderOptions{LocalConfig: true}); err != nil {
+			t.Fatalf("runRender: %v", err)
+		}
+
+		s := buf.String()
+		for _, want := range []string{
+			"caKeyPairSecretRef:\n            name: workshop.test-ca-key-pair\n",
+			"caCertificateSecretRef:\n            name: test-ca\n",
+		} {
+			if !strings.Contains(s, want) {
+				t.Errorf("render output missing %q:\n%s", want, s)
+			}
+		}
+		if strings.Contains(s, "name: workshop.test-ca\n") {
+			t.Errorf("render output references the alpha CA:\n%s", s)
+		}
+	})
+
+	t.Run("alone", func(t *testing.T) {
+		dataHome := t.TempDir()
+		t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+		cacheAlphaCA(t, "workshop.test-ca", testpki.NewRootCA(), "workshop.test")
+		if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
+		err := p.runRender(&bytes.Buffer{}, &PlatformRenderOptions{LocalConfig: true})
+		if err == nil || !strings.Contains(err.Error(), "educates local secrets add ca <name>") {
+			t.Errorf("render error = %v, want one saying no root CA is cached", err)
+		}
+	})
+}
+
 func TestRender_EscapeKind_PureUserOutput(t *testing.T) {
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
 	o := &PlatformRenderOptions{Config: writeFixture(t, escapeMinimal)}

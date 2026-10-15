@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -195,19 +196,93 @@ func TestLocalSecretsList_SecretsWithoutCertificates(t *testing.T) {
 	assertListRow(t, rows, "api-token", map[string]string{"TYPE": "Generic"})
 }
 
-func TestLocalSecretsList_AlphaCAShownAsUnusedCAKeyPair(t *testing.T) {
-	// A CA cached by a 4.0.0 alpha release: a kubernetes.io/tls Secret
-	// holding a CA certificate and its key, annotated with a domain.
-	// Deploys neither use nor copy it, so it is valid for no domain.
+// cacheAlphaCA caches ca under name in the shape 4.0.0 alpha releases
+// cached a CA: a kubernetes.io/tls Secret holding the CA certificate and
+// its private key, annotated with the ingress domain it was for.
+func cacheAlphaCA(t *testing.T, name string, ca *testpki.Certificate, domain string) {
+	t.Helper()
+	if err := secrets.WriteCachedSecret(withDomainAnnotation(secrets.NewTLSSecret(name, ca.CertPEM, ca.KeyPEM), domain)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLocalSecretsList_AlphaCAListedAsInvalid(t *testing.T) {
+	// Deploys neither use nor copy a CA cached by an alpha release, so it
+	// is valid for no domain and lists as invalid, for the user to
+	// migrate and remove. Its subject and expiry still identify it.
 	withSecretsCache(t)
-	alpha := testpki.NewRootCA(testpki.WithCommonName("alpha root"), validUntil(2034, time.May, 9))
-	if err := secrets.WriteCachedSecret(withDomainAnnotation(secrets.NewTLSSecret("workshops-ca", alpha.CertPEM, alpha.KeyPEM), "workshops.test")); err != nil {
+	cacheAlphaCA(t, "workshops-ca", testpki.NewRootCA(testpki.WithCommonName("alpha root"), validUntil(2034, time.May, 9)), "workshops.test")
+	corporate := testpki.NewRootCA(testpki.WithCommonName("corporate root"), validUntil(2031, time.March, 4))
+	if err := secrets.WriteCachedSecret(secrets.NewCATrustSecret("corporate-ca", corporate.CertPEM)); err != nil {
 		t.Fatal(err)
 	}
 
-	assertListRow(t, listCachedSecrets(t), "workshops-ca", map[string]string{
-		"TYPE": "Unused CA key pair", "DOMAINS": "", "SUBJECT": "alpha root", "EXPIRES": "2034-05-09",
+	rows := listCachedSecrets(t)
+	assertListRow(t, rows, "workshops-ca", map[string]string{
+		"TYPE": "invalid", "DOMAINS": "", "SUBJECT": "alpha root", "EXPIRES": "2034-05-09",
 	})
+	assertListRow(t, rows, "corporate-ca", map[string]string{
+		"TYPE": "CA certificate", "DOMAINS": "any", "SUBJECT": "corporate root", "EXPIRES": "2031-03-04",
+	})
+}
+
+// exportedTLSKey returns the private key the cached Secret name holds as
+// tls.key, extracted from what `educates local secrets export NAME`
+// prints, the cached file as it is, the way the release notes extract
+// it: awk '$1 == "tls.key:" {print $2}' | base64 --decode.
+func exportedTLSKey(t *testing.T, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(secretsCacheDir(), name+".yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if fields := strings.Fields(line); len(fields) >= 2 && fields[0] == "tls.key:" {
+			key, err := base64.StdEncoding.DecodeString(fields[1])
+			if err != nil {
+				t.Fatalf("tls.key of %s does not decode: %v", name, err)
+			}
+			return key
+		}
+	}
+	t.Fatalf("export of %s has no tls.key line:\n%s", name, data)
+	return nil
+}
+
+func TestLocalSecretsList_AlphaCAReRegisteredAsTheRoot_ListsNoInvalidEntry(t *testing.T) {
+	// The migration the release notes give for a CA cached by an alpha
+	// release: register its certificate and key as the root CA under a
+	// new name, then remove the old entry.
+	withSecretsCache(t)
+	alpha := testpki.NewRootCA(testpki.WithCommonName("alpha root"), validUntil(2034, time.May, 9))
+	cacheAlphaCA(t, "workshops-ca", alpha, "workshops.test")
+
+	certPEM, err := exportPEM(t, "workshops-ca")
+	if err != nil {
+		t.Fatalf("export --pem: %v", err)
+	}
+	files := writeFiles(t, []byte(certPEM), exportedTLSKey(t, "workshops-ca"))
+	if err := (&LocalSecretsAddCaOptions{CertFile: files[0], KeyFile: files[1]}).Run(&bytes.Buffer{}, "educates-ca"); err != nil {
+		t.Fatalf("add ca beside the alpha CA: %v", err)
+	}
+	if err := (&LocalSecretsRemoveOptions{}).Run(&bytes.Buffer{}, "workshops-ca"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	rows := listCachedSecrets(t)
+	if len(rows) != 2 {
+		t.Errorf("list has %d rows, want the root CA's two", len(rows))
+	}
+	for _, name := range []string{"educates-ca", "educates-ca-root-key-pair"} {
+		want := map[string]string{"TYPE": "CA certificate", "DOMAINS": "any", "SUBJECT": "alpha root", "EXPIRES": "2034-05-09"}
+		if name == "educates-ca-root-key-pair" {
+			want["TYPE"] = "CA root key pair"
+		}
+		assertListRow(t, rows, name, want)
+	}
+	if got := assertRootRegistered(t, "educates-ca"); !got.Equal(alpha.Cert) {
+		t.Errorf("registered root %q, want the alpha CA %q", got.Subject, alpha.Cert.Subject)
+	}
 }
 
 func TestLocalSecretsList_ExpiredCertificateShowsExpired(t *testing.T) {
