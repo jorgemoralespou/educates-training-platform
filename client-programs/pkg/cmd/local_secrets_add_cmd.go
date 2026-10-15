@@ -94,6 +94,16 @@ domain. To %s, remove the existing one first:
   educates local secrets remove %s`, secrets.QuoteNames(roots), action, roots[0])
 }
 
+// reservedNameError refuses name for a Secret of kind what when the name
+// alone classifies a cached Secret as CA material the local secrets cache
+// manages, and returns nil for any other name.
+func reservedNameError(name, what string) error {
+	if role, ok := secrets.ClassifyCachedSecretName(name); ok {
+		return errors.Errorf("invalid %s name %q: it is reserved for a %s, which the local secrets cache manages", what, name, role)
+	}
+	return nil
+}
+
 // rootCANameError refuses to cache a Secret of kind what under name, the
 // name of the root CA, whose CA trust Secret deploys reference.
 func rootCANameError(name, what string) error {

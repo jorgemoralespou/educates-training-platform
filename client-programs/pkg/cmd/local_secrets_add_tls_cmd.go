@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"slices"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -32,8 +31,8 @@ func (o *LocalSecretsAddTlsOptions) Run(name string) error {
 	if o.CertFile == "" || o.KeyFile == "" {
 		return errors.New("add tls needs --cert and --key: pass the wildcard certificate together with its private key")
 	}
-	if suffix := reservedNameSuffix(name); suffix != "" {
-		return errors.Errorf("invalid TLS certificate name %q: names ending in %q are reserved for the CA key pairs the local secrets cache manages", name, suffix)
+	if err := reservedNameError(name, "TLS certificate"); err != nil {
+		return err
 	}
 	roots, err := secrets.CachedRootCAs()
 	if err != nil {
@@ -61,18 +60,6 @@ func (o *LocalSecretsAddTlsOptions) Run(name string) error {
 	}
 
 	return secrets.WriteCachedSecret(secrets.NewTLSSecret(name, secrets.EncodeCertificatesPEM(kp.Chain), keyPEM))
-}
-
-// reservedNameSuffix returns the suffix of name that the local secrets
-// cache reserves for the CA key pairs it manages, or "" when name ends in
-// none of them.
-func reservedNameSuffix(name string) string {
-	for _, suffix := range []string{secrets.RootKeyPairSuffix, secrets.CAKeyPairSuffix} {
-		if strings.HasSuffix(name, suffix) {
-			return suffix
-		}
-	}
-	return ""
 }
 
 func (p *ProjectInfo) NewLocalSecretsAddTlsCmd() *cobra.Command {

@@ -83,15 +83,15 @@ func (o *LocalSecretsImportOptions) Run() error {
 }
 
 // checkImportedRootCAs enforces the one-root rule of the local secrets
-// cache on the Secrets an import adds: a Secret named with
-// secrets.RootKeyPairSuffix is a CA root key pair, and the cache may end
-// up with only one. Importing the root CA the cache already holds, such
+// cache on the Secrets an import adds: a Secret whose name classifies it
+// as a CA root key pair adds a root CA, and the cache may end up with
+// only one. Importing the root CA the cache already holds, such
 // as from an export of the same cache, is allowed.
 func checkImportedRootCAs(imported []*apiv1.Secret) error {
 	importedRoots := map[string]*apiv1.Secret{}
 	var names []string
 	for _, s := range imported {
-		if root, ok := strings.CutSuffix(s.Name, secrets.RootKeyPairSuffix); ok {
+		if root, ok := secrets.RootCAName(s.Name); ok {
 			if _, seen := importedRoots[root]; !seen {
 				names = append(names, root)
 			}

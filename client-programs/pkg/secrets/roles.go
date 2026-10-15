@@ -58,11 +58,8 @@ const (
 // those CA certificates can still verify another TLS certificate's
 // chain.
 func ClassifyCachedSecret(name string, s *apiv1.Secret) CachedSecretRole {
-	switch {
-	case strings.HasSuffix(name, RootKeyPairSuffix):
-		return CARootKeyPairRole
-	case strings.HasSuffix(name, CAKeyPairSuffix):
-		return CAKeyPairRole
+	if role, ok := ClassifyCachedSecretName(name); ok {
+		return role
 	}
 	if cert, err := ParseCertificatePEM(SecretData(s, "tls.crt")); err == nil {
 		switch {
@@ -79,6 +76,21 @@ func ClassifyCachedSecret(name string, s *apiv1.Secret) CachedSecretRole {
 		return RegistryCredentialsRole
 	}
 	return GenericRole
+}
+
+// ClassifyCachedSecretName returns the role the name of a cached Secret
+// decides on its own, a CA root key pair or a CA key pair, and false for
+// any other name, whose role depends on what the Secret holds. It is
+// the classification of a name that has no Secret yet, or whose Secret
+// cannot be read.
+func ClassifyCachedSecretName(name string) (CachedSecretRole, bool) {
+	if _, ok := RootCAName(name); ok {
+		return CARootKeyPairRole, true
+	}
+	if strings.HasSuffix(name, CAKeyPairSuffix) {
+		return CAKeyPairRole, true
+	}
+	return "", false
 }
 
 // HoldsCAKey reports whether a Secret of role r holds a CA's private

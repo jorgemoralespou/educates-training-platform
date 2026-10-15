@@ -190,7 +190,10 @@ func RemoveCachedSecret(name string) error {
 // A cached file that cannot be decoded names no root, so it is left in
 // place. Removing a secret that is not cached is not an error.
 func RemoveCachedSecretAndDependents(name string) ([]string, error) {
-	root := strings.TrimSuffix(name, RootKeyPairSuffix)
+	root := name
+	if r, ok := RootCAName(name); ok {
+		root = r
+	}
 
 	names, err := ListCachedSecretNames()
 	if err != nil {
@@ -274,6 +277,13 @@ func RootKeyPairName(root string) string {
 	return root + RootKeyPairSuffix
 }
 
+// RootCAName is the inverse of RootKeyPairName: the name of the root CA
+// whose CA root key pair is named keyPair, and false when keyPair is not
+// the name of a CA root key pair.
+func RootCAName(keyPair string) (string, bool) {
+	return strings.CutSuffix(keyPair, RootKeyPairSuffix)
+}
+
 // CAKeyPairName is the name of the CA key pair minted for ingress domain
 // domain.
 func CAKeyPairName(domain string) string {
@@ -340,7 +350,7 @@ func CachedRootCAs() ([]string, error) {
 	}
 	var roots []string
 	for _, name := range names {
-		if root, ok := strings.CutSuffix(name, RootKeyPairSuffix); ok {
+		if root, ok := RootCAName(name); ok {
 			roots = append(roots, root)
 		}
 	}

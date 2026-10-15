@@ -76,26 +76,39 @@ certificate, the certificate and its chain.`,
 // from what it parsed, so no private key or other data is ever printed,
 // whatever the secret holds.
 //
-// For a CA it prints the root certificate: the ca.crt of a CA key pair,
-// and the certificate of a CA trust Secret or CA root key pair. For a TLS
-// certificate it prints tls.crt, the certificate and its chain.
+// What it prints follows the secret's role, as `local secrets list` shows
+// it. For a CA certificate it prints ca.crt. For CA material holding a
+// key, a CA root key pair, a CA key pair or an unused CA key pair, it
+// prints the root certificate: ca.crt when the secret records its root
+// there, else tls.crt. For a TLS certificate it prints tls.crt, the
+// certificate and its chain. Any other secret holds no certificate to
+// print.
 func printSecretCertificatePEM(w io.Writer, name string) error {
 	secret, err := secrets.LoadCachedSecret(name)
 	if err != nil {
 		return err
 	}
 
-	tlsCerts, tlsErr := secrets.ParseCertificatesPEM(secrets.SecretData(secret, "tls.crt"))
-	caCerts, caErr := secrets.ParseCertificatesPEM(secrets.SecretData(secret, "ca.crt"))
+	parse := func(key string) []*x509.Certificate {
+		certs, err := secrets.ParseCertificatesPEM(secrets.SecretData(secret, key))
+		if err != nil {
+			return nil
+		}
+		return certs
+	}
 
 	var certs []*x509.Certificate
-	switch {
-	case caErr == nil && (tlsErr != nil || secrets.IsCACertificate(tlsCerts[0])):
-		// A CA trust Secret, or CA material that records its root.
-		certs = caCerts
-	case tlsErr == nil:
-		certs = tlsCerts
-	default:
+	switch secrets.ClassifyCachedSecret(name, secret) {
+	case secrets.CACertificateRole:
+		certs = parse("ca.crt")
+	case secrets.CARootKeyPairRole, secrets.CAKeyPairRole, secrets.UnusedCAKeyPairRole:
+		if certs = parse("ca.crt"); certs == nil {
+			certs = parse("tls.crt")
+		}
+	case secrets.TLSCertificateRole:
+		certs = parse("tls.crt")
+	}
+	if certs == nil {
 		return errors.Errorf("secret %q does not contain a certificate", name)
 	}
 

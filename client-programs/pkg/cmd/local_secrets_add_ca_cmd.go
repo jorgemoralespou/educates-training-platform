@@ -40,8 +40,8 @@ type LocalSecretsAddCaOptions struct {
 // and never leaves this machine. Deploys mint a CA for each ingress
 // domain from the root. The cache holds at most one root.
 func (o *LocalSecretsAddCaOptions) Run(w io.Writer, name string) error {
-	if suffix := reservedNameSuffix(name); suffix != "" {
-		return errors.Errorf("invalid CA name %q: names ending in %q are reserved for the CA key pairs the local secrets cache manages", name, suffix)
+	if err := reservedNameError(name, "CA"); err != nil {
+		return err
 	}
 	if o.KeyFile != "" && o.CertFile == "" {
 		return errors.New("--key needs --cert: pass the root CA certificate together with its private key")

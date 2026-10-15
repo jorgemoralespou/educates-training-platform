@@ -515,11 +515,11 @@ func syncSecretNames(names []string, selected string) []string {
 // holdsCAKey reports whether the cached Secret name holds a CA's private
 // key: a CA root key pair, a CA key pair, or an unused CA key pair, such
 // as a CA cached by an alpha release. A Secret that cannot be read counts
-// only when its name is that of a CA root key pair or a CA key pair;
-// otherwise the sync reports it.
+// only when its name alone classifies it as a CA root key pair or a CA
+// key pair; otherwise the sync reports it.
 func holdsCAKey(name string) bool {
-	if strings.HasSuffix(name, secrets.RootKeyPairSuffix) || strings.HasSuffix(name, secrets.CAKeyPairSuffix) {
-		return true
+	if role, ok := secrets.ClassifyCachedSecretName(name); ok {
+		return role.HoldsCAKey()
 	}
 	s, err := secrets.LoadCachedSecret(name)
 	return err == nil && secrets.ClassifyCachedSecret(name, s).HoldsCAKey()
