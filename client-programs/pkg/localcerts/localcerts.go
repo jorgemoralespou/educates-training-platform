@@ -44,8 +44,9 @@ type Plan struct {
 	Certificates translator.LocalCertificates
 
 	// SyncSecretNames names the cached Secrets a deploy pushes into the
-	// secrets.SyncNamespace namespace, sorted. It includes a CA key pair
-	// the plan mints, which is in the cache once the plan is committed.
+	// secrets.LocalSecretsSyncNamespace namespace, sorted. It includes a
+	// CA key pair the plan mints, which is in the cache once the plan is
+	// committed.
 	SyncSecretNames []string
 
 	// Notices tell the user about the decision.
@@ -56,12 +57,12 @@ type Plan struct {
 
 	// mints are the CA key pairs the plan minted, which Commit writes to
 	// the cache.
-	mints []mint
+	mints []mintedCAKeyPair
 }
 
-// mint is a CA key pair minted for the plan and the line Commit prints
-// when it writes it.
-type mint struct {
+// mintedCAKeyPair is a CA key pair minted for the plan and the line
+// Commit prints when it writes it.
+type mintedCAKeyPair struct {
 	secret *apiv1.Secret
 	note   string
 }
@@ -125,8 +126,8 @@ func Resolve(cfg *v1alpha1.EducatesLocalConfig) (*Plan, error) {
 	plan.Certificates = translator.LocalCertificates{
 		Provider: translator.CertificatesProviderBundledCertManager,
 		CustomCA: &translator.LocalCustomCA{
-			CAKeyPairSecretRef:     translator.SecretRef{Name: keyPair, Namespace: secrets.SyncNamespace},
-			CACertificateSecretRef: &translator.SecretRef{Name: root.name, Namespace: secrets.SyncNamespace},
+			CAKeyPairSecretRef:     translator.SecretRef{Name: keyPair, Namespace: secrets.LocalSecretsSyncNamespace},
+			CACertificateSecretRef: &translator.SecretRef{Name: root.name, Namespace: secrets.LocalSecretsSyncNamespace},
 		},
 	}
 	plan.SyncSecretNames = syncSecretNames(names, keyPair)
@@ -134,7 +135,7 @@ func Resolve(cfg *v1alpha1.EducatesLocalConfig) (*Plan, error) {
 }
 
 // ResolveSync resolves what `educates local secrets sync` pushes into the
-// secrets.SyncNamespace namespace. With a local config at
+// secrets.LocalSecretsSyncNamespace namespace. With a local config at
 // <data-home>/config.yaml that has an ingress.domain, it is the plan
 // Resolve makes for that config. Without one, or for a config whose
 // install derives its domain from the host IP and so serves plain HTTP,
@@ -259,10 +260,10 @@ func loadTLSCertificate(name string) *tlsCertificate {
 // domains c covers, and warns when no cached CA certificate verifies c.
 func (p *Plan) useStaticCertificate(c *tlsCertificate, domain string, names []string) {
 	static := &translator.LocalStaticCertificate{
-		TLSSecretRef: translator.SecretRef{Name: c.name, Namespace: secrets.SyncNamespace},
+		TLSSecretRef: translator.SecretRef{Name: c.name, Namespace: secrets.LocalSecretsSyncNamespace},
 	}
 	if ca := verifyingCACertificate(names, c); ca != "" {
-		static.CACertificateSecretRef = &translator.SecretRef{Name: ca, Namespace: secrets.SyncNamespace}
+		static.CACertificateSecretRef = &translator.SecretRef{Name: ca, Namespace: secrets.LocalSecretsSyncNamespace}
 	} else {
 		p.Warnings = append(p.Warnings, fmt.Sprintf(`no CA certificate in the local secrets cache verifies TLS certificate
 %q, so the training portal and workshop sessions will not trust the
@@ -484,7 +485,7 @@ func (p *Plan) caKeyPairFor(domain string, root *rootCA) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("mint CA key pair %q from root CA %q: %w", name, root.name, err)
 	}
-	p.mints = append(p.mints, mint{
+	p.mints = append(p.mints, mintedCAKeyPair{
 		secret: secrets.NewCAKeyPairSecret(domain, root.name, certPEM, keyPEM, root.certPEM),
 		note:   note,
 	})

@@ -24,22 +24,22 @@ func secretsCacheDir() string {
 	return path.Join(utils.GetEducatesHomeDir(), "secrets")
 }
 
-// SyncNamespace is the cluster namespace the local secrets cache is
-// synced into.
-const SyncNamespace = "educates-secrets"
+// LocalSecretsSyncNamespace is the cluster namespace the local secrets
+// cache is synced into.
+const LocalSecretsSyncNamespace = "educates-secrets"
 
-// SyncLocalCachedSecretsToCluster ensures the SyncNamespace namespace
-// exists and copies the named Secrets from the local cache into it,
-// creating or updating each one.
+// SyncLocalCachedSecretsToCluster ensures the LocalSecretsSyncNamespace
+// namespace exists and copies the named Secrets from the local cache into
+// it, creating or updating each one.
 func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset, names []string) error {
 	namespacesClient := client.CoreV1().Namespaces()
 
-	_, err := namespacesClient.Get(context.TODO(), SyncNamespace, metav1.GetOptions{})
+	_, err := namespacesClient.Get(context.TODO(), LocalSecretsSyncNamespace, metav1.GetOptions{})
 
 	if k8serrors.IsNotFound(err) {
 		namespaceObj := apiv1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: SyncNamespace,
+				Name: LocalSecretsSyncNamespace,
 			},
 		}
 
@@ -50,13 +50,13 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset, names []strin
 		// masks the real cause (typically: kubeconfig user lacks
 		// 'create namespaces').
 		if _, err := namespacesClient.Create(context.TODO(), &namespaceObj, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
-			return errors.Wrapf(err, "unable to create namespace %q for local secrets sync", SyncNamespace)
+			return errors.Wrapf(err, "unable to create namespace %q for local secrets sync", LocalSecretsSyncNamespace)
 		}
 	} else if err != nil {
-		return errors.Wrapf(err, "unable to check namespace %q for local secrets sync", SyncNamespace)
+		return errors.Wrapf(err, "unable to check namespace %q for local secrets sync", LocalSecretsSyncNamespace)
 	}
 
-	secretsClient := client.CoreV1().Secrets(SyncNamespace)
+	secretsClient := client.CoreV1().Secrets(LocalSecretsSyncNamespace)
 
 	for _, name := range names {
 		secretObj, err := decodeFileIntoSecret(name + ".yaml")
@@ -84,9 +84,9 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset, names []strin
 			var patch *applycorev1.SecretApplyConfiguration
 
 			if len(secretObj.StringData) != 0 {
-				patch = applycorev1.Secret(name, SyncNamespace).WithType(secretObj.Type).WithStringData(secretObj.StringData)
+				patch = applycorev1.Secret(name, LocalSecretsSyncNamespace).WithType(secretObj.Type).WithStringData(secretObj.StringData)
 			} else {
-				patch = applycorev1.Secret(name, SyncNamespace).WithType(secretObj.Type).WithData(secretObj.Data)
+				patch = applycorev1.Secret(name, LocalSecretsSyncNamespace).WithType(secretObj.Type).WithData(secretObj.Data)
 			}
 
 			_, err = secretsClient.Apply(context.TODO(), patch, metav1.ApplyOptions{FieldManager: "educates-cli", Force: true})
