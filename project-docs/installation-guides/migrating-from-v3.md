@@ -52,8 +52,8 @@ Common v3 values map to v4 fields as follows:
 | v3 values.yaml                          | v4 equivalent                                              |
 |-----------------------------------------|------------------------------------------------------------|
 | clusterIngress.domain                   | domain (GKE/EKS/Inline kinds) / ingress.domain (Local)     |
-| clusterIngress.tlsCertificateRef        | wildcardCertificateSecret (Inline) — Secret must live in   |
-|                                         | the operator namespace                                     |
+| clusterIngress.tlsCertificateRef        | wildcardCertificateSecret (Inline), a Secret in the        |
+|                                         | operator namespace / local secrets add tls (Local)         |
 | clusterIngress.caCertificateRef         | caCertificateSecret (Inline) / local secrets add ca (Local)|
 | clusterIngress.protocol                 | ingress.insecure: true (Local, plain HTTP) /               |
 |                                         | externalTLSTermination: true (GKE/EKS/Inline kinds)        |
@@ -80,7 +80,7 @@ For local kind-cluster users, the v4 CLI migrates your configuration on first us
 
 If the v3 file's provider is anything other than kind or empty, the CLI refuses with instructions instead: cloud and BYO configurations carry intent the CLI cannot infer (DNS, ACME, identity wiring), so they must be re-declared against a v4 kind as described above. The `values.yaml` is left untouched for reference.
 
-One caveat: v3 cached its local CA differently (an `Opaque` Secret holding only the certificate). v4's install mints a CA for the ingress domain from a root CA whose key is cached on your machine, so a v3-cached CA certificate alone cannot sign. The migration warns about this. Generate a root CA with the following command, or register the root CA you used with v3 together with its key by adding `--cert` and `--key`:
+One caveat concerns the local secrets cache. v3 cached its local CA as an `Opaque` Secret holding only the CA certificate as `ca.crt`, which v4 uses unchanged as a CA trust Secret. If the cache also holds the wildcard certificate for your ingress domain, as the v3 `mkcert` setup left it, v4 deploys serve that certificate with the `StaticCertificate` certificates provider, trust the cached CA certificate its chain verifies against, and install no cert-manager, so nothing needs to be registered again. The domain annotation v3 put on both Secrets is ignored: a wildcard certificate serves the domains of its `*.<domain>` DNS names. The migration prints a note about this. Without a cached wildcard certificate, the v3 CA certificate alone cannot sign, since v4 mints a CA for the ingress domain from a root CA whose key is cached on your machine. Generate a root CA with the following command, or register the root CA you used with v3 together with its key by adding `--cert` and `--key`:
 
 ```shell
 educates local secrets add ca <name>

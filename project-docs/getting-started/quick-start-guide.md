@@ -135,7 +135,7 @@ This command will perform the following steps:
 
 * Deploy an image registry accessible via port 5001 on the local machine, and configure the cluster to trust it.
 
-* Install the Educates operator, which in turn installs the required cluster services: Contour as the ingress controller exposed via ports 80/443 on the local machine, and a security policy engine. When you configure trusted HTTPS, cert-manager is also installed to issue TLS certificates from a CA minted from your local root CA.
+* Install the Educates operator, which in turn installs the required cluster services: Contour as the ingress controller exposed via ports 80/443 on the local machine, and a security policy engine. When you configure trusted HTTPS with a local root CA, cert-manager is also installed to issue TLS certificates from a CA minted from that root.
 
 * Deploy the Educates training platform components.
 
@@ -165,7 +165,7 @@ Next, set the ingress domain in the configuration. Setting a domain turns off th
 educates local config set ingress.domain educates-local-dev.test
 ```
 
-Then create a root certificate authority (CA). With no `--cert`/`--key` arguments a root CA is generated for you and cached locally. Its private key never leaves your machine: each cluster receives only a CA that Educates mints from the root for the cluster's ingress domain, so you trust the root once and it covers every ingress domain you use locally. If you use `mkcert`, you can register its root CA with its key instead, so that you do not trust a second root; see [the local environment guide](custom-ingress-domain). Create the root CA with:
+Then create a root certificate authority (CA). With no `--cert`/`--key` arguments a root CA is generated for you and cached locally. Its private key never leaves your machine: each cluster receives only a CA that Educates mints from the root for the cluster's ingress domain, so you trust the root once and it covers every ingress domain you use locally. If you use `mkcert`, you can register its root CA with its key instead, so that you do not trust a second root, or serve a `mkcert` wildcard certificate, which installs no cert-manager; see [the local environment guide](custom-ingress-domain) for both. Create the root CA with:
 
 ```
 educates local secrets add ca educates-local-ca
@@ -183,7 +183,7 @@ Educates mints a CA for `educates-local-dev.test` from your root CA, installs ce
 Trusting the workshop certificates
 ----------------------------------
 
-Workshop URLs are then served with TLS certificates that chain to your local root CA. Until the root CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session. If you registered the root CA of `mkcert`, which `mkcert -install` already trusts, there is nothing to import.
+Workshop URLs are then served with TLS certificates that chain to your local root CA, or with your `mkcert` wildcard certificate. Until the root CA certificate is imported into your operating system trust store, your browser will warn that the connection is not private every time you open the training portal or a workshop session. If you registered the root CA of `mkcert`, or serve a `mkcert` wildcard certificate, there is nothing to import, since `mkcert -install` already trusts its root.
 
 First export the root CA certificate from the local secrets cache as a PEM file:
 

@@ -64,10 +64,13 @@ New Features
   ``*.<domain>``, ``WildcardCertificateExpired``, or
   ``WildcardCertificateUntrusted`` when its chain does not verify against the
   CA trust secret. A certificate that expires while the cluster runs is
-  reported without any change to the configuration. The provider is selected
-  through the ``EducatesConfig`` configuration kind or by applying the
-  ``EducatesClusterConfig`` directly. The ``ExternalCertManager`` provider
-  remains reserved and is rejected as not yet supported.
+  reported without any change to the configuration. A local configuration
+  selects the provider when a cached wildcard certificate covers its ingress
+  domain, as described in the entry on local wildcard certificates; other
+  installs select it through the ``EducatesConfig`` configuration kind or by
+  applying the ``EducatesClusterConfig`` directly. The
+  ``ExternalCertManager`` provider remains reserved and is rejected as not
+  yet supported.
 
 * A standalone ``educates-training-platform`` umbrella Helm chart, with
   subcharts for the secrets-manager, lookup-service and session-manager
@@ -145,6 +148,33 @@ New Features
   every CA minted from it, so a root is replaced by removing it and
   registering the new one. With ``--cert`` alone, ``add ca`` caches a CA
   certificate for trust only.
+
+* Local clusters can serve a wildcard certificate you already have, such as
+  one created with ``mkcert``, and then install no cert-manager.
+  ``educates local secrets add tls NAME --cert FILE --key FILE`` caches the
+  certificate, with any intermediate certificates that follow it, and its
+  private key, after checking that the certificate is not a CA, that the key
+  matches it, and that it has at least one ``*.<domain>`` DNS name. A cached
+  TLS certificate serves every domain it has a wildcard DNS name for, so one
+  certificate created for several wildcard domains serves whichever of them
+  the local configuration selects. When exactly one cached TLS certificate
+  that has not expired covers ``ingress.domain``, a deploy uses the
+  ``StaticCertificate`` certificates provider, even when a root CA is also
+  cached. It references the certificate as
+  ``staticCertificate.tlsSecretRef`` and, as
+  ``staticCertificate.caCertificateSecretRef``, the cached CA certificate the
+  certificate's chain verifies against, such as the root CA certificate of
+  ``mkcert`` cached with ``educates local secrets add ca NAME --cert``. The
+  deploy says that cert-manager will not be installed, names the certificate
+  to remove with ``educates local secrets remove`` to have cert-manager
+  instead, and lists the other domains the certificate covers;
+  ``educates admin platform render`` shows the same as comments. It warns
+  when no cached CA certificate verifies the certificate, since the training
+  portal and workshop sessions would not trust the ingress. Expired TLS
+  certificates are skipped with a notice, and more than one valid
+  certificate for the domain is an error naming them. A version 3 local
+  secrets cache holding a ``mkcert`` wildcard certificate and the CA
+  certificate that issued it deploys this way as it is.
 
 * TLS termination by an external load balancer or proxy in front of the
   cluster is now supported by setting ``externalTLSTermination`` in the CLI
@@ -698,9 +728,10 @@ Deprecations
   provides certificate settings, which is a wildcard certificate, a
   certificate authority, or ACME issuer details. On local clusters with a
   custom ingress domain, ``educates local cluster create`` stops before
-  creating anything when no root CA is cached, and prints the
-  ``educates local secrets add ca`` commands that generate a root CA or
-  register the root CA of ``mkcert``. A local configuration with no ingress
+  creating anything when neither a root CA nor a wildcard certificate for the
+  domain is cached, and prints the commands that generate a root CA,
+  register the root CA of ``mkcert``, or cache a ``mkcert`` wildcard
+  certificate. A local configuration with no ingress
   domain set instead defaults to a plain HTTP install on a
   ``<host-IP>.nip.io`` address and needs no CA, since that address cannot
   obtain a trusted certificate. Set ``ingress.insecure`` to request plain
@@ -708,9 +739,12 @@ Deprecations
   installing without in-cluster TLS for the full picture.
 
 * The local secrets cache stores certificate authorities in a new shape,
-  and ``educates local secrets add ca`` no longer takes a ``--domain``
-  option: a root CA serves every ingress domain, and a deploy decides the
-  domain from ``ingress.domain``. A root CA named ``NAME`` is cached as the
+  and ``educates local secrets add ca`` and ``educates local secrets add tls``
+  no longer take a ``--domain`` option: a root CA serves every ingress
+  domain, a TLS certificate serves the domains of its wildcard DNS names,
+  and a deploy decides the domain from ``ingress.domain``.
+  ``educates local secrets add tls`` now requires both ``--cert`` and
+  ``--key`` and refuses a certificate it cannot serve. A root CA named ``NAME`` is cached as the
   CA trust secret ``NAME``, an ``Opaque`` secret holding the root
   certificate as ``ca.crt``, and the CA root key pair
   ``NAME-root-key-pair``, a ``kubernetes.io/tls`` secret holding the root
