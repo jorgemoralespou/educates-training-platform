@@ -196,7 +196,7 @@ Runtime behavior settings live on the `SessionManager` custom resource spec, rea
 * `images` — per-image overrides for runtime-spawned images.
 * `themes`/`defaultTheme` — Secret-sourced workshop themes.
 * `imagePrePuller` — pre-pull key images on cluster nodes.
-* `nodeCATrust`, `remoteAccess` — node-level CA trust injection and cross-cluster CLI access.
+* `nodeCATrust`, `remoteAccess` — node-level CA trust injection and cross-cluster CLI access. With `nodeCATrust.mode` at its default, `Auto`, the node CA injector is installed whenever the cluster publishes a CA, which includes every Managed mode install with a custom CA. Set it to `Disabled` to keep the privileged node CA injector DaemonSet off.
 
 Use `kubectl explain sessionmanager.spec` for the full schema. A few spec blocks (`defaultAccessCredentials`, `registryMirrors`, and ConfigMap/URL-sourced themes) are reserved in the CRD but rejected as not yet supported in this release.
 

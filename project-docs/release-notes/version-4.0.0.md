@@ -512,6 +512,48 @@ Features Changed
   change and pointing at ``educates admin platform delete`` or recreating the
   cluster.
 
+* The custom CA of the ``BundledCertManager`` certificates provider in
+  ``Managed`` mode is now named by
+  ``ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef``,
+  which replaces ``caCertificateRef``. It references the CA key pair
+  cert-manager signs the wildcard certificate with: a secret holding the CA
+  certificate under ``tls.crt`` and its private key under ``tls.key``, and
+  optionally the root certificate under ``ca.crt``. The operator now checks
+  that the secret holds both keys and that its certificate is a CA before
+  cert-manager is involved, and reports a problem on the
+  ``CertificatesReady`` condition with a reason naming it, being
+  ``CAKeyPairNotFound``, ``CAKeyPairIncomplete``,
+  ``CAKeyPairInvalidCertificate`` or ``CAKeyPairNotCA``. A new optional field,
+  ``customCA.caCertificateSecretRef``, references a CA trust secret holding,
+  under ``ca.crt``, the certificate Educates components should trust, for
+  example the root of an intermediate CA used as the key pair. Both
+  references take an optional ``namespace``, which defaults to the operator
+  namespace. Local deploys emit the new field name.
+
+* In ``Managed`` mode with a custom CA, Educates components now receive the
+  CA certificate through a secret named ``educates-ingress-ca`` that the
+  operator creates and owns in its own namespace, and publishes as
+  ``status.ingress.caCertificateSecretRef`` of the ``EducatesClusterConfig``.
+  The secret holds a single key, ``ca.crt``, and never a private key, whatever
+  the source secret holds. The certificate comes from the CA trust secret when
+  one is referenced, otherwise from the ``ca.crt`` key of the CA key pair,
+  otherwise from the root-most certificate of the key pair's ``tls.crt``
+  chain, and the secret is updated when its source secret changes.
+  Previously no CA was published in ``Managed`` mode, so the session manager,
+  lookup service, training portals, workshop sessions and cluster nodes did
+  not trust certificates issued from a custom CA, and workshops calling their
+  own ingress over HTTPS failed. The CA's private key now stays in the
+  namespace of the CA key pair and in the ``cert-manager`` namespace.
+
+* With ``nodeCATrust.mode`` left at ``Auto`` in the ``SessionManager``
+  resource, the node CA injector is now installed on clusters that use a
+  custom CA in ``Managed`` mode, which includes every local cluster created
+  with ``educates local cluster create`` that serves HTTPS, since such a
+  cluster now publishes its CA. Cluster nodes then trust registries served
+  through the cluster ingress, such as the image registry of a workshop
+  session. Set ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged
+  node CA injector daemon set off.
+
 Deprecations
 ------------
 
