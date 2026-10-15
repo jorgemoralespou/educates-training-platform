@@ -94,9 +94,9 @@ The `EducatesClusterConfig` reconciler renders a values map for each vendored up
 | `dns.bundledExternalDNS.*` | `external-dns` / `external-dns` | `provider`, `sources`, `domainFilters: [<domain>]`, `txtOwnerId`, Workload Identity / IRSA ServiceAccount annotations |
 | `policyEnforcement.*` | `kyverno` / `kyverno` | chart defaults plus `global.image.registry` when an image-registry prefix is set |
 
-In Inline mode this stage installs nothing — the reconciler only validates that the referenced Secrets, IngressClass, and engines exist.
+In Inline mode this stage installs nothing: the reconciler only validates that the referenced Secrets, IngressClass, and engines exist, and derives `educates-ingress-ca` from the CA Secret when one is named.
 
-Either way, the stage ends by publishing **status**: the validated ingress contract (`status.ingress.domain`, wildcard certificate and CA Secret references, optional ClusterIssuer; in Managed mode with a custom CA the CA Secret reference names `educates-ingress-ca`, an operator-owned Secret in the operator namespace holding only `ca.crt`, which the operator derives from your CA Secrets and keeps up to date), resolved policy engines, image registry, the resolved extension package delivery (`status.packageDelivery.imageMount`, settled against what the cluster supports), and installed chart versions.
+Either way, the stage ends by publishing **status**: the validated ingress contract (`status.ingress.domain`, wildcard certificate and CA Secret references, optional ClusterIssuer; whenever a CA is configured, in either mode, the CA Secret reference names `educates-ingress-ca`, an operator-owned Secret in the operator namespace holding only `ca.crt`, which the operator derives from your CA Secrets and keeps up to date), resolved policy engines, image registry, the resolved extension package delivery (`status.packageDelivery.imageMount`, settled against what the cluster supports), and installed chart versions.
 
 ```shell
 helm -n contour get values contour                  # what the operator computed for a cluster service
