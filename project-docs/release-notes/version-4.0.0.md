@@ -178,6 +178,25 @@ New Features
   secrets cache holding a ``mkcert`` wildcard certificate and the CA
   certificate that issued it deploys this way as it is.
 
+* The new ``educates local secrets view NAME`` command shows the details of
+  one cached secret that do not fit the table of
+  ``educates local secrets list``, so you can inspect it without decoding
+  its YAML. It shows the type and domains of the secret as the list shows
+  them, the file it is cached in and its Kubernetes secret type, and for a
+  CA key pair the ingress domain it was minted for and its root CA. For
+  each certificate the secret holds, those of ``tls.crt`` and then those of
+  ``ca.crt``, it shows the common name, subject, issuer, subject
+  alternative names, validity, whether it is a CA and its path length, the
+  name constraints of a CA, the serial number and the SHA-256 fingerprint.
+  It never prints key material: it shows only whether the secret holds a
+  private key, the registries of registry credentials and the names of the
+  keys of a generic secret. For an ``invalid`` secret it shows why it is
+  invalid and the ``educates local secrets remove`` command that removes
+  it. For a CA cached with its private key by a 4.0.0 alpha release, it
+  first says to register the CA as the root CA under another name with
+  ``educates local secrets add ca ROOT --cert FILE --key FILE``, since
+  removing the secret removes the CA's private key.
+
 * TLS termination by an external load balancer or proxy in front of the
   cluster is now supported by setting ``externalTLSTermination`` in the CLI
   configuration kinds, or ``ingressOverrides.protocol`` in the
@@ -457,20 +476,9 @@ Features Changed
   the ingress domain of a CA key pair, and the permitted DNS name
   constraints of a CA certificate or CA root key pair, or ``any`` when it
   has none. ``EXPIRES`` is the date the certificate expires, or
-  ``expired``.
-
-  The new ``educates local secrets view NAME`` command shows the details of
-  one cached secret that do not fit the table, so you can inspect it
-  without decoding its YAML. For each certificate the secret holds, those
-  of ``tls.crt`` and then those of ``ca.crt``, it shows the common name,
-  subject, issuer, subject alternative names, validity, whether it is a CA
-  and its path length, the name constraints of a CA, the serial number and
-  the SHA-256 fingerprint, and for a CA key pair it shows the ingress domain
-  it was minted for and its root CA. It never prints key material: it shows
-  only whether the secret holds a private key, the registries of registry
-  credentials and the names of the keys of a generic secret. For an
-  ``invalid`` secret it shows why it is invalid and the
-  ``educates local secrets remove`` command that removes it.
+  ``expired``. The new ``educates local secrets view NAME`` command shows
+  the details of one secret, such as the subject and issuer of its
+  certificates or why it is ``invalid``.
 
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image. Octant
