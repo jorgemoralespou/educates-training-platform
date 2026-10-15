@@ -165,6 +165,46 @@ func TestCollectFromECC_SessionManagerCAOverrideNS_Added(t *testing.T) {
 	}
 }
 
+func TestCollectFromECC_ReferenceTheProviderDoesNotUse_Ignored(t *testing.T) {
+	// A CustomCA block left under the StaticCertificate provider names
+	// no Secret the reconciler reads or watches, so its namespace stays
+	// out of the cache scope, as the Secret watch ignores it too.
+	scheme := testScheme(t)
+	ecc := &configv1alpha1.EducatesClusterConfig{}
+	ecc.Name = singletonName
+	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
+	ecc.Spec.Ingress = &configv1alpha1.Ingress{
+		Certificates: configv1alpha1.Certificates{
+			Provider: configv1alpha1.CertificatesProviderStaticCertificate,
+			StaticCertificate: &configv1alpha1.StaticCertificateConfig{
+				TLSSecretRef: configv1alpha1.SecretReference{
+					Name:      "wildcard",
+					Namespace: "static-tls",
+				},
+			},
+			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
+				IssuerType: configv1alpha1.IssuerTypeCustomCA,
+				CustomCA: &configv1alpha1.CustomCAConfig{
+					CAKeyPairSecretRef: configv1alpha1.SecretReference{
+						Name:      "workshop-ca",
+						Namespace: "unused-ca",
+					},
+				},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ecc).Build()
+
+	got, err := collectFromClient(context.Background(), c, "educates-installer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"educates-installer", "educates-secrets", "static-tls"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("a reference the provider does not use widened the cache scope: got %v, want %v", got, want)
+	}
+}
+
 func TestCollectFromECC_EmptyNamespaceOnRef_Ignored(t *testing.T) {
 	// ref.Namespace="" means "use operator namespace" — already in the
 	// default set, so no new entry should be added.

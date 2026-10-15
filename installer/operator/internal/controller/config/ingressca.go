@@ -66,31 +66,25 @@ func (r *EducatesClusterConfigReconciler) secretRefNamespace(ref configv1alpha1.
 }
 
 // ingressCASource returns the Secret the ingress CA trust is derived
-// from, the field that names it, and false when no CA is configured. In
-// Inline mode and for the StaticCertificate provider the source is the
-// CA trust Secret. For a custom CA a CA trust Secret, when referenced,
-// wins over the CA key pair.
+// from, the field that names it, and false when no CA is configured. A
+// referenced CA trust Secret is the source: in Inline mode, for the
+// StaticCertificate provider, and for a custom CA, where it wins over
+// the CA key pair. A custom CA without one derives the CA trust from
+// its CA key pair.
 func (r *EducatesClusterConfigReconciler) ingressCASource(obj *configv1alpha1.EducatesClusterConfig) (pki.CASource, string, bool) {
-	if obj.Spec.Mode == configv1alpha1.ClusterConfigModeInline {
-		if obj.Spec.Inline == nil || obj.Spec.Inline.Ingress.CACertificateSecretRef == nil {
-			return pki.CASource{}, "", false
+	var keyPair *referencedSecret
+	for _, s := range referencedSecrets(obj) {
+		switch s.role {
+		case caTrustSecretRole:
+			return r.caTrustSource(s.ref), s.field, true
+		case caKeyPairSecretRole:
+			keyPair = &s
 		}
-		return r.caTrustSource(*obj.Spec.Inline.Ingress.CACertificateSecretRef), inlineCATrustField, true
 	}
-	if static := staticCertificateConfig(obj); static != nil {
-		if static.CACertificateSecretRef == nil {
-			return pki.CASource{}, "", false
-		}
-		return r.caTrustSource(*static.CACertificateSecretRef), staticCATrustField, true
-	}
-	ca := customCAConfig(obj)
-	if ca == nil {
+	if keyPair == nil {
 		return pki.CASource{}, "", false
 	}
-	if ref := ca.CACertificateSecretRef; ref != nil {
-		return r.caTrustSource(*ref), customCATrustField, true
-	}
-	return r.caKeyPairSource(ca.CAKeyPairSecretRef), customCAKeyPairField, true
+	return r.caKeyPairSource(keyPair.ref), keyPair.field, true
 }
 
 // caTrustSource is the CA source for a reference to a CA trust Secret.

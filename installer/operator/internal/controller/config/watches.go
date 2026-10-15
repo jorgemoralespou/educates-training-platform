@@ -104,55 +104,35 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 		return nil
 	}
 
-	// matchesOpNamespaceRef holds for refs that are operator-namespace-
-	// scoped by design (the name-only image pull Secret references).
-	matchesOpNamespaceRef := func(refName string) bool {
-		return ns == r.OperatorNamespace && name == refName
-	}
-	// matchesSecretRef holds for a SecretReference, which may name
-	// another namespace; compare both namespace and name.
-	matchesSecretRef := func(ref *configv1alpha1.SecretReference) bool {
-		return ref != nil && ns == r.secretRefNamespace(*ref) && name == ref.Name
-	}
-
-	switch cr.Spec.Mode {
-	case configv1alpha1.ClusterConfigModeInline:
-		if cr.Spec.Inline == nil {
-			return nil
-		}
-		if matchesSecretRef(cr.Spec.Inline.Ingress.WildcardCertificateSecretRef) ||
-			matchesSecretRef(cr.Spec.Inline.Ingress.CACertificateSecretRef) {
+	// Every SecretReference the spec uses feeds something the
+	// reconciler derives or checks (educates-ingress-ca, the
+	// ClusterIssuer's CA copy, educates-wildcard-tls, or the published
+	// Inline wildcard Secret), so a change to any must reconcile. A
+	// SecretReference may name another namespace; compare both.
+	for _, s := range referencedSecrets(cr) {
+		if ns == r.secretRefNamespace(s.ref) && name == s.ref.Name {
 			return singletonRequest
 		}
-		if cr.Spec.Inline.ImageRegistry != nil {
-			for _, ref := range cr.Spec.Inline.ImageRegistry.PullSecrets {
-				if matchesOpNamespaceRef(ref.Name) {
-					return singletonRequest
-				}
-			}
+	}
+
+	// Image pull Secret references are name-only and live in the
+	// operator namespace by design.
+	if ns != r.OperatorNamespace {
+		return nil
+	}
+	var registry *configv1alpha1.ImageRegistry
+	switch cr.Spec.Mode {
+	case configv1alpha1.ClusterConfigModeInline:
+		if cr.Spec.Inline != nil {
+			registry = cr.Spec.Inline.ImageRegistry
 		}
 	case configv1alpha1.ClusterConfigModeManaged:
-		if ca := customCAConfig(cr); ca != nil {
-			// The CA key pair feeds the ClusterIssuer copy and, like the
-			// CA trust Secret, the derived educates-ingress-ca, so a
-			// change to either must reconcile.
-			if matchesSecretRef(&ca.CAKeyPairSecretRef) || matchesSecretRef(ca.CACertificateSecretRef) {
+		registry = cr.Spec.ImageRegistry
+	}
+	if registry != nil {
+		for _, ref := range registry.PullSecrets {
+			if name == ref.Name {
 				return singletonRequest
-			}
-		}
-		if static := staticCertificateConfig(cr); static != nil {
-			// The wildcard Secret feeds educates-wildcard-tls, and the CA
-			// trust Secret both verifies it and feeds
-			// educates-ingress-ca.
-			if matchesSecretRef(&static.TLSSecretRef) || matchesSecretRef(static.CACertificateSecretRef) {
-				return singletonRequest
-			}
-		}
-		if cr.Spec.ImageRegistry != nil {
-			for _, ref := range cr.Spec.ImageRegistry.PullSecrets {
-				if matchesOpNamespaceRef(ref.Name) {
-					return singletonRequest
-				}
 			}
 		}
 	}

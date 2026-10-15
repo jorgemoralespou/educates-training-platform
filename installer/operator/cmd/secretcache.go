@@ -22,6 +22,7 @@ import (
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
+	configcontroller "github.com/educates/educates-training-platform/installer/operator/internal/controller/config"
 )
 
 // defaultExternalSecretsNS is the v3-convention namespace the CLI's
@@ -42,12 +43,11 @@ const singletonName = "cluster"
 //   - defaultExternalSecretsNS (always included — v3 / CLI convention
 //     for cross-namespace CA refs; covers first-install before any CR
 //     exists)
-//   - any additional namespaces referenced by the SecretReference
-//     fields of the current EducatesClusterConfig singleton (CustomCA's
-//     CA key pair and CA trust Secret, or StaticCertificate's wildcard
-//     certificate and CA trust Secret, in Managed mode; the wildcard
-//     certificate and CA trust Secret in Inline mode) and of the
-//     SessionManager singleton (its CA override)
+//   - any additional namespaces named by the SecretReference fields
+//     the current EducatesClusterConfig singleton uses for its mode and
+//     certificate provider (configcontroller.ReferencedSecretNamespaces,
+//     the same references its Secret watch maps) and by the
+//     SessionManager singleton's CA override
 //
 // Boot-time only: if the user later edits either singleton to point at a
 // new namespace, the operator needs to restart to pick up watches there.
@@ -87,7 +87,9 @@ func collectFromClient(ctx context.Context, c client.Reader, operatorNamespace s
 	// in the set.
 	ecc := &configv1alpha1.EducatesClusterConfig{}
 	if err := c.Get(ctx, types.NamespacedName{Name: singletonName}, ecc); err == nil {
-		addECCSecretNamespaces(set, ecc)
+		for _, ns := range configcontroller.ReferencedSecretNamespaces(ecc) {
+			set[ns] = struct{}{}
+		}
 	} else if !apierrors.IsNotFound(err) {
 		return nil, err
 	}
@@ -104,47 +106,6 @@ func collectFromClient(ctx context.Context, c client.Reader, operatorNamespace s
 	}
 
 	return setToSortedSlice(set), nil
-}
-
-// addECCSecretNamespaces adds the namespaces the EducatesClusterConfig's
-// SecretReference fields name. An empty namespace means the operator
-// namespace, which is always in the set.
-func addECCSecretNamespaces(set map[string]struct{}, ecc *configv1alpha1.EducatesClusterConfig) {
-	// Managed mode: CustomCA's CA key pair and optional CA trust Secret.
-	if ecc.Spec.Ingress != nil &&
-		ecc.Spec.Ingress.Certificates.BundledCertManager != nil &&
-		ecc.Spec.Ingress.Certificates.BundledCertManager.CustomCA != nil {
-		ca := ecc.Spec.Ingress.Certificates.BundledCertManager.CustomCA
-		if ns := ca.CAKeyPairSecretRef.Namespace; ns != "" {
-			set[ns] = struct{}{}
-		}
-		if ca.CACertificateSecretRef != nil && ca.CACertificateSecretRef.Namespace != "" {
-			set[ca.CACertificateSecretRef.Namespace] = struct{}{}
-		}
-	}
-
-	// Managed mode: StaticCertificate's wildcard Secret and optional CA
-	// trust Secret.
-	if ecc.Spec.Ingress != nil && ecc.Spec.Ingress.Certificates.StaticCertificate != nil {
-		static := ecc.Spec.Ingress.Certificates.StaticCertificate
-		for _, ref := range []*configv1alpha1.SecretReference{&static.TLSSecretRef, static.CACertificateSecretRef} {
-			if ref != nil && ref.Namespace != "" {
-				set[ref.Namespace] = struct{}{}
-			}
-		}
-	}
-
-	// Inline mode: wildcardCertificateSecretRef and caCertificateSecretRef.
-	if ecc.Spec.Inline != nil {
-		for _, ref := range []*configv1alpha1.SecretReference{
-			ecc.Spec.Inline.Ingress.WildcardCertificateSecretRef,
-			ecc.Spec.Inline.Ingress.CACertificateSecretRef,
-		} {
-			if ref != nil && ref.Namespace != "" {
-				set[ref.Namespace] = struct{}{}
-			}
-		}
-	}
 }
 
 func setToSortedSlice(s map[string]struct{}) []string {
