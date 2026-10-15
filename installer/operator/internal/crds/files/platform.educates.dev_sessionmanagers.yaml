@@ -179,10 +179,17 @@ spec:
                     type: string
                   tlsSecretRef:
                     description: |-
-                      LocalObjectReference is a name-only reference to an object in the
-                      operator namespace (or, for cluster-scoped kinds, to the cluster-
-                      scoped object). Mirrors the shape used in the config API group;
-                      duplicated here to avoid cross-group Go coupling.
+                      tlsSecretRef optionally names a TLS Secret, holding tls.crt and
+                      tls.key, that replaces the cluster's wildcard certificate for
+                      session-manager and the training portals and workshop sessions it
+                      creates. It takes a name only because session-manager receives
+                      this Secret as it is: the operator neither reads nor copies it, so
+                      it is looked up in the namespace the cluster's wildcard
+                      certificate is published in
+                      (EducatesClusterConfig.status.ingress.wildcardCertificateSecretRef),
+                      or in session-manager's own namespace when the cluster publishes
+                      none. caCertificateSecretRef takes a namespace because the
+                      operator reads that Secret to derive a key-free copy.
                     properties:
                       name:
                         description: name of the referent.

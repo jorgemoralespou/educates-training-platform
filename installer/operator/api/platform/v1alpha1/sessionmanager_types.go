@@ -46,6 +46,17 @@ const (
 // ingress secrets for the bare-domain hostnames it serves directly
 // (TrainingPortal CRs prefix the domain for individual portals).
 type IngressOverrides struct {
+	// tlsSecretRef optionally names a TLS Secret, holding tls.crt and
+	// tls.key, that replaces the cluster's wildcard certificate for
+	// session-manager and the training portals and workshop sessions it
+	// creates. It takes a name only because session-manager receives
+	// this Secret as it is: the operator neither reads nor copies it, so
+	// it is looked up in the namespace the cluster's wildcard
+	// certificate is published in
+	// (EducatesClusterConfig.status.ingress.wildcardCertificateSecretRef),
+	// or in session-manager's own namespace when the cluster publishes
+	// none. caCertificateSecretRef takes a namespace because the
+	// operator reads that Secret to derive a key-free copy.
 	// +optional
 	TLSSecretRef *LocalObjectReference `json:"tlsSecretRef,omitempty"`
 

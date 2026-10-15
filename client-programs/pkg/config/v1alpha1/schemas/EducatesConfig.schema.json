@@ -1204,7 +1204,7 @@
               "type": "string"
             },
             "tlsSecretRef": {
-              "description": "LocalObjectReference is a name-only reference to an object in the\noperator namespace (or, for cluster-scoped kinds, to the cluster-\nscoped object). Mirrors the shape used in the config API group;\nduplicated here to avoid cross-group Go coupling.",
+              "description": "tlsSecretRef optionally names a TLS Secret, holding tls.crt and\ntls.key, that replaces the cluster's wildcard certificate for\nsession-manager and the training portals and workshop sessions it\ncreates. It takes a name only because session-manager receives\nthis Secret as it is: the operator neither reads nor copies it, so\nit is looked up in the namespace the cluster's wildcard\ncertificate is published in\n(EducatesClusterConfig.status.ingress.wildcardCertificateSecretRef),\nor in session-manager's own namespace when the cluster publishes\nnone. caCertificateSecretRef takes a namespace because the\noperator reads that Secret to derive a key-free copy.",
               "properties": {
                 "name": {
                   "description": "name of the referent.",
