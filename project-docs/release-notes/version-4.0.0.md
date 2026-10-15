@@ -868,3 +868,15 @@ Bugs Fixed
   ``kind`` network, as do older versions until Docker is restarted for the
   first time after the network is created, in which case Docker picks the
   address as before and a warning is shown.
+
+* When ``educates admin platform deploy`` was run with an
+  ``EducatesGKEConfig``, ``EducatesEKSConfig``, ``EducatesInlineConfig`` or
+  ``EducatesConfig`` configuration, it checked for a secret named
+  ``educates-custom-ca`` in the ``educates-installer`` namespace once the
+  ``EducatesClusterConfig`` resource was ready, and stopped with an error when
+  the secret did not exist. Nothing creates this secret and these
+  configurations do not use it, so a deploy could fail even though the
+  cluster configuration was valid. The check has been removed, and the deploy
+  now proceeds directly to installing the secrets manager. The operator still
+  validates any CA secret named in the ``EducatesClusterConfig`` resource,
+  and reports a missing or invalid secret in the status of that resource.
