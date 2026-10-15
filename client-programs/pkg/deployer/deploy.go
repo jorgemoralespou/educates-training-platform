@@ -70,7 +70,7 @@ type Options struct {
 	// 'educates-secrets' namespace and copies the cached Secrets named in
 	// LocalSecretNames into it before applying the platform CRs. Matches
 	// the v3 laptop flow: cached CA/TLS material is pushed at deploy
-	// time, ECC's caCertificateRef points there. Only meaningful for
+	// time, ECC's caKeyPairSecretRef points there. Only meaningful for
 	// EducatesLocalConfig deploys.
 	SyncLocalSecrets bool
 

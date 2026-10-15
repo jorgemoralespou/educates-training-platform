@@ -122,10 +122,10 @@ func TestResolve_CachedCAForDomain_BundledCertManagerWithCustomCA(t *testing.T) 
 
 	ingress := translatedIngress(t, cfg, plan)
 	for path, want := range map[string]interface{}{
-		"certificates.provider":                                               "BundledCertManager",
-		"certificates.bundledCertManager.issuerType":                          "CustomCA",
-		"certificates.bundledCertManager.customCA.caCertificateRef.name":      "workshop-ca",
-		"certificates.bundledCertManager.customCA.caCertificateRef.namespace": "educates-secrets",
+		"certificates.provider":                                                 "BundledCertManager",
+		"certificates.bundledCertManager.issuerType":                            "CustomCA",
+		"certificates.bundledCertManager.customCA.caKeyPairSecretRef.name":      "workshop-ca",
+		"certificates.bundledCertManager.customCA.caKeyPairSecretRef.namespace": "educates-secrets",
 	} {
 		if got := nested(t, ingress, path); got != want {
 			t.Errorf("ingress.%s = %v, want %v", path, got, want)

@@ -71,7 +71,7 @@ func localCertificates(lc LocalCertificates) (map[string]interface{}, error) {
 			"bundledCertManager": map[string]interface{}{
 				"issuerType": "CustomCA",
 				"customCA": map[string]interface{}{
-					"caCertificateRef": caRef,
+					"caKeyPairSecretRef": caRef,
 				},
 			},
 		}, nil

@@ -363,10 +363,27 @@
                       "type": "object"
                     },
                     "customCA": {
-                      "description": "CustomCAConfig configures a self-signed/custom CA-backed ClusterIssuer.",
+                      "description": "CustomCAConfig configures a ClusterIssuer backed by your own CA.",
                       "properties": {
-                        "caCertificateRef": {
-                          "description": "caCertificateRef references a Secret holding the CA's own cert and\nkey (keys: tls.crt, tls.key). Namespace defaults to the operator\nnamespace when empty.",
+                        "caCertificateSecretRef": {
+                          "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding the CA certificate Educates components trust, under ca.crt.\nWhen unset, the trust is read from the CA key pair: its ca.crt,\nor else the root-most certificate of its tls.crt chain. Namespace\ndefaults to the operator namespace when empty.",
+                          "properties": {
+                            "name": {
+                              "description": "name of the referent.",
+                              "type": "string"
+                            },
+                            "namespace": {
+                              "description": "namespace of the referent. Empty means the operator namespace.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ],
+                          "type": "object"
+                        },
+                        "caKeyPairSecretRef": {
+                          "description": "caKeyPairSecretRef references the CA key pair cert-manager signs\nthe wildcard certificate with: a Secret holding the CA certificate\nunder tls.crt (optionally followed by its issuers) and its private\nkey under tls.key, and optionally the root certificate under\nca.crt. The certificate in tls.crt must be a CA. Namespace defaults\nto the operator namespace when empty. Educates components never\nreceive this Secret; they receive only the CA certificate.",
                           "properties": {
                             "name": {
                               "description": "name of the referent.",
@@ -384,7 +401,7 @@
                         }
                       },
                       "required": [
-                        "caCertificateRef"
+                        "caKeyPairSecretRef"
                       ],
                       "type": "object"
                     },
