@@ -226,7 +226,7 @@ you do not want to use with:
 	}
 
 	c := valid[0]
-	key, err := secrets.ParsePrivateKeyPEM(secretData(c.secret, "tls.key"))
+	key, err := secrets.ParsePrivateKeyPEM(secrets.SecretData(c.secret, "tls.key"))
 	if err != nil || !secrets.KeyMatchesCertificate(c.cert(), key) {
 		return nil, nil, fmt.Errorf(`TLS certificate %q covers ingress domain %q but cannot be served: its
 tls.key is not the private key of its certificate. Cache it again with
@@ -242,11 +242,11 @@ with:
 // returning nil when it is not one or cannot be read.
 func loadTLSCertificate(name string) *tlsCertificate {
 	s, err := secrets.LoadCachedSecret(name)
-	if err != nil || s.Type != apiv1.SecretTypeTLS {
+	if err != nil || secrets.ClassifyCachedSecret(name, s) != secrets.TLSCertificateRole {
 		return nil
 	}
-	chain, err := secrets.ParseCertificatesPEM(secretData(s, "tls.crt"))
-	if err != nil || secrets.IsCACertificate(chain[0]) {
+	chain, err := secrets.ParseCertificatesPEM(secrets.SecretData(s, "tls.crt"))
+	if err != nil {
 		return nil
 	}
 	return &tlsCertificate{name: name, secret: s, chain: chain}
@@ -298,8 +298,8 @@ remove the certificate with:
 // certificate in names that c's chain, through the intermediates it
 // carries, verifies against for a TLS server, or "" when none does. A CA
 // certificate is a cached Secret whose ca.crt holds only CA certificates
-// and which holds no CA private key, such as a CA trust Secret; it is
-// what the operator reads CA trust from.
+// (secrets.CATrustCertificates) and which holds no CA private key, such
+// as a CA trust Secret; it is what the operator reads CA trust from.
 func verifyingCACertificate(names []string, c *tlsCertificate) string {
 	intermediates := x509.NewCertPool()
 	for _, cert := range c.chain[1:] {
@@ -313,8 +313,8 @@ func verifyingCACertificate(names []string, c *tlsCertificate) string {
 		if err != nil {
 			continue
 		}
-		cas, err := secrets.ParseCertificatesPEM(secretData(s, "ca.crt"))
-		if err != nil || slices.ContainsFunc(cas, func(ca *x509.Certificate) bool { return !secrets.IsCACertificate(ca) }) {
+		cas := secrets.CATrustCertificates(s)
+		if cas == nil {
 			continue
 		}
 		roots := x509.NewCertPool()
@@ -330,17 +330,6 @@ func verifyingCACertificate(names []string, c *tlsCertificate) string {
 		}
 	}
 	return ""
-}
-
-// secretData returns the value of key in s, from data or stringData.
-func secretData(s *apiv1.Secret, key string) []byte {
-	if v, ok := s.Data[key]; ok {
-		return v
-	}
-	if v, ok := s.StringData[key]; ok {
-		return []byte(v)
-	}
-	return nil
 }
 
 // normalizeDomain lowercases domain and drops a trailing dot, as
@@ -551,19 +540,16 @@ func syncSecretNames(names []string, selected string) []string {
 }
 
 // holdsCAKey reports whether the cached Secret name holds a CA's private
-// key: a CA root key pair, a CA key pair, or any Secret whose tls.key
-// belongs to a CA certificate, such as a CA cached by an alpha release. A
-// Secret that cannot be read does not count; the sync reports it.
+// key: a CA root key pair, a CA key pair, or an unused CA key pair, such
+// as a CA cached by an alpha release. A Secret that cannot be read counts
+// only when its name is that of a CA root key pair or a CA key pair;
+// otherwise the sync reports it.
 func holdsCAKey(name string) bool {
 	if strings.HasSuffix(name, secrets.RootKeyPairSuffix) || strings.HasSuffix(name, secrets.CAKeyPairSuffix) {
 		return true
 	}
 	s, err := secrets.LoadCachedSecret(name)
-	if err != nil || len(s.Data["tls.key"]) == 0 {
-		return false
-	}
-	cert, err := secrets.ParseCertificatePEM(s.Data["tls.crt"])
-	return err == nil && secrets.IsCACertificate(cert)
+	return err == nil && secrets.ClassifyCachedSecret(name, s).HoldsCAKey()
 }
 
 func quoteAll(names []string) string {
