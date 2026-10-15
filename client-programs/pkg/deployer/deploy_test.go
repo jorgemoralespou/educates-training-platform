@@ -11,11 +11,14 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	sigsyaml "sigs.k8s.io/yaml"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/apply"
+	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/chart"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 )
@@ -135,4 +138,51 @@ func TestDeploy_OtherApplyRejectionsAreNotExplained(t *testing.T) {
 	if strings.Contains(msg, "admin platform delete") {
 		t.Errorf("error %q explains a provider change for an unrelated rejection", msg)
 	}
+}
+
+// TestCertificateProviderImmutableRule_MatchesEmbeddedCRD keeps the
+// message explainApplyRejection matches, and the rejection recorded for
+// the tests above, in step with the CEL rule of the EducatesClusterConfig
+// CRD the CLI installs, so rewording the rule cannot silently drop the
+// remedy the CLI adds.
+func TestCertificateProviderImmutableRule_MatchesEmbeddedCRD(t *testing.T) {
+	chrt, err := chart.Load()
+	if err != nil {
+		t.Fatalf("chart.Load: %v", err)
+	}
+	var messages []string
+	for _, c := range chrt.CRDObjects() {
+		crd := map[string]interface{}{}
+		if err := sigsyaml.Unmarshal(c.File.Data, &crd); err != nil {
+			t.Fatalf("parse %s: %v", c.Filename, err)
+		}
+		if kind, _, _ := unstructured.NestedString(crd, "spec", "names", "kind"); kind != "EducatesClusterConfig" {
+			continue
+		}
+		versions, _, _ := unstructured.NestedSlice(crd, "spec", "versions")
+		for _, v := range versions {
+			version, _ := v.(map[string]interface{})
+			rules, _, _ := unstructured.NestedSlice(version,
+				"schema", "openAPIV3Schema", "properties", "spec", "x-kubernetes-validations")
+			for _, r := range rules {
+				rule, _ := r.(map[string]interface{})
+				if msg, ok := rule["message"].(string); ok {
+					messages = append(messages, msg)
+				}
+			}
+		}
+	}
+	if len(messages) == 0 {
+		t.Fatal("the embedded EducatesClusterConfig CRD has no validation rules on spec")
+	}
+	for _, msg := range messages {
+		if strings.HasPrefix(msg, certificateProviderImmutableRule) {
+			if !strings.Contains(providerImmutableRejection, msg) {
+				t.Errorf("the recorded rejection does not carry the CRD's message %q", msg)
+			}
+			return
+		}
+	}
+	t.Errorf("no validation rule on spec of the embedded EducatesClusterConfig CRD starts with %q; its messages are %q",
+		certificateProviderImmutableRule, messages)
 }
