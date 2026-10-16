@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -11,7 +11,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
-	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
+	"github.com/educates/educates-training-platform/client-programs/pkg/localcerts"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
@@ -105,21 +105,19 @@ func (p *ProjectInfo) runRender(w io.Writer, o *PlatformRenderOptions) error {
 Set it explicitly in %s, or use --local-config to derive a <host-IP>.nip.io
 fallback (output becomes host-specific and unsuitable for GitOps).`, path)
 		}
-		header = hostNote
-
-		// Local-mode default: BundledCertManager+CustomCA. Look up the CA
-		// Secret in the local cache by the configured domain. Failing
-		// here (before any rendering) gives the user a remediation path
-		// before they pipe output to GitOps. An insecure cluster serves
-		// plain HTTP, so it needs no CA and the lookup is skipped.
-		if !c.Ingress.Insecure {
-			caName, lookupErr := lookupLocalCAByDomain(c.Ingress.Domain)
-			if lookupErr != nil {
-				return lookupErr
-			}
-			opts.CASecretName = caName
-			opts.CASecretNamespace = LocalCASecretNamespace
+		// The certificates come from the local certificate resolution
+		// step. Failing here (before any rendering) gives the user a
+		// remediation path before they pipe output to GitOps. Render
+		// only reports the plan: it never commits it, so the local
+		// secrets cache is left untouched.
+		plan, err := localcerts.Resolve(c)
+		if err != nil {
+			return err
 		}
+		opts = plan.TranslatorOptions()
+		var notes yamlComments
+		plan.Report(&notes)
+		header = hostNote + notes.String()
 	case *v1alpha1.EducatesConfig:
 		// Escape-hatch: pure passthrough. No CLI-side defaults. User owns
 		// the full surface; missing required fields are caught by the
@@ -134,45 +132,14 @@ fallback (output becomes host-specific and unsuitable for GitOps).`, path)
 	return writeRender(w, out, header)
 }
 
-// LocalCASecretNamespace is where laptop-mode CA Secrets live, matching
-// the v3 convention. The deploy command pushes the local secrets cache
-// into this namespace before applying the CRs.
-const LocalCASecretNamespace = "educates-secrets"
+// yamlComments is a localcerts.Reporter that collects each reported line
+// as a YAML comment, for render to put above its output.
+type yamlComments struct{ strings.Builder }
 
-// lookupLocalCAByDomain finds the cached CA Secret name whose
-// 'training.educates.dev/domain' annotation matches the configured
-// ingress.domain. Errors with a copy-paste workaround when nothing
-// matches.
-func lookupLocalCAByDomain(domain string) (string, error) {
-	if domain == "" {
-		return "", fmt.Errorf("ingress.domain is empty; cannot look up cached CA")
+func (c *yamlComments) Note(msg string) {
+	for _, line := range strings.Split(msg, "\n") {
+		c.WriteString(strings.TrimRight("# "+line, " ") + "\n")
 	}
-	name := secrets.LocalCachedSecretForCertificateAuthority(domain)
-	if name == "" {
-		return "", fmt.Errorf(`no cached CA Secret found for domain %q.
-
-A secure install is the default (ingress.insecure is false): Educates
-serves workshops over HTTPS from a CA you supply, so it needs a cached CA
-Secret whose 'training.educates.dev/domain' annotation matches this
-domain. Either provide a CA for the domain, or set ingress.insecure to
-true to serve plain HTTP with no CA.
-
-To generate and cache a self-signed CA for the domain:
-
-  educates local secrets add ca <name> --domain %s
-
-To use an existing CA instead, pass its certificate and key:
-
-  educates local secrets add ca <name> --domain %s --cert ca.crt --key ca.key
-
-To serve plain HTTP with no CA instead:
-
-  educates local config set ingress.insecure true
-
-The cached CA Secret is pushed into the %q namespace at deploy time.`,
-			domain, domain, domain, LocalCASecretNamespace)
-	}
-	return name, nil
 }
 
 // resolveConfigPath picks the config file based on which flag was set.
@@ -180,7 +147,7 @@ The cached CA Secret is pushed into the %q namespace at deploy time.`,
 // is $EDUCATES_CLI_DATA_HOME or $XDG_DATA_HOME/educates.
 func resolveConfigPath(o *PlatformRenderOptions) (string, error) {
 	if o.LocalConfig {
-		return filepath.Join(utils.GetEducatesHomeDir(), "config.yaml"), nil
+		return config.LocalConfigPath(utils.GetEducatesHomeDir()), nil
 	}
 	if o.Config == "" {
 		return "", fmt.Errorf("internal: neither --config nor --local-config set (should have been caught by cobra)")

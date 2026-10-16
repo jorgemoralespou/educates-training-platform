@@ -21,6 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
+	configcontroller "github.com/educates/educates-training-platform/installer/operator/internal/controller/config"
 )
 
 // defaultExternalSecretsNS is the v3-convention namespace the CLI's
@@ -28,6 +30,10 @@ import (
 // a fresh operator pod (first install, ECC not yet created) still picks
 // up CA changes once the user creates the CR.
 const defaultExternalSecretsNS = "educates-secrets"
+
+// singletonName is the CEL-enforced name of the EducatesClusterConfig
+// and SessionManager singletons.
+const singletonName = "cluster"
 
 // discoverCachedSecretNamespaces returns the deduped, sorted set of
 // namespaces the operator should populate informers for, given:
@@ -37,13 +43,17 @@ const defaultExternalSecretsNS = "educates-secrets"
 //   - defaultExternalSecretsNS (always included — v3 / CLI convention
 //     for cross-namespace CA refs; covers first-install before any CR
 //     exists)
-//   - any additional namespaces referenced by the current
-//     EducatesClusterConfig singleton's CASecretReference fields
-//     (CustomCA in Managed mode, CACertificateSecretRef in Inline mode)
+//   - any additional namespaces named by the SecretReference fields
+//     the current EducatesClusterConfig singleton uses for its mode and
+//     certificate provider (configcontroller.ReferencedSecretNamespaces,
+//     the same references its Secret watch maps) and by the
+//     SessionManager singleton's CA override
 //
-// Boot-time only: if the user later edits the ECC to point at a new
-// namespace, the operator needs to restart to pick up watches there.
-// The reconciler emits a Warning event in that case so it's user-visible.
+// Boot-time only: if the user later edits either singleton to point at a
+// new namespace, the operator needs to restart to pick up watches there.
+// The EducatesClusterConfig reconciler logs a message at Info level when
+// one of its own references names such a namespace; a SessionManager CA
+// override there is not reported.
 func discoverCachedSecretNamespaces(
 	ctx context.Context,
 	restCfg *rest.Config,
@@ -51,8 +61,8 @@ func discoverCachedSecretNamespaces(
 	operatorNamespace string,
 ) ([]string, error) {
 	// One-shot uncached client just for this read. Manager isn't built
-	// yet, so the regular cached client isn't available; the request is
-	// cheap (one Get against a cluster-scoped singleton) and only happens
+	// yet, so the regular cached client isn't available; the requests
+	// are cheap (one Get per cluster-scoped singleton) and only happen
 	// at startup.
 	c, err := client.New(restCfg, client.Options{Scheme: scheme})
 	if err != nil {
@@ -70,33 +80,29 @@ func collectFromClient(ctx context.Context, c client.Reader, operatorNamespace s
 		defaultExternalSecretsNS: {},
 	}
 
+	// A missing singleton contributes nothing: the first reconcile after
+	// it is created uses APIReader for the actual Secret fetch; only the
+	// watch-driven enqueue depends on the cache scope, and laptop
+	// installs land in the default 'educates-secrets', which is already
+	// in the set.
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	if err := c.Get(ctx, types.NamespacedName{Name: "cluster"}, ecc); err != nil {
-		if apierrors.IsNotFound(err) {
-			// No CR yet — fall back to defaults. First reconcile after
-			// CR creation will use APIReader for the actual Secret
-			// fetch; only the watch-driven enqueue depends on the
-			// cache scope, and laptop installs land in the default
-			// 'educates-secrets' which is already in the set.
-			return setToSortedSlice(set), nil
+	if err := c.Get(ctx, types.NamespacedName{Name: singletonName}, ecc); err == nil {
+		for _, ns := range configcontroller.ReferencedSecretNamespaces(ecc) {
+			set[ns] = struct{}{}
 		}
+	} else if !apierrors.IsNotFound(err) {
 		return nil, err
 	}
 
-	// Managed mode: CustomCA.caCertificateRef
-	if ecc.Spec.Ingress != nil &&
-		ecc.Spec.Ingress.Certificates.BundledCertManager != nil &&
-		ecc.Spec.Ingress.Certificates.BundledCertManager.CustomCA != nil {
-		if ns := ecc.Spec.Ingress.Certificates.BundledCertManager.CustomCA.CACertificateRef.Namespace; ns != "" {
-			set[ns] = struct{}{}
+	sm := &platformv1alpha1.SessionManager{}
+	if err := c.Get(ctx, types.NamespacedName{Name: singletonName}, sm); err == nil {
+		if sm.Spec.IngressOverrides != nil {
+			if ref := sm.Spec.IngressOverrides.CACertificateSecretRef; ref != nil && ref.Namespace != "" {
+				set[ref.Namespace] = struct{}{}
+			}
 		}
-	}
-
-	// Inline mode: caCertificateSecretRef
-	if ecc.Spec.Inline != nil && ecc.Spec.Inline.Ingress.CACertificateSecretRef != nil {
-		if ns := ecc.Spec.Inline.Ingress.CACertificateSecretRef.Namespace; ns != "" {
-			set[ns] = struct{}{}
-		}
+	} else if !apierrors.IsNotFound(err) {
+		return nil, err
 	}
 
 	return setToSortedSlice(set), nil

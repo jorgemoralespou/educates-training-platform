@@ -28,6 +28,45 @@ import (
 // Structural CRD validation only. Reconciler logic is not under test
 // here.
 
+// ingressWithCertificatesProvider returns a Managed-mode ingress block
+// that passes structural validation, with the given certificates
+// provider.
+func ingressWithCertificatesProvider(provider configv1alpha1.CertificatesProvider) *configv1alpha1.Ingress {
+	return &configv1alpha1.Ingress{
+		Domain:           "educates.test",
+		IngressClassName: "contour",
+		Controller: configv1alpha1.IngressController{
+			Provider: configv1alpha1.IngressControllerProviderBundledContour,
+		},
+		Certificates: configv1alpha1.Certificates{
+			Provider: provider,
+		},
+	}
+}
+
+// bundledRoute53DNS returns a dns block that passes structural
+// validation, with the bundled external-dns publishing to Route53.
+func bundledRoute53DNS() *configv1alpha1.DNS {
+	return &configv1alpha1.DNS{
+		Provider: configv1alpha1.DNSProviderBundledExternalDNS,
+		BundledExternalDNS: &configv1alpha1.BundledExternalDNSConfig{
+			Provider: configv1alpha1.DNS01ProviderRoute53,
+			Route53:  &configv1alpha1.ExternalDNSRoute53Config{HostedZoneID: "Z0000000000000"},
+		},
+	}
+}
+
+// bundledKyvernoPolicyEnforcement returns a policyEnforcement block
+// that passes structural validation, with both engines on the bundled
+// Kyverno.
+func bundledKyvernoPolicyEnforcement() *configv1alpha1.PolicyEnforcement {
+	return &configv1alpha1.PolicyEnforcement{
+		ClusterPolicy:  configv1alpha1.ClusterPolicyConfig{Engine: configv1alpha1.ClusterPolicyEngineKyverno},
+		WorkshopPolicy: configv1alpha1.WorkshopPolicyConfig{Engine: configv1alpha1.WorkshopPolicyEngineKyverno},
+		Kyverno:        &configv1alpha1.KyvernoConfig{Provider: configv1alpha1.KyvernoProviderBundled},
+	}
+}
+
 var _ = Describe("EducatesClusterConfig CRD validation", func() {
 	AfterEach(func() {
 		// Clean up the singleton if a prior test created it; ignore not-found.
@@ -72,6 +111,255 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 		err := k8sClient.Update(ctx, obj)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("immutable"))
+	})
+
+	It("rejects a spec.ingress.certificates.provider change on update (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderNone),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress.Certificates.Provider = configv1alpha1.CertificatesProviderBundledCertManager
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.ingress.certificates.provider is immutable"))
+	})
+
+	It("rejects removing spec.ingress once a certificates provider is set (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderBundledCertManager),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress = nil
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.ingress.certificates.provider is immutable"))
+	})
+
+	It("accepts an update that keeps the certificates provider", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderNone),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress.Domain = "other.educates.test"
+		obj.Spec.Ingress.Protocol = configv1alpha1.IngressProtocolHTTP
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
+	})
+
+	It("rejects a spec.ingress.controller.provider change on update (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderNone),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress.Controller.Provider = configv1alpha1.IngressControllerProviderExternalIngressController
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.ingress.controller.provider is immutable"))
+	})
+
+	It("accepts an update to the bundled Contour settings that keeps the ingress controller provider", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:    configv1alpha1.ClusterConfigModeManaged,
+				Ingress: ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderNone),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress.Controller.BundledContour = &configv1alpha1.BundledContourConfig{
+			EnvoyServiceType: configv1alpha1.EnvoyServiceTypeNodePort,
+		}
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
+	})
+
+	It("rejects a spec.dns.provider change on update (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+				DNS:  &configv1alpha1.DNS{Provider: configv1alpha1.DNSProviderManual},
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.DNS = bundledRoute53DNS()
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.dns.provider is immutable"))
+	})
+
+	It("rejects removing a spec.dns whose provider is not None (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+				DNS:  bundledRoute53DNS(),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.DNS = nil
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.dns.provider is immutable"))
+	})
+
+	It("rejects adding a spec.dns whose provider is not None (provider immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.DNS = bundledRoute53DNS()
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.dns.provider is immutable"))
+	})
+
+	It("accepts an update to the bundled external-dns settings that keeps the DNS provider", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+				DNS:  bundledRoute53DNS(),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.DNS.BundledExternalDNS.Route53.Region = "eu-west-1"
+		obj.Spec.DNS.BundledExternalDNS.Sources = []string{"service", "ingress"}
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
+	})
+
+	It("accepts adding a spec.dns with provider None to a resource created without one", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.DNS = &configv1alpha1.DNS{Provider: configv1alpha1.DNSProviderNone}
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
+	})
+
+	DescribeTable("rejects a change to how policy enforcement is provided on update (policy immutability CEL)",
+		func(change func(spec *configv1alpha1.EducatesClusterConfigSpec)) {
+			obj := &configv1alpha1.EducatesClusterConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1alpha1.EducatesClusterConfigSpec{
+					Mode:              configv1alpha1.ClusterConfigModeManaged,
+					PolicyEnforcement: bundledKyvernoPolicyEnforcement(),
+				},
+			}
+			Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			change(&obj.Spec)
+			err := k8sClient.Update(ctx, obj)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("spec.policyEnforcement engines and kyverno provider are immutable"))
+		},
+		Entry("cluster policy engine", func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+			spec.PolicyEnforcement.ClusterPolicy.Engine = configv1alpha1.ClusterPolicyEnginePodSecurityStandards
+		}),
+		Entry("workshop policy engine", func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+			spec.PolicyEnforcement.WorkshopPolicy.Engine = configv1alpha1.WorkshopPolicyEngineNone
+		}),
+		Entry("kyverno provider", func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+			spec.PolicyEnforcement.Kyverno.Provider = configv1alpha1.KyvernoProviderExternal
+		}),
+		Entry("removing spec.policyEnforcement.kyverno", func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+			spec.PolicyEnforcement.Kyverno = nil
+		}),
+		Entry("removing spec.policyEnforcement", func(spec *configv1alpha1.EducatesClusterConfigSpec) {
+			spec.PolicyEnforcement = nil
+		}),
+	)
+
+	It("rejects adding spec.policyEnforcement to a resource created without one (policy immutability CEL)", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.PolicyEnforcement = bundledKyvernoPolicyEnforcement()
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.policyEnforcement engines and kyverno provider are immutable"))
+	})
+
+	It("rejects adding spec.policyEnforcement.kyverno to a policyEnforcement created without one (policy immutability CEL)", func() {
+		pe := bundledKyvernoPolicyEnforcement()
+		pe.Kyverno = nil
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:              configv1alpha1.ClusterConfigModeManaged,
+				PolicyEnforcement: pe,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.PolicyEnforcement.Kyverno = &configv1alpha1.KyvernoConfig{Provider: configv1alpha1.KyvernoProviderBundled}
+		err := k8sClient.Update(ctx, obj)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("spec.policyEnforcement engines and kyverno provider are immutable"))
+	})
+
+	It("accepts an update that keeps how policy enforcement is provided", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode:              configv1alpha1.ClusterConfigModeManaged,
+				Ingress:           ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderNone),
+				PolicyEnforcement: bundledKyvernoPolicyEnforcement(),
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress.Domain = "other.educates.test"
+		obj.Spec.PolicyEnforcement = bundledKyvernoPolicyEnforcement()
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
+	})
+
+	It("accepts adding spec.ingress to a resource created without one", func() {
+		obj := &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1alpha1.EducatesClusterConfigSpec{
+				Mode: configv1alpha1.ClusterConfigModeManaged,
+			},
+		}
+		Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+		obj.Spec.Ingress = ingressWithCertificatesProvider(configv1alpha1.CertificatesProviderBundledCertManager)
+		Expect(k8sClient.Update(ctx, obj)).To(Succeed())
 	})
 
 	It("accepts a Managed-mode resource with a None certificates provider and http protocol", func() {
@@ -127,7 +415,7 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 					Ingress: configv1alpha1.InlineIngress{
 						Domain:           "educates.test",
 						IngressClassName: "contour",
-						WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+						WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 							Name: "wildcard-tls",
 						},
 					},
@@ -155,7 +443,7 @@ var _ = Describe("EducatesClusterConfig CRD validation", func() {
 					Ingress: configv1alpha1.InlineIngress{
 						Domain:           "educates.test",
 						IngressClassName: "contour",
-						WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+						WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 							Name: "wildcard-tls",
 						},
 					},

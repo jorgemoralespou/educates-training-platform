@@ -22,6 +22,29 @@ apiVersion: ` + v1alpha1.APIVersion + `
 kind: ` + v1alpha1.KindEducatesLocalConfig + `
 `
 
+// LocalConfigPath is the path of the local config in the data home
+// dataHome: <data-home>/config.yaml.
+func LocalConfigPath(dataHome string) string {
+	return filepath.Join(dataHome, "config.yaml")
+}
+
+// LoadLocalConfigIfPresent loads the local config of the data home
+// dataHome as it is. It returns nil when the file does not exist or holds
+// another kind than EducatesLocalConfig, and neither migrates nor writes
+// anything.
+func LoadLocalConfigIfPresent(dataHome string) (*v1alpha1.EducatesLocalConfig, error) {
+	path := LocalConfigPath(dataHome)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, nil
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	local, _ := cfg.(*v1alpha1.EducatesLocalConfig)
+	return local, nil
+}
+
 // EnsureLocalConfigFile is the single entry point for commands that
 // read <data-home>/config.yaml. It composes the v3-to-v4 migration
 // shim with the user-actionable missing-file diagnostic:
@@ -33,7 +56,7 @@ kind: ` + v1alpha1.KindEducatesLocalConfig + `
 //   - config.yaml still missing after migration attempt → return
 //     MissingLocalConfigError (first-time user / partial init).
 func EnsureLocalConfigFile(dataHome string) error {
-	configPath := filepath.Join(dataHome, "config.yaml")
+	configPath := LocalConfigPath(dataHome)
 	if _, err := os.Stat(configPath); err == nil {
 		return nil
 	}
@@ -59,7 +82,7 @@ func EnsureLocalConfigFile(dataHome string) error {
 // real, if unmigratable, v3 install. The write below is reached only when
 // there is genuinely no prior config to honour.
 func EnsureOrInitLocalConfigFile(dataHome string) (created bool, err error) {
-	configPath := filepath.Join(dataHome, "config.yaml")
+	configPath := LocalConfigPath(dataHome)
 	if _, err := os.Stat(configPath); err == nil {
 		return false, nil
 	}
@@ -90,7 +113,7 @@ func EnsureOrInitLocalConfigFile(dataHome string) (created bool, err error) {
 // Returns nil if the data home looks healthy and config.yaml is present;
 // callers should not invoke this in that case (the loader handles it).
 func MissingLocalConfigError(dataHome string) error {
-	configPath := filepath.Join(dataHome, "config.yaml")
+	configPath := LocalConfigPath(dataHome)
 	if _, err := os.Stat(configPath); err == nil {
 		// Caller misuse — config.yaml does exist. Surface a generic
 		// message so the bug is visible.

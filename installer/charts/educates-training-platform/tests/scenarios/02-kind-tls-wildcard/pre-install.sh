@@ -5,6 +5,14 @@
 # into the operator namespace. Invoked by run-scenario.sh between
 # cluster create and helm install.
 #
+# The two Secrets have the shapes the v4 operator's StaticCertificate
+# provider takes: the wildcard Secret (`staticCertificate.tlsSecretRef`)
+# holds only tls.crt and tls.key, and the CA trust Secret
+# (`staticCertificate.caCertificateSecretRef`) holds only ca.crt, never a
+# private key. Before creating them, the certificate gets the checks the
+# operator applies: it covers *.${DOMAIN}, has not expired, and verifies
+# against the CA. kubectl itself rejects a key that does not match.
+#
 # Inputs (provided by run-scenario.sh as env vars):
 #   DOMAIN         required. Wildcard domain (e.g., "192.168.1.5.nip.io").
 #   TLS_CERT_PATH  optional. Pre-existing leaf cert.
@@ -91,6 +99,21 @@ EOF
     -out "$WORKDIR/tls.crt" -days 365 -sha256 \
     -extfile "$WORKDIR/tls.ext" \
     >/dev/null 2>&1
+fi
+
+# The checks the operator applies to a StaticCertificate, so a supplied
+# certificate that Managed mode would reject fails here too.
+if ! openssl x509 -in "$WORKDIR/tls.crt" -noout -text | grep -qF "DNS:*.${DOMAIN}"; then
+  echo "[pre-install] ERROR: the wildcard certificate's SANs do not include *.${DOMAIN}" >&2
+  exit 2
+fi
+if ! openssl x509 -in "$WORKDIR/tls.crt" -noout -checkend 0 >/dev/null; then
+  echo "[pre-install] ERROR: the wildcard certificate has expired" >&2
+  exit 2
+fi
+if ! openssl verify -CAfile "$WORKDIR/ca.crt" -untrusted "$WORKDIR/tls.crt" "$WORKDIR/tls.crt" >/dev/null; then
+  echo "[pre-install] ERROR: the wildcard certificate does not verify against the CA; pass the CA that issued it with --ca-cert" >&2
+  exit 2
 fi
 
 kubectl create namespace "$SECRETS_NS" --dry-run=client -o yaml | kubectl apply -f -

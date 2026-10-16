@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
@@ -68,7 +67,7 @@ func (p *ProjectInfo) runLocalConfigInit(o *LocalConfigInitOptions, w interface{
 	if err := os.MkdirAll(dataHome, 0o755); err != nil {
 		return fmt.Errorf("create data home %q: %w", dataHome, err)
 	}
-	path := filepath.Join(dataHome, "config.yaml")
+	path := config.LocalConfigPath(dataHome)
 	if _, err := os.Stat(path); err == nil && !o.Force {
 		return fmt.Errorf("%s already exists (use --force to overwrite)", path)
 	}

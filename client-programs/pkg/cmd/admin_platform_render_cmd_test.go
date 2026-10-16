@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	apiv1 "k8s.io/api/core/v1"
+
+	"github.com/educates/educates-training-platform/client-programs/internal/testpki"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/hostinfo"
+	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 )
 
 const (
@@ -38,35 +43,31 @@ func writeFixture(t *testing.T, content string) string {
 	return path
 }
 
-// stageCachedCA drops a synthetic CA Secret YAML into <dataHome>/secrets/
-// with the 'training.educates.dev/domain' annotation set to `domain`,
-// matching the v4 lookup criteria (kubernetes.io/tls type with both
-// tls.crt and tls.key data). The byte contents are placeholders — the
-// test only exercises the lookup-by-domain path, not PEM validity.
-func stageCachedCA(t *testing.T, dataHome, domain string) (caName string) {
+// stageRootCA registers a root CA named test-ca in the local secrets
+// cache of the current data home, as
+// `educates local secrets add ca test-ca --cert --key` does.
+func stageRootCA(t *testing.T) {
 	t.Helper()
-	caName = "test-ca"
-	secretsDir := filepath.Join(dataHome, "secrets")
-	if err := os.MkdirAll(secretsDir, 0o755); err != nil {
-		t.Fatal(err)
+	root := testpki.NewRootCA()
+	for _, s := range []*apiv1.Secret{
+		secrets.NewCATrustSecret("test-ca", root.CertPEM),
+		secrets.NewCARootKeyPairSecret("test-ca", root.CertPEM, root.KeyPEM),
+	} {
+		if err := secrets.WriteCachedSecret(s); err != nil {
+			t.Fatal(err)
+		}
 	}
-	body := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: " + caName +
-		"\n  annotations:\n    training.educates.dev/domain: " + domain +
-		"\ntype: kubernetes.io/tls\ndata:\n  tls.crt: dGVzdC1jcnQ=\n  tls.key: dGVzdC1rZXk=\n"
-	if err := os.WriteFile(filepath.Join(secretsDir, caName+".yaml"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return
 }
 
-// withCachedCA is a convenience wrapper: creates a fresh temp data home,
-// stages a CA for `domain`, and sets $EDUCATES_CLI_DATA_HOME. Use it
-// when the test doesn't already manage its own data home.
-func withCachedCA(t *testing.T, domain string) (dataHome, caName string) {
+// withRootCA creates a fresh temp data home, sets
+// $EDUCATES_CLI_DATA_HOME to it and registers the root CA test-ca in its
+// local secrets cache. Use it when the test doesn't already manage its
+// own data home.
+func withRootCA(t *testing.T) (dataHome string) {
 	t.Helper()
 	dataHome = t.TempDir()
-	caName = stageCachedCA(t, dataHome, domain)
 	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+	stageRootCA(t)
 	return
 }
 
@@ -88,7 +89,7 @@ func TestRender_Config_MissingDomain_Errors(t *testing.T) {
 }
 
 func TestRender_Config_WithDomain_NoHostHeader(t *testing.T) {
-	withCachedCA(t, "workshop.test")
+	withRootCA(t)
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
 	o := &PlatformRenderOptions{Config: writeFixture(t, localWithDomain)}
 
@@ -121,7 +122,7 @@ func TestRender_Config_WithDomain_NoHostHeader(t *testing.T) {
 
 func TestRender_Config_CLIDefaults_AppliedWhenImageEmpty(t *testing.T) {
 	// Tag and repository come from ProjectInfo when config leaves them empty.
-	withCachedCA(t, "workshop.test")
+	withRootCA(t)
 	cfgYAML := `apiVersion: cli.educates.dev/v1alpha1
 kind: EducatesLocalConfig
 ingress:
@@ -188,8 +189,8 @@ func TestRender_LocalConfig_UserDomain_NoHeader(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	stageCachedCA(t, dataHome, "workshop.test")
 	t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+	stageRootCA(t)
 
 	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
 	o := &PlatformRenderOptions{LocalConfig: true}
@@ -201,6 +202,148 @@ func TestRender_LocalConfig_UserDomain_NoHeader(t *testing.T) {
 	if strings.Contains(buf.String(), "auto-derived from host IP") {
 		t.Errorf("--local-config with explicit domain should not emit host-defaulting note:\n%s", buf.String())
 	}
+}
+
+func TestRender_RootCA_ReferencesTheDomainCAKeyPairWithoutWritingIt(t *testing.T) {
+	dataHome := withRootCA(t)
+	if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := cachedSecretNames(t)
+
+	p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
+	var buf bytes.Buffer
+	if err := p.runRender(&buf, &PlatformRenderOptions{LocalConfig: true}); err != nil {
+		t.Fatalf("runRender: %v", err)
+	}
+
+	s := buf.String()
+	for _, want := range []string{
+		"caKeyPairSecretRef:\n            name: workshop.test-ca-key-pair\n            namespace: educates-secrets",
+		"caCertificateSecretRef:\n            name: test-ca\n            namespace: educates-secrets",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("render output missing %q:\n%s", want, s)
+		}
+	}
+	if after := cachedSecretNames(t); !reflect.DeepEqual(after, before) {
+		t.Errorf("render changed the local secrets cache from %v to %v", before, after)
+	}
+}
+
+func TestRender_TLSCertificate_ReportsStaticCertificateWithoutWriting(t *testing.T) {
+	mkcert := testpki.NewRootCA()
+	leaf := mkcert.NewLeaf(testpki.WithDNSNames("*.workshop.test", "*.other.test"))
+
+	for name, tc := range map[string]struct {
+		cacheCA bool
+		want    []string
+		absent  []string
+	}{
+		"with the CA that issued it": {
+			cacheCA: true,
+			want: []string{
+				"tlsSecretRef:\n          name: workshop-tls\n          namespace: educates-secrets",
+				"caCertificateSecretRef:\n          name: mkcert-ca\n          namespace: educates-secrets",
+				"# Serving TLS certificate \"workshop-tls\" for ingress domain \"workshop.test\" with the\n# StaticCertificate provider: cert-manager will not be installed.",
+				"#   educates local secrets remove workshop-tls\n",
+				"# It also serves these other domains, which removing it affects too: other.test.\n",
+			},
+			absent: []string{"warning:", "caKeyPairSecretRef"},
+		},
+		"without it": {
+			want: []string{
+				"tlsSecretRef:\n          name: workshop-tls",
+				"# warning: no CA certificate in the local secrets cache verifies TLS certificate\n# \"workshop-tls\"",
+			},
+			absent: []string{"caCertificateSecretRef"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dataHome := t.TempDir()
+			t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+			if err := secrets.WriteCachedSecret(secrets.NewTLSSecret("workshop-tls", leaf.CertPEM, leaf.KeyPEM)); err != nil {
+				t.Fatal(err)
+			}
+			if tc.cacheCA {
+				if err := secrets.WriteCachedSecret(secrets.NewCATrustSecret("mkcert-ca", mkcert.CertPEM)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			before := cachedSecretNames(t)
+
+			p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
+			var buf bytes.Buffer
+			if err := p.runRender(&buf, &PlatformRenderOptions{LocalConfig: true}); err != nil {
+				t.Fatalf("runRender: %v", err)
+			}
+
+			s := buf.String()
+			for _, want := range append(tc.want, "provider: StaticCertificate") {
+				if !strings.Contains(s, want) {
+					t.Errorf("render output missing %q:\n%s", want, s)
+				}
+			}
+			for _, absent := range tc.absent {
+				if strings.Contains(s, absent) {
+					t.Errorf("render output contains %q:\n%s", absent, s)
+				}
+			}
+			if after := cachedSecretNames(t); !reflect.DeepEqual(after, before) {
+				t.Errorf("render changed the local secrets cache from %v to %v", before, after)
+			}
+		})
+	}
+}
+
+func TestRender_AlphaCAEntry_Ignored(t *testing.T) {
+	// A CA cached with its key by an alpha release, for the very domain
+	// rendered, lists as invalid: render neither references it nor
+	// accepts it in place of a root CA.
+	t.Run("beside a root CA", func(t *testing.T) {
+		dataHome := withRootCA(t)
+		cacheAlphaCA(t, "workshop.test-ca", testpki.NewRootCA(), "workshop.test")
+		if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
+		var buf bytes.Buffer
+		if err := p.runRender(&buf, &PlatformRenderOptions{LocalConfig: true}); err != nil {
+			t.Fatalf("runRender: %v", err)
+		}
+
+		s := buf.String()
+		for _, want := range []string{
+			"caKeyPairSecretRef:\n            name: workshop.test-ca-key-pair\n",
+			"caCertificateSecretRef:\n            name: test-ca\n",
+		} {
+			if !strings.Contains(s, want) {
+				t.Errorf("render output missing %q:\n%s", want, s)
+			}
+		}
+		if strings.Contains(s, "name: workshop.test-ca\n") {
+			t.Errorf("render output references the alpha CA:\n%s", s)
+		}
+	})
+
+	t.Run("alone", func(t *testing.T) {
+		dataHome := t.TempDir()
+		t.Setenv("EDUCATES_CLI_DATA_HOME", dataHome)
+		cacheAlphaCA(t, "workshop.test-ca", testpki.NewRootCA(), "workshop.test")
+		if err := os.WriteFile(filepath.Join(dataHome, "config.yaml"), []byte(localWithDomain), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		p := ProjectInfo{Version: "test", ImageRepository: "ghcr.io/educates"}
+		err := p.runRender(&bytes.Buffer{}, &PlatformRenderOptions{LocalConfig: true})
+		if err == nil || !strings.Contains(err.Error(), "educates local secrets add ca <name>") {
+			t.Errorf("render error = %v, want one saying no root CA is cached", err)
+		}
+	})
 }
 
 func TestRender_EscapeKind_PureUserOutput(t *testing.T) {

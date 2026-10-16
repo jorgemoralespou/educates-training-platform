@@ -36,17 +36,70 @@ type Output struct {
 // Options carries caller-side inputs that are too environmental for the
 // translator to compute on its own.
 type Options struct {
-	// CASecretName is the name of the Secret in CASecretNamespace that
-	// holds the CustomCA's tls.crt + tls.key. Looked up by domain at
-	// the call site (typically via secrets.LocalCachedSecretForCertificateAuthority).
-	// Required for TranslateLocal; ignored for TranslateEscape (which
-	// passes user-declared CRs through verbatim).
-	CASecretName string
+	// LocalCertificates is how an EducatesLocalConfig install gets its
+	// ingress certificates. The CLI's local certificate resolution step
+	// (package localcerts) decides it from the local secrets cache.
+	// Required for TranslateLocal; the other kinds ignore it.
+	LocalCertificates LocalCertificates
+}
 
-	// CASecretNamespace is the namespace of the CA Secret. Empty means
-	// the operator namespace. For laptop-mode installs aligned with v3,
-	// the caller sets this to "educates-secrets".
-	CASecretNamespace string
+// CertificatesProvider is a value of EducatesClusterConfig
+// ingress.certificates.provider the translators emit.
+type CertificatesProvider string
+
+const (
+	CertificatesProviderNone               CertificatesProvider = "None"
+	CertificatesProviderBundledCertManager CertificatesProvider = "BundledCertManager"
+	CertificatesProviderStaticCertificate  CertificatesProvider = "StaticCertificate"
+)
+
+// SecretRef names a Secret. An empty Namespace means the operator
+// namespace.
+type SecretRef struct {
+	Name      string
+	Namespace string
+}
+
+// LocalCertificates is the certificate decision TranslateLocal emits as
+// EducatesClusterConfig ingress.certificates.
+type LocalCertificates struct {
+	// Provider is ingress.certificates.provider.
+	Provider CertificatesProvider
+
+	// CustomCA is set when Provider is BundledCertManager: cert-manager's
+	// CA issuer signs the wildcard certificate from this CA.
+	CustomCA *LocalCustomCA
+
+	// StaticCertificate is set when Provider is StaticCertificate: the
+	// cluster serves this wildcard certificate and installs no
+	// cert-manager.
+	StaticCertificate *LocalStaticCertificate
+}
+
+// LocalCustomCA holds the Secret references of a BundledCertManager
+// install that uses the CustomCA issuer.
+type LocalCustomCA struct {
+	// CAKeyPairSecretRef names the CA key pair (tls.crt and tls.key) the
+	// issuer signs from.
+	CAKeyPairSecretRef SecretRef
+
+	// CACertificateSecretRef optionally names the CA trust Secret
+	// (ca.crt) Educates components trust. When nil the operator reads the
+	// trust from the CA key pair.
+	CACertificateSecretRef *SecretRef
+}
+
+// LocalStaticCertificate holds the Secret references of a
+// StaticCertificate install.
+type LocalStaticCertificate struct {
+	// TLSSecretRef names the wildcard certificate (tls.crt and tls.key)
+	// the cluster serves.
+	TLSSecretRef SecretRef
+
+	// CACertificateSecretRef optionally names the CA trust Secret
+	// (ca.crt) holding the CA the wildcard certificate verifies against,
+	// which Educates components trust. When nil no CA is configured.
+	CACertificateSecretRef *SecretRef
 }
 
 // Translate dispatches on kind. Returns ErrUnknownKind if the loaded

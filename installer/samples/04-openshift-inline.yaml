@@ -55,6 +55,9 @@ spec:
       wildcardCertificateSecretRef:
         name: educates-wildcard-tls
       # Uncomment when workshops need to verify TLS against a private CA.
+      # Components receive only its ca.crt, copied by the operator into
+      # educates-ingress-ca. Both references take an optional namespace,
+      # which defaults to the operator namespace.
       # caCertificateSecretRef:
       #   name: educates-wildcard-ca
       # Optional: name the ClusterIssuer that signed the wildcard cert

@@ -18,11 +18,17 @@ func loadCfg(t *testing.T, fixture string) v1alpha1.Config {
 	return cfg
 }
 
-// testOpts supplies a non-empty CA secret name so EducatesLocalConfig
-// translation doesn't fail validation. Cluster-side secrets cache
-// integration is exercised by the command-level tests.
+// testOpts supplies a BundledCertManager decision with a CA key pair so
+// EducatesLocalConfig translation doesn't fail validation. Resolving the
+// decision from the local secrets cache is exercised by the localcerts
+// tests.
 func testOpts() Options {
-	return Options{CASecretName: "test-ca", CASecretNamespace: "educates-secrets"}
+	return Options{LocalCertificates: LocalCertificates{
+		Provider: CertificatesProviderBundledCertManager,
+		CustomCA: &LocalCustomCA{
+			CAKeyPairSecretRef: SecretRef{Name: "test-ca", Namespace: "educates-secrets"},
+		},
+	}}
 }
 
 // translateBytes is a load+translate helper for tests that build YAML
@@ -118,6 +124,8 @@ func TestTranslateLocal_AllLockedInvariants(t *testing.T) {
 		{"EducatesClusterConfig", "ingress.controller.bundledContour.envoyServiceType", "ClusterIP"},
 		{"EducatesClusterConfig", "ingress.certificates.provider", "BundledCertManager"},
 		{"EducatesClusterConfig", "ingress.certificates.bundledCertManager.issuerType", "CustomCA"},
+		{"EducatesClusterConfig", "ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef.name", "test-ca"},
+		{"EducatesClusterConfig", "ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef.namespace", "educates-secrets"},
 		{"EducatesClusterConfig", "policyEnforcement.clusterPolicy.engine", "Kyverno"},
 		{"EducatesClusterConfig", "policyEnforcement.workshopPolicy.engine", "Kyverno"},
 		{"EducatesClusterConfig", "policyEnforcement.kyverno.provider", "Bundled"},
@@ -186,18 +194,132 @@ func getNested(root map[string]interface{}, path string) (interface{}, bool) {
 	return cur, true
 }
 
+// TestTranslateLocal_WithoutCertificatesDecision_Errors asserts that a
+// local config cannot be translated without a complete certificates
+// decision, so a missing CA fails before anything is deployed.
+func TestTranslateLocal_WithoutCertificatesDecision_Errors(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	for name, lc := range map[string]LocalCertificates{
+		"no decision": {},
+		"BundledCertManager without a CA key pair": {Provider: CertificatesProviderBundledCertManager},
+		"BundledCertManager with an unnamed CA key pair": {
+			Provider: CertificatesProviderBundledCertManager,
+			CustomCA: &LocalCustomCA{},
+		},
+		"StaticCertificate without a TLS certificate": {Provider: CertificatesProviderStaticCertificate},
+		"StaticCertificate with an unnamed TLS certificate": {
+			Provider:          CertificatesProviderStaticCertificate,
+			StaticCertificate: &LocalStaticCertificate{},
+		},
+		"unknown provider": {Provider: "Unknown"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Translate(cfg, Options{LocalCertificates: lc}); err == nil {
+				t.Errorf("Translate accepted certificates decision %+v", lc)
+			}
+		})
+	}
+}
+
+// TestTranslateLocal_CustomCA_CATrustSecretRef asserts that a CustomCA
+// decision naming the root's CA trust Secret emits it as
+// customCA.caCertificateSecretRef beside the CA key pair, and that a
+// decision without one emits no caCertificateSecretRef.
+func TestTranslateLocal_CustomCA_CATrustSecretRef(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	const customCA = "ingress.certificates.bundledCertManager.customCA"
+
+	withTrust := testOpts()
+	withTrust.LocalCertificates.CustomCA.CACertificateSecretRef = &SecretRef{Name: "educates-ca", Namespace: "educates-secrets"}
+	out, err := Translate(cfg, withTrust)
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec := out.EducatesClusterConfig["spec"].(map[string]interface{})
+	for path, want := range map[string]interface{}{
+		customCA + ".caKeyPairSecretRef.name":          "test-ca",
+		customCA + ".caKeyPairSecretRef.namespace":     "educates-secrets",
+		customCA + ".caCertificateSecretRef.name":      "educates-ca",
+		customCA + ".caCertificateSecretRef.namespace": "educates-secrets",
+	} {
+		if got, _ := getNested(spec, path); got != want {
+			t.Errorf("EducatesClusterConfig.spec.%s = %v, want %v", path, got, want)
+		}
+	}
+
+	out, err = Translate(cfg, testOpts())
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec = out.EducatesClusterConfig["spec"].(map[string]interface{})
+	if got, found := getNested(spec, customCA+".caCertificateSecretRef"); found {
+		t.Errorf("caCertificateSecretRef emitted without a CA trust Secret in the decision: %v", got)
+	}
+}
+
+// TestTranslateLocal_StaticCertificate asserts that a StaticCertificate
+// decision emits the wildcard certificate Secret as
+// staticCertificate.tlsSecretRef, the CA trust Secret, when the decision
+// names one, as staticCertificate.caCertificateSecretRef, and no
+// cert-manager configuration.
+func TestTranslateLocal_StaticCertificate(t *testing.T) {
+	cfg := loadCfg(t, "local-empty.yaml")
+	const static = "ingress.certificates.staticCertificate"
+	decision := func(ca *SecretRef) Options {
+		return Options{LocalCertificates: LocalCertificates{
+			Provider: CertificatesProviderStaticCertificate,
+			StaticCertificate: &LocalStaticCertificate{
+				TLSSecretRef:           SecretRef{Name: "workshop-tls", Namespace: "educates-secrets"},
+				CACertificateSecretRef: ca,
+			},
+		}}
+	}
+
+	out, err := Translate(cfg, decision(&SecretRef{Name: "mkcert-ca", Namespace: "educates-secrets"}))
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec := out.EducatesClusterConfig["spec"].(map[string]interface{})
+	for path, want := range map[string]interface{}{
+		"ingress.certificates.provider":              "StaticCertificate",
+		static + ".tlsSecretRef.name":                "workshop-tls",
+		static + ".tlsSecretRef.namespace":           "educates-secrets",
+		static + ".caCertificateSecretRef.name":      "mkcert-ca",
+		static + ".caCertificateSecretRef.namespace": "educates-secrets",
+	} {
+		if got, _ := getNested(spec, path); got != want {
+			t.Errorf("EducatesClusterConfig.spec.%s = %v, want %v", path, got, want)
+		}
+	}
+	if got, found := getNested(spec, "ingress.certificates.bundledCertManager"); found {
+		t.Errorf("bundledCertManager emitted for a StaticCertificate decision: %v", got)
+	}
+
+	out, err = Translate(cfg, decision(nil))
+	if err != nil {
+		t.Fatalf("Translate: %v", err)
+	}
+	spec = out.EducatesClusterConfig["spec"].(map[string]interface{})
+	if got, found := getNested(spec, static+".caCertificateSecretRef"); found {
+		t.Errorf("caCertificateSecretRef emitted without a CA trust Secret in the decision: %v", got)
+	}
+}
+
 // TestTranslateLocal_Insecure_NoneProviderHTTP asserts that an insecure
-// local config produces a None certificates provider with http protocol
-// and needs no CA: translateBytes passes empty Options, so a non-empty
-// CASecretName is not required when ingress.insecure is set.
+// local config with the None certificates decision produces a None
+// certificates provider with http protocol and needs no CA.
 func TestTranslateLocal_Insecure_NoneProviderHTTP(t *testing.T) {
-	out, err := translateBytes(t, []byte(`
+	cfg, err := config.LoadBytes([]byte(`
 apiVersion: cli.educates.dev/v1alpha1
 kind: EducatesLocalConfig
 ingress:
   domain: 192.168.1.10.nip.io
   insecure: true
-`))
+`), "inline-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := Translate(cfg, Options{LocalCertificates: LocalCertificates{Provider: CertificatesProviderNone}})
 	if err != nil {
 		t.Fatalf("translate: %v", err)
 	}

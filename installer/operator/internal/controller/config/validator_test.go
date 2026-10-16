@@ -17,6 +17,8 @@ limitations under the License.
 package config
 
 import (
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
+	"github.com/educates/educates-training-platform/installer/operator/internal/testpki"
 )
 
 const testOperatorNamespace = "test-operator"
@@ -85,7 +89,7 @@ func validInlineSpec() configv1alpha1.EducatesClusterConfigSpec {
 			Ingress: configv1alpha1.InlineIngress{
 				Domain:           "educates.test",
 				IngressClassName: "contour",
-				WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
+				WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
 					Name: "wildcard-tls",
 				},
 			},
@@ -115,29 +119,41 @@ func makeIngressClass() *networkingv1.IngressClass {
 	}
 }
 
+// makeWildcardSecret returns the wildcard Secret validInlineSpec
+// references, holding a certificate for *.educates.test from a new
+// root CA, with or without its tls.crt.
 func makeWildcardSecret(withTLSCrt bool) *corev1.Secret {
-	data := map[string][]byte{"tls.key": []byte("dummy-key")}
-	if withTLSCrt {
-		data["tls.crt"] = []byte("dummy-cert")
+	s := makeWildcardSecretIssuedBy(testpki.NewRootCA())
+	if !withTLSCrt {
+		delete(s.Data, "tls.crt")
 	}
+	return s
+}
+
+// makeWildcardSecretIssuedBy returns the wildcard Secret validInlineSpec
+// references, holding a certificate for *.educates.test that ca issued.
+func makeWildcardSecretIssuedBy(ca *testpki.Certificate) *corev1.Secret {
+	leaf := ca.NewLeaf(testpki.WithDNSNames("*.educates.test"))
 	// Type intentionally Opaque — kubernetes.io/tls Secrets are
 	// apiserver-validated to require both tls.crt + tls.key, which would
 	// block tests that exercise the "missing key" validator path.
-	return &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "wildcard-tls", Namespace: testOperatorNamespace},
-		Data:       data,
-	}
+	return makeSecret(testOperatorNamespace, "wildcard-tls", map[string][]byte{
+		"tls.crt": leaf.ChainPEM(),
+		"tls.key": leaf.KeyPEM,
+	})
 }
 
 var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 	BeforeEach(func() {
 		ensureNamespace(testOperatorNamespace)
+		ensureNamespace(testCASecretsNamespace)
 	})
 
 	AfterEach(func() {
 		drainCR()
 		// Best-effort cleanup of supporting resources; ignore not-found.
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testCASecretsNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
 	})
 
@@ -175,7 +191,84 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 		val := meta.FindStatusCondition(got.Status.Conditions, conditionValidationSucceeded)
 		Expect(val).NotTo(BeNil())
 		Expect(val.Status).To(Equal(metav1.ConditionTrue))
+
+		certs := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
+		Expect(certs).NotTo(BeNil())
+		Expect(certs.Status).To(Equal(metav1.ConditionTrue))
+		Expect(certs.Reason).To(Equal("InlineCertificatesValid"))
 	})
+
+	DescribeTable("reports an unusable wildcard certificate with the same reason as StaticCertificate",
+		func(setup func(spec *configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret, wantReason string) {
+			Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+			spec := validInlineSpec()
+			for _, s := range setup(&spec) {
+				Expect(k8sClient.Create(ctx, s)).To(Succeed())
+			}
+			Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec:       spec,
+			})).To(Succeed())
+
+			reconcileTwice(makeReconciler())
+
+			got := &configv1alpha1.EducatesClusterConfig{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+			Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+			Expect(meta.IsStatusConditionFalse(got.Status.Conditions, conditionReady)).To(BeTrue())
+			certs := meta.FindStatusCondition(got.Status.Conditions, conditionCertificatesReady)
+			Expect(certs).NotTo(BeNil())
+			Expect(certs.Status).To(Equal(metav1.ConditionFalse))
+			Expect(certs.Reason).To(Equal(wantReason))
+		},
+		Entry("when the wildcard Secret is missing",
+			func(*configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret { return nil },
+			pki.ReasonWildcardCertificateNotFound),
+		Entry("when the wildcard Secret has no tls.crt",
+			func(*configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret {
+				return []*corev1.Secret{makeWildcardSecret(false)}
+			},
+			pki.ReasonWildcardCertificateIncomplete),
+		Entry("when tls.key does not parse",
+			func(*configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret {
+				s := makeWildcardSecret(true)
+				s.Data["tls.key"] = []byte("not a key")
+				return []*corev1.Secret{s}
+			},
+			pki.ReasonWildcardCertificateUnparseable),
+		Entry("when tls.key belongs to another certificate",
+			func(*configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret {
+				s := makeWildcardSecret(true)
+				s.Data["tls.key"] = makeWildcardSecret(true).Data["tls.key"]
+				return []*corev1.Secret{s}
+			},
+			pki.ReasonWildcardCertificateKeyMismatch),
+		Entry("when its SANs do not cover the ingress domain",
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret {
+				spec.Inline.Ingress.Domain = "elsewhere.test"
+				return []*corev1.Secret{makeWildcardSecret(true)}
+			},
+			pki.ReasonWildcardCertificateDomainMismatch),
+		Entry("when it has expired",
+			func(*configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret {
+				leaf := testpki.NewRootCA().NewLeaf(testpki.WithDNSNames("*.educates.test"),
+					testpki.WithValidity(time.Now().Add(-48*time.Hour), time.Now().Add(-24*time.Hour)))
+				return []*corev1.Secret{makeSecret(testOperatorNamespace, "wildcard-tls", map[string][]byte{
+					"tls.crt": leaf.CertPEM,
+					"tls.key": leaf.KeyPEM,
+				})}
+			},
+			pki.ReasonWildcardCertificateExpired),
+		Entry("when its chain does not verify against the CA",
+			func(spec *configv1alpha1.EducatesClusterConfigSpec) []*corev1.Secret {
+				spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.SecretReference{Name: "byo-ca"}
+				return []*corev1.Secret{
+					makeWildcardSecret(true),
+					makeSecret(testOperatorNamespace, "byo-ca", map[string][]byte{"ca.crt": testpki.NewRootCA().CertPEM}),
+				}
+			},
+			pki.ReasonWildcardCertificateUntrusted),
+	)
 
 	It("flips to Degraded when the wildcard Secret is missing", func() {
 		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
@@ -246,7 +339,7 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
 
 		spec := validInlineSpec()
-		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.CASecretReference{Name: "ca-bundle"}
+		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.SecretReference{Name: "ca-bundle"}
 
 		obj := &configv1alpha1.EducatesClusterConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
@@ -262,6 +355,145 @@ var _ = Describe("EducatesClusterConfig Inline-mode reconciler", func() {
 
 		ready := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
 		Expect(ready.Message).To(ContainSubstring("caCertificateSecretRef"))
+		Expect(certificatesReadyReason()).To(Equal(pki.ReasonCATrustSecretNotFound))
+	})
+
+	It("publishes a wildcard Secret in another namespace with that namespace", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		wildcard := makeWildcardSecret(true)
+		wildcard.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, wildcard)).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.WildcardCertificateSecretRef.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+		Expect(got.Status.Ingress.WildcardCertificateSecretRef).To(Equal(&configv1alpha1.NamespacedSecretRef{
+			Namespace: testCASecretsNamespace,
+			Name:      "wildcard-tls",
+		}))
+	})
+
+	It("flips to Degraded when the wildcard Secret is missing from the referenced namespace", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		// The Secret exists, but in the operator namespace only.
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.WildcardCertificateSecretRef.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+		ready := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+		Expect(ready.Message).To(ContainSubstring("wildcardCertificateSecretRef"))
+		Expect(ready.Message).To(ContainSubstring(testCASecretsNamespace + "/wildcard-tls not found"))
+	})
+
+	It("returns CertificatesReady to True once the wildcard certificate is fixed", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		wildcard := makeWildcardSecret(true)
+		valid := wildcard.Data["tls.key"]
+		wildcard.Data["tls.key"] = makeWildcardSecret(true).Data["tls.key"]
+		Expect(k8sClient.Create(ctx, wildcard)).To(Succeed())
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       validInlineSpec(),
+		})).To(Succeed())
+		r := makeReconciler()
+		reconcileTwice(r)
+		Expect(certificatesReadyReason()).To(Equal(pki.ReasonWildcardCertificateKeyMismatch))
+
+		wildcard.Data["tls.key"] = valid
+		Expect(k8sClient.Update(ctx, wildcard)).To(Succeed())
+		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "cluster"}})
+		Expect(err).NotTo(HaveOccurred())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+		Expect(meta.IsStatusConditionTrue(got.Status.Conditions, conditionCertificatesReady)).To(BeTrue())
+		Expect(meta.IsStatusConditionTrue(got.Status.Conditions, conditionValidationSucceeded)).To(BeTrue())
+	})
+
+	It("publishes educates-ingress-ca holding only the CA Secret's ca.crt, even when it also holds a key", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		ca := testpki.NewRootCA()
+		Expect(k8sClient.Create(ctx, makeWildcardSecretIssuedBy(ca))).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeSecret(testCASecretsNamespace, "byo-ca", map[string][]byte{
+			"ca.crt":  ca.CertPEM,
+			"tls.crt": ca.CertPEM,
+			"tls.key": ca.KeyPEM,
+		}))).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.SecretReference{
+			Name:      "byo-ca",
+			Namespace: testCASecretsNamespace,
+		}
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseReady))
+		Expect(got.Status.Ingress.CACertificateSecretRef).To(Equal(&configv1alpha1.NamespacedSecretRef{
+			Namespace: testOperatorNamespace,
+			Name:      ingressCASecretName,
+		}))
+		Expect(ingressCAData()).To(Equal(map[string][]byte{"ca.crt": ca.CertPEM}))
+
+		derived := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testOperatorNamespace, Name: ingressCASecretName}, derived)).To(Succeed())
+		Expect(derived.Type).To(Equal(corev1.SecretTypeOpaque))
+		Expect(derived.OwnerReferences).To(HaveLen(1))
+		Expect(derived.OwnerReferences[0].Kind).To(Equal("EducatesClusterConfig"))
+	})
+
+	It("flips to Degraded when the CA Secret has no ca.crt", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		Expect(k8sClient.Create(ctx, makeWildcardSecret(true))).To(Succeed())
+		ca := testpki.NewRootCA()
+		Expect(k8sClient.Create(ctx, makeSecret(testOperatorNamespace, "byo-ca", map[string][]byte{
+			"tls.crt": ca.CertPEM,
+			"tls.key": ca.KeyPEM,
+		}))).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.SecretReference{Name: "byo-ca"}
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+
+		reconcileTwice(makeReconciler())
+
+		got := &configv1alpha1.EducatesClusterConfig{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "cluster"}, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(configv1alpha1.ClusterConfigPhaseDegraded))
+		ready := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+		Expect(ready.Message).To(ContainSubstring("caCertificateSecretRef"))
+		Expect(ready.Message).To(ContainSubstring(`"ca.crt"`))
+		Expect(certificatesReadyReason()).To(Equal(pki.ReasonCATrustSecretIncomplete))
+		Expect(ingressCAData()).To(BeNil())
 	})
 
 	It("clears the finalizer on delete", func() {

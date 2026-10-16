@@ -27,3 +27,5 @@ Records
 * [0001 - Extension package images are explicitly declared](0001-extension-package-images-are-explicitly-declared.md)
 * [0002 - Package images are fetched by a purpose built fetcher](0002-package-images-are-fetched-by-a-purpose-built-fetcher.md)
 * [0003 - The extension package image contract](0003-the-extension-package-image-contract.md)
+* [0004 - CA trust reaches components only through a key-free Secret the operator owns](0004-ca-trust-reaches-components-only-through-a-key-free-secret.md)
+* [0005 - Local CA roots stay on the laptop; clusters receive per-domain intermediates](0005-local-ca-roots-stay-on-the-laptop.md)

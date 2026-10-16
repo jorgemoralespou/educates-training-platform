@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
@@ -55,7 +54,7 @@ For programmatic field reads use 'educates local config get [PATH]'.`,
 }
 
 func (p *ProjectInfo) runLocalConfigView(o *LocalConfigViewOptions, w io.Writer) error {
-	cfgPath := filepath.Join(utils.GetEducatesHomeDir(), "config.yaml")
+	cfgPath := config.LocalConfigPath(utils.GetEducatesHomeDir())
 	if err := config.EnsureLocalConfigFile(utils.GetEducatesHomeDir()); err != nil {
 		return err
 	}

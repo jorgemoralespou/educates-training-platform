@@ -68,7 +68,8 @@ func PurgePlan() PurgeTargets {
 //  3. Delete SecretsManager → wait gone.
 //  4. Delete EducatesClusterConfig → wait gone (its finalizer drains
 //     kyverno → external-dns → contour → cert-manager → CustomCA
-//     copy in reverse install order).
+//     copy in reverse install order, each only when the
+//     EducatesClusterConfig has Educates install it).
 //  5. helm uninstall the operator chart.
 //
 // Idempotent: a CR that's already gone is a no-op step. Useful for

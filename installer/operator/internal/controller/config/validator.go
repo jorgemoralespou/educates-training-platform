@@ -22,7 +22,6 @@ import (
 
 	cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
-	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -38,6 +37,13 @@ import (
 type validationError struct {
 	Field  string
 	Reason string
+
+	// ConditionType and ConditionReason, when set, also report the
+	// failure on a per-concern condition (such as CertificatesReady)
+	// with a machine-readable reason, so a reader can tell failures
+	// apart without parsing the message.
+	ConditionType   string
+	ConditionReason string
 }
 
 func (e *validationError) Error() string {
@@ -61,29 +67,26 @@ func (r *EducatesClusterConfigReconciler) validateInline(ctx context.Context, in
 	}
 
 	// No wildcard certificate means plain HTTP or TLS terminated outside
-	// the cluster; components read the absent ref accordingly.
+	// the cluster; components read the absent ref accordingly. A
+	// declared one gets the same check as the StaticCertificate
+	// provider's, against the declared CA when there is one.
 	if ref := inline.Ingress.WildcardCertificateSecretRef; ref != nil {
-		if err := r.checkWildcardSecret(ctx, ref.Name); err != nil {
+		if _, err := r.checkWildcardCertificate(ctx,
+			*ref, inlineWildcardField, inline.Ingress.Domain,
+			inline.Ingress.CACertificateSecretRef, inlineCATrustField); err != nil {
 			return nil, err
 		}
 		out.WildcardCertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
-			Namespace: r.OperatorNamespace,
+			Namespace: r.secretRefNamespace(*ref),
 			Name:      ref.Name,
 		}
 	}
 
-	if ref := inline.Ingress.CACertificateSecretRef; ref != nil {
-		if err := r.checkCASecret(ctx, *ref); err != nil {
-			return nil, err
-		}
-		ns := ref.Namespace
-		if ns == "" {
-			ns = r.OperatorNamespace
-		}
-		out.CACertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
-			Namespace: ns,
-			Name:      ref.Name,
-		}
+	// The CA Secret itself is never published: components receive only
+	// the key-free educates-ingress-ca that ensureIngressCATrust derives
+	// from it, which also reports a CA Secret it cannot use.
+	if inline.Ingress.CACertificateSecretRef != nil {
+		out.CACertificateSecretRef = r.ingressCASecretRef()
 	}
 
 	if inline.Ingress.ClusterIssuerRef != nil {
@@ -122,61 +125,6 @@ func (r *EducatesClusterConfigReconciler) checkIngressClass(ctx context.Context,
 			}
 		}
 		return fmt.Errorf("get IngressClass %q: %w", name, err)
-	}
-	return nil
-}
-
-func (r *EducatesClusterConfigReconciler) checkWildcardSecret(ctx context.Context, name string) error {
-	s := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: r.OperatorNamespace, Name: name}
-	if err := r.Get(ctx, key, s); err != nil {
-		if apierrors.IsNotFound(err) {
-			return &validationError{
-				Field:  "spec.inline.ingress.wildcardCertificateSecretRef",
-				Reason: fmt.Sprintf("Secret %s/%s not found", r.OperatorNamespace, name),
-			}
-		}
-		return fmt.Errorf("get wildcard Secret %s: %w", key, err)
-	}
-	for _, k := range []string{"tls.crt", "tls.key"} {
-		if _, ok := s.Data[k]; !ok {
-			return &validationError{
-				Field:  "spec.inline.ingress.wildcardCertificateSecretRef",
-				Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", r.OperatorNamespace, name, k),
-			}
-		}
-	}
-	return nil
-}
-
-// checkCASecret validates the Inline-mode caCertificateSecretRef. The
-// ref's optional Namespace is honoured (defaulting to the operator
-// namespace when empty) — mirrors the Managed-mode CustomCA flow's
-// CASecretReference semantics. Bypasses the cache via APIReader so
-// cross-namespace reads (e.g. educates-secrets) don't fail with
-// "unknown namespace for the cache".
-func (r *EducatesClusterConfigReconciler) checkCASecret(ctx context.Context, ref configv1alpha1.CASecretReference) error {
-	ns := ref.Namespace
-	if ns == "" {
-		ns = r.OperatorNamespace
-	}
-	r.warnIfCacheMiss(ctx, ns, "spec.inline.ingress.caCertificateSecretRef")
-	s := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
-	if err := r.APIReader.Get(ctx, key, s); err != nil {
-		if apierrors.IsNotFound(err) {
-			return &validationError{
-				Field:  "spec.inline.ingress.caCertificateSecretRef",
-				Reason: fmt.Sprintf("Secret %s/%s not found", ns, ref.Name),
-			}
-		}
-		return fmt.Errorf("get CA Secret %s: %w", key, err)
-	}
-	if _, ok := s.Data["ca.crt"]; !ok {
-		return &validationError{
-			Field:  "spec.inline.ingress.caCertificateSecretRef",
-			Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", ns, ref.Name, "ca.crt"),
-		}
 	}
 	return nil
 }

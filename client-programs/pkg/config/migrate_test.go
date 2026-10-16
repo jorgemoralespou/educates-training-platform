@@ -174,7 +174,7 @@ func TestEnsureLocalConfigFile_MigratesAndPasses(t *testing.T) {
 	}
 }
 
-func TestWarnIfV3CACachePresent_OpaqueCACertOnly_Warns(t *testing.T) {
+func TestNoteIfV3CACachePresent_OpaqueCACertOnly_ExplainsItIsACATrustSecret(t *testing.T) {
 	dataHome := t.TempDir()
 	secretsDir := filepath.Join(dataHome, "secrets")
 	must(t, os.MkdirAll(secretsDir, 0o755))
@@ -191,21 +191,34 @@ data:
 	must(t, os.WriteFile(filepath.Join(secretsDir, "workshop.test-ca.yaml"), []byte(v3CASecret), 0o644))
 
 	var buf bytes.Buffer
-	warnIfV3CACachePresent(&buf, secretsDir, "workshop.test")
+	noteIfV3CACachePresent(&buf, secretsDir, "workshop.test")
 
 	s := buf.String()
-	for _, want := range []string{"v3-shape CA Secret detected", "kubernetes.io/tls + tls.crt + tls.key", "educates local secrets add ca workshop.test-ca --domain workshop.test"} {
+	for _, want := range []string{
+		filepath.Join(secretsDir, "workshop.test-ca.yaml"),
+		"is a valid CA trust Secret",
+		"*.workshop.test",
+		"StaticCertificate provider",
+		"no cert-manager",
+		"educates local secrets add ca <name>\n",
+		"educates local secrets add ca <name> --cert ROOT.pem --key ROOT-KEY.pem\n",
+	} {
 		if !strings.Contains(s, want) {
-			t.Errorf("warning missing %q in:\n%s", want, s)
+			t.Errorf("note missing %q in:\n%s", want, s)
+		}
+	}
+	for _, unwanted := range []string{"--domain", "WARNING", "kubernetes.io/tls"} {
+		if strings.Contains(s, unwanted) {
+			t.Errorf("note mentions %q, which no longer applies:\n%s", unwanted, s)
 		}
 	}
 }
 
-func TestWarnIfV3CACachePresent_TLSShape_NoWarn(t *testing.T) {
+func TestNoteIfV3CACachePresent_TLSShape_NoNote(t *testing.T) {
 	dataHome := t.TempDir()
 	secretsDir := filepath.Join(dataHome, "secrets")
 	must(t, os.MkdirAll(secretsDir, 0o755))
-	// v4-shape — kubernetes.io/tls — should NOT warn.
+	// A kubernetes.io/tls Secret is not a v3 CA certificate.
 	v4Secret := `apiVersion: v1
 kind: Secret
 metadata:
@@ -220,9 +233,9 @@ data:
 	must(t, os.WriteFile(filepath.Join(secretsDir, "workshop.test-ca.yaml"), []byte(v4Secret), 0o644))
 
 	var buf bytes.Buffer
-	warnIfV3CACachePresent(&buf, secretsDir, "workshop.test")
+	noteIfV3CACachePresent(&buf, secretsDir, "workshop.test")
 	if buf.Len() != 0 {
-		t.Errorf("v4-shape Secret should not warn, got:\n%s", buf.String())
+		t.Errorf("a kubernetes.io/tls Secret should not be noted, got:\n%s", buf.String())
 	}
 }
 

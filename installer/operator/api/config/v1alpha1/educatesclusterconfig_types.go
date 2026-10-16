@@ -64,10 +64,15 @@ const (
 )
 
 // CertificatesProvider selects how the wildcard TLS certificate is
-// provisioned. None disables in-cluster TLS entirely: the operator
-// installs no cert-manager, creates no ClusterIssuer and no wildcard
-// Certificate, and Educates serves plain HTTP unless TLS is terminated
-// outside the cluster (see ingress.protocol).
+// provisioned. BundledCertManager installs cert-manager and issues the
+// certificate from a ClusterIssuer. StaticCertificate serves a wildcard
+// certificate issued outside the cluster, without cert-manager.
+// ExternalCertManager is reserved and not yet supported. None disables
+// in-cluster TLS entirely: the operator installs no cert-manager,
+// creates no ClusterIssuer and no wildcard Certificate, and Educates
+// serves plain HTTP unless TLS is terminated outside the cluster (see
+// ingress.protocol). The provider is immutable: changing it requires
+// deleting and recreating the EducatesClusterConfig.
 // +kubebuilder:validation:Enum=BundledCertManager;ExternalCertManager;StaticCertificate;None
 type CertificatesProvider string
 
@@ -190,16 +195,16 @@ type NamespacedSecretRef struct {
 	Name string `json:"name"`
 }
 
-// CASecretReference is a Secret reference for the CustomCA flow.
-// Name is required; Namespace is optional and defaults to the operator
-// namespace when empty.
+// SecretReference is a reference to a Secret that may live outside the
+// operator namespace. Name is required; Namespace is optional and
+// defaults to the operator namespace when empty.
 //
 // The optional namespace lets installs (in particular the CLI's
-// laptop-mode flow) keep CA material in a dedicated namespace
+// laptop-mode flow) keep certificate material in a dedicated namespace
 // (educates-secrets, by convention) rather than co-locating it with the
 // operator. v3 installations rely on this separation, and the v4 CLI
 // preserves it for compatibility.
-type CASecretReference struct {
+type SecretReference struct {
 	// name of the referent.
 	// +required
 	Name string `json:"name"`
@@ -428,13 +433,25 @@ type ACMEConfig struct {
 	Solvers ACMESolvers `json:"solvers"`
 }
 
-// CustomCAConfig configures a self-signed/custom CA-backed ClusterIssuer.
+// CustomCAConfig configures a ClusterIssuer backed by your own CA.
 type CustomCAConfig struct {
-	// caCertificateRef references a Secret holding the CA's own cert and
-	// key (keys: tls.crt, tls.key). Namespace defaults to the operator
-	// namespace when empty.
+	// caKeyPairSecretRef references the CA key pair cert-manager signs
+	// the wildcard certificate with: a Secret holding the CA certificate
+	// under tls.crt (optionally followed by its issuers) and its private
+	// key under tls.key, and optionally the root certificate under
+	// ca.crt. The certificate in tls.crt must be a CA. Namespace defaults
+	// to the operator namespace when empty. Educates components never
+	// receive this Secret; they receive only the CA certificate.
 	// +required
-	CACertificateRef CASecretReference `json:"caCertificateRef"`
+	CAKeyPairSecretRef SecretReference `json:"caKeyPairSecretRef"`
+
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding the CA certificate Educates components trust, under ca.crt.
+	// When unset, the trust is read from the CA key pair: its ca.crt,
+	// or else the root-most certificate of its tls.crt chain. Namespace
+	// defaults to the operator namespace when empty.
+	// +optional
+	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 }
 
 // BundledCertManagerConfig configures the operator-installed cert-manager
@@ -458,18 +475,30 @@ type ExternalCertManagerConfig struct {
 	ClusterIssuerRef LocalObjectReference `json:"clusterIssuerRef"`
 }
 
-// StaticCertificateConfig declares a pre-provisioned wildcard TLS
-// certificate; no cert-manager is involved.
+// StaticCertificateConfig declares a wildcard TLS certificate issued
+// outside the cluster. The operator serves it as it is: it installs no
+// cert-manager and creates no ClusterIssuer or Certificate.
 type StaticCertificateConfig struct {
-	// tlsSecretRef references a kubernetes.io/tls Secret with keys
-	// tls.crt and tls.key.
+	// tlsSecretRef references the wildcard certificate Educates serves: a
+	// Secret holding the certificate under tls.crt (optionally followed
+	// by its intermediates) and its private key under tls.key. The
+	// certificate's SANs must include *.<domain>. Namespace defaults to
+	// the operator namespace when empty. The operator copies only tls.crt
+	// and tls.key into the operator-owned educates-wildcard-tls and keeps
+	// that copy current.
 	// +required
-	TLSSecretRef LocalObjectReference `json:"tlsSecretRef"`
+	TLSSecretRef SecretReference `json:"tlsSecretRef"`
 
-	// caCertificateRef optionally references a Secret with the ca.crt
-	// key for the issuing CA chain.
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding the certificate of the CA that issued the wildcard
+	// certificate, under ca.crt. When set, the wildcard certificate's
+	// chain must verify against it, and Educates components trust it
+	// through educates-ingress-ca, which the operator derives from its
+	// ca.crt alone, so any other key it holds, a private key included,
+	// is ignored. Namespace defaults to the operator namespace when
+	// empty.
 	// +optional
-	CACertificateRef *LocalObjectReference `json:"caCertificateRef,omitempty"`
+	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 }
 
 // Certificates groups certificate-provider configuration.
@@ -742,16 +771,21 @@ type InlineIngress struct {
 	Protocol IngressProtocol `json:"protocol,omitempty"`
 
 	// wildcardCertificateSecretRef references a kubernetes.io/tls Secret
-	// with keys tls.crt and tls.key, valid for *.<domain>. Omit it when
-	// the cluster serves plain HTTP or terminates TLS outside the
-	// cluster.
+	// with keys tls.crt and tls.key, valid for *.<domain>. Namespace
+	// defaults to the operator namespace when empty. Omit it when the
+	// cluster serves plain HTTP or terminates TLS outside the cluster.
 	// +optional
-	WildcardCertificateSecretRef *LocalObjectReference `json:"wildcardCertificateSecretRef,omitempty"`
+	WildcardCertificateSecretRef *SecretReference `json:"wildcardCertificateSecretRef,omitempty"`
 
-	// caCertificateSecretRef references a Secret with the ca.crt key
-	// for the issuing CA chain. Optional.
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding the certificate of the CA that issued the wildcard
+	// certificate, under ca.crt. Namespace defaults to the operator
+	// namespace when empty. Educates components never receive this
+	// Secret: the operator derives educates-ingress-ca from its ca.crt
+	// alone, so any other key it holds, a private key included, is
+	// ignored.
 	// +optional
-	CACertificateSecretRef *CASecretReference `json:"caCertificateSecretRef,omitempty"`
+	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 
 	// clusterIssuerRef references an existing ClusterIssuer that must be
 	// Ready. Optional; informational for components.
@@ -787,12 +821,33 @@ type InlineConfig struct {
 //
 // CEL invariants (structural):
 //   - spec.mode is immutable; switching modes requires delete + recreate.
+//   - spec.ingress.certificates.provider is immutable once set; changing
+//     it requires delete + recreate. Removing spec.ingress counts as a
+//     change, so the provider cannot be swapped by dropping the block
+//     and adding it back. Adding spec.ingress to a resource created
+//     without one sets the provider for the first time and is allowed.
+//   - spec.ingress.controller.provider is immutable in the same way.
+//   - spec.dns.provider is immutable, reading an absent spec.dns or
+//     provider as None, its default. Adding or removing spec.dns is
+//     therefore allowed only when the block's provider is None.
+//   - The policyEnforcement engines and kyverno provider are immutable,
+//     and so is the presence of spec.policyEnforcement and of its
+//     kyverno block: the operator installs no Kyverno without that
+//     block, whatever its provider's default.
 //   - When mode is Inline, the Managed-mode top-level fields
 //     (infrastructure, ingress, dns, policyEnforcement, imageRegistry)
 //     are forbidden.
 //   - When mode is Managed, spec.inline is forbidden.
 //
+// The provider rules fix how each cluster service is provided for the
+// life of an install, so teardown removes exactly what the spec says
+// the operator installed.
+//
 // +kubebuilder:validation:XValidation:rule="self.mode == oldSelf.mode",message="spec.mode is immutable; delete and recreate the resource to switch modes"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ingress) || (has(self.ingress) && self.ingress.certificates.provider == oldSelf.ingress.certificates.provider)",message="spec.ingress.certificates.provider is immutable; delete and recreate the resource to change the certificate provider"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.ingress) || (has(self.ingress) && self.ingress.controller.provider == oldSelf.ingress.controller.provider)",message="spec.ingress.controller.provider is immutable; delete and recreate the resource to change the ingress controller provider"
+// +kubebuilder:validation:XValidation:rule="(has(self.dns) && has(self.dns.provider) ? self.dns.provider : 'None') == (has(oldSelf.dns) && has(oldSelf.dns.provider) ? oldSelf.dns.provider : 'None')",message="spec.dns.provider is immutable; delete and recreate the resource to change the DNS provider"
+// +kubebuilder:validation:XValidation:rule="has(self.policyEnforcement) == has(oldSelf.policyEnforcement) && (!has(self.policyEnforcement) || (self.policyEnforcement.clusterPolicy.engine == oldSelf.policyEnforcement.clusterPolicy.engine && self.policyEnforcement.workshopPolicy.engine == oldSelf.policyEnforcement.workshopPolicy.engine && has(self.policyEnforcement.kyverno) == has(oldSelf.policyEnforcement.kyverno) && (!has(self.policyEnforcement.kyverno) || self.policyEnforcement.kyverno.provider == oldSelf.policyEnforcement.kyverno.provider)))",message="spec.policyEnforcement engines and kyverno provider are immutable; delete and recreate the resource to change policy enforcement"
 // +kubebuilder:validation:XValidation:rule="self.mode != 'Inline' || (!has(self.infrastructure) && !has(self.ingress) && !has(self.dns) && !has(self.policyEnforcement) && !has(self.imageRegistry))",message="spec.{infrastructure,ingress,dns,policyEnforcement,imageRegistry} are forbidden when mode is Inline"
 // +kubebuilder:validation:XValidation:rule="self.mode != 'Managed' || !has(self.inline)",message="spec.inline is forbidden when mode is Managed"
 type EducatesClusterConfigSpec struct {
@@ -903,19 +958,26 @@ type StatusIngress struct {
 	// +required
 	Protocol IngressProtocol `json:"protocol"`
 
-	// wildcardCertificateSecretRef points at the operator-namespace
-	// Secret holding the wildcard cert+key. Unset when the certificates
-	// provider is None, in which case there is no in-cluster TLS.
+	// wildcardCertificateSecretRef points at the Secret holding the
+	// wildcard cert+key: the operator-owned educates-wildcard-tls in the
+	// operator namespace in Managed mode, the referenced Secret in Inline
+	// mode. Unset when there is no in-cluster TLS (the None certificates
+	// provider, or no wildcard certificate in Inline mode).
 	// +optional
 	WildcardCertificateSecretRef *NamespacedSecretRef `json:"wildcardCertificateSecretRef,omitempty"`
 
-	// caCertificateSecretRef is set when a CA Secret is configured.
+	// caCertificateSecretRef is set when a CA is configured. It names
+	// the operator-owned Opaque Secret educates-ingress-ca in the
+	// operator namespace, which holds exactly one key, ca.crt, and never
+	// a private key.
 	// +optional
 	CACertificateSecretRef *NamespacedSecretRef `json:"caCertificateSecretRef,omitempty"`
 
 	// clusterIssuerRef names a cluster-wide ClusterIssuer when one was
-	// configured. Components use this informationally; nothing in the
-	// status pipeline depends on it.
+	// configured: the operator's own with the BundledCertManager
+	// provider, the referenced one in Inline mode. Unset for the
+	// StaticCertificate and None providers. Components use this
+	// informationally; nothing in the status pipeline depends on it.
 	// +optional
 	ClusterIssuerRef *LocalObjectReference `json:"clusterIssuerRef,omitempty"`
 }
@@ -981,10 +1043,12 @@ type EducatesClusterConfigStatus struct {
 
 	// conditions report the resource's state:
 	//   - Ready                (aggregate)
-	//   - ValidationSucceeded  (Inline mode: refs validated)
-	// Managed-mode conditions (IngressReady, CertificatesReady,
-	// DNSReady, PolicyEnforcementReady, InfrastructureConfigured) are
-	// published by their producing reconcilers.
+	//   - ValidationSucceeded  (spec and referenced resources validated)
+	//   - CertificatesReady    (certificate material usable; on failure
+	//                           its reason names the specific problem)
+	// Managed-mode conditions (IngressReady, DNSReady,
+	// PolicyEnforcementReady, InfrastructureConfigured) are published
+	// by their producing reconcilers.
 	// +listType=map
 	// +listMapKey=type
 	// +optional

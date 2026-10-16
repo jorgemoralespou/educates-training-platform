@@ -41,6 +41,39 @@ New Features
   (using IAM Roles for Service Accounts on EKS) and Google Cloud DNS (using
   Workload Identity on GKE).
 
+* In ``Managed`` mode, a wildcard TLS certificate issued outside the cluster
+  can be served with the ``StaticCertificate`` certificates provider, which
+  installs no cert-manager and creates no ``ClusterIssuer`` or
+  ``Certificate``. ``ingress.certificates.staticCertificate.tlsSecretRef``
+  references a secret holding the certificate under ``tls.crt`` and its
+  private key under ``tls.key``, and the optional
+  ``staticCertificate.caCertificateSecretRef``, which replaces
+  ``caCertificateRef``, references a CA trust Secret holding, under
+  ``ca.crt``, the certificate of the CA that issued it. Both take an optional
+  ``namespace``, which defaults to the operator namespace. The operator
+  copies only ``tls.crt`` and ``tls.key`` into a secret named
+  ``educates-wildcard-tls`` in its own namespace, keeps the copy updated when
+  the referenced secret changes, publishes it as
+  ``status.ingress.wildcardCertificateSecretRef`` with no
+  ``clusterIssuerRef``, and derives ``educates-ingress-ca`` from the CA trust
+  Secret. Before serving the certificate or deriving ``educates-ingress-ca``
+  the operator checks the certificate, so a CA it does not verify against
+  never reaches Educates components, and reports each problem on the
+  ``CertificatesReady`` condition with its own reason:
+  ``WildcardCertificateNotFound``, ``WildcardCertificateIncomplete``,
+  ``WildcardCertificateUnparseable``, ``WildcardCertificateKeyMismatch``,
+  ``WildcardCertificateDomainMismatch`` when its SANs do not include
+  ``*.<domain>``, ``WildcardCertificateExpired``, or
+  ``WildcardCertificateUntrusted`` when its chain does not verify against the
+  CA trust Secret. A certificate that expires while the cluster runs is
+  reported without any change to the configuration. A local configuration
+  selects the provider when a cached wildcard certificate covers its ingress
+  domain, as described in the entry on local wildcard certificates; other
+  installs select it through the ``EducatesConfig`` configuration kind or by
+  applying the ``EducatesClusterConfig`` directly. The
+  ``ExternalCertManager`` provider remains reserved and is rejected as not
+  yet supported.
+
 * A standalone ``educates-training-platform`` umbrella Helm chart, with
   subcharts for the secrets-manager, lookup-service and session-manager
   components, can be used to install the Educates runtime without the
@@ -91,13 +124,78 @@ New Features
   from the schemas, which now carry field documentation for every kind.
 
 * Workshop sessions on local clusters are now served using TLS certificates
-  issued in-cluster by cert-manager from a local certificate authority managed
-  using ``educates local secrets add ca``. The generated CA is cached locally
-  and reused for every future cluster using the same ingress domain. The CA
-  certificate can be exported as a PEM file using
+  issued in-cluster by cert-manager from a certificate authority limited to
+  the cluster's ingress domain, minted from a root certificate authority
+  whose private key never leaves the machine running the CLI.
+  ``educates local secrets add ca NAME`` generates the root CA, or with
+  ``--cert`` and ``--key`` registers an existing one, such as the root CA of
+  ``mkcert``, after checking that the certificate is a CA and that the key
+  matches it. The root certificate can be exported as a PEM file using
   ``educates local secrets export NAME --pem`` for importing into the
-  operating system trust store, so browsers trust the workshop URLs; the
-  quick start guide includes per-platform import instructions.
+  operating system trust store, so browsers trust the workshop URLs; with
+  ``--pem`` the command prints certificates only and never a private key,
+  and the quick start guide includes per-platform import instructions. The
+  import is needed once: the first deploy for an ingress domain mints an
+  intermediate CA from the root, with a name constraint permitting only that
+  domain and excluding every IP address, and copies only the intermediate's
+  CA key pair into the cluster, so switching to a new local domain needs no
+  new import and a key taken from a cluster cannot sign for any other site.
+  The deploy prints a line whenever it mints. Later deploys for the same domain
+  reuse the intermediate, and one that has expired or was minted from a root
+  since replaced is minted again. A root that carries its own name
+  constraints must permit the ingress domain. The local secrets cache holds
+  one root CA: ``add ca`` and ``educates local secrets import`` refuse a
+  second one, naming the existing root, and
+  ``educates local secrets remove`` on the root removes its private key and
+  every CA minted from it, so a root is replaced by removing it and
+  registering the new one. With ``--cert`` alone, ``add ca`` caches a CA
+  certificate for trust only.
+
+* Local clusters can serve a wildcard certificate you already have, such as
+  one created with ``mkcert``, and then install no cert-manager.
+  ``educates local secrets add tls NAME --cert FILE --key FILE`` caches the
+  certificate, with any intermediate certificates that follow it, and its
+  private key, after checking that the certificate is not a CA, that the key
+  matches it, and that it has at least one ``*.<domain>`` DNS name. A cached
+  TLS certificate serves every domain it has a wildcard DNS name for, so one
+  certificate created for several wildcard domains serves whichever of them
+  the local configuration selects. When exactly one cached TLS certificate
+  that has not expired covers ``ingress.domain``, a deploy uses the
+  ``StaticCertificate`` certificates provider, even when a root CA is also
+  cached. It references the certificate as
+  ``staticCertificate.tlsSecretRef`` and, as
+  ``staticCertificate.caCertificateSecretRef``, the cached CA certificate the
+  certificate's chain verifies against, such as the root CA certificate of
+  ``mkcert`` cached with ``educates local secrets add ca NAME --cert``. The
+  deploy says that cert-manager will not be installed, names the certificate
+  to remove with ``educates local secrets remove`` to have cert-manager
+  instead, and lists the other domains the certificate covers;
+  ``educates admin platform render`` shows the same as comments. It warns
+  when no cached CA certificate verifies the certificate, since the training
+  portal and workshop sessions would not trust the ingress. Expired TLS
+  certificates are skipped with a notice, and more than one valid
+  certificate for the domain is an error naming them. A version 3 local
+  secrets cache holding a ``mkcert`` wildcard certificate and the CA
+  certificate that issued it deploys this way as it is.
+
+* The new ``educates local secrets view NAME`` command shows the details of
+  one cached secret that do not fit the table of
+  ``educates local secrets list``, so you can inspect it without decoding
+  its YAML. It shows the type and domains of the secret as the list shows
+  them, the file it is cached in and its Kubernetes secret type, and for a
+  CA key pair the ingress domain it was minted for and its root CA. For
+  each certificate the secret holds, those of ``tls.crt`` and then those of
+  ``ca.crt``, it shows the common name, subject, issuer, subject
+  alternative names, validity, whether it is a CA and its path length, the
+  name constraints of a CA, the serial number and the SHA-256 fingerprint.
+  It never prints key material: it shows only whether the secret holds a
+  private key, the registries of registry credentials and the names of the
+  keys of a generic secret. For an ``invalid`` secret it shows why it is
+  invalid and the ``educates local secrets remove`` command that removes
+  it. For a CA cached with its private key by a 4.0.0 alpha release, it
+  first says to register the CA as the root CA under another name with
+  ``educates local secrets add ca ROOT --cert FILE --key FILE``, since
+  removing the secret removes the CA's private key.
 
 * TLS termination by an external load balancer or proxy in front of the
   cluster is now supported by setting ``externalTLSTermination`` in the CLI
@@ -363,6 +461,25 @@ Features Changed
   ``educates`` command now also includes usage examples in its ``--help``
   output.
 
+* ``educates local secrets list`` now shows what each cached secret is and
+  what a deploy uses it for, where it previously printed only names. It
+  prints a table with the columns ``NAME``, ``TYPE``, ``DOMAINS`` and
+  ``EXPIRES``. ``TYPE`` is the role of the secret, decided the same way a
+  deploy decides it: ``CA certificate``, ``CA root key pair``,
+  ``CA intermediate key pair``, ``TLS certificate``,
+  ``Registry credentials`` or ``Generic``. A secret to remove from the cache
+  is shown as ``invalid`` while the rest of the list still prints: a file
+  that cannot be read or decoded, or a CA certificate with its private key
+  that is neither a CA root key pair nor a CA key pair, such as a CA cached
+  by a 4.0.0 alpha release, which a deploy does not use. ``DOMAINS`` is
+  what the secret is valid for: every wildcard domain of a TLS certificate,
+  the ingress domain of a CA key pair, and the permitted DNS name
+  constraints of a CA certificate or CA root key pair, or ``any`` when it
+  has none. ``EXPIRES`` is the date the certificate expires, or
+  ``expired``. The new ``educates local secrets view NAME`` command shows
+  the details of one secret, such as the subject and issuer of its
+  certificates or why it is ``invalid``.
+
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image. Octant
   was archived by its authors, with no release since ``0.25.1`` and no fixes
@@ -473,6 +590,17 @@ Features Changed
   continue to use an init container, as the many command line tools they
   provide need the CA in the operating system trust store.
 
+* Every pod that mounts the CA trust Secret of the cluster ingress, being the
+  ``session-manager``, ``lookup-service`` and ``node-ca-injector``
+  deployments, the training portal and workshop sessions, now mounts only its
+  ``ca.crt`` key, the only key these components read. Previously the
+  ``session-manager``, ``lookup-service`` and ``node-ca-injector``
+  deployments and the training portal mounted every key the secret held, so
+  a CA secret which also carried a private key exposed that key inside their
+  containers. The CA trust Secret is still mounted as a directory rather than
+  as a single file, so a replaced CA certificate is picked up when the pod
+  next restarts.
+
 * The container images for the ``secrets-manager``, ``session-manager``,
   ``lookup-service``, ``tunnel-manager`` and ``training-portal`` components
   are now based on Debian (``debian:trixie-slim``) instead of Fedora, and the
@@ -486,6 +614,132 @@ Features Changed
   be moved forward twice a year. The images are smaller as a result of these
   changes. The workshop base environment image and the images derived from it
   remain based on Fedora for now.
+
+* How each cluster service of an ``EducatesClusterConfig`` is provided can no
+  longer be changed once the resource exists, in the same way as
+  ``spec.mode``. The Kubernetes API server rejects an update that changes the
+  certificates provider, ``spec.ingress.certificates.provider``, the ingress
+  controller provider, ``spec.ingress.controller.provider``, the DNS provider,
+  ``spec.dns.provider``, or the policy enforcement settings, which are the
+  ``clusterPolicy`` and ``workshopPolicy`` engines and ``kyverno.provider``
+  under ``spec.policyEnforcement``. It also rejects removing ``spec.ingress``
+  once it has been set, adding or removing a ``spec.dns`` whose provider is not
+  ``None``, and adding or removing ``spec.policyEnforcement`` or its
+  ``kyverno`` block. Switching how a service is provided in place could leave
+  a bundled cluster service installed beside its replacement, or certificates
+  half switched. Settings within a bundled service, such as the Route53
+  options of the bundled external-dns, can still be changed. To change how a
+  service is provided, delete the ``EducatesClusterConfig`` and create it
+  again, for example with ``educates admin platform delete`` followed by a new
+  deploy, or install into a new cluster. When ``educates admin platform
+  deploy`` would make such a change to an existing installation, for example
+  because ``ingress.insecure`` was set or cleared in the local configuration,
+  it now fails with a message naming the setting that cannot change and
+  pointing at ``educates admin platform delete`` or recreating the cluster.
+
+* The custom CA of the ``BundledCertManager`` certificates provider in
+  ``Managed`` mode is now named by
+  ``ingress.certificates.bundledCertManager.customCA.caKeyPairSecretRef``,
+  which replaces ``caCertificateRef``. It references the CA key pair
+  cert-manager signs the wildcard certificate with: a secret holding the CA
+  certificate under ``tls.crt`` and its private key under ``tls.key``, and
+  optionally the root certificate under ``ca.crt``. The operator now checks
+  that the secret holds both keys and that its certificate is a CA before
+  cert-manager is involved, and reports a problem on the
+  ``CertificatesReady`` condition with a reason naming it, being
+  ``CAKeyPairNotFound``, ``CAKeyPairIncomplete``, ``CAKeyPairUnparseable``
+  or ``CAKeyPairNotCA``. A new optional field,
+  ``customCA.caCertificateSecretRef``, references a CA trust Secret holding,
+  under ``ca.crt``, the certificate Educates components should trust, for
+  example the root of an intermediate CA used as the key pair. Both
+  references take an optional ``namespace``, which defaults to the operator
+  namespace.
+
+* Whenever a CA is configured, being a custom CA or a CA trust Secret named
+  by ``staticCertificate.caCertificateSecretRef`` in ``Managed`` mode, or a
+  CA trust Secret named by ``inline.ingress.caCertificateSecretRef`` in
+  ``Inline`` mode, Educates components now receive the CA certificate
+  through a secret named ``educates-ingress-ca`` that the operator creates
+  and owns in its own namespace, and publishes as
+  ``status.ingress.caCertificateSecretRef`` of the
+  ``EducatesClusterConfig``. The secret holds a single key, ``ca.crt``, and
+  never a private key, whatever the source secret holds. The certificate
+  comes from the ``ca.crt`` key of the CA trust Secret when one is
+  referenced. A custom CA without one uses the ``ca.crt`` key of the CA key
+  pair, otherwise the root-most certificate of the key pair's ``tls.crt``
+  chain. Any other key a CA trust Secret holds is ignored, so an ``Inline``
+  mode CA secret that also holds a private key keeps working without the key
+  reaching any component. The secret is updated when its source secret
+  changes. A referenced CA trust Secret that is missing, has no ``ca.crt``
+  key, or whose ``ca.crt`` does not parse sets the ``CertificatesReady``
+  condition to ``False`` with the reason ``CATrustSecretNotFound``,
+  ``CATrustSecretIncomplete`` or ``CATrustSecretUnparseable``. Previously no
+  CA was published in ``Managed`` mode, so the session manager, lookup
+  service, training portals, workshop sessions and cluster nodes did not
+  trust certificates issued from a custom CA, and workshops calling their
+  own ingress over HTTPS failed, while ``Inline`` mode published the
+  referenced CA secret itself, with whatever keys it held. With a custom CA
+  the CA's private key now stays in the namespace of the CA key pair and in
+  the ``cert-manager`` namespace.
+
+* The ``inline.ingress.wildcardCertificateSecretRef`` field of the
+  ``EducatesClusterConfig`` now takes an optional ``namespace``, which
+  defaults to the operator namespace, as
+  ``inline.ingress.caCertificateSecretRef`` already did, so the wildcard
+  certificate can be kept outside the operator namespace.
+  ``status.ingress.wildcardCertificateSecretRef`` names the referenced secret
+  with its namespace, and changes to either referenced secret are reflected
+  in the status. The ``EducatesInlineConfig`` configuration kind still names
+  secrets in the operator namespace; use the ``EducatesConfig`` escape hatch
+  to name another namespace.
+
+* In ``Inline`` mode the wildcard certificate named by
+  ``inline.ingress.wildcardCertificateSecretRef`` is now checked in the same
+  way as one served with the ``StaticCertificate`` provider, against the CA
+  trust Secret named by ``inline.ingress.caCertificateSecretRef`` when there
+  is one. Previously only the presence of its ``tls.crt`` and ``tls.key``
+  keys was checked. ``Inline`` mode now also sets the ``CertificatesReady``
+  condition: ``True`` once the wildcard certificate and CA trust Secret pass
+  validation, and ``False`` with the same reasons as ``StaticCertificate``
+  when the certificate is not usable, or with a reason such as
+  ``CATrustSecretIncomplete`` when the CA trust Secret is not. A wildcard
+  certificate that does not cover ``*.<domain>``, has expired, or was not
+  issued by the named CA now leaves the ``EducatesClusterConfig`` not ready.
+
+* The ``ingressOverrides.caCertificateSecretRef`` field of the
+  ``SessionManager`` resource, which names a CA trust Secret, now takes an
+  optional ``namespace``, which defaults to the operator namespace.
+  Previously the secret was looked up in the namespace of the cluster's
+  wildcard certificate. The session manager no longer receives the
+  referenced secret itself: the operator copies its ``ca.crt`` key, and
+  nothing else, into a secret named ``educates-session-manager-ingress-ca``
+  that it creates and owns in its own namespace, keeps it updated when the
+  referenced secret changes, and passes that secret to the session manager
+  in place of ``educates-ingress-ca``. When the referenced secret is missing
+  or holds no valid certificate under ``ca.crt``, the ``SessionManager``
+  reports ``Ready`` as ``False`` with the same reasons as a CA trust Secret
+  of the ``EducatesClusterConfig``, being ``CATrustSecretNotFound``,
+  ``CATrustSecretIncomplete`` or ``CATrustSecretUnparseable``.
+
+* With ``nodeCATrust.mode`` left at ``Auto`` in the ``SessionManager``
+  resource, the node CA injector is now installed on every cluster that
+  publishes a CA: a ``Managed`` mode cluster with a custom CA, a
+  ``StaticCertificate`` cluster that names a CA trust Secret, and an
+  ``Inline`` mode cluster that names a CA trust Secret. This includes every
+  local cluster whose certificates are issued from a cached root CA, and
+  every local cluster serving a cached wildcard certificate that a cached CA
+  certificate verifies, since such a cluster now publishes its CA. Cluster
+  nodes then trust registries served through the cluster ingress, such as
+  the image registry of a workshop session. A ``SessionManager`` that sets
+  ``ingressOverrides.caCertificateSecretRef`` also gets the node CA
+  injector, even on a cluster that publishes no CA, and nodes then trust the
+  override's ``educates-session-manager-ingress-ca`` in place of the
+  cluster's CA, the same CA the session manager and the workshop sessions it
+  creates trust. With ``nodeCATrust.mode`` set to
+  ``Enabled``, the ``SessionManager`` reports ``Ready`` as ``False`` only
+  when neither the cluster nor an override provides a CA. Set
+  ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged node CA
+  injector daemon set off.
 
 Deprecations
 ------------
@@ -538,14 +792,80 @@ Deprecations
 * Workshop sessions are served over HTTPS when the cluster configuration
   provides certificate settings, which is a wildcard certificate, a
   certificate authority, or ACME issuer details. On local clusters with a
-  custom ingress domain, ``educates local cluster create`` stops and prints
-  the exact ``educates local secrets add ca`` command to run when no CA
-  exists yet for that domain. A local configuration with no ingress domain
-  set instead defaults to a plain HTTP install on a ``<host-IP>.nip.io``
-  address and needs no CA, since that address cannot obtain a trusted
-  certificate. Set ``ingress.insecure`` to request plain HTTP explicitly
-  for a custom domain. See the New Features entry on installing without
-  in-cluster TLS for the full picture.
+  custom ingress domain, ``educates local cluster create`` stops before
+  creating anything when neither a root CA nor a wildcard certificate for the
+  domain is cached, and prints the commands that generate a root CA,
+  register the root CA of ``mkcert``, or cache a ``mkcert`` wildcard
+  certificate. A local configuration with no ingress domain set instead
+  defaults to a plain HTTP install on a ``<host-IP>.nip.io`` address and
+  needs no CA, since that address cannot obtain a trusted certificate. Set
+  ``ingress.insecure`` to request plain HTTP explicitly for a custom domain.
+  See the New Features entry on installing without in-cluster TLS for the
+  full picture.
+
+* The local secrets cache stores certificate authorities in a new shape,
+  and ``educates local secrets add ca`` and ``educates local secrets add tls``
+  no longer take a ``--domain`` option: a root CA serves every ingress
+  domain, a TLS certificate serves the domains of its wildcard DNS names,
+  and a deploy decides the domain from ``ingress.domain``.
+  ``educates local secrets add tls`` now requires both ``--cert`` and
+  ``--key`` and refuses a certificate it cannot serve. A root CA named
+  ``NAME`` is cached as the CA trust Secret ``NAME``, an ``Opaque`` secret
+  holding the root certificate as ``ca.crt``, and the CA root key pair
+  ``NAME-root-key-pair``, a ``kubernetes.io/tls`` secret holding the root
+  certificate and its private key, which is never copied to a cluster. Each
+  ingress domain gets the CA key pair ``<domain>-ca-key-pair``, a
+  ``kubernetes.io/tls`` secret holding the intermediate CA followed by the
+  root as ``tls.crt``, the intermediate's private key as ``tls.key`` and the
+  root as ``ca.crt``, annotated with ``training.educates.dev/domain`` and
+  ``training.educates.dev/root-ca``. A local deploy references the CA key
+  pair as ``customCA.caKeyPairSecretRef`` and the root's CA trust Secret as
+  ``customCA.caCertificateSecretRef``. A deploy and
+  ``educates local secrets sync`` now copy into the ``educates-secrets``
+  namespace every cached secret except CA root key pairs and any other
+  secret holding a CA private key, apart from the CA key pair selected for
+  the ingress domain. ``educates local secrets sync`` selects that CA key
+  pair from the ``ingress.domain`` of the local configuration, minting it
+  when needed, and without a local configuration copies none. When the
+  certificates of the local configuration cannot be decided, such as a
+  secure ``ingress.domain`` with neither a root CA nor a wildcard
+  certificate for it cached, ``educates local secrets sync`` warns why and
+  still copies every secret that holds no CA private key, while a deploy of
+  that configuration fails.
+
+  CAs cached by 4.0.0 alpha releases, ``kubernetes.io/tls`` secrets holding
+  a CA certificate and its private key, are not migrated automatically, and
+  a deploy no longer uses them: ``educates local secrets list`` shows them as
+  ``invalid``. To keep a CA you have already imported into your trust store,
+  re-register it as the root CA, then remove the old entry. With ``NAME``
+  the name of the cached CA and ``ROOT`` a name for the root CA other than
+  ``NAME``, such as ``educates-ca``, export the certificate and key of the
+  cached CA, register them as the root CA, delete the exported key and
+  remove the old entry:
+
+  ```
+  educates local secrets export NAME --pem > NAME.crt
+  educates local secrets export NAME | awk '$1 == "tls.key:" {print $2}' | base64 --decode > NAME.key
+  educates local secrets add ca ROOT --cert NAME.crt --key NAME.key
+  rm NAME.key
+  educates local secrets remove NAME
+  ```
+
+  If the CA was the root CA of ``mkcert``, register it straight from
+  ``mkcert`` instead, then remove the old entry:
+
+  ```
+  educates local secrets add ca ROOT --cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"
+  educates local secrets remove NAME
+  ```
+
+  The cache holds one root CA, so if you cached a CA for each of several
+  domains, re-register only one of them and remove the others with
+  ``educates local secrets remove``: deploys for their domains mint their
+  CAs from the root. Remove those CAs from your trust store too. Then delete
+  and recreate the local cluster with ``educates local cluster delete`` and
+  ``educates local cluster create``: an alpha cluster received the CA's
+  private key, and still holds it in the old CA secret.
 
 * The ``imageCache`` configuration setting has been renamed to
   ``imagePrePuller``. It is now enabled by default in the CLI configuration
@@ -741,6 +1061,28 @@ Deprecations
 Bugs Fixed
 ----------
 
+* The local secrets cache directory and the files in it were created
+  readable by every account on the machine, so other local users could read
+  cached private keys and registry credentials. The CLI now creates the
+  ``secrets`` directory of its data home with mode ``0700`` and writes each
+  cached file with mode ``0600``. A cache directory created with looser
+  permissions by an earlier release is changed to ``0700`` the next time the
+  CLI writes to the cache, for example with ``educates local secrets add``.
+
+* When a CA secret was configured for the cluster ingress without a wildcard
+  TLS secret, the session manager did not copy the CA secret into the
+  namespace of each workshop environment, as the copy was only made together
+  with the wildcard TLS secret. Workshop sessions still mounted the CA secret,
+  so their pods could not start. The CA secret is now copied into the
+  workshop environment namespace whenever a CA is configured.
+
+* When a ``TrainingPortal`` named its own TLS secret using
+  ``portal.ingress.tlsCertificateRef`` without giving a different namespace
+  for it, and a CA secret was configured for the cluster ingress, the session
+  manager failed with an error while creating the training portal and kept
+  retrying. The CA secret is now copied into the training portal namespace in
+  this case as well.
+
 * The Contour ingress controller deployed inside a vcluster workshop session
   (when the ``vcluster`` application enables ingress) used hardcoded upstream
   Contour and Envoy image references that were not subject to image relocation
@@ -868,3 +1210,35 @@ Bugs Fixed
   ``kind`` network, as do older versions until Docker is restarted for the
   first time after the network is created, in which case Docker picks the
   address as before and a warning is shown.
+
+* When ``educates admin platform deploy`` was run with an
+  ``EducatesGKEConfig``, ``EducatesEKSConfig``, ``EducatesInlineConfig`` or
+  ``EducatesConfig`` configuration, it checked for a secret named
+  ``educates-custom-ca`` in the ``educates-installer`` namespace once the
+  ``EducatesClusterConfig`` resource was ready, and stopped with an error when
+  the secret did not exist. Nothing creates this secret and these
+  configurations do not use it, so a deploy could fail even though the
+  cluster configuration was valid. The check has been removed, and the deploy
+  now proceeds directly to installing the secrets manager. The operator still
+  validates any CA secret named in the ``EducatesClusterConfig`` resource,
+  and reports a missing or invalid secret in the status of that resource.
+
+* Deleting an ``EducatesClusterConfig`` in ``Managed`` mode, which
+  ``educates admin platform delete`` does, uninstalled the Helm releases named
+  ``cert-manager``, ``contour``, ``external-dns`` and ``kyverno`` and deleted
+  the namespaces of the same names, whatever the resource said about how each
+  service was provided. A cert-manager, Contour, external-dns or Kyverno the
+  administrator had installed under those names was removed along with
+  Educates. Each cleanup now runs only when Educates installed that service:
+  cert-manager, whose cleanup also deletes the wildcard ``Certificate`` and the
+  ``ClusterIssuer``, with the ``BundledCertManager`` certificates provider;
+  Contour with the ``BundledContour`` ingress controller provider;
+  external-dns with the ``BundledExternalDNS`` DNS provider; and Kyverno with
+  the ``Bundled`` Kyverno provider and at least one policy engine set to
+  ``Kyverno``.
+
+* In ``Managed`` mode, the ``ValidationSucceeded`` condition of the
+  ``EducatesClusterConfig`` stayed ``False`` after a validation failure, such
+  as a missing CA secret, had been corrected, even once the resource became
+  ready. It now returns to ``True`` once the spec and the secrets it
+  references pass validation.

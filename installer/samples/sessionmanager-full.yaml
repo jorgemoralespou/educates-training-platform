@@ -11,10 +11,14 @@
 #   - spec.themes[].source.type: ConfigMap | URL (Secret only for now)
 #
 # Prerequisites for the references used below (besides the two Ready
-# gates): the override TLS/CA Secrets must exist in the operator
-# namespace, and each theme Secret must exist in its stated namespace
-# (the runtime chart auto-creates a SecretCopier when that namespace
-# differs from the release namespace).
+# gates): the override TLS Secret must exist in the namespace of the
+# cluster's wildcard certificate, the override CA Secret (key ca.crt)
+# must exist in its stated namespace, and each theme Secret must exist
+# in its stated namespace (the runtime chart auto-creates a
+# SecretCopier when that namespace differs from the release
+# namespace). session-manager never receives the CA Secret itself: the
+# operator copies its ca.crt alone into
+# educates-session-manager-ingress-ca in the operator namespace.
 ---
 apiVersion: platform.educates.dev/v1alpha1
 kind: SessionManager
@@ -30,6 +34,8 @@ spec:
       name: sessions-wildcard-tls
     caCertificateSecretRef:
       name: sessions-wildcard-ca
+      # Optional; empty means the operator namespace.
+      namespace: educates-secrets
     protocol: https
 
   # Local override of

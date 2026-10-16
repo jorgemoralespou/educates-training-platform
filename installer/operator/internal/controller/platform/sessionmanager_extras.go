@@ -52,19 +52,23 @@ const (
 	intentRefuse
 )
 
-// resolveNodeCATrust evaluates the tri-state mode against cluster
-// state. Returns the intent plus a reason+message used for the
-// status condition the reconciler publishes.
 // reasonExtraInstalled is the shared condition reason for every
 // install-outcome branch of the extras resolvers below.
 const reasonExtraInstalled = "Installed"
 
+// resolveNodeCATrust evaluates the tri-state mode against whether a CA
+// is in effect for the session manager (effectiveIngressCARef), from
+// the cluster or from the SessionManager's CA override. Returns the
+// intent plus a reason+message used for the status condition the
+// reconciler publishes.
 func resolveNodeCATrust(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) (extrasIntent, string, string) {
 	mode := platformv1alpha1.ComponentModeAuto
 	if obj.Spec.NodeCATrust != nil && obj.Spec.NodeCATrust.Mode != "" {
 		mode = obj.Spec.NodeCATrust.Mode
 	}
-	hasCA := cfg.Status.Ingress != nil && cfg.Status.Ingress.CACertificateSecretRef != nil
+	// Only presence matters here, so the override copy's namespace is
+	// irrelevant.
+	hasCA := effectiveIngressCARef(obj, cfg, "") != nil
 	switch mode {
 	case platformv1alpha1.ComponentModeDisabled:
 		return intentSkip, "ModeDisabled",
@@ -72,7 +76,7 @@ func resolveNodeCATrust(obj *platformv1alpha1.SessionManager, cfg *configv1alpha
 	case platformv1alpha1.ComponentModeEnabled:
 		if !hasCA {
 			return intentRefuse, "NodeCATrustMissingCA",
-				"nodeCATrust mode=Enabled but EducatesClusterConfig.status.ingress.caCertificateSecretRef is not set"
+				"nodeCATrust mode=Enabled but neither EducatesClusterConfig.status.ingress.caCertificateSecretRef nor SessionManager " + caOverrideField + " is set"
 		}
 		return intentInstall, reasonExtraInstalled,
 			"node-ca-injector installed (mode=Enabled)"
@@ -81,10 +85,10 @@ func resolveNodeCATrust(obj *platformv1alpha1.SessionManager, cfg *configv1alpha
 	default:
 		if hasCA {
 			return intentInstall, reasonExtraInstalled,
-				"node-ca-injector installed (mode=Auto: CA configured on the cluster)"
+				"node-ca-injector installed (mode=Auto: an ingress CA is configured)"
 		}
 		return intentSkip, "ModeAutoNoCA",
-			"nodeCATrust skipped (mode=Auto: no CA configured on the cluster)"
+			"nodeCATrust skipped (mode=Auto: no ingress CA is configured)"
 	}
 }
 
@@ -263,9 +267,11 @@ func setExtraCondition(obj *platformv1alpha1.SessionManager, condType string, st
 // renderNodeCAInjectorValues maps cluster config status into the
 // node-ca-injector subchart's values shape. The subchart requires
 // `clusterIngress.caCertificateRef.{name,namespace}`; without those
-// it template-errors. The resolver above guarantees we only call
-// this when the CA Secret is present in cluster config.
-func renderNodeCAInjectorValues(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) map[string]any {
+// it template-errors. The CA is the one the session manager trusts
+// (effectiveIngressCARef), since every registry Ingress the
+// injector covers is created by the session manager; the resolver
+// above guarantees we only call this when that CA is configured.
+func renderNodeCAInjectorValues(obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig, operatorNamespace string) map[string]any {
 	values := map[string]any{}
 
 	if cfg.Status.ImageRegistry != nil && cfg.Status.ImageRegistry.Prefix != "" {
@@ -285,7 +291,7 @@ func renderNodeCAInjectorValues(obj *platformv1alpha1.SessionManager, cfg *confi
 		values["imagePullSecrets"] = refs
 	}
 
-	caRef := cfg.Status.Ingress.CACertificateSecretRef
+	caRef := effectiveIngressCARef(obj, cfg, operatorNamespace)
 	values["clusterIngress"] = map[string]any{
 		"caCertificateRef": map[string]any{
 			"name":      caRef.Name,

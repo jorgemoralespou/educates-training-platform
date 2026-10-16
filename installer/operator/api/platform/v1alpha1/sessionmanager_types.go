@@ -46,11 +46,31 @@ const (
 // ingress secrets for the bare-domain hostnames it serves directly
 // (TrainingPortal CRs prefix the domain for individual portals).
 type IngressOverrides struct {
+	// tlsSecretRef optionally names a TLS Secret, holding tls.crt and
+	// tls.key, that replaces the cluster's wildcard certificate for
+	// session-manager and the training portals and workshop sessions it
+	// creates. It takes a name only because session-manager receives
+	// this Secret as it is: the operator neither reads nor copies it, so
+	// it is looked up in the namespace the cluster's wildcard
+	// certificate is published in
+	// (EducatesClusterConfig.status.ingress.wildcardCertificateSecretRef),
+	// or in session-manager's own namespace when the cluster publishes
+	// none. caCertificateSecretRef takes a namespace because the
+	// operator reads that Secret to derive a key-free copy.
 	// +optional
 	TLSSecretRef *LocalObjectReference `json:"tlsSecretRef,omitempty"`
 
+	// caCertificateSecretRef optionally references a CA trust Secret
+	// holding, under ca.crt, the CA certificate that replaces the
+	// cluster's ingress CA for session-manager and the training portals
+	// and workshop sessions it creates. Namespace defaults to the
+	// operator namespace when empty. session-manager never receives this
+	// Secret: the operator derives the operator-owned
+	// educates-session-manager-ingress-ca in the operator namespace from
+	// its ca.crt alone, so any other key it holds, a private key
+	// included, is ignored.
 	// +optional
-	CACertificateSecretRef *LocalObjectReference `json:"caCertificateSecretRef,omitempty"`
+	CACertificateSecretRef *SecretReference `json:"caCertificateSecretRef,omitempty"`
 
 	// protocol asserts the scheme of the public-facing URLs the
 	// session manager and workshops generate. Set to https when TLS
@@ -249,14 +269,16 @@ const (
 // NodeCATrust controls installation of the node-ca-injector
 // subchart, which writes per-host containerd registry-CA configuration
 // on every node so workshop image pulls trust a private/self-signed
-// CA. The subchart depends on
+// CA. Nodes trust the CA the session manager uses: the key-free copy of
+// spec.ingressOverrides.caCertificateSecretRef when it is set, which
+// replaces the cluster's CA, otherwise
 // `EducatesClusterConfig.status.ingress.caCertificateSecretRef`.
 type NodeCATrust struct {
-	// mode defaults to Auto. Auto installs the subchart only when
-	// the cluster config publishes a CA Secret reference; with no CA
-	// configured, Auto skips the install silently. Enabled forces
-	// the install (refuses if no CA is configured). Disabled keeps
-	// it uninstalled.
+	// mode defaults to Auto. Auto installs the subchart only when a CA
+	// is configured, either published by the cluster config or set as
+	// spec.ingressOverrides.caCertificateSecretRef; with no CA configured,
+	// Auto skips the install silently. Enabled forces the install
+	// (refuses if no CA is configured). Disabled keeps it uninstalled.
 	// +kubebuilder:default=Auto
 	// +optional
 	Mode ComponentMode `json:"mode,omitempty"`

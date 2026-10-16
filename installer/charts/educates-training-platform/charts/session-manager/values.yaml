@@ -27,7 +27,8 @@ clusterIngress:
     namespace: ""
 
   # Reference to a Secret holding the CA certificate used to verify the
-  # wildcard. Required key: ca.crt. Same namespace semantics as the TLS ref.
+  # wildcard. Required key: ca.crt, the only key pods mount from it. Same
+  # namespace semantics as the TLS ref.
   caCertificateRef:
     name: ""
     namespace: ""

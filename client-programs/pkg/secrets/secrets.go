@@ -4,10 +4,9 @@ import (
 	"context"
 	"os"
 	"path"
-	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
+	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,114 +24,27 @@ func secretsCacheDir() string {
 	return path.Join(utils.GetEducatesHomeDir(), "secrets")
 }
 
-const secretsNS = "educates-secrets"
-
-func LocalCachedSecretForIngressDomain(domain string) string {
-	files, err := os.ReadDir(secretsCacheDir())
-
-	if err != nil {
-		return ""
-	}
-
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".yaml") {
-			name := strings.TrimSuffix(f.Name(), ".yaml")
-			secretObj, err := decodeFileIntoSecret(f.Name())
-			if err != nil {
-				continue
-			}
-
-			annotations := secretObj.ObjectMeta.Annotations
-
-			// Domain name must match.
-			if val, found := annotations["training.educates.dev/domain"]; !found || val != domain {
-				continue
-			}
-
-			// Type of secret needs to be kubernetes.io/tls.
-			if secretObj.Type != "kubernetes.io/tls" {
-				continue
-			}
-
-			// Needs contain tls.crt and tls.key data.
-			if value, exists := secretObj.Data["tls.crt"]; !exists || len(value) == 0 {
-				continue
-			}
-
-			if value, exists := secretObj.Data["tls.key"]; !exists || len(value) == 0 {
-				continue
-			}
-
-			return name
-		}
-	}
-
-	return ""
+// CachedSecretPath is the file the cached Secret name is stored in.
+func CachedSecretPath(name string) string {
+	return path.Join(secretsCacheDir(), name+".yaml")
 }
 
-func LocalCachedSecretForCertificateAuthority(domain string) string {
-	files, err := os.ReadDir(secretsCacheDir())
+// LocalSecretsSyncNamespace is the cluster namespace the local secrets
+// cache is synced into.
+const LocalSecretsSyncNamespace = "educates-secrets"
 
-	if err != nil {
-		return ""
-	}
-
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".yaml") {
-			name := strings.TrimSuffix(f.Name(), ".yaml")
-			secretObj, err := decodeFileIntoSecret(f.Name())
-			if err != nil {
-				continue
-			}
-
-			annotations := secretObj.ObjectMeta.Annotations
-
-			// Domain name must match.
-			if val, found := annotations["training.educates.dev/domain"]; !found || val != domain {
-				continue
-			}
-
-			// v4 CustomCA flow: cert-manager signs workshop certs from
-			// this CA, so the Secret must carry both the CA cert and
-			// its private key. v3's Opaque+ca.crt shape (cert only,
-			// for trust distribution) is no longer supported — users
-			// who want a non-signing CA reference switch to the
-			// EducatesConfig escape hatch.
-			if secretObj.Type != apiv1.SecretTypeTLS {
-				continue
-			}
-			if v, ok := secretObj.Data["tls.crt"]; !ok || len(v) == 0 {
-				continue
-			}
-			if v, ok := secretObj.Data["tls.key"]; !ok || len(v) == 0 {
-				continue
-			}
-
-			return name
-		}
-	}
-
-	return ""
-}
-
-/**
- * SyncSecretsToCluster copies secrets from the local cache to the cluster.
- */
-func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset) error {
-	err := os.MkdirAll(secretsCacheDir(), os.ModePerm)
-
-	if err != nil {
-		return errors.Wrapf(err, "unable to create secrets cache directory")
-	}
-
+// SyncLocalCachedSecretsToCluster ensures the LocalSecretsSyncNamespace
+// namespace exists and copies the named Secrets from the local cache into
+// it, creating or updating each one.
+func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset, names []string) error {
 	namespacesClient := client.CoreV1().Namespaces()
 
-	_, err = namespacesClient.Get(context.TODO(), secretsNS, metav1.GetOptions{})
+	_, err := namespacesClient.Get(context.TODO(), LocalSecretsSyncNamespace, metav1.GetOptions{})
 
 	if k8serrors.IsNotFound(err) {
 		namespaceObj := apiv1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: secretsNS,
+				Name: LocalSecretsSyncNamespace,
 			},
 		}
 
@@ -143,58 +55,49 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset) error {
 		// masks the real cause (typically: kubeconfig user lacks
 		// 'create namespaces').
 		if _, err := namespacesClient.Create(context.TODO(), &namespaceObj, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
-			return errors.Wrapf(err, "unable to create namespace %q for local secrets sync", secretsNS)
+			return errors.Wrapf(err, "unable to create namespace %q for local secrets sync", LocalSecretsSyncNamespace)
 		}
 	} else if err != nil {
-		return errors.Wrapf(err, "unable to check namespace %q for local secrets sync", secretsNS)
+		return errors.Wrapf(err, "unable to check namespace %q for local secrets sync", LocalSecretsSyncNamespace)
 	}
 
-	secretsClient := client.CoreV1().Secrets(secretsNS)
+	secretsClient := client.CoreV1().Secrets(LocalSecretsSyncNamespace)
 
-	files, err := os.ReadDir(secretsCacheDir())
+	for _, name := range names {
+		secretObj, err := decodeCachedSecret(name)
+		if err != nil {
+			return err
+		}
 
-	if err != nil {
-		return errors.Wrapf(err, "unable to read secrets cache directory %q", secretsCacheDir())
-	}
+		secretObj.ObjectMeta.Namespace = ""
 
-	for _, f := range files {
-		if strings.HasSuffix(f.Name(), ".yaml") {
-			name := strings.TrimSuffix(f.Name(), ".yaml")
-			secretObj, err := decodeFileIntoSecret(f.Name())
-			if err != nil {
-				return err
-			}
+		_, err = secretsClient.Get(context.TODO(), name, metav1.GetOptions{})
 
-			secretObj.ObjectMeta.Namespace = ""
-
-			_, err = secretsClient.Get(context.TODO(), name, metav1.GetOptions{})
-
-			// Create the secret if it doesn't exist.
-			if err != nil {
-				if !k8serrors.IsNotFound(err) {
-					return errors.Wrap(err, "unable to read secrets from cluster")
-				} else {
-					_, err = secretsClient.Create(context.TODO(), secretObj, metav1.CreateOptions{})
-
-					if err != nil {
-						return errors.Wrapf(err, "unable to copy secret to cluster %q", name)
-					}
-				}
-				// Update the secret if it does exist.
+		// Create the secret if it doesn't exist.
+		if err != nil {
+			if !k8serrors.IsNotFound(err) {
+				return errors.Wrap(err, "unable to read secrets from cluster")
 			} else {
-				var patch *applycorev1.SecretApplyConfiguration
-
-				if len(secretObj.StringData) != 0 {
-					patch = applycorev1.Secret(name, secretsNS).WithType(secretObj.Type).WithStringData(secretObj.StringData)
-				} else {
-					patch = applycorev1.Secret(name, secretsNS).WithType(secretObj.Type).WithData(secretObj.Data)
-				}
-
-				_, err = secretsClient.Apply(context.TODO(), patch, metav1.ApplyOptions{FieldManager: "educates-cli", Force: true})
+				_, err = secretsClient.Create(context.TODO(), secretObj, metav1.CreateOptions{})
 
 				if err != nil {
-					return errors.Wrapf(err, "unable to update secret in cluster %q", name)
+					return errors.Wrapf(err, "unable to copy secret to cluster %q", name)
 				}
+			}
+			// Update the secret if it does exist.
+		} else {
+			var patch *applycorev1.SecretApplyConfiguration
+
+			if len(secretObj.StringData) != 0 {
+				patch = applycorev1.Secret(name, LocalSecretsSyncNamespace).WithType(secretObj.Type).WithStringData(secretObj.StringData)
+			} else {
+				patch = applycorev1.Secret(name, LocalSecretsSyncNamespace).WithType(secretObj.Type).WithData(secretObj.Data)
+			}
+
+			_, err = secretsClient.Apply(context.TODO(), patch, metav1.ApplyOptions{FieldManager: "educates-cli", Force: true})
+
+			if err != nil {
+				return errors.Wrapf(err, "unable to update secret in cluster %q", name)
 			}
 		}
 	}
@@ -202,8 +105,9 @@ func SyncLocalCachedSecretsToCluster(client *kubernetes.Clientset) error {
 	return nil
 }
 
-func decodeFileIntoSecret(fileName string) (*apiv1.Secret, error) {
-	fullPath := path.Join(secretsCacheDir(), fileName)
+// decodeCachedSecret reads and decodes the cached Secret name.
+func decodeCachedSecret(name string) (*apiv1.Secret, error) {
+	fullPath := CachedSecretPath(name)
 
 	yamlData, err := os.ReadFile(fullPath)
 	if err != nil {

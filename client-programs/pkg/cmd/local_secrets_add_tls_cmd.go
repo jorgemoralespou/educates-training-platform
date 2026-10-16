@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"os"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -10,49 +10,76 @@ import (
 )
 
 var localSecretsAddTlsExample = `
-  # Cache a TLS certificate for a wildcard ingress domain:
-  educates local secrets add tls mydomain-tls --cert tls.crt --key tls.key --domain mydomain.test
+  # Cache a mkcert wildcard certificate, and mkcert's root CA certificate
+  # so Educates trusts it:
+  mkcert -cert-file workshop.test.pem -key-file workshop.test-key.pem "*.workshop.test"
+  educates local secrets add tls workshop.test-tls --cert workshop.test.pem --key workshop.test-key.pem
+  educates local secrets add ca mkcert-ca --cert "$(mkcert -CAROOT)/rootCA.pem"
 `
 
 type LocalSecretsAddTlsOptions struct {
-	CertFile      string
-	KeyFile       string
-	IngressDomain string
+	CertFile string
+	KeyFile  string
 }
 
+// Run caches under name the wildcard TLS certificate in CertFile, with
+// any intermediate certificates following it, and its private key in
+// KeyFile. The certificate must not be a CA, the key must match it, and
+// it must have at least one *.<domain> DNS SAN. The cached Secret
+// records no domain: the domains it serves are its wildcard SANs.
 func (o *LocalSecretsAddTlsOptions) Run(name string) error {
-	var err error
-	var certificateFileData []byte
-	var certificateKeyFileData []byte
-
-	if o.CertFile != "" {
-		certificateFileData, err = os.ReadFile(o.CertFile)
-
-		if err != nil {
-			return errors.Wrapf(err, "failed to read certificate file %s", o.CertFile)
-		}
+	if o.CertFile == "" || o.KeyFile == "" {
+		return errors.New("add tls needs --cert and --key: pass the wildcard certificate together with its private key")
+	}
+	if err := reservedNameError(name, "TLS certificate"); err != nil {
+		return err
+	}
+	roots, err := secrets.CachedRootCAs()
+	if err != nil {
+		return err
+	}
+	if slices.Contains(roots, name) {
+		return rootCANameError(name, "TLS certificate")
 	}
 
-	if o.KeyFile != "" {
-		certificateKeyFileData, err = os.ReadFile(o.KeyFile)
-
-		if err != nil {
-			return errors.Wrapf(err, "failed to read certificate key file %s", o.KeyFile)
-		}
+	kp, err := readKeyPairFiles(o.CertFile, o.KeyFile)
+	if err != nil {
+		return err
+	}
+	cert := kp.Certificate()
+	if secrets.IsCACertificate(cert) {
+		return errors.Errorf("the certificate in %s (subject %q) is a CA certificate, not a wildcard certificate; register a CA with 'educates local secrets add ca'", o.CertFile, cert.Subject.String())
+	}
+	if len(secrets.WildcardDomains(cert)) == 0 {
+		return errors.Errorf("the certificate in %s has no wildcard DNS name (*.<domain>) among its SANs %v; Educates serves one wildcard certificate for every workshop host of an ingress domain", o.CertFile, cert.DNSNames)
 	}
 
-	secret := secrets.NewTLSSecret(name, certificateFileData, certificateKeyFileData, o.IngressDomain)
+	keyPEM, err := secrets.EncodePrivateKeyPEM(kp.Key)
+	if err != nil {
+		return err
+	}
 
-	return secrets.WriteCachedSecret(secret)
+	return secrets.WriteCachedSecret(secrets.NewTLSSecret(name, secrets.EncodeCertificatesPEM(kp.Chain), keyPEM))
 }
 
 func (p *ProjectInfo) NewLocalSecretsAddTlsCmd() *cobra.Command {
 	var o LocalSecretsAddTlsOptions
 
 	var c = &cobra.Command{
-		Args:    secretNameArgs,
-		Use:     "tls NAME",
-		Short:   "Create a TLS secret",
+		Args:  secretNameArgs,
+		Use:   "tls NAME",
+		Short: "Cache a wildcard TLS certificate",
+		Long: `Cache a wildcard TLS certificate in the local secrets cache as NAME.
+
+--cert is the certificate, optionally followed by its intermediate
+certificates, and --key its private key. The certificate must not be a
+CA, the key must match it, and it must have at least one *.<domain> DNS
+name. It serves every domain it has a wildcard DNS name for.
+
+When exactly one cached wildcard certificate covers the ingress domain, a
+deploy serves it with the StaticCertificate certificates provider and
+installs no cert-manager. Register the CA that issued it with
+'educates local secrets add ca NAME --cert', so Educates trusts it.`,
 		Example: localSecretsAddTlsExample,
 		RunE:    func(_ *cobra.Command, args []string) error { return o.Run(args[0]) },
 	}
@@ -61,22 +88,17 @@ func (p *ProjectInfo) NewLocalSecretsAddTlsCmd() *cobra.Command {
 		&o.CertFile,
 		"cert",
 		"",
-		"path to PEM encoded public key certificate",
+		"path to the PEM-encoded wildcard certificate, optionally followed by its intermediate certificates",
 	)
 	c.Flags().StringVar(
 		&o.KeyFile,
 		"key",
 		"",
-		"path to private key associated with given certificate",
-	)
-	c.Flags().StringVar(
-		&o.IngressDomain,
-		"domain",
-		"",
-		"wildcard ingress domain matching certificate",
+		"path to the PEM-encoded private key of the certificate",
 	)
 
-	c.MarkFlagsRequiredTogether("cert", "key")
+	c.MarkFlagRequired("cert")
+	c.MarkFlagRequired("key")
 
 	return c
 }

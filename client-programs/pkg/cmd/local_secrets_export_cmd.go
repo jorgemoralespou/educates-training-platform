@@ -1,7 +1,8 @@
 package cmd
 
 import (
-	"fmt"
+	"crypto/x509"
+	"io"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -17,17 +18,25 @@ var localSecretsExportExample = `
   # Export a single cached secret as YAML:
   educates local secrets export mydomain-tls
 
-  # Export a CA certificate as PEM for importing into a trust store:
-  educates local secrets export mydomain-ca --pem > mydomain-ca.pem
+  # Export the root certificate of a CA as PEM for importing into a trust store:
+  educates local secrets export educates-ca --pem > educates-ca.pem
 `
 
 func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 	var pem bool
 
 	var c = &cobra.Command{
-		Args:    cobra.ArbitraryArgs,
-		Use:     "export [NAME]",
-		Short:   "Export secrets in the cache",
+		Args:  cobra.ArbitraryArgs,
+		Use:   "export [NAME]",
+		Short: "Export secrets in the cache",
+		Long: `Export secrets in the local secrets cache.
+
+Without --pem, prints the cached secrets, or the one named, as YAML,
+including any private keys they hold.
+
+With --pem, prints only the certificates of the named secret as PEM, and
+never a private key: for a CA, its root certificate, and for a TLS
+certificate, the certificate and its chain.`,
 		Example: localSecretsExportExample,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if pem {
@@ -35,7 +44,7 @@ func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 					return utils.CmdError(cmd, "--pem requires exactly one secret name", "NAME")
 				}
 
-				return printSecretCertificatePEM(args[0])
+				return printSecretCertificatePEM(cmd.OutOrStdout(), args[0])
 			}
 
 			secretsCacheDir, err := secrets.CacheDir()
@@ -43,7 +52,7 @@ func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 				return err
 			}
 
-			if err := utils.PrintYamlFilesInDir(secretsCacheDir, args); err != nil {
+			if err := utils.PrintYamlFilesInDir(cmd.OutOrStdout(), secretsCacheDir, args); err != nil {
 				return errors.Wrapf(err, "unable to read secrets cache directory")
 			}
 
@@ -55,29 +64,57 @@ func (p *ProjectInfo) NewLocalSecretsExportCmd() *cobra.Command {
 		&pem,
 		"pem",
 		false,
-		"print the secret's certificate as PEM (for importing a CA into a trust store)",
+		"print only the certificates of the named secret as PEM, the root certificate for a CA, never a key",
 	)
 
 	return c
 }
 
-// printSecretCertificatePEM writes the certificate of a cached TLS/CA
-// secret to stdout as PEM, so it can be redirected to a file and
-// imported into an operating system trust store. The private key is
-// never printed.
-func printSecretCertificatePEM(name string) error {
+// printSecretCertificatePEM writes the certificates of a cached secret to
+// w as PEM, so they can be redirected to a file and imported into an
+// operating system trust store. It prints only certificates, re-encoded
+// from what it parsed, so no private key or other data is ever printed,
+// whatever the secret holds.
+//
+// What it prints follows the secret's role, as `local secrets list` shows
+// it. For a CA certificate it prints ca.crt. For CA material holding a
+// key, a CA root key pair, a CA key pair or an invalid secret, which
+// holds a CA with its key as 4.0.0 alpha releases cached one, it prints
+// the root certificate: ca.crt when the secret records its root there,
+// else tls.crt. So the CA of an invalid secret can be registered as the
+// root CA. For a TLS certificate it prints tls.crt, the certificate and
+// its chain. Any other secret holds no certificate to print.
+func printSecretCertificatePEM(w io.Writer, name string) error {
 	secret, err := secrets.LoadCachedSecret(name)
 	if err != nil {
 		return err
 	}
 
-	certificate, exists := secret.Data["tls.crt"]
+	parse := func(key string) []*x509.Certificate {
+		certs, err := secrets.ParseCertificatesPEM(secrets.SecretData(secret, key))
+		if err != nil {
+			return nil
+		}
+		return certs
+	}
 
-	if !exists || len(certificate) == 0 {
+	role, _ := secrets.ClassifyCachedSecret(name, secret)
+	var certs []*x509.Certificate
+	switch {
+	case role == secrets.CACertificateRole:
+		certs = parse("ca.crt")
+	case role.HoldsCAKey():
+		if certs = parse("ca.crt"); certs == nil {
+			certs = parse("tls.crt")
+		}
+	case role == secrets.TLSCertificateRole:
+		certs = parse("tls.crt")
+	}
+	if certs == nil {
 		return errors.Errorf("secret %q does not contain a certificate", name)
 	}
 
-	fmt.Print(string(certificate))
+	_, err = w.Write(secrets.EncodeCertificatesPEM(certs))
 
-	return nil
+	return err
 }

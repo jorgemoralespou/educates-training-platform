@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
 )
 
 // We unit-test the namespace-collection logic by factoring through a
@@ -43,14 +44,10 @@ func TestCollectFromECC_NoCR_DefaultsOnly(t *testing.T) {
 	}
 }
 
-// eccSingletonName mirrors the CEL-enforced singleton name every
-// EducatesClusterConfig must carry.
-const eccSingletonName = "cluster"
-
 func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = eccSingletonName
+	ecc.Name = singletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
 	ecc.Spec.Ingress = &configv1alpha1.Ingress{
 		Certificates: configv1alpha1.Certificates{
@@ -58,9 +55,13 @@ func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 				IssuerType: configv1alpha1.IssuerTypeCustomCA,
 				CustomCA: &configv1alpha1.CustomCAConfig{
-					CACertificateRef: configv1alpha1.CASecretReference{
+					CAKeyPairSecretRef: configv1alpha1.SecretReference{
 						Name:      "workshop-ca",
 						Namespace: "team-alpha-secrets",
+					},
+					CACertificateSecretRef: &configv1alpha1.SecretReference{
+						Name:      "workshop-ca-trust",
+						Namespace: "team-alpha-trust",
 					},
 				},
 			},
@@ -72,25 +73,58 @@ func TestCollectFromECC_ManagedCustomCANS_Added(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"educates-installer", "educates-secrets", "team-alpha-secrets"}
+	want := []string{"educates-installer", "educates-secrets", "team-alpha-secrets", "team-alpha-trust"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Managed CustomCA NS not folded in: got %v, want %v", got, want)
+		t.Errorf("Managed CustomCA namespaces not folded in: got %v, want %v", got, want)
+	}
+}
+
+func TestCollectFromECC_ManagedStaticCertificateNS_Added(t *testing.T) {
+	scheme := testScheme(t)
+	ecc := &configv1alpha1.EducatesClusterConfig{}
+	ecc.Name = singletonName
+	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
+	ecc.Spec.Ingress = &configv1alpha1.Ingress{
+		Certificates: configv1alpha1.Certificates{
+			Provider: configv1alpha1.CertificatesProviderStaticCertificate,
+			StaticCertificate: &configv1alpha1.StaticCertificateConfig{
+				TLSSecretRef: configv1alpha1.SecretReference{
+					Name:      "wildcard",
+					Namespace: "static-tls",
+				},
+				CACertificateSecretRef: &configv1alpha1.SecretReference{
+					Name:      "wildcard-ca",
+					Namespace: "static-ca",
+				},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ecc).Build()
+
+	got, err := collectFromClient(context.Background(), c, "educates-installer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"educates-installer", "educates-secrets", "static-ca", "static-tls"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Managed StaticCertificate namespaces not folded in: got %v, want %v", got, want)
 	}
 }
 
 func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = eccSingletonName
+	ecc.Name = singletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeInline
 	ecc.Spec.Inline = &configv1alpha1.InlineConfig{
 		Ingress: configv1alpha1.InlineIngress{
 			Domain:           "workshop.example.com",
 			IngressClassName: "contour",
-			WildcardCertificateSecretRef: &configv1alpha1.LocalObjectReference{
-				Name: "wildcard",
+			WildcardCertificateSecretRef: &configv1alpha1.SecretReference{
+				Name:      "wildcard",
+				Namespace: "shared-tls",
 			},
-			CACertificateSecretRef: &configv1alpha1.CASecretReference{
+			CACertificateSecretRef: &configv1alpha1.SecretReference{
 				Name:      "byo-ca",
 				Namespace: "shared-ca",
 			},
@@ -102,9 +136,72 @@ func TestCollectFromECC_InlineCANS_Added(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"educates-installer", "educates-secrets", "shared-ca"}
+	want := []string{"educates-installer", "educates-secrets", "shared-ca", "shared-tls"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Inline CA NS not folded in: got %v, want %v", got, want)
+		t.Errorf("Inline wildcard and CA namespaces not folded in: got %v, want %v", got, want)
+	}
+}
+
+func TestCollectFromECC_SessionManagerCAOverrideNS_Added(t *testing.T) {
+	scheme := testScheme(t)
+	sm := &platformv1alpha1.SessionManager{}
+	sm.Name = singletonName
+	sm.Spec.IngressOverrides = &platformv1alpha1.IngressOverrides{
+		CACertificateSecretRef: &platformv1alpha1.SecretReference{
+			Name:      "portal-ca",
+			Namespace: "portal-ca-secrets",
+		},
+	}
+	// No EducatesClusterConfig yet: the SessionManager is read on its own.
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(sm).Build()
+
+	got, err := collectFromClient(context.Background(), c, "educates-installer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"educates-installer", "educates-secrets", "portal-ca-secrets"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("SessionManager CA override namespace not folded in: got %v, want %v", got, want)
+	}
+}
+
+func TestCollectFromECC_ReferenceTheProviderDoesNotUse_Ignored(t *testing.T) {
+	// A CustomCA block left under the StaticCertificate provider names
+	// no Secret the reconciler reads or watches, so its namespace stays
+	// out of the cache scope, as the Secret watch ignores it too.
+	scheme := testScheme(t)
+	ecc := &configv1alpha1.EducatesClusterConfig{}
+	ecc.Name = singletonName
+	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
+	ecc.Spec.Ingress = &configv1alpha1.Ingress{
+		Certificates: configv1alpha1.Certificates{
+			Provider: configv1alpha1.CertificatesProviderStaticCertificate,
+			StaticCertificate: &configv1alpha1.StaticCertificateConfig{
+				TLSSecretRef: configv1alpha1.SecretReference{
+					Name:      "wildcard",
+					Namespace: "static-tls",
+				},
+			},
+			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
+				IssuerType: configv1alpha1.IssuerTypeCustomCA,
+				CustomCA: &configv1alpha1.CustomCAConfig{
+					CAKeyPairSecretRef: configv1alpha1.SecretReference{
+						Name:      "workshop-ca",
+						Namespace: "unused-ca",
+					},
+				},
+			},
+		},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ecc).Build()
+
+	got, err := collectFromClient(context.Background(), c, "educates-installer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"educates-installer", "educates-secrets", "static-tls"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("a reference the provider does not use widened the cache scope: got %v, want %v", got, want)
 	}
 }
 
@@ -113,7 +210,7 @@ func TestCollectFromECC_EmptyNamespaceOnRef_Ignored(t *testing.T) {
 	// default set, so no new entry should be added.
 	scheme := testScheme(t)
 	ecc := &configv1alpha1.EducatesClusterConfig{}
-	ecc.Name = eccSingletonName
+	ecc.Name = singletonName
 	ecc.Spec.Mode = configv1alpha1.ClusterConfigModeManaged
 	ecc.Spec.Ingress = &configv1alpha1.Ingress{
 		Certificates: configv1alpha1.Certificates{
@@ -121,7 +218,7 @@ func TestCollectFromECC_EmptyNamespaceOnRef_Ignored(t *testing.T) {
 			BundledCertManager: &configv1alpha1.BundledCertManagerConfig{
 				IssuerType: configv1alpha1.IssuerTypeCustomCA,
 				CustomCA: &configv1alpha1.CustomCAConfig{
-					CACertificateRef: configv1alpha1.CASecretReference{
+					CAKeyPairSecretRef: configv1alpha1.SecretReference{
 						Name: "workshop-ca",
 						// Namespace intentionally empty
 					},
@@ -146,5 +243,6 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	s := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(s))
 	utilruntime.Must(configv1alpha1.AddToScheme(s))
+	utilruntime.Must(platformv1alpha1.AddToScheme(s))
 	return s
 }

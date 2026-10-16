@@ -21,6 +21,7 @@ func (p *ProjectInfo) NewLocalSecretsCmdGroup() *cobra.Command {
 			Commands: []*cobra.Command{
 				p.NewLocalSecretsAddCmdGroup(),
 				p.NewLocalSecretsListCmd(),
+				p.NewLocalSecretsViewCmd(),
 				p.NewLocalSecretsExportCmd(),
 				p.NewLocalSecretsImportCmd(),
 				p.NewLocalSecretsSyncCmd(),

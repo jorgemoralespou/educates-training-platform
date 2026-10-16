@@ -120,22 +120,40 @@ ingress:
   domain: educates-local-dev.test
 ```
 
-When you set a custom ingress domain, the install serves workshop sessions over HTTPS: it configures cert-manager with a certificate authority (CA) you supply, and the wildcard TLS certificate for the ingress domain is issued from that CA inside the cluster. Setting a custom domain turns off the insecure default, so you provide the CA for your domain with:
+When you set a custom ingress domain, the install serves workshop sessions over HTTPS: it installs cert-manager, which issues the wildcard TLS certificate for the ingress domain inside the cluster from a certificate authority (CA) minted for that domain from a root CA kept on your machine. Setting a custom domain turns off the insecure default, so before creating the cluster you provide the root CA, or instead a wildcard certificate as described further below. To generate a root CA:
 
 ```
-educates local secrets add ca ${INGRESS_DOMAIN}-ca --domain ${INGRESS_DOMAIN}
+educates local secrets add ca educates-local-ca
 ```
 
-With no `--cert`/`--key` arguments a self-signed CA is generated for you. If you already have a CA — for example one created with ``mkcert`` — supply its certificate and key instead:
+The command caches the root certificate as `educates-local-ca` and its private key as `educates-local-ca-root-key-pair`, and prints how to export the root certificate for your operating system trust store. To have your browser and operating system trust workshop URLs without warnings, configure them to trust this root certificate, as described in [Trusting the workshop certificates](trusting-the-workshop-certificates). You trust the root once, and it covers every ingress domain you use locally.
+
+If you already use `mkcert`, whose root CA is trusted on your machine, register that root with its private key instead, so that you do not trust a second root:
 
 ```
-educates local secrets add ca ${INGRESS_DOMAIN}-ca \
- --cert "`mkcert -CAROOT`/rootCA.pem" \
- --key "`mkcert -CAROOT`/rootCA-key.pem" \
- --domain ${INGRESS_DOMAIN}
+educates local secrets add ca mkcert-ca \
+ --cert "$(mkcert -CAROOT)/rootCA.pem" \
+ --key "$(mkcert -CAROOT)/rootCA-key.pem"
 ```
 
-The `--domain` option indicates which ingress domain the CA is for, as the name of the secret is not significant; the CA annotated with the domain matching `ingress.domain` is used. To have your browser and operating system trust workshop URLs without warnings, configure them to trust this CA certificate.
+The command checks that the certificate is a CA and that the key matches it. The local secrets cache holds one root CA, so `educates local secrets add ca` refuses a second root and names the existing one. To replace the root, first remove it with `educates local secrets remove NAME`, which also removes its private key and every CA minted from it.
+
+The root's private key never leaves your machine. When a deploy, such as `educates local cluster create` or `educates admin platform deploy --local-config`, needs a CA for the ingress domain, it mints an intermediate CA from the root, caches it as `<domain>-ca-key-pair` and prints a line saying so. The intermediate is limited by an X.509 name constraint to the ingress domain and its subdomains, with every IP address excluded, and it cannot sign further CAs. Only its key pair is copied into the cluster, so a key taken from the cluster cannot sign a certificate your browser accepts for any other site. Later deploys for the same domain reuse the intermediate, and one that has expired, or that was minted from a root you have since replaced, is minted again. Switching to a new ingress domain needs no new trust import, since its intermediate chains to the root you already trust. A root CA that carries name constraints of its own must permit the ingress domain, or the deploy fails saying so. `educates admin platform render` shows the configuration a deploy would use without writing to the cache.
+
+If you would rather not run cert-manager in the cluster at all, serve a wildcard certificate you already have instead. This installs no cert-manager. With `mkcert`, create a certificate for the wildcard of the ingress domain, cache it, and cache mkcert's root CA certificate so that Educates components trust it:
+
+```
+mkcert -cert-file educates-local-dev.test.pem \
+ -key-file educates-local-dev.test-key.pem "*.educates-local-dev.test"
+educates local secrets add tls educates-local-dev.test-tls \
+ --cert educates-local-dev.test.pem \
+ --key educates-local-dev.test-key.pem
+educates local secrets add ca mkcert-ca --cert "$(mkcert -CAROOT)/rootCA.pem"
+```
+
+`educates local secrets add tls` checks that the certificate is not a CA, that the key matches it, and that it has at least one wildcard DNS name of the form `*.<domain>`. It records no domain: a cached TLS certificate serves every domain it has a wildcard DNS name for, so one certificate created for several wildcard domains serves whichever of them your local configuration selects. `educates local secrets add ca` with `--cert` alone caches only mkcert's root certificate, never its private key.
+
+When exactly one cached TLS certificate that has not expired covers the ingress domain, a deploy serves it with the `StaticCertificate` certificates provider and installs no cert-manager, even when a root CA is also cached. The deploy says so, names the certificate and any other domains it covers, and gives the `educates local secrets remove` command that removes it, should you want cert-manager to issue the certificates from your root CA instead. It finds the CA that Educates components trust by verifying the certificate's chain against the cached secrets that `educates local secrets list` shows as a `CA certificate`, and warns when none of them verifies it, since the training portal and workshop sessions would not trust the ingress. An expired TLS certificate is skipped with a notice, and the deploy fails, naming the certificates, when more than one that has not expired covers the domain. The certificate is not renewed for you: before it expires, cache the new certificate under the same name with `educates local secrets add tls` and run `educates local secrets sync`, and the cluster serves it without a new install.
 
 If you would rather not manage a CA, you can run the local cluster over plain HTTP by setting `ingress.insecure` in the configuration:
 
@@ -147,7 +165,9 @@ ingress:
 
 With `ingress.insecure` set, no certificate authority is needed, the `educates local secrets add ca` step is skipped, and `educates local cluster create` serves workshop sessions over HTTP. Because the ingress is not secured, some features that require a trusted secure ingress do not work, including the per session image registry, so an insecure cluster is best suited to trying Educates out rather than developing workshops that rely on those features.
 
-Cached secrets (the CA, and any docker-registry secrets referenced from `secretPropagation.imagePullSecretNames`) are automatically copied to the local Kubernetes cluster when running `educates local cluster create`, provided the `--config` option is not being used.
+Choose between plain HTTP and HTTPS before creating the cluster. Switching an existing cluster between the two, by setting or clearing `ingress.insecure` or by setting a custom ingress domain on a cluster created with the insecure default, changes how certificates are provided, which an existing installation does not allow, and the deploy fails saying so. The same holds for switching between a root CA and a wildcard certificate, by caching or removing a wildcard certificate for the ingress domain of an existing cluster. To switch, run `educates admin platform delete` and deploy again, or recreate the cluster with `educates local cluster delete` followed by `educates local cluster create`.
+
+Cached secrets, such as the root's CA certificate, the CA minted for the ingress domain, a cached wildcard certificate, and any docker-registry secrets referenced from `secretPropagation.imagePullSecretNames`, are automatically copied into the `educates-secrets` namespace of the local Kubernetes cluster when running `educates local cluster create`, or `educates admin platform deploy` with a local configuration. The root's private key and the CAs minted for other ingress domains are never copied. See [Local secrets cache](local-secrets-cache) for the commands that manage these secrets.
 
 Note that DNS still needs to be configured to map using a CNAME the wildcard domain to the IP address of your local host machine where the Kubernetes cluster is running. This could be done by modifying your actual DNS registry, or you can run a local DNS resolver. If doing this in your global DNS registry, it doesn't matter that the IP address is a local network address which is not accessible to the internet, although depending on what internet router you use for a home network, you may need to disable DNS rebinding protection in your router for the domain.
 
@@ -250,6 +270,111 @@ educates local resolver delete
 You will need to manually remove the file you created under `/etc/resolver`.
 
 Note that when using the local DNS resolver on macOS, for it to work relies on DNS resolution within the local Kind Kubernetes cluster being passed through to the macOS system DNS resolution framework. Although this appears to work for Kubernetes Kind clusters running on macOS Intel architecture, it appears not to currently work for macOS ARM architecture. It is believed this may be because Go application binaries compiled using cross compilation do not link and use the macOS DNS frameworks and instead have a native Go implementation which bypasses the macOS `/etc/resolver` based system. If you are using macOS ARM based machines, you will need to have access to a public DNS registry or server where you can instead configure your domains. Using a DNS server on your local network or embedded in your internet router may also not work as it is also suspected that for macOS ARM acrhitecture, a Kubernetes Kind cluster bypasses local DNS servers and connects direct to a public DNS. The only known way around this at present is to override CoreDNS configuration in the Kubernetes cluster.
+
+(local-secrets-cache)=
+Local secrets cache
+-------------------
+
+The `educates local secrets` commands manage a cache of Kubernetes secrets kept in the `secrets` directory of the CLI data home. A deploy of a local configuration copies them into the `educates-secrets` namespace of the cluster, where the certificates and registry credentials of the install are read from.
+
+The cache holds private keys and registry credentials, so it is readable only by you: the CLI creates the `secrets` directory with mode `0700` and writes each file in it with mode `0600`. A directory that an earlier release created with looser permissions is changed to `0700` the next time the CLI writes to the cache.
+
+Certificate authorities are cached in three roles:
+
+* A CA certificate `NAME` holds a CA certificate as `ca.crt`, and no private key. It is copied to the cluster so components can trust the CA.
+* A CA root key pair `NAME-root-key-pair` holds the private key of the root CA whose certificate is cached as `NAME`. It is never copied to a cluster, and the cache holds at most one.
+* A CA key pair `<domain>-ca-key-pair` holds an intermediate CA minted from the root for one ingress domain: the intermediate followed by the root as `tls.crt`, the intermediate's private key as `tls.key`, and the root as `ca.crt`. It is annotated with its domain and the name of its root, and it is copied to a cluster only when that cluster's ingress domain selects it.
+
+A TLS certificate is a `kubernetes.io/tls` secret holding a certificate that is not a CA, optionally followed by its intermediate certificates, as `tls.crt`, and its private key as `tls.key`. The domains it serves are those of its `*.<domain>` DNS names; any domain annotation it carries, as caches from version 3 do, is ignored.
+
+The commands are:
+
+* `educates local secrets add ca NAME` generates a root CA. With `--cert` and `--key` it registers an existing root CA with its private key instead, after checking that the certificate is a CA and that the key matches it. Either way it caches the CA certificate `NAME` and the CA root key pair `NAME-root-key-pair`, and it refuses a second root, naming the existing one. With `--cert` alone it caches only the CA certificate `NAME`, for trust.
+* `educates local secrets add tls NAME --cert FILE --key FILE` caches a wildcard TLS certificate, with any intermediate certificates that follow it in the `--cert` file, and its private key. Both flags are required. It refuses a CA certificate, a key that does not match the certificate, and a certificate with no `*.<domain>` DNS name. It has no `--domain` flag: the certificate serves every domain it has a wildcard DNS name for, and a deploy whose ingress domain it covers serves it with the `StaticCertificate` provider and installs no cert-manager.
+* `educates local secrets add docker-registry NAME` caches credentials for a container registry. There is no `add` command for a generic secret: add it with `educates local secrets import --file FILE` from a YAML file holding the Kubernetes secret, such as one written by `kubectl create secret generic NAME --from-literal=KEY=VALUE --dry-run=client -o yaml`.
+* `educates local secrets list` lists the cached secrets as a table, so you can see what each one is and what a deploy uses it for without reading its YAML. The `TYPE` column is the role of the secret, decided the same way a deploy decides it: `CA certificate`, `CA root key pair`, `CA intermediate key pair` for a CA key pair, `TLS certificate`, `Registry credentials` or `Generic`. A secret to remove from the cache is shown as `invalid`, and the rest of the list still prints. A file that cannot be read or decoded is `invalid`, and `educates local secrets view NAME` says what is wrong with it. So is a CA certificate with its private key that is neither a CA root key pair nor a CA key pair, such as a CA cached by a 4.0.0 alpha release, which deploys neither use nor copy to a cluster; [CAs cached by alpha releases](local-secrets-cache-alpha-cas) says how to keep using such a CA. The `DOMAINS` column is what the secret is valid for: every wildcard domain of a TLS certificate, the ingress domain of a CA key pair, and the permitted DNS name constraints of a CA certificate or CA root key pair, or `any` when it has none. The `EXPIRES` column is the date the certificate expires, in UTC, or `expired`. For example, with a generated root CA, the CA key pair minted from it for `workshops.test`, a `mkcert` wildcard certificate for two other domains with the `mkcert` root CA certificate, and registry credentials:
+
+  ```text
+  NAME                         TYPE                       DOMAINS                EXPIRES
+  educates-ca                  CA certificate             any                    2036-10-15
+  educates-ca-root-key-pair    CA root key pair           any                    2036-10-15
+  labs-tls                     TLS certificate            demo.test, labs.test   2029-01-15
+  mkcert-ca                    CA certificate             any                    2035-10-15
+  registry-credentials         Registry credentials
+  workshops.test-ca-key-pair   CA intermediate key pair   workshops.test         2036-10-15
+  ```
+* `educates local secrets view NAME` shows the details of one cached secret that do not fit the table of `educates local secrets list`, so you can inspect it without decoding its YAML. It never prints key material. It shows the type and domains of the secret as `educates local secrets list` shows them, the file it is cached in and its Kubernetes secret type, and for a CA key pair the ingress domain it was minted for and its root CA. For each certificate the secret holds, those of `tls.crt` and then those of `ca.crt`, it shows the common name, the subject, the issuer, the subject alternative names, the times it is valid from and expires, in UTC and followed by `(expired)` once it has expired, whether it is a CA and its path length, the name constraints of a CA, or `any` when it has none, the serial number and the SHA-256 fingerprint. It shows whether the secret holds a private key, never the key itself, only the registries of registry credentials, never their usernames or passwords, and only the names of the keys of a generic secret. For a secret that `educates local secrets list` shows as `invalid` it shows why, such as a file that cannot be decoded or a CA cached by a 4.0.0 alpha release, and the `educates local secrets remove` command that removes it. For a CA cached by an alpha release it first says to register the CA as the root CA under another name with `educates local secrets add ca ROOT --cert FILE --key FILE`, as [CAs cached by alpha releases](local-secrets-cache-alpha-cas) describes, since removing the secret removes the CA's private key. Naming a secret the cache does not hold is an error. For example, for the CA key pair of the list above:
+
+  ```text
+  Name:                  workshops.test-ca-key-pair
+  Type:                  CA intermediate key pair
+  Location:              /Users/dev/Library/Application Support/educates/secrets/workshops.test-ca-key-pair.yaml
+  Secret type:           kubernetes.io/tls
+  Domains:               workshops.test
+  Ingress domain:        workshops.test
+  Root CA:               educates-ca
+
+  Certificate (tls.crt, 1 of 2):
+    Common name:         workshops.test
+    Subject:             CN=workshops.test,O=Educates
+    Issuer:              CN=educates-dev-ca (educates-ca),O=Educates
+    Valid from:          2026-10-15 12:44:58 UTC
+    Expires:             2036-10-15 13:44:58 UTC
+    CA:                  yes, path length 0
+    Name constraints:    permitted: workshops.test; excluded: 0.0.0.0/0, ::/0
+    Serial:              E4:B1:7D:82:B5:1F:FD:51:FB:12:76:24:DA:53:54:5A
+    SHA-256 fingerprint: 1A:BB:05:B8:CE:B2:03:2E:9A:85:70:A1:49:45:E1:FB:AD:17:F1:DD:15:83:52:22:A3:78:EF:08:8C:93:98:CA
+
+  Certificate (tls.crt, 2 of 2):
+    Common name:         educates-dev-ca (educates-ca)
+    Subject:             CN=educates-dev-ca (educates-ca),O=Educates
+    Issuer:              CN=educates-dev-ca (educates-ca),O=Educates
+    Valid from:          2026-10-15 12:44:58 UTC
+    Expires:             2036-10-15 13:44:58 UTC
+    CA:                  yes, no path length limit
+    Name constraints:    any
+    Serial:              60:F2:29:3C:7D:3B:5B:A4:E3:16:F6:C2:13:0E:66:E7
+    SHA-256 fingerprint: FA:23:02:9D:7C:33:95:E4:BF:5B:49:E2:AB:A7:59:42:52:41:2F:5D:DD:57:E7:53:A5:23:A8:9B:39:88:44:6B
+
+  Certificate (ca.crt):
+    Common name:         educates-dev-ca (educates-ca)
+    Subject:             CN=educates-dev-ca (educates-ca),O=Educates
+    Issuer:              CN=educates-dev-ca (educates-ca),O=Educates
+    Valid from:          2026-10-15 12:44:58 UTC
+    Expires:             2036-10-15 13:44:58 UTC
+    CA:                  yes, no path length limit
+    Name constraints:    any
+    Serial:              60:F2:29:3C:7D:3B:5B:A4:E3:16:F6:C2:13:0E:66:E7
+    SHA-256 fingerprint: FA:23:02:9D:7C:33:95:E4:BF:5B:49:E2:AB:A7:59:42:52:41:2F:5D:DD:57:E7:53:A5:23:A8:9B:39:88:44:6B
+
+  Private key:           present
+  ```
+* `educates local secrets remove NAME` removes a secret from the cache and prints a line for each secret it removes. Removing a root CA, named by its CA certificate `NAME` or by its CA root key pair `NAME-root-key-pair`, removes both together with every CA key pair minted from the root, so no CA material of that root stays in the cache. This is how you replace the root: remove it, then register the new one with `educates local secrets add ca`. Remove the old root certificate from your operating system trust store separately.
+* `educates local secrets export` prints the cached secrets, or the one named, as YAML, including any private keys they hold. With `--pem` it prints only the certificates of the named secret as PEM and never a private key, whatever the secret holds. For a CA it prints the root certificate, which is what you import into a trust store: the CA's own certificate for a CA certificate, a CA root key pair or an `invalid` CA cached by a 4.0.0 alpha release, and the root for a CA key pair. For a TLS certificate it prints the certificate and its chain. It goes by the type `educates local secrets list` shows for the secret, so a secret of any other type, such as registry credentials or a generic secret, has no certificate to print.
+* `educates local secrets import --file FILE` adds the secrets in a YAML file, such as the output of `educates local secrets export`, to the cache, replacing cached secrets of the same names. Like `add ca`, it keeps the cache to one root CA: it refuses a file holding a CA root key pair when the cache already holds a different root, naming the existing one, and a file holding more than one root. Importing the root the cache already holds is allowed. The file is checked before anything is written, so a refused import leaves the cache unchanged.
+* `educates local secrets sync` copies the cached secrets into the `educates-secrets` namespace of the cluster, the same way a deploy does. It never copies a CA root key pair, and it copies a CA key pair only for the `ingress.domain` of the local configuration, minting it first when it is missing or stale. Without a local configuration it copies no CA key pair. When the certificates of the local configuration cannot be decided, such as a secure `ingress.domain` with neither a root CA nor a wildcard certificate for it cached, it warns why and still copies every secret that holds no CA private key, such as registry credentials, while a deploy of that configuration fails.
+
+(local-secrets-cache-alpha-cas)=
+### CAs cached by alpha releases
+
+The 4.0.0 alpha releases cached a CA as a `kubernetes.io/tls` secret holding the CA certificate and its private key, under a name that is neither a CA root key pair nor a CA key pair. Such a secret is not migrated automatically: `educates local secrets list` shows it as `invalid`, and deploys neither use it nor copy it to a cluster. To keep using the CA, for example because you already imported it into your operating system trust store, register it as the root CA, then remove the old entry. With `NAME` the name of the old entry and `ROOT` a name for the root CA other than `NAME`, such as `educates-ca`, export the certificate and key of the old entry, register them as the root CA, delete the exported key and remove the old entry:
+
+```
+educates local secrets export NAME --pem > NAME.crt
+educates local secrets export NAME | awk '$1 == "tls.key:" {print $2}' | base64 --decode > NAME.key
+educates local secrets add ca ROOT --cert NAME.crt --key NAME.key
+rm NAME.key
+educates local secrets remove NAME
+```
+
+If the CA was the root CA of `mkcert`, register it straight from `mkcert` instead, then remove the old entry:
+
+```
+educates local secrets add ca ROOT --cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"
+educates local secrets remove NAME
+```
+
+The cache holds one root CA, so if you cached a CA for each of several domains, register only one of them and remove the others with `educates local secrets remove`: deploys for their domains mint their CAs from the root. Remove those CAs from your trust store too. A local cluster created by an alpha release received the CA's private key and still holds it, so delete and recreate it with `educates local cluster delete` and `educates local cluster create`.
 
 Local image mirrors
 -------------------

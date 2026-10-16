@@ -144,13 +144,22 @@ spec:
                 properties:
                   caCertificateSecretRef:
                     description: |-
-                      LocalObjectReference is a name-only reference to an object in the
-                      operator namespace (or, for cluster-scoped kinds, to the cluster-
-                      scoped object). Mirrors the shape used in the config API group;
-                      duplicated here to avoid cross-group Go coupling.
+                      caCertificateSecretRef optionally references a CA trust Secret
+                      holding, under ca.crt, the CA certificate that replaces the
+                      cluster's ingress CA for session-manager and the training portals
+                      and workshop sessions it creates. Namespace defaults to the
+                      operator namespace when empty. session-manager never receives this
+                      Secret: the operator derives the operator-owned
+                      educates-session-manager-ingress-ca in the operator namespace from
+                      its ca.crt alone, so any other key it holds, a private key
+                      included, is ignored.
                     properties:
                       name:
                         description: name of the referent.
+                        type: string
+                      namespace:
+                        description: namespace of the referent. Empty means the operator
+                          namespace.
                         type: string
                     required:
                     - name
@@ -170,10 +179,17 @@ spec:
                     type: string
                   tlsSecretRef:
                     description: |-
-                      LocalObjectReference is a name-only reference to an object in the
-                      operator namespace (or, for cluster-scoped kinds, to the cluster-
-                      scoped object). Mirrors the shape used in the config API group;
-                      duplicated here to avoid cross-group Go coupling.
+                      tlsSecretRef optionally names a TLS Secret, holding tls.crt and
+                      tls.key, that replaces the cluster's wildcard certificate for
+                      session-manager and the training portals and workshop sessions it
+                      creates. It takes a name only because session-manager receives
+                      this Secret as it is: the operator neither reads nor copies it, so
+                      it is looked up in the namespace the cluster's wildcard
+                      certificate is published in
+                      (EducatesClusterConfig.status.ingress.wildcardCertificateSecretRef),
+                      or in session-manager's own namespace when the cluster publishes
+                      none. caCertificateSecretRef takes a namespace because the
+                      operator reads that Secret to derive a key-free copy.
                     properties:
                       name:
                         description: name of the referent.
@@ -217,11 +233,11 @@ spec:
                   mode:
                     default: Auto
                     description: |-
-                      mode defaults to Auto. Auto installs the subchart only when
-                      the cluster config publishes a CA Secret reference; with no CA
-                      configured, Auto skips the install silently. Enabled forces
-                      the install (refuses if no CA is configured). Disabled keeps
-                      it uninstalled.
+                      mode defaults to Auto. Auto installs the subchart only when a CA
+                      is configured, either published by the cluster config or set as
+                      spec.ingressOverrides.caCertificateSecretRef; with no CA configured,
+                      Auto skips the install silently. Enabled forces the install
+                      (refuses if no CA is configured). Disabled keeps it uninstalled.
                     enum:
                     - Auto
                     - Enabled

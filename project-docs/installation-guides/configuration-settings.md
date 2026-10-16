@@ -115,7 +115,7 @@ imageRegistry:
 externalTLSTermination: false                  # true when a proxy/LB terminates TLS in front of the cluster
 ```
 
-`domain`, `ingressClassName` and `wildcardCertificateSecret` are required. The referenced Secrets must exist in the operator's namespace before deployment. See [secure HTTP connections](secure-http-connections) for the certificate options across all scenarios.
+`domain`, `ingressClassName` and `wildcardCertificateSecret` are required. The referenced Secrets must exist in the operator's namespace before deployment. Educates components never receive the `caCertificateSecret` itself, only a copy of its `ca.crt`. To keep the Secrets in another namespace, use the `EducatesConfig` escape hatch, whose `inline.ingress.wildcardCertificateSecretRef` and `inline.ingress.caCertificateSecretRef` take an optional `namespace`. See [secure HTTP connections](secure-http-connections) for the certificate options across all scenarios.
 
 Note that with `workshopEngine: None` there is no workshop-level security policy enforcement — see the [cluster requirements](cluster-requirements) discussion before serving untrusted users.
 
@@ -138,6 +138,29 @@ secretsManager: {}
 lookupService: {}           # omit the block entirely to not deploy the component
 sessionManager: {}
 ```
+
+For example, the `StaticCertificate` certificates provider, which serves a wildcard certificate you already have and installs no cert-manager, is selected through this kind:
+
+```yaml
+educatesClusterConfig:
+  mode: Managed
+  ingress:
+    domain: workshops.example.com
+    ingressClassName: contour
+    controller:
+      provider: BundledContour
+    certificates:
+      provider: StaticCertificate
+      staticCertificate:
+        tlsSecretRef:               # tls.crt and tls.key, SANs including *.{domain}
+          name: wildcard-tls
+          namespace: educates-secrets
+        caCertificateSecretRef:     # optional, ca.crt of a CA that is not publicly trusted
+          name: wildcard-ca
+          namespace: educates-secrets
+```
+
+See [secure HTTP connections](secure-http-connections) for how the operator checks and serves the certificate.
 
 The spec blocks are validated by the cluster's CRD schemas at apply time, not by the CLI. The `EducatesConfig` JSON schema is generated from the CRDs, so editors still get full completion. For the custom resource spec reference, see the sample scenarios in [installer/samples](https://github.com/educates/educates-training-platform/tree/develop/installer/samples) and `kubectl explain educatesclusterconfig.spec` against an installed cluster.
 
@@ -187,7 +210,7 @@ Session manager settings
 
 Runtime behavior settings live on the `SessionManager` custom resource spec, reachable via the `sessionManager` block of `EducatesConfig` (or directly when applying resources yourself):
 
-* `ingressOverrides` — per-component TLS/CA Secret overrides, plus `protocol` to assert `https` URLs when TLS is terminated outside the cluster (this is what the kinds' `externalTLSTermination` translates to).
+* `ingressOverrides`: overrides of the cluster's ingress TLS Secret (`tlsSecretRef`, named in the namespace of the cluster's wildcard certificate) and CA (`caCertificateSecretRef`, a Secret holding `ca.crt`, with an optional `namespace` that defaults to the operator namespace; the session manager receives only its `ca.crt`, through the operator-owned `educates-session-manager-ingress-ca`), plus `protocol` to assert `https` URLs when TLS is terminated outside the cluster (this is what the kinds' `externalTLSTermination` translates to).
 * `tracking` — analytics integrations (Google Analytics, Amplitude, Microsoft Clarity, webhooks).
 * `sessionCookieDomain` — share the authentication cookie across subdomains.
 * `allowedEmbeddingHosts` — sites permitted to embed workshop sessions (CSP frame ancestors).
@@ -196,11 +219,11 @@ Runtime behavior settings live on the `SessionManager` custom resource spec, rea
 * `images` — per-image overrides for runtime-spawned images.
 * `themes`/`defaultTheme` — Secret-sourced workshop themes.
 * `imagePrePuller` — pre-pull key images on cluster nodes.
-* `nodeCATrust`, `remoteAccess` — node-level CA trust injection and cross-cluster CLI access.
+* `nodeCATrust`, `remoteAccess`: node-level CA trust injection and cross-cluster CLI access. With `nodeCATrust.mode` at its default, `Auto`, the node CA injector is installed whenever the cluster publishes a CA, which includes every Managed mode install with a custom CA, every `StaticCertificate` install that names a CA trust Secret, and every Inline mode install that names a CA Secret, and also whenever `ingressOverrides.caCertificateSecretRef` is set. Nodes trust the CA the session manager uses: the override's `educates-session-manager-ingress-ca` when one is set, otherwise the cluster's `educates-ingress-ca`. With `Enabled`, the `SessionManager` reports `Ready` as `False` only when neither the cluster nor an override provides a CA. Set it to `Disabled` to keep the privileged node CA injector DaemonSet off.
 
 Use `kubectl explain sessionmanager.spec` for the full schema. A few spec blocks (`defaultAccessCredentials`, `registryMirrors`, and ConfigMap/URL-sourced themes) are reserved in the CRD but rejected as not yet supported in this release.
 
 Updating settings
 -----------------
 
-Configuration is applied by re-running `educates admin platform deploy` with the changed file (or re-applying the custom resources in a GitOps flow). The operator reconciles differences in place. The `EducatesClusterConfig` mode (`Managed` vs `Inline`) is immutable once set — switching requires deleting and re-creating the installation. Configuration changes will not necessarily affect training portals or workshop environments which already exist.
+Configuration is applied by re-running `educates admin platform deploy` with the changed file (or re-applying the custom resources in a GitOps flow). The operator reconciles differences in place. The `EducatesClusterConfig` mode (`Managed` vs `Inline`) and how each of its cluster services is provided are immutable once set: the certificates provider (`ingress.certificates.provider`), the ingress controller provider (`ingress.controller.provider`), the DNS provider (`dns.provider`) and the policy enforcement engines and Kyverno provider (`policyEnforcement`). Switching any of them requires deleting and re-creating the installation, for example with `educates admin platform delete` followed by a new deploy. On the local configuration, switching between plain HTTP and HTTPS, by setting or clearing `ingress.insecure` or by setting a custom `ingress.domain` in place of the `nip.io` default, changes the certificates provider. Configuration changes will not necessarily affect training portals or workshop environments which already exist.

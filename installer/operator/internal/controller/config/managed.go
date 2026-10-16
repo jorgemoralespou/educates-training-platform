@@ -22,17 +22,16 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
 
@@ -67,6 +66,9 @@ const (
 // gates the next via its return value:
 //
 //   - done=true   → phase complete; orchestrator proceeds to the next.
+//     The certificates phase may also return a RequeueAfter, the time
+//     by which reconcile must run again (a static certificate's
+//     expiry); every later return keeps that deadline.
 //   - done=false  → phase incomplete; orchestrator returns the
 //     Result+error verbatim. This covers both
 //     "silently waiting on a watch event" (zero Result, nil error)
@@ -75,52 +77,87 @@ const (
 //     controller-runtime" (any Result, non-nil error). All three
 //     stop the pipeline at the same point.
 //
-// Phases that aren't required by the spec (e.g., user picked
-// ExternalCertManager) return done=true immediately so the
+// Phases that aren't required by the spec (e.g., the None
+// certificates provider) return done=true immediately so the
 // orchestrator proceeds. Validation that requires the provider mix
 // to be supported lives in validateManaged.
 //
 // Install order:
 //
-//  1. cert-manager + wildcard Certificate + ClusterIssuer
-//     (CertificatesReady). Wildcard Cert placement may shift to
-//     post-Contour when ACME-HTTP01 issuer types are added later.
+//  1. cert-manager + wildcard Certificate + ClusterIssuer, or the
+//     static certificate's educates-wildcard-tls (CertificatesReady).
+//     TODO: an ACME HTTP-01 issuer type would need the wildcard
+//     Certificate after Contour.
 //  2. Contour + IngressClass (IngressReady).
 //  3. external-dns (DNSReady).
 //  4. Kyverno (PolicyEnforcementReady).
 //
 // Cleanup is the strict reverse.
 func (r *EducatesClusterConfigReconciler) reconcileManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (ctrl.Result, error) {
-	if err := r.validateManaged(ctx, obj); err != nil {
+	err := r.validateManaged(ctx, obj)
+	var staticCert *pki.WildcardCertificate
+	if err == nil {
+		// As in Inline mode, a static certificate is checked, its chain
+		// against the CA trust Secret included, before that CA reaches
+		// Educates components, so a CA the served certificate does not
+		// verify against is never published.
+		staticCert, err = r.checkStaticCertificate(ctx, obj)
+	}
+	if err == nil {
+		// CA trust for Educates components comes from the validated
+		// spec alone, so it is derived before any cluster service is
+		// installed and kept current on every reconcile.
+		err = r.ensureIngressCATrust(ctx, obj)
+	}
+	if err != nil {
 		if verr, ok := errors.AsType[*validationError](err); ok {
-			r.markDegraded(obj, verr.Field, verr.Reason)
+			r.markValidationFailed(obj, verr)
 			return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
 		}
 		return ctrl.Result{}, err
 	}
+	r.markManagedValidationSucceeded(obj)
 
-	// cert-manager + wildcard certificate.
-	if done, res, err := r.reconcileCertManagerPhase(ctx, obj); !done {
-		return res, err
+	// Certificates: cert-manager + wildcard certificate, or a static
+	// certificate. A completed phase may still ask to run again by a
+	// time, such as a static certificate's expiry; every later return
+	// keeps that deadline.
+	done, certRes, err := r.reconcileCertificatesPhase(ctx, obj, staticCert)
+	if !done {
+		return certRes, err
 	}
+	certDeadline := certRes.RequeueAfter
 
 	// Ingress controller (Contour).
 	if done, res, err := r.reconcileContourPhase(ctx, obj); !done {
-		return res, err
+		return requeueBy(res, certDeadline), err
 	}
 
 	// DNS (external-dns).
 	if done, res, err := r.reconcileExternalDNSPhase(ctx, obj); !done {
-		return res, err
+		return requeueBy(res, certDeadline), err
 	}
 
 	// Policy enforcement (Kyverno).
 	if done, res, err := r.reconcileKyvernoPhase(ctx, obj); !done {
-		return res, err
+		return requeueBy(res, certDeadline), err
 	}
 
 	r.markManagedReady(obj)
-	return ctrl.Result{}, r.updateStatusWithTransitionLog(ctx, obj)
+	return requeueBy(ctrl.Result{}, certDeadline), r.updateStatusWithTransitionLog(ctx, obj)
+}
+
+// markManagedValidationSucceeded flips ValidationSucceeded to True once
+// the spec and the Secrets it references pass validation, so a
+// validation failure clears when its input recovers.
+func (r *EducatesClusterConfigReconciler) markManagedValidationSucceeded(obj *configv1alpha1.EducatesClusterConfig) {
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionValidationSucceeded,
+		Status:             metav1.ConditionTrue,
+		Reason:             "ManagedSpecValid",
+		Message:            "Managed-mode spec and referenced Secrets validated",
+		ObservedGeneration: obj.Generation,
+	})
 }
 
 // handleCertManagerCRDsMissing handles a NoMatchError (or 404
@@ -236,10 +273,12 @@ func (r *EducatesClusterConfigReconciler) handleWebhookNotReady(ctx context.Cont
 
 // cleanupManaged tears down installed cluster services in **reverse
 // install order**: each per-service cleanup is self-contained and
-// no-ops when its corresponding install was skipped (External
-// provider variants). Adding a new cluster service means
-// appending its cleanup* call at the top of this function (since
-// it'll have been the *last* to install).
+// runs only when the spec has the operator install its service, so a
+// service the administrator provides survives the teardown. The CRD
+// makes how each service is provided immutable, so the spec seen at
+// deletion is the one the install ran with. Adding a new cluster
+// service means appending its cleanup* call at the top of this
+// function (since it'll have been the *last* to install).
 //
 // Cleanups are idempotent — retried reconciles after partial drain
 // failure re-attempt only what's still present.
@@ -301,17 +340,26 @@ func (r *EducatesClusterConfigReconciler) markManagedReady(obj *configv1alpha1.E
 		IngressClassName: obj.Spec.Ingress.IngressClassName,
 		Protocol:         resolveIngressProtocol(obj.Spec.Ingress),
 	}
-	// With a None provider there is no operator-issued wildcard cert or
-	// ClusterIssuer to publish; components read the absent ref as "no
-	// in-cluster TLS" and render plain ingresses.
+	// With a None provider there is no wildcard cert or ClusterIssuer to
+	// publish; components read the absent ref as "no in-cluster TLS" and
+	// render plain ingresses. A static certificate is served from the
+	// same operator-owned Secret cert-manager writes, and has no
+	// ClusterIssuer.
 	if obj.Spec.Ingress.Certificates.Provider != configv1alpha1.CertificatesProviderNone {
 		status.WildcardCertificateSecretRef = &configv1alpha1.NamespacedSecretRef{
 			Namespace: r.OperatorNamespace,
 			Name:      wildcardTLSSecretName,
 		}
+	}
+	if shouldInstallCertManager(obj) {
 		status.ClusterIssuerRef = &configv1alpha1.LocalObjectReference{
 			Name: wildcardClusterIssuer,
 		}
+	}
+	// A configured CA reaches components only through the key-free
+	// Secret ensureIngressCATrust derived.
+	if _, _, ok := r.ingressCASource(obj); ok {
+		status.CACertificateSecretRef = r.ingressCASecretRef()
 	}
 	obj.Status.Ingress = status
 
@@ -480,9 +528,11 @@ func renderCertManagerValues(obj *configv1alpha1.EducatesClusterConfig) map[stri
 // Secrets exist with the right keys) and the not-yet-supported feature
 // matrix.
 //
-// It supports BundledCertManager + CustomCA with BundledContour ingress.
-// Other providers/issuer types return explicit validation errors with a
-// "not yet supported in v1alpha1" message rather than silently no-oping.
+// It supports the BundledCertManager (CustomCA or ACME issuer),
+// StaticCertificate and None certificate providers with BundledContour
+// ingress. Other providers/issuer types return explicit validation
+// errors with a "not yet supported in v1alpha1" message rather than
+// silently no-oping.
 func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
 	if obj.Spec.Ingress == nil {
 		return &validationError{
@@ -522,7 +572,7 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 					Reason: "required when issuerType is CustomCA",
 				}
 			}
-			if err := r.checkCustomCASecret(ctx, certs.BundledCertManager.CustomCA.CACertificateRef); err != nil {
+			if err := r.validateCustomCAKeyPair(ctx, certs.BundledCertManager.CustomCA); err != nil {
 				return err
 			}
 		case configv1alpha1.IssuerTypeACME:
@@ -535,50 +585,22 @@ func (r *EducatesClusterConfigReconciler) validateManaged(ctx context.Context, o
 				Reason: fmt.Sprintf("issuerType %q is not yet supported in v1alpha1 (only CustomCA and ACME)", certs.BundledCertManager.IssuerType),
 			}
 		}
+	case configv1alpha1.CertificatesProviderStaticCertificate:
+		// The certificate itself is checked by checkStaticCertificate,
+		// and the certificates phase serves what it checked.
+		if certs.StaticCertificate == nil {
+			return &validationError{
+				Field:  staticCertificateField,
+				Reason: "required when certificates.provider is StaticCertificate",
+			}
+		}
 	default:
 		return &validationError{
 			Field:  "spec.ingress.certificates.provider",
-			Reason: fmt.Sprintf("provider %q is not yet supported in v1alpha1 (only BundledCertManager and None)", certs.Provider),
+			Reason: fmt.Sprintf("provider %q is not yet supported in v1alpha1 (only BundledCertManager, StaticCertificate and None)", certs.Provider),
 		}
 	}
 
-	return nil
-}
-
-// checkCustomCASecret validates the CustomCA Secret reference in
-// the namespace specified on the reference (defaulting to the operator
-// namespace). Mirrors checkCASecret for Inline mode but expects
-// tls.crt + tls.key (cert-manager's CA-issuer needs the private key),
-// not ca.crt.
-func (r *EducatesClusterConfigReconciler) checkCustomCASecret(ctx context.Context, ref configv1alpha1.CASecretReference) error {
-	ns := ref.Namespace
-	if ns == "" {
-		ns = r.OperatorNamespace
-	}
-	r.warnIfCacheMiss(ctx, ns, "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef")
-	s := &corev1.Secret{}
-	key := types.NamespacedName{Namespace: ns, Name: ref.Name}
-	// APIReader bypasses the controller-runtime cache, which is only
-	// configured to watch Secrets in the operator namespace. Cross-
-	// namespace caCertificateRef (laptop flow uses educates-secrets)
-	// would otherwise fail with "unknown namespace for the cache".
-	if err := r.APIReader.Get(ctx, key, s); err != nil {
-		if apierrors.IsNotFound(err) {
-			return &validationError{
-				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
-				Reason: fmt.Sprintf("Secret %s/%s not found", ns, ref.Name),
-			}
-		}
-		return fmt.Errorf("get CustomCA Secret %s: %w", key, err)
-	}
-	for _, k := range []string{"tls.crt", "tls.key"} {
-		if _, ok := s.Data[k]; !ok {
-			return &validationError{
-				Field:  "spec.ingress.certificates.bundledCertManager.customCA.caCertificateRef",
-				Reason: fmt.Sprintf("Secret %s/%s is missing required key %q", ns, ref.Name, k),
-			}
-		}
-	}
 	return nil
 }
 

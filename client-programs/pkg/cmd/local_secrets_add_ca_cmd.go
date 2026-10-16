@@ -1,82 +1,113 @@
 package cmd
 
 import (
+	"crypto/x509"
 	"fmt"
+	"io"
 	"os"
+	"slices"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	apiv1 "k8s.io/api/core/v1"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 )
 
 var localSecretsAddCaExample = `
-  # Generate a fresh self-signed CA and cache it locally:
-  educates local secrets add ca mydomain-ca --domain mydomain.test
+  # Generate a root CA and cache it locally:
+  educates local secrets add ca educates-ca
 
-  # Import an existing CA certificate and private key:
-  educates local secrets add ca mydomain-ca --cert ca.crt --key ca.key --domain mydomain.test
+  # Register an existing root CA, such as mkcert's, with its private key:
+  educates local secrets add ca mkcert-ca \
+    --cert "$(mkcert -CAROOT)/rootCA.pem" --key "$(mkcert -CAROOT)/rootCA-key.pem"
+
+  # Register a CA certificate only, for trust:
+  educates local secrets add ca corporate-ca --cert corporate-ca.pem
 `
 
 type LocalSecretsAddCaOptions struct {
-	CertFile      string
-	KeyFile       string
-	IngressDomain string
+	CertFile string
+	KeyFile  string
 }
 
-func (o *LocalSecretsAddCaOptions) Run(name string) error {
-	var err error
-
-	// v4 contract: a CA in the local cache is a *signing* CA. The
-	// CustomCA flow in EducatesLocalConfig hands it to cert-manager,
-	// which signs workshop certs from it — both tls.crt AND tls.key
-	// are required. Three input paths:
-	//
-	//   1. Both --cert and --key provided: load from disk.
-	//   2. Neither provided: generate a fresh RSA-2048 self-signed
-	//      CA in-process. Convenient for laptop use; the only
-	//      side-effect on disk is the cached Secret YAML below.
-	//   3. Only one provided: error (incomplete).
-	//
-	// Non-signing CA refs (cert only, for trust distribution) are no
-	// longer supported here. Use EducatesConfig if you need that.
-	var certPEM, keyPEM []byte
-	var generated bool
-	switch {
-	case o.CertFile != "" && o.KeyFile != "":
-		certPEM, err = os.ReadFile(o.CertFile)
-		if err != nil {
-			return errors.Wrapf(err, "failed to read certificate file %s", o.CertFile)
-		}
-		keyPEM, err = os.ReadFile(o.KeyFile)
-		if err != nil {
-			return errors.Wrapf(err, "failed to read key file %s", o.KeyFile)
-		}
-	case o.CertFile == "" && o.KeyFile == "":
-		commonName := "educates-dev-ca"
-		if o.IngressDomain != "" {
-			commonName = "educates-dev-ca (" + o.IngressDomain + ")"
-		}
-		certPEM, keyPEM, err = secrets.GenerateSelfSignedCA(commonName)
-		if err != nil {
-			return errors.Wrap(err, "failed to generate self-signed CA")
-		}
-		generated = true
-	default:
-		return errors.New("--cert and --key must be provided together (or neither, to auto-generate a self-signed CA)")
+// Run caches CA material under name. With no files it generates a root
+// CA; with a certificate and its key it registers them as the root CA;
+// with a certificate alone it caches a CA certificate for trust only.
+//
+// A root CA is cached as its CA trust Secret, name, holding the root
+// certificate as ca.crt, and its CA root key pair, which holds the key
+// and never leaves this machine. Deploys mint a CA for each ingress
+// domain from the root. The cache holds at most one root.
+func (o *LocalSecretsAddCaOptions) Run(w io.Writer, name string) error {
+	if err := reservedNameError(name, "CA"); err != nil {
+		return err
+	}
+	if o.KeyFile != "" && o.CertFile == "" {
+		return errors.New("--key needs --cert: pass the root CA certificate together with its private key")
 	}
 
-	secret := secrets.NewCASecret(name, certPEM, keyPEM, o.IngressDomain)
-
-	if err := secrets.WriteCachedSecret(secret); err != nil {
+	roots, err := secrets.CachedRootCAs()
+	if err != nil {
 		return err
 	}
 
-	if generated {
-		fmt.Printf(`Generated a self-signed CA %q and cached it locally.
+	if o.CertFile != "" && o.KeyFile == "" {
+		// A CA certificate cached for trust only. It must not replace the
+		// certificate of a root, which deploys reference as its trust.
+		if slices.Contains(roots, name) {
+			return rootCANameError(name, "CA certificate")
+		}
+		cert, err := readCACertificate(o.CertFile)
+		if err != nil {
+			return err
+		}
+		return secrets.WriteCachedSecret(secrets.NewCATrustSecret(name, secrets.EncodeCertificatePEM(cert)))
+	}
 
-Browsers will not trust workshop URLs until this CA is imported into
-your operating system trust store. Export the CA certificate with:
+	if len(roots) > 0 {
+		return rootCAAlreadyRegisteredError(roots, "register another root")
+	}
+
+	var certPEM, keyPEM []byte
+	generated := o.CertFile == ""
+	if generated {
+		certPEM, keyPEM, err = secrets.GenerateSelfSignedCA("educates-dev-ca (" + name + ")")
+		if err != nil {
+			return errors.Wrap(err, "failed to generate root CA")
+		}
+	} else {
+		kp, err := readKeyPairFiles(o.CertFile, o.KeyFile)
+		if err != nil {
+			return err
+		}
+		cert := kp.Certificate()
+		if !secrets.IsCACertificate(cert) {
+			return errors.Errorf("the certificate in %s (subject %q) is not a CA certificate", o.CertFile, cert.Subject.String())
+		}
+		certPEM = secrets.EncodeCertificatePEM(cert)
+		if keyPEM, err = secrets.EncodePrivateKeyPEM(kp.Key); err != nil {
+			return err
+		}
+	}
+
+	for _, secret := range []*apiv1.Secret{
+		secrets.NewCATrustSecret(name, certPEM),
+		secrets.NewCARootKeyPairSecret(name, certPEM, keyPEM),
+	} {
+		if err := secrets.WriteCachedSecret(secret); err != nil {
+			return err
+		}
+	}
+
+	if generated {
+		fmt.Fprintf(w, `Generated root CA %q and cached it locally. Its private key stays on
+this machine: each deploy mints a CA limited to its ingress domain from
+this root, and only that CA reaches the cluster.
+
+Browsers will not trust workshop URLs until this root CA is imported into
+your operating system trust store. You import it once, for every local
+ingress domain. Export the root CA certificate with:
 
     educates local secrets export %s --pem > %s.pem
 
@@ -88,37 +119,55 @@ guide in the documentation for per-platform instructions.
 	return nil
 }
 
+// readCACertificate reads the first certificate of a PEM file and checks
+// it is a CA.
+func readCACertificate(path string) (*x509.Certificate, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read certificate file %s", path)
+	}
+	cert, err := secrets.ParseCertificatePEM(data)
+	if err != nil {
+		return nil, errors.Wrapf(err, "invalid certificate file %s", path)
+	}
+	if !secrets.IsCACertificate(cert) {
+		return nil, errors.Errorf("the certificate in %s (subject %q) is not a CA certificate", path, cert.Subject.String())
+	}
+	return cert, nil
+}
+
 func (p *ProjectInfo) NewLocalSecretsAddCaCmd() *cobra.Command {
 	var o LocalSecretsAddCaOptions
 
 	var c = &cobra.Command{
-		Args:    secretNameArgs,
-		Use:     "ca NAME",
-		Short:   "Create a CA secret",
+		Args:  secretNameArgs,
+		Use:   "ca NAME",
+		Short: "Create or register a CA",
+		Long: `Create or register a CA in the local secrets cache.
+
+With no flags, generates a root CA. With --cert and --key, registers an
+existing root CA, such as mkcert's. Either way the root certificate is
+cached as NAME and its private key as NAME-root-key-pair, which is never
+copied to a cluster. Deploys mint a CA for each ingress domain from the
+root. The cache holds one root CA.
+
+With --cert alone, caches a CA certificate as NAME for trust only.`,
 		Example: localSecretsAddCaExample,
-		RunE:    func(_ *cobra.Command, args []string) error { return o.Run(args[0]) },
+		RunE:    func(cmd *cobra.Command, args []string) error { return o.Run(cmd.OutOrStdout(), args[0]) },
 	}
 
 	c.Flags().StringVar(
 		&o.CertFile,
 		"cert",
 		"",
-		"path to PEM-encoded CA certificate (omit both --cert and --key to auto-generate a self-signed CA)",
+		"path to a PEM-encoded CA certificate (omit to generate a root CA)",
 	)
 	c.Flags().StringVar(
 		&o.KeyFile,
 		"key",
 		"",
-		"path to PEM-encoded CA private key (omit both --cert and --key to auto-generate)",
+		"path to the PEM-encoded private key of the --cert CA, to register it as the root CA",
 	)
-	c.Flags().StringVar(
-		&o.IngressDomain,
-		"domain",
-		"",
-		"wildcard ingress domain matching certificate",
-	)
-
-	c.MarkFlagsRequiredTogether("cert", "key")
 
 	return c
 }

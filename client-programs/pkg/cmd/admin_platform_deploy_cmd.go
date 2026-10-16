@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -12,6 +11,7 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/config"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/v1alpha1"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer"
+	"github.com/educates/educates-training-platform/client-programs/pkg/localcerts"
 	"github.com/educates/educates-training-platform/client-programs/pkg/utils"
 )
 
@@ -46,12 +46,10 @@ then push to the cluster:
 
   1. helm upgrade --install educates-installer (embedded chart)
   2. apply EducatesClusterConfig → wait Ready=True
-  3. verify educates-custom-ca Secret prerequisite (skipped when
-     --local-config syncs the cached CA in step 0)
-  4. apply SecretsManager → wait Ready=True
-  5. apply LookupService (if configured) → wait Ready=True
+  3. apply SecretsManager → wait Ready=True
+  4. apply LookupService (if configured) → wait Ready=True
      (interleaved with SessionManager — both apply, then both wait)
-  6. apply SessionManager → wait Ready=True`,
+  5. apply SessionManager → wait Ready=True`,
 		Example: adminPlatformDeployExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return p.runDeploy(cmd.Context(), cmd.OutOrStdout(), &o)
@@ -89,8 +87,7 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		return err
 	}
 
-	var caSecretName, caSecretNamespace string
-	syncLocalSecrets := false
+	var plan *localcerts.Plan
 	switch c := cfg.(type) {
 	case *v1alpha1.EducatesLocalConfig:
 		c.ApplyCLIDefaults(p.Version, p.ImageRepository)
@@ -103,19 +100,16 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 		} else if c.Ingress.Domain == "" {
 			return fmt.Errorf("ingress.domain is required when using --config (set it in %s)", path)
 		}
-		// A secure install needs a cached CA; an insecure one serves
-		// plain HTTP and needs none (localCASecretIfSecure handles both).
-		var lookupErr error
-		caSecretName, caSecretNamespace, lookupErr = localCASecretIfSecure(c)
-		if lookupErr != nil {
-			return lookupErr
+		// The certificates, and the cached Secrets to sync, come from the
+		// local certificate resolution step.
+		if plan, err = localcerts.Resolve(c); err != nil {
+			return err
 		}
-		syncLocalSecrets = true
 	case *v1alpha1.EducatesConfig:
 		// Pure passthrough.
 	}
 
-	return translateAndDeploy(ctx, w, cfg, caSecretName, caSecretNamespace, syncLocalSecrets, deployPipelineFlags{
+	return translateAndDeploy(ctx, w, cfg, plan, deployPipelineFlags{
 		Kubeconfig: o.Kubeconfig,
 		Context:    o.Context,
 		Timeout:    o.Timeout,
@@ -125,7 +119,7 @@ func (p *ProjectInfo) runDeploy(ctx context.Context, w io.Writer, o *PlatformDep
 
 func resolveDeployConfigPath(o *PlatformDeployOptions) (string, error) {
 	if o.LocalConfig {
-		return filepath.Join(utils.GetEducatesHomeDir(), "config.yaml"), nil
+		return config.LocalConfigPath(utils.GetEducatesHomeDir()), nil
 	}
 	if o.Config == "" {
 		return "", fmt.Errorf("internal: neither --config nor --local-config set")

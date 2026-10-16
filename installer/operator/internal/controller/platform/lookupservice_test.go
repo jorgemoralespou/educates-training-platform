@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	release "helm.sh/helm/v4/pkg/release/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -158,6 +159,33 @@ var _ = Describe("LookupService reconciler", func() {
 		Expect(got.Status.DeploymentRef).NotTo(BeNil())
 		Expect(got.Status.DeploymentRef.Namespace).To(Equal(platformNamespace))
 		Expect(got.Status.DeploymentRef.Name).To(Equal(lookupServiceDeploymentName))
+	})
+
+	It("carries the cluster's CA trust Secret, with its namespace, into chart values", func() {
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		publishIngressCAOnClusterConfig()
+
+		Expect(k8sClient.Create(ctx, &platformv1alpha1.LookupService{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec: platformv1alpha1.LookupServiceSpec{
+				Ingress: platformv1alpha1.LookupServiceIngress{Prefix: "lookup"},
+			},
+		})).To(Succeed())
+
+		var rel *release.Release
+		Eventually(func() error {
+			hc, err := helmFac.For(platformNamespace)
+			if err != nil {
+				return err
+			}
+			rel, err = hc.Status(lookupServiceReleaseName)
+			return err
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+
+		ci, ok := rel.Config["clusterIngress"].(map[string]any)
+		Expect(ok).To(BeTrue(), "clusterIngress missing from rendered values")
+		Expect(ci["caCertificateRef"]).To(Equal(ingressCAChartRef()))
 	})
 
 	It("uninstalls the chart on delete", func() {

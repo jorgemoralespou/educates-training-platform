@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,11 +18,11 @@ import (
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/chart"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/crds"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/helm"
-	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/prereq"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/progress"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/wait"
 	"github.com/educates/educates-training-platform/client-programs/pkg/secrets"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -57,11 +58,6 @@ type Options struct {
 	// Timeout overrides DefaultTimeout per CR wait.
 	Timeout time.Duration
 
-	// SkipPrereqCheck bypasses the educates-custom-ca Secret existence
-	// check. Set when the caller has already verified, or for advanced
-	// users who manage the Secret asynchronously.
-	SkipPrereqCheck bool
-
 	// SkipCRDApply bypasses the operator CRD apply step. The default
 	// is to push CRDs from the embedded chart before helm-install so a
 	// CRD shape change reaches the cluster on re-deploy (helm itself
@@ -70,12 +66,17 @@ type Options struct {
 	// kubectl apply, etc.).
 	SkipCRDApply bool
 
-	// SyncLocalSecrets, when true, copies <data-home>/secrets/*.yaml into
-	// the cluster's 'educates-secrets' namespace before applying the
-	// platform CRs. Matches the v3 laptop flow: cached CA/TLS material
-	// is pushed at deploy time, ECC's caCertificateRef points there.
-	// Only meaningful for EducatesLocalConfig deploys.
+	// SyncLocalSecrets, when true, ensures the cluster's
+	// 'educates-secrets' namespace and copies the cached Secrets named in
+	// LocalSecretNames into it before applying the platform CRs. Matches
+	// the v3 laptop flow: cached CA/TLS material is pushed at deploy
+	// time, ECC's caKeyPairSecretRef points there. Only meaningful for
+	// EducatesLocalConfig deploys.
 	SyncLocalSecrets bool
+
+	// LocalSecretNames names the cached Secrets SyncLocalSecrets copies:
+	// the local certificate resolution plan's SyncSecretNames.
+	LocalSecretNames []string
 
 	// Progress is the structured progress reporter. When nil, plain
 	// io.Discard-backed reporter is used (no progress output, but the
@@ -90,10 +91,9 @@ type Options struct {
 //
 //  1. Helm install/upgrade the operator chart in the operator namespace.
 //  2. Apply EducatesClusterConfig → wait Ready.
-//  3. Verify the educates-custom-ca prerequisite Secret (unless skipped).
-//  4. Apply SecretsManager → wait Ready.
-//  5. Apply LookupService (if present) → wait Ready.
-//  6. Apply SessionManager → wait Ready.
+//  3. Apply SecretsManager → wait Ready.
+//  4. Apply LookupService (if present) → wait Ready.
+//  5. Apply SessionManager → wait Ready.
 //
 // Returns the last LookupService/SessionManager objects observed so the
 // caller can print URLs from .status.
@@ -114,7 +114,7 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	// Push cached local secrets so the operator can consume them.
 	if opts.SyncLocalSecrets {
 		step := opts.Progress.Start("syncing cached local secrets to cluster")
-		if err := syncLocalSecrets(opts.Getter); err != nil {
+		if err := syncLocalSecrets(opts.Getter, opts.LocalSecretNames); err != nil {
 			step.Fail(err)
 			return err
 		}
@@ -164,25 +164,12 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		return err
 	}
 
-	// 4. Prereq check — only meaningful when the caller didn't sync
-	//    local secrets. With SyncLocalSecrets the cache push is the
-	//    prereq; the render-time lookup already verified the cache had
-	//    a CA matching the domain.
-	if !opts.SkipPrereqCheck && !opts.SyncLocalSecrets {
-		step := opts.Progress.Start(fmt.Sprintf("check prerequisite Secret %s", prereq.CustomCASecretName))
-		if err := prereq.CheckCustomCASecret(ctx, opts.Getter, OperatorNamespace); err != nil {
-			step.Fail(err)
-			return err
-		}
-		step.Done("present")
-	}
-
-	// 5. SecretsManager + wait.
+	// 4. SecretsManager + wait.
 	if err := installStep(ctx, opts, applier, waiter, out.SecretsManager, "SecretsManager"); err != nil {
 		return err
 	}
 
-	// 6. SessionManager + LookupService. There's a Ready cycle between
+	// 5. SessionManager + LookupService. There's a Ready cycle between
 	//    them: LookupService's pod mounts a remote-access-token Secret that
 	//    SessionManager's remote-access install creates, and in Auto mode
 	//    SessionManager installs remote-access only when a LookupService CR
@@ -266,6 +253,7 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	step := opts.Progress.Start("Installing " + label)
 	step.Update("applying")
 	if _, err := applier.Apply(ctx, u); err != nil {
+		err = explainApplyRejection(err)
 		step.Fail(err)
 		return err
 	}
@@ -277,10 +265,51 @@ func installStep(ctx context.Context, opts Options, applier *apply.Client, waite
 	return nil
 }
 
-// syncLocalSecrets copies <data-home>/secrets/*.yaml into the cluster's
+// providerImmutableRules pairs the start of each message the
+// EducatesClusterConfig CRD's validation rules report, when an update
+// changes how a cluster service is provided, with the setting the CLI
+// names in its explanation.
+var providerImmutableRules = []struct {
+	messagePrefix string
+	setting       string
+}{
+	{"spec.ingress.certificates.provider is immutable", "certificate provider"},
+	{"spec.ingress.controller.provider is immutable", "ingress controller provider"},
+	{"spec.dns.provider is immutable", "DNS provider"},
+	{"spec.policyEnforcement engines and kyverno provider are immutable", "policy enforcement"},
+}
+
+// explainApplyRejection adds the remedy to an API server rejection the
+// user can only resolve outside a redeploy. How each cluster service of
+// an existing install is provided is immutable, so a deploy that would
+// change it, such as toggling ingress.insecure on a local cluster,
+// needs the platform deleted or the cluster recreated first. Any other
+// error is returned unchanged.
+func explainApplyRejection(err error) error {
+	if !apierrors.IsInvalid(err) {
+		return err
+	}
+	var settings []string
+	for _, rule := range providerImmutableRules {
+		if strings.Contains(err.Error(), rule.messagePrefix) {
+			settings = append(settings, rule.setting)
+		}
+	}
+	if len(settings) == 0 {
+		return err
+	}
+	settingsPhrase := settings[len(settings)-1]
+	if len(settings) > 1 {
+		settingsPhrase = strings.Join(settings[:len(settings)-1], ", ") + " and " + settingsPhrase
+	}
+	return fmt.Errorf("the %s of an existing Educates install cannot change; "+
+		"run 'educates admin platform delete' and deploy again, or recreate the cluster: %w", settingsPhrase, err)
+}
+
+// syncLocalSecrets copies the named cached Secrets into the cluster's
 // 'educates-secrets' namespace. Reuses the secrets package so the
 // laptop flow stays the same.
-func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
+func syncLocalSecrets(getter genericclioptions.RESTClientGetter, names []string) error {
 	cfg, err := getter.ToRESTConfig()
 	if err != nil {
 		return fmt.Errorf("REST config for secrets sync: %w", err)
@@ -289,7 +318,7 @@ func syncLocalSecrets(getter genericclioptions.RESTClientGetter) error {
 	if err != nil {
 		return fmt.Errorf("kubernetes client for secrets sync: %w", err)
 	}
-	if err := secrets.SyncLocalCachedSecretsToCluster(cs); err != nil {
+	if err := secrets.SyncLocalCachedSecretsToCluster(cs, names); err != nil {
 		return fmt.Errorf("sync local secrets: %w", err)
 	}
 	return nil

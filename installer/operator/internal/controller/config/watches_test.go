@@ -38,6 +38,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/testpki"
 )
 
 // makeReadyClusterIssuer returns a self-signed ClusterIssuer resource;
@@ -98,6 +99,7 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 
 	BeforeEach(func() {
 		ensureNamespace(testOperatorNamespace)
+		ensureNamespace(testCASecretsNamespace)
 
 		var mgrCtx context.Context
 		mgrCtx, mgrCancel = context.WithCancel(ctx)
@@ -108,7 +110,8 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 				ByObject: map[client.Object]cache.ByObject{
 					&corev1.Secret{}: {
 						Namespaces: map[string]cache.Config{
-							testOperatorNamespace: {},
+							testOperatorNamespace:  {},
+							testCASecretsNamespace: {},
 						},
 					},
 				},
@@ -144,8 +147,65 @@ var _ = Describe("EducatesClusterConfig watches (manager-driven)", func() {
 		Eventually(mgrDone, 10*time.Second).Should(Receive())
 		drainCR()
 		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testOperatorNamespace))
+		_ = k8sClient.DeleteAllOf(ctx, &corev1.Secret{}, client.InNamespace(testCASecretsNamespace))
 		_ = k8sClient.DeleteAllOf(ctx, &networkingv1.IngressClass{})
 		_ = k8sClient.DeleteAllOf(ctx, &cmv1.ClusterIssuer{})
+	})
+
+	// Inline mode also resyncs every inlineSteadyStateResync, so these
+	// specs wait for less than that: only the Secret watch can deliver
+	// the change in time.
+	watchDelivery := inlineSteadyStateResync - 5*time.Second
+
+	It("flips status to Degraded when a wildcard Secret in another namespace is deleted", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		wildcard := makeWildcardSecret(true)
+		wildcard.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, wildcard)).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.WildcardCertificateSecretRef.Namespace = testCASecretsNamespace
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+		Eventually(readyConditionStatus, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionTrue), "expected Ready=True after initial reconcile")
+
+		Expect(k8sClient.Delete(ctx, wildcard)).To(Succeed())
+
+		Eventually(readyConditionStatus, watchDelivery, 200*time.Millisecond).
+			Should(Equal(metav1.ConditionFalse), "expected Ready=False after Secret deletion")
+	})
+
+	It("refreshes educates-ingress-ca when the CA Secret in another namespace changes", func() {
+		Expect(k8sClient.Create(ctx, makeIngressClass())).To(Succeed())
+		first, second := testpki.NewRootCA(), testpki.NewRootCA()
+		// The wildcard certificate must keep verifying against the CA, so
+		// the change adds a second root to the bundle.
+		Expect(k8sClient.Create(ctx, makeWildcardSecretIssuedBy(first))).To(Succeed())
+		bundle := append(append([]byte{}, first.CertPEM...), second.CertPEM...)
+		trust := makeSecret(testCASecretsNamespace, "byo-ca", map[string][]byte{"ca.crt": first.CertPEM})
+		Expect(k8sClient.Create(ctx, trust)).To(Succeed())
+
+		spec := validInlineSpec()
+		spec.Inline.Ingress.CACertificateSecretRef = &configv1alpha1.SecretReference{
+			Name:      "byo-ca",
+			Namespace: testCASecretsNamespace,
+		}
+		Expect(k8sClient.Create(ctx, &configv1alpha1.EducatesClusterConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec:       spec,
+		})).To(Succeed())
+		Eventually(ingressCAData, 30*time.Second, 200*time.Millisecond).
+			Should(Equal(map[string][]byte{"ca.crt": first.CertPEM}))
+
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: testCASecretsNamespace, Name: "byo-ca"}, trust)).To(Succeed())
+		trust.Data = map[string][]byte{"ca.crt": bundle}
+		Expect(k8sClient.Update(ctx, trust)).To(Succeed())
+
+		Eventually(ingressCAData, watchDelivery, 200*time.Millisecond).
+			Should(Equal(map[string][]byte{"ca.crt": bundle}))
 	})
 
 	It("flips status from Ready to Degraded when the wildcard Secret is deleted", func() {

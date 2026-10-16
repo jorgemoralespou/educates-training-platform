@@ -28,14 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
 )
-
-// managedByLabelValue is the value the operator stamps on every
-// namespace it creates for a cluster-service install. Lets `kubectl
-// get ns -l app.kubernetes.io/managed-by=educates-installer` enumerate
-// namespaces this operator is responsible for without having to walk
-// owner references.
-const managedByLabelValue = "educates-installer"
 
 // ensureNamespace creates the named namespace if absent and reconciles
 // the operator-owned labels on it. Owner reference is set to the
@@ -48,7 +42,7 @@ const managedByLabelValue = "educates-installer"
 // controller-runtime patch; values already in place are left alone.
 func (r *EducatesClusterConfigReconciler) ensureNamespace(ctx context.Context, name string, owner *configv1alpha1.EducatesClusterConfig) error {
 	desiredLabels := map[string]string{
-		"app.kubernetes.io/managed-by": managedByLabelValue,
+		ownership.ManagedByLabel: ownership.ManagedByValue,
 	}
 
 	ns := &corev1.Namespace{}

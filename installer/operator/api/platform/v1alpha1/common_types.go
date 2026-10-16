@@ -52,6 +52,19 @@ type LocalObjectReference struct {
 	Name string `json:"name"`
 }
 
+// SecretReference is a reference to a Secret that may live outside the
+// operator namespace. Mirrors the shape used in the config API group;
+// duplicated here to avoid cross-group Go coupling.
+type SecretReference struct {
+	// name of the referent.
+	// +required
+	Name string `json:"name"`
+
+	// namespace of the referent. Empty means the operator namespace.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
 // NamespacedRef points at a namespaced object in the cluster by
 // namespace+name. Used in status fields where the operator publishes
 // the location of a resource it owns (typically the upstream

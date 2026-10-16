@@ -3,13 +3,15 @@
 # (platform-deploy step). Both phases consume the same file.
 #
 # The kind overlay in the v3 installer auto-enables cert-manager + certs
-# when `clusterInfrastructure.caCertificateRef` is set. We additionally
-# disable the educates package so the v4 chart can install the runtime.
+# when `clusterInfrastructure.caCertificateRef` is set. It names the CA
+# key pair cert-manager signs with, never the key-free CA trust Secret
+# the chart mounts. We additionally disable the educates package so the
+# v4 chart can install the runtime.
 
 clusterInfrastructure:
   provider: kind
   caCertificateRef:
-    name: local-root-ca
+    name: local-root-ca-key-pair
     namespace: educates-secrets
 
 clusterSecurity:

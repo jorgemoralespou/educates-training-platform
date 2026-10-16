@@ -1,7 +1,7 @@
 {
   "$defs": {
     "EducatesClusterConfigSpec": {
-      "description": "EducatesClusterConfigSpec defines the desired state of\nEducatesClusterConfig.\n\nCEL invariants (structural):\n  - spec.mode is immutable; switching modes requires delete + recreate.\n  - When mode is Inline, the Managed-mode top-level fields\n    (infrastructure, ingress, dns, policyEnforcement, imageRegistry)\n    are forbidden.\n  - When mode is Managed, spec.inline is forbidden.",
+      "description": "EducatesClusterConfigSpec defines the desired state of\nEducatesClusterConfig.\n\nCEL invariants (structural):\n  - spec.mode is immutable; switching modes requires delete + recreate.\n  - spec.ingress.certificates.provider is immutable once set; changing\n    it requires delete + recreate. Removing spec.ingress counts as a\n    change, so the provider cannot be swapped by dropping the block\n    and adding it back. Adding spec.ingress to a resource created\n    without one sets the provider for the first time and is allowed.\n  - spec.ingress.controller.provider is immutable in the same way.\n  - spec.dns.provider is immutable, reading an absent spec.dns or\n    provider as None, its default. Adding or removing spec.dns is\n    therefore allowed only when the block's provider is None.\n  - The policyEnforcement engines and kyverno provider are immutable,\n    and so is the presence of spec.policyEnforcement and of its\n    kyverno block: the operator installs no Kyverno without that\n    block, whatever its provider's default.\n  - When mode is Inline, the Managed-mode top-level fields\n    (infrastructure, ingress, dns, policyEnforcement, imageRegistry)\n    are forbidden.\n  - When mode is Managed, spec.inline is forbidden.\n\nThe provider rules fix how each cluster service is provided for the\nlife of an install, so teardown removes exactly what the spec says\nthe operator installed.",
       "properties": {
         "dns": {
           "description": "dns configures DNS management in Managed mode; ignored in Inline\nmode.",
@@ -363,10 +363,27 @@
                       "type": "object"
                     },
                     "customCA": {
-                      "description": "CustomCAConfig configures a self-signed/custom CA-backed ClusterIssuer.",
+                      "description": "CustomCAConfig configures a ClusterIssuer backed by your own CA.",
                       "properties": {
-                        "caCertificateRef": {
-                          "description": "caCertificateRef references a Secret holding the CA's own cert and\nkey (keys: tls.crt, tls.key). Namespace defaults to the operator\nnamespace when empty.",
+                        "caCertificateSecretRef": {
+                          "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding the CA certificate Educates components trust, under ca.crt.\nWhen unset, the trust is read from the CA key pair: its ca.crt,\nor else the root-most certificate of its tls.crt chain. Namespace\ndefaults to the operator namespace when empty.",
+                          "properties": {
+                            "name": {
+                              "description": "name of the referent.",
+                              "type": "string"
+                            },
+                            "namespace": {
+                              "description": "namespace of the referent. Empty means the operator namespace.",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "name"
+                          ],
+                          "type": "object"
+                        },
+                        "caKeyPairSecretRef": {
+                          "description": "caKeyPairSecretRef references the CA key pair cert-manager signs\nthe wildcard certificate with: a Secret holding the CA certificate\nunder tls.crt (optionally followed by its issuers) and its private\nkey under tls.key, and optionally the root certificate under\nca.crt. The certificate in tls.crt must be a CA. Namespace defaults\nto the operator namespace when empty. Educates components never\nreceive this Secret; they receive only the CA certificate.",
                           "properties": {
                             "name": {
                               "description": "name of the referent.",
@@ -384,7 +401,7 @@
                         }
                       },
                       "required": [
-                        "caCertificateRef"
+                        "caKeyPairSecretRef"
                       ],
                       "type": "object"
                     },
@@ -425,7 +442,7 @@
                   "type": "object"
                 },
                 "provider": {
-                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. None disables in-cluster TLS entirely: the operator\ninstalls no cert-manager, creates no ClusterIssuer and no wildcard\nCertificate, and Educates serves plain HTTP unless TLS is terminated\noutside the cluster (see ingress.protocol).",
+                  "description": "CertificatesProvider selects how the wildcard TLS certificate is\nprovisioned. BundledCertManager installs cert-manager and issues the\ncertificate from a ClusterIssuer. StaticCertificate serves a wildcard\ncertificate issued outside the cluster, without cert-manager.\nExternalCertManager is reserved and not yet supported. None disables\nin-cluster TLS entirely: the operator installs no cert-manager,\ncreates no ClusterIssuer and no wildcard Certificate, and Educates\nserves plain HTTP unless TLS is terminated outside the cluster (see\ningress.protocol). The provider is immutable: changing it requires\ndeleting and recreating the EducatesClusterConfig.",
                   "enum": [
                     "BundledCertManager",
                     "ExternalCertManager",
@@ -435,13 +452,17 @@
                   "type": "string"
                 },
                 "staticCertificate": {
-                  "description": "StaticCertificateConfig declares a pre-provisioned wildcard TLS\ncertificate; no cert-manager is involved.",
+                  "description": "StaticCertificateConfig declares a wildcard TLS certificate issued\noutside the cluster. The operator serves it as it is: it installs no\ncert-manager and creates no ClusterIssuer or Certificate.",
                   "properties": {
-                    "caCertificateRef": {
-                      "description": "caCertificateRef optionally references a Secret with the ca.crt\nkey for the issuing CA chain.",
+                    "caCertificateSecretRef": {
+                      "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding the certificate of the CA that issued the wildcard\ncertificate, under ca.crt. When set, the wildcard certificate's\nchain must verify against it, and Educates components trust it\nthrough educates-ingress-ca, which the operator derives from its\nca.crt alone, so any other key it holds, a private key included,\nis ignored. Namespace defaults to the operator namespace when\nempty.",
                       "properties": {
                         "name": {
                           "description": "name of the referent.",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "namespace of the referent. Empty means the operator namespace.",
                           "type": "string"
                         }
                       },
@@ -451,10 +472,14 @@
                       "type": "object"
                     },
                     "tlsSecretRef": {
-                      "description": "tlsSecretRef references a kubernetes.io/tls Secret with keys\ntls.crt and tls.key.",
+                      "description": "tlsSecretRef references the wildcard certificate Educates serves: a\nSecret holding the certificate under tls.crt (optionally followed\nby its intermediates) and its private key under tls.key. The\ncertificate's SANs must include *.\u003cdomain\u003e. Namespace defaults to\nthe operator namespace when empty. The operator copies only tls.crt\nand tls.key into the operator-owned educates-wildcard-tls and keeps\nthat copy current.",
                       "properties": {
                         "name": {
                           "description": "name of the referent.",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "namespace of the referent. Empty means the operator namespace.",
                           "type": "string"
                         }
                       },
@@ -687,7 +712,7 @@
               "description": "InlineIngress declares pre-existing ingress resources for Inline\nmode. The operator validates these and republishes them in status.",
               "properties": {
                 "caCertificateSecretRef": {
-                  "description": "caCertificateSecretRef references a Secret with the ca.crt key\nfor the issuing CA chain. Optional.",
+                  "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding the certificate of the CA that issued the wildcard\ncertificate, under ca.crt. Namespace defaults to the operator\nnamespace when empty. Educates components never receive this\nSecret: the operator derives educates-ingress-ca from its ca.crt\nalone, so any other key it holds, a private key included, is\nignored.",
                   "properties": {
                     "name": {
                       "description": "name of the referent.",
@@ -731,10 +756,14 @@
                   "type": "string"
                 },
                 "wildcardCertificateSecretRef": {
-                  "description": "wildcardCertificateSecretRef references a kubernetes.io/tls Secret\nwith keys tls.crt and tls.key, valid for *.\u003cdomain\u003e. Omit it when\nthe cluster serves plain HTTP or terminates TLS outside the\ncluster.",
+                  "description": "wildcardCertificateSecretRef references a kubernetes.io/tls Secret\nwith keys tls.crt and tls.key, valid for *.\u003cdomain\u003e. Namespace\ndefaults to the operator namespace when empty. Omit it when the\ncluster serves plain HTTP or terminates TLS outside the cluster.",
                   "properties": {
                     "name": {
                       "description": "name of the referent.",
+                      "type": "string"
+                    },
+                    "namespace": {
+                      "description": "namespace of the referent. Empty means the operator namespace.",
                       "type": "string"
                     }
                   },
@@ -1150,10 +1179,14 @@
           "description": "IngressOverrides allows SessionManager to override the cluster-wide\ningress secrets for the bare-domain hostnames it serves directly\n(TrainingPortal CRs prefix the domain for individual portals).",
           "properties": {
             "caCertificateSecretRef": {
-              "description": "LocalObjectReference is a name-only reference to an object in the\noperator namespace (or, for cluster-scoped kinds, to the cluster-\nscoped object). Mirrors the shape used in the config API group;\nduplicated here to avoid cross-group Go coupling.",
+              "description": "caCertificateSecretRef optionally references a CA trust Secret\nholding, under ca.crt, the CA certificate that replaces the\ncluster's ingress CA for session-manager and the training portals\nand workshop sessions it creates. Namespace defaults to the\noperator namespace when empty. session-manager never receives this\nSecret: the operator derives the operator-owned\neducates-session-manager-ingress-ca in the operator namespace from\nits ca.crt alone, so any other key it holds, a private key\nincluded, is ignored.",
               "properties": {
                 "name": {
                   "description": "name of the referent.",
+                  "type": "string"
+                },
+                "namespace": {
+                  "description": "namespace of the referent. Empty means the operator namespace.",
                   "type": "string"
                 }
               },
@@ -1171,7 +1204,7 @@
               "type": "string"
             },
             "tlsSecretRef": {
-              "description": "LocalObjectReference is a name-only reference to an object in the\noperator namespace (or, for cluster-scoped kinds, to the cluster-\nscoped object). Mirrors the shape used in the config API group;\nduplicated here to avoid cross-group Go coupling.",
+              "description": "tlsSecretRef optionally names a TLS Secret, holding tls.crt and\ntls.key, that replaces the cluster's wildcard certificate for\nsession-manager and the training portals and workshop sessions it\ncreates. It takes a name only because session-manager receives\nthis Secret as it is: the operator neither reads nor copies it, so\nit is looked up in the namespace the cluster's wildcard\ncertificate is published in\n(EducatesClusterConfig.status.ingress.wildcardCertificateSecretRef),\nor in session-manager's own namespace when the cluster publishes\nnone. caCertificateSecretRef takes a namespace because the\noperator reads that Secret to derive a key-free copy.",
               "properties": {
                 "name": {
                   "description": "name of the referent.",
@@ -1221,7 +1254,7 @@
           "properties": {
             "mode": {
               "default": "Auto",
-              "description": "mode defaults to Auto. Auto installs the subchart only when\nthe cluster config publishes a CA Secret reference; with no CA\nconfigured, Auto skips the install silently. Enabled forces\nthe install (refuses if no CA is configured). Disabled keeps\nit uninstalled.",
+              "description": "mode defaults to Auto. Auto installs the subchart only when a CA\nis configured, either published by the cluster config or set as\nspec.ingressOverrides.caCertificateSecretRef; with no CA configured,\nAuto skips the install silently. Enabled forces the install\n(refuses if no CA is configured). Disabled keeps it uninstalled.",
               "enum": [
                 "Auto",
                 "Enabled",

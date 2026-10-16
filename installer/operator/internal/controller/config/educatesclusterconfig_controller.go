@@ -88,31 +88,34 @@ type EducatesClusterConfigReconciler struct {
 	Scheme *runtime.Scheme
 
 	// APIReader is an uncached client used for cross-namespace Secret
-	// reads (CustomCA flow when the user points caCertificateRef at a
-	// namespace outside the operator's cache scope). The cached Client
-	// only watches Secrets in OperatorNamespace; reads against other
-	// namespaces fail with "unknown namespace for the cache".
+	// reads (a referenced CA key pair, CA trust Secret or wildcard
+	// certificate Secret in a namespace outside the operator's cache
+	// scope). The cached Client only watches Secrets in the namespaces
+	// collected at startup; reads against other namespaces fail with
+	// "unknown namespace for the cache".
 	//
 	// Production wiring uses mgr.GetAPIReader(); tests can inject a
 	// fake.NewClientBuilder() client (which serves any namespace).
 	APIReader client.Reader
 
-	// OperatorNamespace is where user-supplied Secrets (TLS, CA, image-
-	// pull) referenced from spec.inline are expected to live. Sourced
-	// from the OPERATOR_NAMESPACE env var (downward API).
+	// OperatorNamespace is where the operator writes the Secrets it owns
+	// (educates-ingress-ca, educates-wildcard-tls) and where
+	// user-supplied Secrets live when a reference names no namespace
+	// (image pull Secrets always live here). Sourced from the
+	// OPERATOR_NAMESPACE env var (downward API).
 	OperatorNamespace string
 
 	// CachedSecretNamespaces is the set of namespaces the operator's
 	// Secret informer covers. Determined at startup from
 	// (operatorNamespace ∪ educates-secrets ∪ namespaces referenced by
-	// the current ECC's CASecretReference fields). The reconciler uses
-	// this to detect when a freshly-edited ref points outside the
-	// cached set — in that case Secret watch events won't fire there,
-	// so a Warning event is emitted asking the user to restart the
-	// operator pod for change-detection on the new namespace. APIReader
+	// the EducatesClusterConfig and SessionManager SecretReference
+	// fields). The reconciler uses this to detect when a freshly-edited
+	// ref points outside the cached set: Secret watch events don't fire
+	// there, so it logs a message asking the user to restart the
+	// operator pod for change detection on the new namespace. APIReader
 	// reads still work regardless of cache scope.
 	//
-	// Empty set disables the warning (used by tests that don't supply
+	// Empty set disables the message (used by tests that don't supply
 	// the cache scope).
 	CachedSecretNamespaces map[string]bool
 
@@ -152,9 +155,11 @@ type EducatesClusterConfigReconciler struct {
 // their kinds.
 // +kubebuilder:rbac:groups=platform.educates.dev,resources=secretsmanagers;lookupservices;sessionmanagers,verbs=get;list;watch
 
-// Inline-mode validation reads user-supplied references in the operator
-// namespace (Secrets) plus cluster-scoped objects (ClusterIssuers,
-// IngressClasses). All read-only.
+// Inline-mode validation reads user-supplied references (Secrets, in
+// the operator namespace or the namespace a reference names) plus
+// cluster-scoped objects (ClusterIssuers, IngressClasses). All
+// read-only; the derived educates-ingress-ca is written under the
+// Secret write verbs below.
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingressclasses,verbs=get;list;watch
@@ -163,7 +168,8 @@ type EducatesClusterConfigReconciler struct {
 
 // Managed-mode operations:
 //   - Namespaces (create/patch for cluster-service installs).
-//   - Secrets (write — copy CustomCA into cert-manager namespace).
+//   - Secrets (write — copy CustomCA into cert-manager namespace, and
+//     derive educates-ingress-ca in the operator namespace).
 //   - Deployments (watch — cert-manager readiness gate).
 //   - cert-manager ClusterIssuers + Certificates (SSA + watch).
 // Helm-managed resources (cert-manager's own ConfigMaps, Services,
@@ -274,9 +280,14 @@ func (r *EducatesClusterConfigReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	statusIngress, err := r.validateInline(ctx, obj.Spec.Inline)
+	if err == nil {
+		// As in Managed mode, CA trust reaches components only as the
+		// key-free educates-ingress-ca, kept current on every reconcile.
+		err = r.ensureIngressCATrust(ctx, obj)
+	}
 	if err != nil {
 		if verr, ok := errors.AsType[*validationError](err); ok {
-			r.markDegraded(obj, verr.Field, verr.Reason)
+			r.markValidationFailed(obj, verr)
 			// Requeue so a recreated/repaired referenced resource is
 			// re-detected even if its watch event is missed.
 			return ctrl.Result{RequeueAfter: inlineSteadyStateResync}, r.updateStatusWithTransitionLog(ctx, obj)
@@ -506,6 +517,20 @@ func (r *EducatesClusterConfigReconciler) markReady(obj *configv1alpha1.Educates
 		Message:            "All Inline-mode references validated",
 		ObservedGeneration: obj.Generation,
 	})
+	// A wildcard certificate or CA that fails validation sets
+	// CertificatesReady False with a specific reason; it returns to True
+	// here once validation passes.
+	certsMessage := "no wildcard certificate declared; the cluster serves no in-cluster TLS"
+	if ingress.WildcardCertificateSecretRef != nil {
+		certsMessage = "the declared wildcard certificate passed validation"
+	}
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               conditionCertificatesReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             "InlineCertificatesValid",
+		Message:            certsMessage,
+		ObservedGeneration: obj.Generation,
+	})
 	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
 		Type:               conditionReady,
 		Status:             metav1.ConditionTrue,
@@ -538,6 +563,23 @@ func (r *EducatesClusterConfigReconciler) markDegraded(obj *configv1alpha1.Educa
 		Status:             metav1.ConditionFalse,
 		Reason:             "ValidationFailed",
 		Message:            msg,
+		ObservedGeneration: obj.Generation,
+	})
+}
+
+// markValidationFailed publishes a validation failure: markDegraded's
+// ValidationSucceeded and Ready conditions, plus the per-concern
+// condition the failure names, if any, with its specific reason.
+func (r *EducatesClusterConfigReconciler) markValidationFailed(obj *configv1alpha1.EducatesClusterConfig, verr *validationError) {
+	r.markDegraded(obj, verr.Field, verr.Reason)
+	if verr.ConditionType == "" {
+		return
+	}
+	meta.SetStatusCondition(&obj.Status.Conditions, metav1.Condition{
+		Type:               verr.ConditionType,
+		Status:             metav1.ConditionFalse,
+		Reason:             verr.ConditionReason,
+		Message:            verr.Error(),
 		ObservedGeneration: obj.Generation,
 	})
 }

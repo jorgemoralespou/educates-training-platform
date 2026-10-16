@@ -4,7 +4,9 @@
 # TLS Secret and CA Secret are pre-created in the `educates-secrets`
 # namespace by pre-install.sh; the chart auto-derives a SecretCopier from
 # the cross-namespace `clusterIngress.{tls,ca}CertificateRef` so the
-# runtime finds the Secrets locally.
+# runtime finds the Secrets locally. They have the shapes the operator's
+# StaticCertificate provider takes: `wildcard-tls` holds only tls.crt and
+# tls.key, and `wildcard-ca` is a CA trust Secret holding only ca.crt.
 
 lookup-service:
   enabled: false

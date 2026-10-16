@@ -36,7 +36,7 @@ import (
 // of "no prompt", not "invisible").
 func MaybeMigrateV3(dataHome string) error {
 	v3Path := filepath.Join(dataHome, "values.yaml")
-	v4Path := filepath.Join(dataHome, "config.yaml")
+	v4Path := LocalConfigPath(dataHome)
 	backupPath := filepath.Join(dataHome, "values.yaml.v3-backup")
 
 	if _, err := os.Stat(v4Path); err == nil {
@@ -98,27 +98,25 @@ reference while re-declaring.`, v3Path, provider, v3Path)
 	fmt.Fprintf(os.Stderr, "migrated %s → %s; original saved as %s\n",
 		v3Path, v4Path, backupPath)
 
-	// Warn about v3-shape cached CA Secrets (Opaque + ca.crt) that
-	// the v4 LocalCachedSecretForCertificateAuthority lookup will
-	// silently skip. We can't auto-regenerate them — the v3 file
-	// holds only the cert, not the private key cert-manager needs to
-	// sign workshop certs — so the user has to re-run
-	// 'educates local secrets add ca'.
+	// A v3 cache holds the CA certificate as an Opaque Secret with only
+	// ca.crt, which is a valid CA trust Secret, so it is kept as it is.
+	// Tell the user how deploys use it: beside a cached wildcard
+	// certificate it is that certificate's CA trust, and otherwise a root
+	// CA is still needed.
 	if domain := strV3Path(v3raw, "clusterIngress", "domain"); domain != "" {
-		warnIfV3CACachePresent(os.Stderr, filepath.Join(dataHome, "secrets"), domain)
+		noteIfV3CACachePresent(os.Stderr, filepath.Join(dataHome, "secrets"), domain)
 	}
 	return nil
 }
 
-// warnIfV3CACachePresent scans the secrets cache for any file shaped
+// noteIfV3CACachePresent scans the secrets cache for any file shaped
 // like the v3 CA cache (Opaque + ca.crt + matching domain annotation)
-// and writes a one-time warning to w. Best-effort — failures (no
-// secrets dir, unreadable files) silently no-op; the next CLI op
-// that needs the CA will give a clear "no cached CA Secret found"
-// error anyway.
+// and writes a one-time note to w on how deploys use it. Best-effort:
+// failures (no secrets dir, unreadable files) silently no-op; a deploy
+// that finds no certificate source gives its own remediation error.
 //
 // w is parameterised for tests; production callers pass os.Stderr.
-func warnIfV3CACachePresent(w io.Writer, secretsDir, domain string) {
+func noteIfV3CACachePresent(w io.Writer, secretsDir, domain string) {
 	entries, err := os.ReadDir(secretsDir)
 	if err != nil {
 		return
@@ -145,13 +143,23 @@ func warnIfV3CACachePresent(w io.Writer, secretsDir, domain string) {
 		t, _ := raw["type"].(string)
 		data := asMap(raw["data"])
 		if (t == "Opaque" || t == "") && data["ca.crt"] != nil {
-			fmt.Fprintf(w, `WARNING: cached v3-shape CA Secret detected at %s.
-The v4 lookup expects kubernetes.io/tls + tls.crt + tls.key. Re-run:
+			fmt.Fprintf(w, `note: the cached v3 CA certificate
 
-  educates local secrets add ca %s --domain %s
+  %s
 
-to regenerate the cached CA (auto-generated unless you pass --cert/--key).
-`, filepath.Join(secretsDir, e.Name()), domain+"-ca", domain)
+is a valid CA trust Secret and is kept as it is. When a wildcard TLS
+certificate for %s is also cached, as the v3 mkcert setup left it,
+deploys serve that certificate with the StaticCertificate provider, trust
+this CA, and install no cert-manager. Otherwise a deploy needs a root CA,
+generated with:
+
+  educates local secrets add ca <name>
+
+or registered with its private key, such as the root CA that issued the
+v3 certificate:
+
+  educates local secrets add ca <name> --cert ROOT.pem --key ROOT-KEY.pem
+`, filepath.Join(secretsDir, e.Name()), "*."+domain)
 			return
 		}
 	}

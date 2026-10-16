@@ -40,11 +40,11 @@ import (
 //
 // All mappers share a common shape:
 //
-//  1. Operator-owned resources (wildcard tls Secret, copied CustomCA
-//     Secret, wildcard ClusterIssuer + Certificate, cert-manager
-//     namespace's Deployments) always enqueue regardless of CR state.
-//     We need to detect drift on resources we created even if the CR
-//     is mid-deletion.
+//  1. Operator-owned resources (wildcard tls Secret, derived CA trust
+//     Secret, copied CustomCA Secret, wildcard ClusterIssuer +
+//     Certificate, cert-manager namespace's Deployments) always enqueue
+//     regardless of CR state. We need to detect drift on resources we
+//     created even if the CR is mid-deletion.
 //  2. Otherwise, look up the singleton CR. If it doesn't exist, drop
 //     the event — there's nothing to reconcile against. The CR's
 //     own creation event will wake the reconciler when it appears.
@@ -89,9 +89,10 @@ func (r *EducatesClusterConfigReconciler) getSingleton(ctx context.Context) (*co
 func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Context, obj client.Object) []reconcile.Request {
 	name, ns := obj.GetName(), obj.GetNamespace()
 
-	// Operator-owned: wildcard tls Secret (operator ns) and the
-	// CustomCA copy (cert-manager ns). Always enqueue.
-	if ns == r.OperatorNamespace && name == wildcardTLSSecretName {
+	// Operator-owned: wildcard tls Secret and derived CA trust Secret
+	// (operator ns) and the CustomCA copy (cert-manager ns). Always
+	// enqueue.
+	if ns == r.OperatorNamespace && (name == wildcardTLSSecretName || name == ingressCASecretName) {
 		return singletonRequest
 	}
 	if ns == certManagerNamespace && name == customCASecretName {
@@ -103,59 +104,35 @@ func (r *EducatesClusterConfigReconciler) mapSecretToSingleton(ctx context.Conte
 		return nil
 	}
 
-	// matchesOpNamespaceRef holds for refs that are operator-namespace-
-	// scoped by design (everything except CustomCA, which can be
-	// cross-namespace via CASecretReference).
-	matchesOpNamespaceRef := func(refName string) bool {
-		return ns == r.OperatorNamespace && name == refName
-	}
-
-	switch cr.Spec.Mode {
-	case configv1alpha1.ClusterConfigModeInline:
-		if cr.Spec.Inline == nil {
-			return nil
-		}
-		if ref := cr.Spec.Inline.Ingress.WildcardCertificateSecretRef; ref != nil && matchesOpNamespaceRef(ref.Name) {
+	// Every SecretReference the spec uses feeds something the
+	// reconciler derives or checks (educates-ingress-ca, the
+	// ClusterIssuer's CA copy, educates-wildcard-tls, or the published
+	// Inline wildcard Secret), so a change to any must reconcile. A
+	// SecretReference may name another namespace; compare both.
+	for _, s := range referencedSecrets(cr) {
+		if ns == r.secretRefNamespace(s.ref) && name == s.ref.Name {
 			return singletonRequest
 		}
-		if ref := cr.Spec.Inline.Ingress.CACertificateSecretRef; ref != nil {
-			refNS := ref.Namespace
-			if refNS == "" {
-				refNS = r.OperatorNamespace
-			}
-			if ns == refNS && name == ref.Name {
-				return singletonRequest
-			}
-		}
-		if cr.Spec.Inline.ImageRegistry != nil {
-			for _, ref := range cr.Spec.Inline.ImageRegistry.PullSecrets {
-				if matchesOpNamespaceRef(ref.Name) {
-					return singletonRequest
-				}
-			}
+	}
+
+	// Image pull Secret references are name-only and live in the
+	// operator namespace by design.
+	if ns != r.OperatorNamespace {
+		return nil
+	}
+	var registry *configv1alpha1.ImageRegistry
+	switch cr.Spec.Mode {
+	case configv1alpha1.ClusterConfigModeInline:
+		if cr.Spec.Inline != nil {
+			registry = cr.Spec.Inline.ImageRegistry
 		}
 	case configv1alpha1.ClusterConfigModeManaged:
-		if bcm := cr.Spec.Ingress; bcm != nil &&
-			bcm.Certificates.BundledCertManager != nil &&
-			bcm.Certificates.BundledCertManager.CustomCA != nil {
-			ref := bcm.Certificates.BundledCertManager.CustomCA.CACertificateRef
-			refNS := ref.Namespace
-			if refNS == "" {
-				refNS = r.OperatorNamespace
-			}
-			// CASecretReference allows cross-namespace; compare both
-			// namespace and name. Without this, watches on a CA Secret
-			// in (e.g.) educates-secrets never enqueued a reconcile and
-			// rotations went unnoticed.
-			if ns == refNS && name == ref.Name {
+		registry = cr.Spec.ImageRegistry
+	}
+	if registry != nil {
+		for _, ref := range registry.PullSecrets {
+			if name == ref.Name {
 				return singletonRequest
-			}
-		}
-		if cr.Spec.ImageRegistry != nil {
-			for _, ref := range cr.Spec.ImageRegistry.PullSecrets {
-				if matchesOpNamespaceRef(ref.Name) {
-					return singletonRequest
-				}
 			}
 		}
 	}

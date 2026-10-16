@@ -40,13 +40,9 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/ownership"
+	"github.com/educates/educates-training-platform/installer/operator/internal/pki"
 )
-
-// fieldManager is the server-side-apply field manager the operator
-// asserts ownership under. One constant for the whole operator so SSA
-// conflicts surface predictably and `kubectl get -o yaml` shows a
-// single owner for operator-created resources.
-const fieldManager = "educates-installer"
 
 // Cert-manager Deployment names installed by the upstream chart with
 // default values. These are the readiness gate before the operator
@@ -168,11 +164,16 @@ func isCertManagerCRDMissingErr(err error) bool {
 // NotFound + NoMatchError), so a retried reconcile after partial
 // drain re-attempts only what's still present.
 //
-// When the user picks an External / Static certificates provider
-// (no operator-managed install), shouldInstallCertManager returned
-// false in reconcileCertManagerPhase and there's nothing to undo
-// here either; helm Uninstall is a no-op on a non-existent release.
-func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context, _ *configv1alpha1.EducatesClusterConfig) error {
+// The cleanup runs only when the provider is BundledCertManager. For
+// any other provider the operator installed nothing here, and a
+// cert-manager release or namespace under the same names belongs to
+// the administrator, so it must survive the teardown. The provider is
+// immutable, so the spec seen at deletion is the one the install ran
+// with.
+func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) error {
+	if !shouldInstallCertManager(obj) {
+		return nil
+	}
 	if err := r.deleteIfPresent(ctx, &cmv1.Certificate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: r.OperatorNamespace, Name: wildcardCertificate},
 	}); err != nil {
@@ -191,8 +192,7 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 
 	// Helm uninstall is idempotent in the wrapper (IgnoreNotFound on
 	// the action). Safe to call even when the release was never
-	// created (External provider, or validation failed before
-	// reconcileCertManager ran).
+	// created (validation failed before reconcileCertManager ran).
 	hc, err := r.HelmClientFor(certManagerNamespace)
 	if err != nil {
 		return fmt.Errorf("build helm client for cleanup: %w", err)
@@ -209,12 +209,18 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 	return nil
 }
 
-// reconcileCertManagerPhase runs the full cert-manager + wildcard
-// certificate pipeline as a single phase. Caller convention follows
-// `isPhaseComplete`: (zero Result + nil err) = phase done; anything
-// else = stop here and return verbatim.
+// reconcileCertificatesPhase runs the certificates phase. For the
+// BundledCertManager provider that is the full cert-manager + wildcard
+// certificate pipeline; the None provider has nothing to do, and the
+// StaticCertificate provider has its own phase,
+// reconcileStaticCertificatePhase, which serves staticCert, the
+// certificate checkStaticCertificate passed. Caller convention follows
+// reconcileManaged: done=true means the phase is complete, and its
+// Result may still carry a RequeueAfter by which reconcile must run
+// again; done=false means stop here and return the Result and error
+// verbatim.
 //
-// Steps:
+// BundledCertManager steps:
 //
 //  1. helm install/upgrade cert-manager from the vendored chart.
 //  2. Wait for cert-manager Deployments to report Available.
@@ -226,12 +232,7 @@ func (r *EducatesClusterConfigReconciler) cleanupCertManager(ctx context.Context
 // All cert-manager-specific error classification (CRDs missing,
 // webhook not yet routable) is handled here so the orchestrator
 // in reconcileManaged stays oblivious to cert-manager internals.
-//
-// When ExternalCertManager/StaticCertificate provider variants are
-// added, this phase early-returns "done, proceed" without running
-// the install path — the user supplies the issuer/secret and the
-// validator already required them to exist.
-func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig) (bool, ctrl.Result, error) {
+func (r *EducatesClusterConfigReconciler) reconcileCertificatesPhase(ctx context.Context, obj *configv1alpha1.EducatesClusterConfig, staticCert *pki.WildcardCertificate) (bool, ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 	// phaseStop wraps the (Result, error) returned by helpers like
 	// handleCertManagerCRDsMissing into the (done bool, Result,
@@ -250,11 +251,13 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 		return true, ctrl.Result{}, nil
 	}
 
+	if obj.Spec.Ingress.Certificates.Provider == configv1alpha1.CertificatesProviderStaticCertificate {
+		return r.reconcileStaticCertificatePhase(ctx, obj, staticCert)
+	}
+
 	if !shouldInstallCertManager(obj) {
-		// External provider variants are validated elsewhere; nothing
-		// to install or apply here. Future: also populate
-		// status.bundledChartVersions with the user-supplied
-		// cert-manager version, if known.
+		// validateManaged rejects every other provider, so nothing
+		// reaches here; there is nothing to install or apply.
 		return true, ctrl.Result{}, nil
 	}
 
@@ -296,7 +299,7 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 	// owns. Each helper is idempotent (SSA) so re-running converges.
 	bcm := obj.Spec.Ingress.Certificates.BundledCertManager
 	if bcm.IssuerType == configv1alpha1.IssuerTypeCustomCA {
-		if err := r.ensureCustomCASecretCopy(ctx, obj, bcm.CustomCA.CACertificateRef); err != nil {
+		if err := r.ensureCustomCASecretCopy(ctx, obj, bcm.CustomCA.CAKeyPairSecretRef); err != nil {
 			if isCertManagerCRDMissingErr(err) {
 				return phaseStop(r.handleCertManagerCRDsMissing(ctx, obj, err))
 			}
@@ -355,12 +358,11 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManagerPhase(ctx context.
 }
 
 // shouldInstallCertManager reports whether the operator is
-// responsible for installing cert-manager based on the spec.
-// Currently only BundledCertManager is supported by the validator;
-// ExternalCertManager and StaticCertificate return "not yet
-// supported in v1alpha1" validation errors. The helper makes the
-// conditional-install pattern explicit for when those variants are
-// added later.
+// responsible for installing cert-manager based on the spec: only the
+// BundledCertManager provider installs it. The StaticCertificate and
+// None providers never do, and ExternalCertManager names a cert-manager
+// the administrator installed (validateManaged rejects it as not yet
+// supported).
 func shouldInstallCertManager(obj *configv1alpha1.EducatesClusterConfig) bool {
 	if obj.Spec.Ingress == nil {
 		return false
@@ -420,7 +422,7 @@ func deploymentAvailable(d *appsv1.Deployment) bool {
 // data without read-modify-write races. Owner reference on the copy
 // is the EducatesClusterConfig so `kubectl delete educatesclusterconfig`
 // cascades the copy.
-func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig, src configv1alpha1.CASecretReference) error {
+func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig, src configv1alpha1.SecretReference) error {
 	srcNS := src.Namespace
 	if srcNS == "" {
 		srcNS = r.OperatorNamespace
@@ -440,7 +442,7 @@ func (r *EducatesClusterConfigReconciler) ensureCustomCASecretCopy(ctx context.C
 			Name:      customCASecretName,
 			Namespace: certManagerNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": managedByLabelValue,
+				ownership.ManagedByLabel: ownership.ManagedByValue,
 			},
 		},
 		Type: corev1.SecretTypeTLS,
@@ -475,7 +477,7 @@ func (r *EducatesClusterConfigReconciler) applySSA(ctx context.Context, obj clie
 	unstructured.RemoveNestedField(u.Object, "status")
 	unstructured.RemoveNestedField(u.Object, "metadata", "creationTimestamp")
 	return r.Apply(ctx, client.ApplyConfigurationFromUnstructured(u),
-		client.FieldOwner(fieldManager), client.ForceOwnership)
+		client.FieldOwner(ownership.FieldManager), client.ForceOwnership)
 }
 
 // copyCASecretData picks the keys cert-manager's CA issuer reads from
@@ -551,7 +553,7 @@ func (r *EducatesClusterConfigReconciler) ensureClusterIssuer(ctx context.Contex
 		ObjectMeta: metav1.ObjectMeta{
 			Name: wildcardClusterIssuer,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": managedByLabelValue,
+				ownership.ManagedByLabel: ownership.ManagedByValue,
 			},
 		},
 		Spec: cmv1.IssuerSpec{IssuerConfig: issuerCfg},
@@ -614,7 +616,7 @@ func (r *EducatesClusterConfigReconciler) ensureWildcardCertificate(ctx context.
 			Name:      wildcardCertificate,
 			Namespace: r.OperatorNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": managedByLabelValue,
+				ownership.ManagedByLabel: ownership.ManagedByValue,
 			},
 		},
 		Spec: cmv1.CertificateSpec{

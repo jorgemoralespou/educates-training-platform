@@ -132,7 +132,7 @@ How I expect to collaborate:
 CLI-driven (laptop or single command from CI):
 
 ```bash
-educates local secrets add ca <domain>-ca --domain <domain>   # one-time: generate self-signed CA
+educates local secrets add ca educates-ca                     # one-time: generate a root CA, trusted once
 educates local config init                                    # one-time: write a minimal config
 educates local cluster create                                 # kind + registry + deploy in one
 # Or after the cluster's already up:
@@ -282,9 +282,13 @@ components knowing the difference.
 - Field names follow Kubernetes conventions: `camelCase` in YAML/JSON,
   `PascalCase` in Go structs, lowercase tags.
 - Use `+kubebuilder:` markers for validation, defaults, printer columns.
-- EducatesClusterConfig has three structural CEL rules on spec — singleton
-  name, mode immutability (`oldSelf`), mode-field exclusivity. The three
-  platform CRDs have singleton-name only.
+- EducatesClusterConfig's structural CEL rules cover the singleton name,
+  mode immutability (`oldSelf`), immutability of how each cluster service
+  is provided (certificates, ingress controller, DNS and policy
+  enforcement; `oldSelf`), and mode-field exclusivity. Teardown relies on
+  the provider rules: it removes a cluster service only when the spec says
+  the operator installed it. The three platform CRDs have singleton-name
+  only.
 
 **Status conventions:**
 - Status is the public interface for component CRs and humans. Treat it as
@@ -319,8 +323,14 @@ components knowing the difference.
   IngressClasses), not just CR generation changes. External changes — like
   a deleted TLS secret — must propagate to status within seconds.
 - Secret + IngressClass + Deployment are registered in `SetupWithManager`
-  (operator-namespace-scoped Secret cache; cluster-scoped IngressClass;
-  Deployment cluster-wide).
+  (cluster-scoped IngressClass; Deployments only in the cluster-service and
+  platform namespaces). The Secret cache spans the operator namespace,
+  `educates-secrets`, and every namespace the EducatesClusterConfig and
+  SessionManager singletons reference at operator startup
+  (`cmd/secretcache.go`); a reference edited later to a new namespace needs
+  an operator restart for its watch.
+- The SessionManager reconciler also watches Secrets, narrowed to its CA
+  override's source and the key-free copy it derives from it.
 - cert-manager.io ClusterIssuer + Certificate watches are **deferred** —
   registered at runtime by `CRDWatcher`
   (`internal/controller/config/crd_watcher.go`) once discovery confirms
@@ -425,6 +435,19 @@ Educates uses domain-specific terms that have precise meanings:
 - **Operator namespace** — the namespace where the operator runs and where
   it expects to find user-provided Secrets (TLS, CA, image-pull secrets)
   referenced by name in CRs.
+- **CA trust Secret**: a Secret holding only a CA's public certificate,
+  under `ca.crt`. Components receive CA trust solely as the operator's
+  key-free copy, `educates-ingress-ca`, named in
+  `EducatesClusterConfig.status.ingress.caCertificateSecretRef`.
+- **CA key pair**: a `kubernetes.io/tls` Secret holding a CA's `tls.crt`,
+  `tls.key` and `ca.crt`, from which cert-manager's CA issuer signs the
+  wildcard certificate. In the local flow it is an intermediate CA the CLI
+  mints per ingress domain from the CA root key pair, named
+  `<domain>-ca-key-pair` and name-constrained to that domain; in the cluster
+  it stays in `educates-secrets` and the `cert-manager` namespace.
+- **CA root key pair**: the local flow's root CA, cached by the CLI as
+  `<name>-root-key-pair` next to its CA trust Secret `<name>`. One per CLI
+  data home; its key never leaves the laptop.
 
 ---
 
