@@ -3,6 +3,7 @@ package cmd
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
@@ -121,6 +122,38 @@ func TestPrepareLocalCreate_EscapeWithTarget_NoCLIDefaults(t *testing.T) {
 	}
 	if out.LookupService != nil {
 		t.Errorf("LookupService = %v, want nil (not declared in the config)", out.LookupService)
+	}
+}
+
+func TestLoadLocalConfig_EscapeTargetProvider(t *testing.T) {
+	cases := []struct {
+		name    string
+		target  string
+		wantErr string
+	}{
+		{name: "kind", target: "target:\n  provider: kind\n"},
+		{name: "other spelling", target: "target:\n  provider: Kind\n", wantErr: "schema validation failed"},
+		{name: "other provider", target: "target:\n  provider: gke\n", wantErr: "schema validation failed"},
+		{name: "no provider", target: "target:\n  cluster: {}\n", wantErr: "target.provider=kind"},
+		{name: "no target", target: "", wantErr: "target.provider=kind"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeFixture(t, escapeMinimal+tc.target)
+			cfg, _, _, err := loadLocalConfig(&LocalClusterCreateOptions{Config: path})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want an error containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadLocalConfig: %v", err)
+			}
+			if _, ok := cfg.(*v1alpha1.EducatesConfig); !ok {
+				t.Errorf("config = %T, want *v1alpha1.EducatesConfig", cfg)
+			}
+		})
 	}
 }
 
