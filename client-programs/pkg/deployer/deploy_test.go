@@ -125,7 +125,8 @@ func applyClusterConfig(t *testing.T, srv *httptest.Server) error {
 			},
 		},
 	}
-	return installStep(context.Background(), opts, applier, waiter, ecc, "EducatesClusterConfig")
+	_, err = installStep(context.Background(), opts, applier, waiter, ecc, "EducatesClusterConfig")
+	return err
 }
 
 func TestDeploy_ProviderChangeIsExplained(t *testing.T) {

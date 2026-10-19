@@ -100,14 +100,15 @@ func envelopeProperties() map[string]interface{} {
 
 		// target is optional; when absent the CLI skips side effects and
 		// just applies the declared CRs. provider drives which side
-		// effects run (kind cluster bootstrap, macOS resolver).
+		// effects run (kind cluster bootstrap, macOS resolver); kind is
+		// the only provider.
 		"target": map[string]interface{}{
 			"type":                 "object",
 			"additionalProperties": false,
 			"properties": map[string]interface{}{
 				"provider": map[string]interface{}{
-					"type":     "string",
-					"minLength": 1,
+					"type": "string",
+					"enum": []string{"kind"},
 				},
 				"cluster":  map[string]interface{}{"type": "object"},
 				"resolver": map[string]interface{}{"type": "object"},

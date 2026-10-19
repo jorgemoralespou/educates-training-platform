@@ -43,3 +43,26 @@ type EducatesConfigTarget struct {
 	Cluster  LocalClusterConfig  `yaml:"cluster,omitempty"`
 	Resolver LocalResolverConfig `yaml:"resolver,omitempty"`
 }
+
+// IngressDomain returns the ingress domain the educatesClusterConfig
+// section declares: spec.inline.ingress.domain in Inline mode, and
+// spec.ingress.domain otherwise. Empty when the section declares none.
+func (c *EducatesConfig) IngressDomain() string {
+	path := []string{"ingress", "domain"}
+	if mode, _ := c.EducatesClusterConfig["mode"].(string); mode == "Inline" {
+		path = []string{"inline", "ingress", "domain"}
+	}
+	var v interface{} = c.EducatesClusterConfig
+	for _, key := range path {
+		switch m := v.(type) {
+		case map[string]interface{}:
+			v = m[key]
+		case map[interface{}]interface{}:
+			v = m[key]
+		default:
+			return ""
+		}
+	}
+	domain, _ := v.(string)
+	return domain
+}
