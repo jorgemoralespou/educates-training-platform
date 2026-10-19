@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/cluster"
 	"github.com/educates/educates-training-platform/client-programs/pkg/config/translator"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/apply"
 	"github.com/educates/educates-training-platform/client-programs/pkg/deployer/chart"
@@ -94,6 +95,8 @@ type Options struct {
 //  3. Apply SecretsManager → wait Ready.
 //  4. Apply LookupService (if present) → wait Ready.
 //  5. Apply SessionManager → wait Ready.
+//  6. Point the loopback service of a local cluster, when it has one, at
+//     the ingress domain.
 //
 // Returns the last LookupService/SessionManager objects observed so the
 // caller can print URLs from .status.
@@ -160,12 +163,13 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 	step.Done("")
 
 	// 3. Apply EducatesClusterConfig + wait.
-	if err := installStep(ctx, opts, applier, waiter, out.EducatesClusterConfig, "EducatesClusterConfig"); err != nil {
+	ecc, err := installStep(ctx, opts, applier, waiter, out.EducatesClusterConfig, "EducatesClusterConfig")
+	if err != nil {
 		return err
 	}
 
 	// 4. SecretsManager + wait.
-	if err := installStep(ctx, opts, applier, waiter, out.SecretsManager, "SecretsManager"); err != nil {
+	if _, err := installStep(ctx, opts, applier, waiter, out.SecretsManager, "SecretsManager"); err != nil {
 		return err
 	}
 
@@ -235,34 +239,72 @@ func Deploy(ctx context.Context, out *translator.Output, opts Options) error {
 		}
 	}
 
+	// 6. Point the loopback service of a local cluster at the ingress
+	//    domain the EducatesClusterConfig publishes.
+	refreshLoopbackService(ctx, opts, ecc)
+
 	opts.Progress.Note("Educates successfully deployed")
 	return nil
 }
 
 // installStep applies obj and waits for it to become Ready under a
-// single "Installing <label>" progress step. The apply is surfaced as an
-// "applying" phase and the wait surfaces the CR's status.phase changes,
-// so one morphing line carries the whole install of one component. Used
-// by ECC and SecretsManager, where apply and wait are strictly
-// sequential.
-func installStep(ctx context.Context, opts Options, applier *apply.Client, waiter *wait.Client, obj map[string]interface{}, label string) error {
+// single "Installing <label>" progress step, returning the object as
+// last observed. The apply is surfaced as an "applying" phase and the
+// wait surfaces the CR's status.phase changes, so one morphing line
+// carries the whole install of one component. Used by ECC and
+// SecretsManager, where apply and wait are strictly sequential.
+func installStep(ctx context.Context, opts Options, applier *apply.Client, waiter *wait.Client, obj map[string]interface{}, label string) (*unstructured.Unstructured, error) {
 	u, err := mapToUnstructured(obj)
 	if err != nil {
-		return fmt.Errorf("%s: %w", label, err)
+		return nil, fmt.Errorf("%s: %w", label, err)
 	}
 	step := opts.Progress.Start("Installing " + label)
 	step.Update("applying")
 	if _, err := applier.Apply(ctx, u); err != nil {
 		err = explainApplyRejection(err)
 		step.Fail(err)
-		return err
+		return nil, err
 	}
-	if _, err := waiter.WaitReadyWithPhase(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout, step.Update); err != nil {
+	ready, err := waiter.WaitReadyWithPhase(ctx, u.GroupVersionKind(), u.GetNamespace(), u.GetName(), opts.Timeout, step.Update)
+	if err != nil {
 		step.Fail(err)
-		return err
+		return nil, err
 	}
 	step.Done("")
-	return nil
+	return ready, nil
+}
+
+// refreshLoopbackService points the loopback service, which `educates
+// local cluster create` creates for `educates serve-workshop`, at the
+// ingress domain the ready EducatesClusterConfig publishes in
+// status.ingress.domain. The service is otherwise fixed when the cluster
+// is created, so a deploy with another domain, or with a nip.io domain
+// derived from a host IP address that has since changed, would leave it
+// resolving the old one. A cluster without the service is left alone.
+// Educates is installed by the time this runs, so a failure is reported
+// as a warning and does not fail the deploy.
+func refreshLoopbackService(ctx context.Context, opts Options, ecc *unstructured.Unstructured) {
+	domain, _, _ := unstructured.NestedString(ecc.Object, "status", "ingress", "domain")
+	if domain == "" {
+		return
+	}
+	changed, err := func() (bool, error) {
+		cfg, err := opts.Getter.ToRESTConfig()
+		if err != nil {
+			return false, fmt.Errorf("REST config: %w", err)
+		}
+		cs, err := kubernetes.NewForConfig(cfg)
+		if err != nil {
+			return false, fmt.Errorf("kubernetes client: %w", err)
+		}
+		return cluster.RefreshLoopbackService(ctx, cs, domain)
+	}()
+	switch {
+	case err != nil:
+		opts.Progress.Note(fmt.Sprintf("warning: loopback service for 'educates serve-workshop' not refreshed: %v", err))
+	case changed:
+		opts.Progress.Note(fmt.Sprintf("loopback service for 'educates serve-workshop' now resolves localhost.%s", domain))
+	}
 }
 
 // providerImmutableRules pairs the start of each message the

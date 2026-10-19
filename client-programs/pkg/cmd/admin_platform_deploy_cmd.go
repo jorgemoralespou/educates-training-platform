@@ -49,7 +49,10 @@ then push to the cluster:
   3. apply SecretsManager → wait Ready=True
   4. apply LookupService (if configured) → wait Ready=True
      (interleaved with SessionManager — both apply, then both wait)
-  5. apply SessionManager → wait Ready=True`,
+  5. apply SessionManager → wait Ready=True
+  6. point the loopback service that 'educates local cluster create'
+     makes for 'educates serve-workshop' at the ingress domain, when
+     the cluster has one`,
 		Example: adminPlatformDeployExample,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return p.runDeploy(cmd.Context(), cmd.OutOrStdout(), &o)

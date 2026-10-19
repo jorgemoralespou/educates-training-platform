@@ -2,11 +2,12 @@ package cluster
 
 import (
 	"context"
-	"fmt"
 	"os"
+	"strings"
 
 	"github.com/pkg/errors"
 	apiv1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -126,20 +127,29 @@ func IsClusterAvailableCheck(clusterConfig *ClusterConfig) error {
 	return nil
 }
 
+// The loopback service is an ExternalName Service through which workshop
+// sessions reach `educates serve-workshop` on the host, as
+// localhost.<ingress domain>.
+const (
+	loopbackServiceName      = "loopback"
+	loopbackServiceNamespace = "default"
+	loopbackHostPrefix       = "localhost."
+)
+
 func CreateLoopbackService(k8sclient *kubernetes.Clientset, domain string) error {
 	service := apiv1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "loopback",
+			Name: loopbackServiceName,
 		},
 		Spec: apiv1.ServiceSpec{
 			Type:         apiv1.ServiceTypeExternalName,
-			ExternalName: fmt.Sprintf("localhost.%s", domain),
+			ExternalName: loopbackHostPrefix + domain,
 		},
 	}
 
-	servicesClient := k8sclient.CoreV1().Services("default")
+	servicesClient := k8sclient.CoreV1().Services(loopbackServiceNamespace)
 
-	servicesClient.Delete(context.TODO(), "loopback", *metav1.NewDeleteOptions(0))
+	servicesClient.Delete(context.TODO(), loopbackServiceName, *metav1.NewDeleteOptions(0))
 
 	_, err := servicesClient.Create(context.TODO(), &service, metav1.CreateOptions{})
 
@@ -148,4 +158,38 @@ func CreateLoopbackService(k8sclient *kubernetes.Clientset, domain string) error
 	}
 
 	return nil
+}
+
+// RefreshLoopbackService points the loopback service at
+// localhost.<domain> when the cluster has one, and reports whether it
+// changed it. Only a Service of the shape CreateLoopbackService creates
+// is changed, so a cluster without one, or with an unrelated
+// default/loopback Service, is left alone, as is one the caller is not
+// allowed to read.
+func RefreshLoopbackService(ctx context.Context, k8sclient kubernetes.Interface, domain string) (bool, error) {
+	servicesClient := k8sclient.CoreV1().Services(loopbackServiceNamespace)
+
+	service, err := servicesClient.Get(ctx, loopbackServiceName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, errors.Wrap(err, "unable to read localhost loopback service")
+	}
+
+	if service.Spec.Type != apiv1.ServiceTypeExternalName || !strings.HasPrefix(service.Spec.ExternalName, loopbackHostPrefix) {
+		return false, nil
+	}
+
+	externalName := loopbackHostPrefix + domain
+	if service.Spec.ExternalName == externalName {
+		return false, nil
+	}
+
+	service.Spec.ExternalName = externalName
+	if _, err := servicesClient.Update(ctx, service, metav1.UpdateOptions{}); err != nil {
+		return false, errors.Wrap(err, "unable to update localhost loopback service")
+	}
+
+	return true, nil
 }
