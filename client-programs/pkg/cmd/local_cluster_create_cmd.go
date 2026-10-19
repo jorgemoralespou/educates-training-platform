@@ -59,6 +59,12 @@ func (p *ProjectInfo) NewLocalClusterCreateCmd() *cobra.Command {
   5. Tail-calls into the platform deploy pipeline
      (helm install operator + apply 4 platform CRs + wait Ready).
 
+An EducatesConfig creates the kind cluster from target.cluster and deploys
+its custom resources as declared, with no CLI defaulting: no
+<host-IP>.nip.io domain, and no certificates or Secrets taken from the
+local secrets cache. Any Secret the custom resources reference has to be
+created in the cluster before the deploy can become ready.
+
 --cluster-only stops after step 4 — useful for testing the platform
 deploy against a hand-prepared cluster.`,
 		Example: localClusterCreateExample,
@@ -110,12 +116,6 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 		fmt.Fprintf(w, "No local config found — wrote a default EducatesLocalConfig to %s\n", configPath)
 		fmt.Fprintf(w, "Continuing with defaults; view or edit it with 'educates local config view' / 'educates local config edit'.\n\n")
 	}
-	if err := applyLocalDefaults(cfg, p); err != nil {
-		return err
-	}
-	if err := validateClusterNodes(cfg.Cluster.Nodes); err != nil {
-		return err
-	}
 
 	// 0. Preflight: fail fast (before any docker / kind / k8s mutation)
 	//    when the cluster already exists, host 80/443 are bound, or a
@@ -124,16 +124,7 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	//    actionable error if Envoy can't publish. The certificate case is
 	//    the one the deploy resolves later: without this check it would
 	//    only fail after the kind cluster and registry already exist.
-	// A secure install (the default; ingress.insecure not set) serves
-	// HTTPS from a cached wildcard TLS certificate or a cached root CA.
-	// Defaults have already run, so an empty domain has become a
-	// <host-IP>.nip.io insecure install that needs neither; only a domain
-	// with insecure left false requires one. Resolving the local
-	// certificates is a pure local-cache read, so do it first: a missing
-	// certificate source is reported, naming the generated root and the
-	// mkcert paths, without touching Docker or the cluster at all. The
-	// deploy at the end uses this same plan.
-	plan, err := localcerts.Resolve(cfg)
+	in, err := p.prepareLocalCreate(cfg)
 	if err != nil {
 		return err
 	}
@@ -143,7 +134,7 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	} else if exists {
 		return fmt.Errorf("kind cluster 'educates' already exists; run 'educates local cluster delete' first or use the existing cluster directly")
 	}
-	if err := checkHostPortsAvailable(ctx, cfg.Cluster.ListenAddress, o.Verbose, w); err != nil {
+	if err := checkHostPortsAvailable(ctx, in.Cluster.ListenAddress, o.Verbose, w); err != nil {
 		return err
 	}
 
@@ -162,7 +153,7 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	//    Under --verbose the reporter is non-morphing and kind uses its
 	//    own full logger (spinner + detail), so the step's committed
 	//    header/footer simply frame kind's output.
-	bootstrap := kindBootstrapFromConfig(cfg)
+	bootstrap := kindBootstrapFromConfig(in.Cluster)
 	if err := runStep(rep, "creating kind cluster 'educates'", "ready", func(s progress.Step) error {
 		onPhase := s.Update
 		if o.Verbose {
@@ -189,14 +180,18 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	}
 
 	// 3. loopback service for hugo livereload (educates serve-workshop).
-	if err := runStep(rep, "creating loopback service", "ready", func(s progress.Step) error {
-		return cluster.CreateLoopbackService(client, cfg.Ingress.Domain)
+	//    It resolves localhost.<ingress domain>, so a config that declares
+	//    no domain gets none.
+	if in.Domain == "" {
+		rep.Note("no ingress domain declared; skipped the loopback service for 'educates serve-workshop'")
+	} else if err := runStep(rep, "creating loopback service", "ready", func(s progress.Step) error {
+		return cluster.CreateLoopbackService(client, in.Domain)
 	}); err != nil {
 		return fmt.Errorf("loopback service: %w", err)
 	}
 
 	// 4. registry mirrors declared in config (pull-through caches).
-	for _, m := range cfg.Cluster.RegistryMirrors {
+	for _, m := range in.Cluster.RegistryMirrors {
 		label := "registry mirror " + m.Mirror
 		if m.URL != "" {
 			label += " → " + m.URL
@@ -219,7 +214,7 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 	//    the host-IP fallback non-deterministically against a freshly
 	//    started cluster's IP), translate here and call deployer.Deploy
 	//    directly.
-	return tailCallDeploy(ctx, w, cfg, plan, o)
+	return tailCallDeploy(ctx, w, in.Deploy, in.Plan, o)
 }
 
 // loadLocalConfig returns the loaded v4 config + the path it came from
@@ -227,7 +222,7 @@ func (p *ProjectInfo) runLocalClusterCreate(ctx context.Context, w io.Writer, o 
 // place of a missing one (so the caller can tell the user). Accepts
 // EducatesLocalConfig directly or EducatesConfig with target.provider=kind;
 // everything else errors.
-func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfig, string, bool, error) {
+func loadLocalConfig(o *LocalClusterCreateOptions) (v1alpha1.Config, string, bool, error) {
 	var path string
 	var created bool
 	// --local-config is the default for laptop create — matches v3
@@ -257,19 +252,80 @@ func loadLocalConfig(o *LocalClusterCreateOptions) (*v1alpha1.EducatesLocalConfi
 		if c.Target == nil || c.Target.Provider != "kind" {
 			return nil, path, created, fmt.Errorf("%s: EducatesConfig is accepted only with target.provider=kind for laptop create", path)
 		}
-		// Synthesise a LocalConfig that mirrors the cluster/resolver
-		// envelope from the escape kind. The remaining ECC/SessionManager
-		// CR fields stay in the escape config and reach the deploy via
-		// re-loading there.
-		return &v1alpha1.EducatesLocalConfig{
-			TypeMeta: v1alpha1.TypeMeta{
-				APIVersion: v1alpha1.APIVersion,
-				Kind:       v1alpha1.KindEducatesLocalConfig,
-			},
-			Cluster: c.Target.Cluster,
-		}, path, created, nil
+		return c, path, created, nil
 	default:
 		return nil, path, created, fmt.Errorf("%s: unsupported kind %q for local cluster create", path, cfg.GetKind())
+	}
+}
+
+// localCreateInputs is what local cluster create takes from the loaded
+// config, whichever of the two accepted kinds it is.
+type localCreateInputs struct {
+	// Deploy is the config the platform deploy tail-call translates.
+	Deploy v1alpha1.Config
+
+	// Cluster declares the kind cluster and its registry mirrors.
+	Cluster v1alpha1.LocalClusterConfig
+
+	// Domain is the ingress domain the loopback service resolves under.
+	// Empty when the config declares none.
+	Domain string
+
+	// Plan is the local certificate plan of an EducatesLocalConfig, and
+	// nil for an EducatesConfig.
+	Plan *localcerts.Plan
+}
+
+// prepareLocalCreate defaults the loaded config and takes from it what
+// the create flow needs, checking it before anything is created.
+//
+// An EducatesLocalConfig gets the CLI defaults, the <host-IP>.nip.io
+// fallback and the local certificate plan. An EducatesConfig gets none of
+// them: its custom resources are deployed as declared and translated by
+// TranslateEscape, so the CLI neither decides its certificates nor syncs
+// cached Secrets for it. Only its target.cluster, which is CLI input and
+// not a custom resource, gets the local kind's cluster defaults.
+func (p *ProjectInfo) prepareLocalCreate(cfg v1alpha1.Config) (*localCreateInputs, error) {
+	switch c := cfg.(type) {
+	case *v1alpha1.EducatesLocalConfig:
+		if err := applyLocalDefaults(c, p); err != nil {
+			return nil, err
+		}
+		if err := validateClusterNodes(c.Cluster.Nodes); err != nil {
+			return nil, err
+		}
+		// A secure install (the default; ingress.insecure not set)
+		// serves HTTPS from a cached wildcard TLS certificate or a cached
+		// root CA. Defaults have already run, so an empty domain has
+		// become a <host-IP>.nip.io insecure install that needs neither;
+		// only a domain with insecure left false requires one. Resolving
+		// the local certificates is a pure local-cache read, so a missing
+		// certificate source is reported, naming the generated root and
+		// the mkcert paths, without touching Docker or the cluster at
+		// all. The deploy at the end uses this same plan.
+		plan, err := localcerts.Resolve(c)
+		if err != nil {
+			return nil, err
+		}
+		return &localCreateInputs{
+			Deploy:  c,
+			Cluster: c.Cluster,
+			Domain:  c.Ingress.Domain,
+			Plan:    plan,
+		}, nil
+	case *v1alpha1.EducatesConfig:
+		clusterCfg := c.Target.Cluster
+		clusterCfg.WithDefaults()
+		if err := validateClusterNodes(clusterCfg.Nodes); err != nil {
+			return nil, err
+		}
+		return &localCreateInputs{
+			Deploy:  c,
+			Cluster: clusterCfg,
+			Domain:  c.IngressDomain(),
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported kind %q for local cluster create", cfg.GetKind())
 	}
 }
 
@@ -313,11 +369,11 @@ func validateClusterNodes(nodes []v1alpha1.ClusterNode) error {
 	return nil
 }
 
-// kindBootstrapFromConfig pulls the kind-template inputs from an
-// EducatesLocalConfig.
-func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBootstrapInput {
-	mounts := make([]cluster.KindVolumeMount, len(cfg.Cluster.VolumeMounts))
-	for i, m := range cfg.Cluster.VolumeMounts {
+// kindBootstrapFromConfig pulls the kind-template inputs from the cluster
+// declaration of an EducatesLocalConfig or EducatesConfig.
+func kindBootstrapFromConfig(clusterCfg v1alpha1.LocalClusterConfig) *cluster.KindBootstrapInput {
+	mounts := make([]cluster.KindVolumeMount, len(clusterCfg.VolumeMounts))
+	for i, m := range clusterCfg.VolumeMounts {
 		mounts[i] = cluster.KindVolumeMount{
 			HostPath:      m.HostPath,
 			ContainerPath: m.ContainerPath,
@@ -330,8 +386,8 @@ func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBoo
 		}
 	}
 
-	nodes := make([]cluster.KindNode, len(cfg.Cluster.Nodes))
-	for i, n := range cfg.Cluster.Nodes {
+	nodes := make([]cluster.KindNode, len(clusterCfg.Nodes))
+	for i, n := range clusterCfg.Nodes {
 		taints := make([]cluster.KindNodeTaint, len(n.Taints))
 		for j, t := range n.Taints {
 			taints[j] = cluster.KindNodeTaint{Key: t.Key, Value: t.Value, Effect: t.Effect}
@@ -344,14 +400,14 @@ func kindBootstrapFromConfig(cfg *v1alpha1.EducatesLocalConfig) *cluster.KindBoo
 	}
 
 	return &cluster.KindBootstrapInput{
-		ListenAddress: cfg.Cluster.ListenAddress,
+		ListenAddress: clusterCfg.ListenAddress,
 		ApiServer: cluster.KindApiServer{
-			Address: cfg.Cluster.ApiServer.Address,
-			Port:    cfg.Cluster.ApiServer.Port,
+			Address: clusterCfg.ApiServer.Address,
+			Port:    clusterCfg.ApiServer.Port,
 		},
 		Networking: cluster.KindNetworking{
-			ServiceSubnet: cfg.Cluster.Networking.ServiceSubnet,
-			PodSubnet:     cfg.Cluster.Networking.PodSubnet,
+			ServiceSubnet: clusterCfg.Networking.ServiceSubnet,
+			PodSubnet:     clusterCfg.Networking.PodSubnet,
 		},
 		VolumeMounts: mounts,
 		Nodes:        nodes,
@@ -371,9 +427,10 @@ func registryMirrorFromConfig(m v1alpha1.RegistryMirror) registry.MirrorConfig {
 
 // tailCallDeploy translates the already-loaded+defaulted config and
 // runs the install with the local certificate plan the preflight in
-// runLocalClusterCreate resolved. Shares the translate → deploy plumbing
-// with runDeploy via translateAndDeploy.
-func tailCallDeploy(ctx context.Context, w io.Writer, cfg *v1alpha1.EducatesLocalConfig, plan *localcerts.Plan, o *LocalClusterCreateOptions) error {
+// runLocalClusterCreate resolved, which is nil for an EducatesConfig.
+// Shares the translate → deploy plumbing with runDeploy via
+// translateAndDeploy.
+func tailCallDeploy(ctx context.Context, w io.Writer, cfg v1alpha1.Config, plan *localcerts.Plan, o *LocalClusterCreateOptions) error {
 	return translateAndDeploy(ctx, w, cfg, plan, deployPipelineFlags{
 		Kubeconfig: o.Kubeconfig,
 		Context:    o.Context,

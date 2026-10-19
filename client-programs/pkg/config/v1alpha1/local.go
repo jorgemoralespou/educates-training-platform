@@ -148,9 +148,7 @@ type OperatorImage struct {
 //     applied when the user opted into laptop-convenience mode
 //     (`--local-config`).
 func (c *EducatesLocalConfig) WithDefaults() *EducatesLocalConfig {
-	if c.Cluster.ListenAddress == "" {
-		c.Cluster.ListenAddress = "127.0.0.1"
-	}
+	c.Cluster.WithDefaults()
 	if c.ClusterAdmin == nil {
 		t := true
 		c.ClusterAdmin = &t
@@ -165,6 +163,16 @@ func (c *EducatesLocalConfig) WithDefaults() *EducatesLocalConfig {
 	}
 	if c.Operator.LogLevel == "" {
 		c.Operator.LogLevel = "info"
+	}
+	return c
+}
+
+// WithDefaults fills the static defaults of a kind cluster declaration.
+// Shared by EducatesLocalConfig.cluster and EducatesConfig.target.cluster,
+// so both kinds bring up the same cluster from the same fields.
+func (c *LocalClusterConfig) WithDefaults() *LocalClusterConfig {
+	if c.ListenAddress == "" {
+		c.ListenAddress = "127.0.0.1"
 	}
 	return c
 }

@@ -58,7 +58,7 @@ If you would rather have those defaults written into the file from the start, in
 
 To look up what a field means while editing, use `educates local config explain`, which describes a field and its sub-fields from the schema in the style of `kubectl explain`, for example `educates local config explain ingress`. See [configuration settings](configuration-settings) for the available fields and the other configuration kinds.
 
-You can also supply a configuration file via the `--config` option when running the `educates local cluster create` command, however by doing so any secrets in the local secrets cache will not be automatically copied to the cluster.
+You can also supply a configuration file via the `--config` option when running the `educates local cluster create` command. An `EducatesLocalConfig` supplied this way is handled in the same way as the default configuration file. An `EducatesConfig` with `target.provider: kind` is also accepted: the kind cluster is created from its `target.cluster` block and its custom resources are deployed exactly as declared, with none of the local defaults, and secrets in the local secrets cache are not copied to the cluster. See the `EducatesConfig` section of [configuration settings](configuration-settings) for details.
 
 Local image registry
 --------------------

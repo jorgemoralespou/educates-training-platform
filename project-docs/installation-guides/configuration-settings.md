@@ -139,6 +139,10 @@ lookupService: {}           # omit the block entirely to not deploy the componen
 sessionManager: {}
 ```
 
+The `target` block only drives side effects of the CLI. With `provider: kind`, `educates local cluster create --config <file>` creates the local kind cluster from `target.cluster`, which takes the same fields as the `cluster` block of `EducatesLocalConfig`, and then deploys the custom resources as the file declares them. None of the defaults of `EducatesLocalConfig` apply to the custom resources: the ingress domain is not derived from the host IP address, no certificate is chosen from the local secrets cache, and the lookup service is deployed only when the `lookupService` block is present. The loopback service that `educates serve-workshop` relies on resolves under the ingress domain of the `educatesClusterConfig` block.
+
+The CLI copies no Secrets from its local secrets cache into the cluster for an `EducatesConfig`, so you create any Secret the custom resources reference, such as a CA key pair or a wildcard certificate, in the cluster yourself. To create them before Educates is deployed, run `educates local cluster create --cluster-only --config <file>`, create the Secrets, and then run `educates admin platform deploy --config <file>`.
+
 For example, the `StaticCertificate` certificates provider, which serves a wildcard certificate you already have and installs no cert-manager, is selected through this kind:
 
 ```yaml
