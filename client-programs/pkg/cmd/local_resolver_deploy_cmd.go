@@ -60,7 +60,8 @@ func (p *ProjectInfo) NewLocalResolverDeployCmd() *cobra.Command {
 // loadResolverInputs loads an EducatesLocalConfig from configPath, or from
 // <data-home>/config.yaml when configPath is empty, and returns the parts
 // the resolver helpers need. EducatesConfig (escape hatch) is accepted
-// when target.cluster / target.resolver are populated.
+// when target.cluster / target.resolver are populated; its ingress domain
+// is the one its educatesClusterConfig section declares.
 func loadResolverInputs(configPath string) (*v1alpha1.EducatesLocalConfig, error) {
 	path := configPath
 	if path == "" {
@@ -84,6 +85,7 @@ func loadResolverInputs(configPath string) (*v1alpha1.EducatesLocalConfig, error
 			TypeMeta: v1alpha1.TypeMeta{APIVersion: v1alpha1.APIVersion, Kind: v1alpha1.KindEducatesLocalConfig},
 			Cluster:  c.Target.Cluster,
 			Resolver: c.Target.Resolver,
+			Ingress:  v1alpha1.LocalIngressConfig{Domain: c.IngressDomain()},
 		}, nil
 	default:
 		return nil, fmt.Errorf("%s: unsupported kind %q for resolver commands", path, loaded.GetKind())
