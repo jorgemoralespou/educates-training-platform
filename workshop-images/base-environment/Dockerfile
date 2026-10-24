@@ -15,7 +15,7 @@ ARG TARGETARCH
 
 # Pin the exact Go release: the golang:1.26 image can lag a patch behind,
 # and the current patch carries stdlib security fixes the binary must have.
-ENV GOTOOLCHAIN=go1.26.9
+ENV GOTOOLCHAIN=go1.26.10
 
 RUN <<EOF
     set -eo pipefail
@@ -132,7 +132,7 @@ ARG TARGETARCH
 
 # Pin the exact Go release: the golang:1.26 image can lag a patch behind,
 # and the current patch carries stdlib security fixes the binary must have.
-ENV GOTOOLCHAIN=go1.26.9
+ENV GOTOOLCHAIN=go1.26.10
 
 WORKDIR /app
 
@@ -166,7 +166,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS vendir-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.10 CGO_ENABLED=0
 
 RUN <<EOF
     set -eo pipefail
@@ -195,7 +195,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS package-fetcher-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.10 CGO_ENABLED=0
 
 WORKDIR /build
 
@@ -210,7 +210,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS k9s-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.10 CGO_ENABLED=0
 
 RUN <<EOF
     set -eo pipefail

@@ -1,6 +1,6 @@
 module github.com/educates/educates-training-platform/installer/operator
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/cert-manager/cert-manager v1.20.2
