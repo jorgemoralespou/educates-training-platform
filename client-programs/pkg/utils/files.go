@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"carvel.dev/ytt/pkg/yamlmeta"
 	"github.com/pkg/errors"
 )
 
@@ -64,26 +63,6 @@ func WriteYamlByteArrayItemsToDir(files [][]byte, dir string) error {
 		defer file.Close()
 
 		_, err = file.Write(doc)
-		if err != nil {
-			fmt.Printf("Failed to write to file: %v\n", err)
-			return err
-		}
-	}
-	return nil
-}
-
-func WriteYamlDocSetItemsToDir(fileSet *yamlmeta.DocumentSet, dir string) error {
-	for i, doc := range fileSet.Items {
-		file, err := os.Create(filepath.Join(dir, fmt.Sprintf("install_%.3d.yaml", i)))
-		if err != nil {
-			fmt.Printf("Failed to create file: %v\n", err)
-			return err
-		}
-		defer file.Close()
-
-		// Write the doc to the file
-		bytes, _ := doc.AsYAMLBytes()
-		_, err = file.WriteString(string(bytes))
 		if err != nil {
 			fmt.Printf("Failed to write to file: %v\n", err)
 			return err
