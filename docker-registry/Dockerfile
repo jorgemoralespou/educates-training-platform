@@ -12,7 +12,7 @@ ARG TARGETARCH
 
 # Pin the exact Go release: the golang:1.26 image can lag a patch behind,
 # and the current patch carries stdlib security fixes the binary must have.
-ENV GOTOOLCHAIN=go1.26.9
+ENV GOTOOLCHAIN=go1.26.10
 
 RUN <<EOF
     set -eo pipefail

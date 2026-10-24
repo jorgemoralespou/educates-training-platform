@@ -120,10 +120,11 @@ const DefaultKubernetesVersion = "1.36"
 ```
 
 `DefaultKubernetesVersion` is the version `local cluster create` uses when
-`--kubernetes-version` is not given. It currently tracks the **newest**
-supported version (`"1.36"`); if you would rather trade recency for stability,
-the second-newest is a reasonable alternative — just keep it consistent with
-the code, `go.mod`, and the release notes.
+`--kubernetes-version` is not given. It deliberately tracks the
+**second-newest** supported version (`"1.36"` while 1.37 is the newest),
+trading recency for stability. Keep it consistent with the code comment and
+the release notes. It only picks the local kind node image; it does not set
+the Go library versions (see below).
 
 Whenever the supported set or the vendored kind version changes, also update any
 **code comments that name a specific version or kind release** so they still
@@ -131,18 +132,39 @@ match reality — e.g. the `sigs.k8s.io/kind vX.Y.Z` note in
 `pkg/constants/kubernetes.go` and the example node image in the
 `Ensuring node image (...)` comment in `pkg/cluster/kindcluster.go`.
 
-### `client-programs/go.mod`
+### Go modules (`client-programs`, `installer/operator`, `node-ca-injector`)
 
-Update `sigs.k8s.io/kind` to the version that supports the new Kubernetes versions. Update `k8s.io/*` dependencies to align with `DefaultKubernetesVersion`:
+Update `sigs.k8s.io/kind` in `client-programs/go.mod` to the version that
+supports the new Kubernetes versions.
 
-- For Kubernetes 1.36.x → use `k8s.io/* v0.36.x`
-- Packages: `k8s.io/api`, `k8s.io/apimachinery`, `k8s.io/cli-runtime`, `k8s.io/client-go`, `k8s.io/kubectl`
-- Also update `sigs.k8s.io/controller-runtime` to a compatible version
+The `k8s.io/*` libraries track the **newest** supported Kubernetes minor, not
+`DefaultKubernetesVersion`: the CLI and the operator talk to clusters across
+the whole supported range, while the default only picks the local kind node.
+The Helm SDK (`helm.sh/helm/v4`) also sets a floor, because each Helm minor is
+built against one Kubernetes minor (Helm 4.3 requires `k8s.io/* v0.37`), so
+check its `go.mod` before moving either.
 
-After editing `go.mod`, run:
+- For a supported range of 1.34 to 1.37, use `k8s.io/* v0.37.x`
+- Packages: `k8s.io/api`, `k8s.io/apimachinery`, `k8s.io/cli-runtime`,
+  `k8s.io/client-go`, `k8s.io/kubectl`, and `k8s.io/apiextensions-apiserver`
+  in the operator
+- Also update `sigs.k8s.io/controller-runtime` to the release built against
+  that Kubernetes minor
+
+Move all three modules together, to the same versions. `go.work` resolves one
+version of each module across the workspace, so a module left behind is built
+against the newer libraries in workspace builds and the older ones in its own
+image build. The operator pins `k8s.io/kubectl` explicitly; keep it on the same
+patch as the other `k8s.io/*` modules.
+
+After editing the `go.mod` files, run `go mod tidy` in each module and compare
+the versions of the modules they share: raise any module one of them resolves
+lower than the others, since only the workspace build hides that.
 
 ```bash
-cd client-programs && go mod tidy
+for m in client-programs installer/operator node-ca-injector; do
+  (cd "$m" && go mod tidy)
+done
 ```
 
 ## Keep the vcluster application aligned
@@ -166,10 +188,17 @@ Run in order, fix any failures before proceeding:
 
 ```bash
 # Build the workshop base image (verifies Dockerfile changes)
-make build-base-environment
+make image-base-environment
 
 # Build the CLI (verifies go.mod and constants changes)
 cd client-programs && go mod tidy && go build ./...
+
+# Build every Go module together in the workspace, and each one on its own
+# as its image build does
+go build ./client-programs/... ./installer/operator/... ./node-ca-injector/...
+for m in client-programs installer/operator node-ca-injector; do
+  GOWORK=off go -C "$m" build ./...
+done
 ```
 
 ## Step 4: Post-Verification Checklist
@@ -178,8 +207,8 @@ cd client-programs && go mod tidy && go build ./...
 - [ ] SHA512 checksums are correct for both amd64 and arm64
 - [ ] Removed version has no remaining RUN block in Dockerfile
 - [ ] `KubernetesVersionToKindImage` contains exactly the supported versions, with digests from the vendored kind release
-- [ ] `DefaultKubernetesVersion` matches the intended default (currently the newest supported version)
-- [ ] `k8s.io/*` versions in `go.mod` align with `DefaultKubernetesVersion`
+- [ ] `DefaultKubernetesVersion` matches the intended default (currently the second-newest supported version)
+- [ ] `k8s.io/*` versions in all three Go modules track the newest supported Kubernetes minor, at the same patch, and satisfy the Helm SDK's requirement
 - [ ] Code comments naming a specific version or kind release were updated to match
-- [ ] `go mod tidy` ran cleanly in `client-programs/`
+- [ ] `go mod tidy` ran cleanly in all three Go modules, and the workspace and standalone builds pass
 - [ ] vcluster application k8s set aligned, or divergence agreed with the user (see `educates-upgrade-vcluster`)

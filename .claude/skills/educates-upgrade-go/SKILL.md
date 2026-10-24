@@ -79,6 +79,26 @@ All five Go Dockerfiles above currently cross-compile and carry the prefix. If
 you ever add a new Go build stage, give it the full three-part set (or no
 `--platform` at all) — never the prefix alone.
 
+#### Pinned patch releases (`GOTOOLCHAIN`)
+
+The `golang:1.xx` tag floats over patch releases, so a patch-only upgrade (for
+example 1.26.9 to 1.26.10) leaves the `FROM` lines unchanged. Several source
+rebuild stages pin the exact patch with `ENV GOTOOLCHAIN=go1.xx.y`, because the
+image can lag a patch behind the release that carries stdlib security fixes.
+These pins must move with the `go.mod` files: a stage pinned below the version a
+`go.mod` it builds requires (the `package-fetcher-build` stage compiles the CLI
+from source) fails with a `go.mod requires go >= ...` error.
+
+```bash
+grep -rn "GOTOOLCHAIN=go1\." --include="Dockerfile*" .
+```
+
+Update every pin that matches the old version, in `docker-registry/Dockerfile`
+and the stages of `workshop-images/base-environment/Dockerfile`. Leave a pin on a
+different minor alone: the `kustomize-build` stage deliberately uses a newer
+`golang` image and `GOTOOLCHAIN` because kustomize needs a newer Go, as its
+comment explains.
+
 ### CI/CD Workflows
 
 The Go workflows (`.github/workflows/*.yaml` — note the extension) pin the
@@ -129,6 +149,7 @@ make -C installer/operator test
 - [ ] `go.work` updated
 - [ ] All four platform `go.mod` files updated (`client-programs`, `installer/operator`, `node-ca-injector`, `assets-server`)
 - [ ] All five Dockerfiles with `FROM ...golang:` updated, `--platform=$BUILDPLATFORM` prefix preserved where present
+- [ ] Every `ENV GOTOOLCHAIN=go1.<old>` pin in Dockerfiles moved to the new version
 - [ ] CI: no stray hardcoded `go-version:`/`golang:1.` literal left (versions come from `go-version-file: <module>/go.mod`)
 - [ ] `go mod tidy` ran cleanly in all modules
 - [ ] CLI builds (`make build-cli`) and operator builds + tests (`make -C installer/operator build test`)

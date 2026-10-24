@@ -15,7 +15,7 @@ ARG TARGETARCH
 
 # Pin the exact Go release: the golang:1.26 image can lag a patch behind,
 # and the current patch carries stdlib security fixes the binary must have.
-ENV GOTOOLCHAIN=go1.26.9
+ENV GOTOOLCHAIN=go1.26.10
 
 RUN <<EOF
     set -eo pipefail
@@ -132,7 +132,7 @@ ARG TARGETARCH
 
 # Pin the exact Go release: the golang:1.26 image can lag a patch behind,
 # and the current patch carries stdlib security fixes the binary must have.
-ENV GOTOOLCHAIN=go1.26.9
+ENV GOTOOLCHAIN=go1.26.10
 
 WORKDIR /app
 
@@ -166,7 +166,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS vendir-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.10 CGO_ENABLED=0
 
 RUN <<EOF
     set -eo pipefail
@@ -195,7 +195,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS package-fetcher-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.10 CGO_ENABLED=0
 
 WORKDIR /build
 
@@ -210,7 +210,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26 AS k9s-build
 ARG TARGETOS
 ARG TARGETARCH
 
-ENV GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0
+ENV GOTOOLCHAIN=go1.26.10 CGO_ENABLED=0
 
 RUN <<EOF
     set -eo pipefail
@@ -427,9 +427,9 @@ COPY --from=vendir-build /vendir /opt/kubernetes/bin/vendir
 COPY --from=package-fetcher-build /educates-package-fetcher /opt/kubernetes/bin/educates-package-fetcher
 
 RUN <<EOF
-    HELM_VERSION=4.3.0
-    CHECKSUM_amd64="86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb"
-    CHECKSUM_arm64="31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08"
+    HELM_VERSION=4.3.1
+    CHECKSUM_amd64="0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b"
+    CHECKSUM_arm64="8cf8f66ecbc252ac8f7f06cca68aba88508ddfde3a6a34feb1678ad1694b4f88"
     CHECKSUM=CHECKSUM_${TARGETARCH}
     set -eo pipefail
     curl --silent --fail -L -o /tmp/helm.tar.gz https://get.helm.sh/helm-v${HELM_VERSION}-linux-${TARGETARCH}.tar.gz
