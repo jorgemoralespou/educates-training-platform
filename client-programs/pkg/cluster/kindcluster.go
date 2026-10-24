@@ -66,7 +66,7 @@ func (i phaseInfo) emit(s string) {
 
 // cleanKindStatus strips the bullet/check/cross marker and trailing
 // ellipsis that kind's Status wraps each phase in, leaving just the
-// phase text (e.g. "Ensuring node image (kindest/node:v1.36.1) 🖼").
+// phase text (e.g. "Ensuring node image (kindest/node:v1.36.4) 🖼").
 func cleanKindStatus(s string) string {
 	s = strings.TrimSpace(s)
 	for _, marker := range []string{"•", "✓", "✗"} {
