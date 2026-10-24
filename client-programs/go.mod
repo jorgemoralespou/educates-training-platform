@@ -14,9 +14,9 @@ go 1.26.10
 replace cloud.google.com/go => cloud.google.com/go v0.112.2
 
 require (
-	carvel.dev/imgpkg v0.48.1
-	carvel.dev/vendir v0.46.0
-	carvel.dev/ytt v0.55.1
+	carvel.dev/imgpkg v0.48.3
+	carvel.dev/vendir v0.46.3
+	carvel.dev/ytt v0.55.4
 	github.com/adrg/xdg v0.5.3
 	github.com/compose-spec/compose-go/v2 v2.13.0
 	github.com/cppforlife/go-cli-ui v0.0.0-20250603184554-47874c9078ad
@@ -102,7 +102,7 @@ require (
 	github.com/carvel-dev/semver/v4 v4.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chai2010/gettext-go v1.0.2 // indirect
-	github.com/cheggaaa/pb/v3 v3.1.7 // indirect
+	github.com/cheggaaa/pb/v3 v3.2.1 // indirect
 	github.com/chrismellard/docker-credential-acr-env v0.0.0-20230304212654-82a0ddb27589 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
@@ -167,9 +167,9 @@ require (
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
 	github.com/lib/pq v1.12.3 // indirect
 	github.com/liggitt/tabwriter v0.0.0-20181228230101-89fcab3d43de // indirect
-	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.19 // indirect
+	github.com/mattn/go-colorable v0.1.15 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/mattn/go-runewidth v0.0.27 // indirect
 	github.com/mattn/go-shellwords v1.0.14 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
