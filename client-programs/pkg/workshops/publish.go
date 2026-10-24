@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	imgpkgcmd "carvel.dev/imgpkg/pkg/imgpkg/cmd"
-	"carvel.dev/kapp/pkg/kapp/cmd"
 	vendirsync "carvel.dev/vendir/pkg/vendir/cmd"
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
 	yttcmdui "carvel.dev/ytt/pkg/cmd/ui"
@@ -124,13 +123,8 @@ func (o *FilesPublishOptions) Publish(workshopDir string) error {
 
 	confUI := ui.NewConfUI(ui.NewNoopLogger())
 
-	uiFlags := cmd.UIFlags{
-		Color:          true,
-		JSON:           false,
-		NonInteractive: true,
-	}
-
-	uiFlags.ConfigureUI(confUI)
+	confUI.EnableColor()
+	confUI.EnableNonInteractive()
 
 	defer confUI.Flush()
 

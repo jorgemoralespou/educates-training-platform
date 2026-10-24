@@ -28,7 +28,7 @@ install path; the old v3 Carvel-based installer (kapp-controller) is gone.
   `$XDG_DATA_HOME/educates/`, overridable via `EDUCATES_CLI_DATA_HOME`.
 
 **Carvel libraries still live in the CLI** (`carvel.dev/imgpkg`,
-`kapp`, `ytt`, `vendir`) — they power the **workshop tooling**
+`ytt`, `vendir`) — they power the **workshop tooling**
 (`educates {cluster,docker} workshop ...` commands for publish /
 deploy / serve). The install path no longer touches them.
 
@@ -240,7 +240,7 @@ The installer has three layers:
 - **client-programs/** — Go CLI (`educates`). Holds the install pipeline
   (load → translate → helm install + apply CRs + wait Ready) and the
   workshop tooling (publish, deploy, render — these still use carvel libs
-  for OCI bundle and kapp deploy).
+  for OCI bundles, file sync and templating).
 
 ### Go workspace
 
