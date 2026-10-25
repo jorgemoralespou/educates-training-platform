@@ -35,7 +35,7 @@ address=/{{.IngressDomain}}/{{.TargetAddress}}
 address=/{{$Domain}}/{{$.TargetAddress}}
 {{- end }}
 `
-	dnsmasqImage          = "ghcr.io/dockur/dnsmasq:2.90"
+	dnsmasqImage          = "ghcr.io/dockur/dnsmasq:2.93"
 	resolverContainerName = "educates-resolver"
 )
 
