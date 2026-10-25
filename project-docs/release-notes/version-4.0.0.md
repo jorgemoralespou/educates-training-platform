@@ -529,6 +529,15 @@ Features Changed
   new prefix. Otherwise ``external-dns`` no longer sees those resources and
   removes the DNS records it previously created for them.
 
+* The ``dnsmasq`` image run by ``educates local resolver deploy`` has been
+  updated from version 2.90 to 2.93. The configuration the CLI generates for
+  the local DNS resolver is unchanged. A resolver container created by an
+  earlier release keeps the image it was created with, since neither
+  ``educates local resolver deploy`` nor ``educates local resolver update``
+  replaces an existing resolver container. To move it to the new image, run
+  ``educates local resolver delete`` followed by ``educates local resolver
+  deploy``.
+
 * The table of contents for workshop instructions rendered with the default
   ``educates`` Hugo theme is now a panel which slides up from behind the
   navigation bar at the bottom of the instructions, instead of a pop-up
