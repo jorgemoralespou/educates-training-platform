@@ -95,7 +95,12 @@ in `embed_test.go`.
    the new chart (`helm template <release-name> ./<name>-<version>.tgz`)
    and confirm the expected Deployments/DaemonSets still come out with
    the same names; update the reconciler constants and their
-   "verified against" comments if not.
+   "verified against" comments if not. Every image the chart can run
+   must also still move under `spec.imageRegistry.prefix`, hooks and
+   chart tests included: `TestClusterServiceImagesHonourImageRegistryPrefix`
+   in `internal/controller/config` checks it, and when it fails, find
+   the registry value of the image it names in the new chart and set it
+   in the reconciler's `render<Service>Values`.
 
 8. **Regenerate the operator's fine-grained install RBAC.** The operator
    installs the vendored charts under its own ServiceAccount, so its

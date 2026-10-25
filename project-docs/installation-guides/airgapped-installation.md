@@ -46,6 +46,6 @@ helm install educates-installer educates-installer-X.Y.Z.tgz \
 kubectl apply -f educates-cluster-config.yaml   # spec.imageRegistry.prefix: registry.internal/educates
 ```
 
-If the mirror requires authentication, create the pull secret in the operator namespace and reference it via `imagePullSecrets` (operator chart) and `EducatesClusterConfig.spec.imageRegistry.pullSecrets` (everything the operator installs).
+If the mirror requires authentication, create the pull secret in the operator namespace and reference it via `imagePullSecrets` in the operator chart, so that the operator pod can pull its own image. The operator does not distribute registry credentials to the cluster services and Educates runtime components it installs, so the cluster's nodes must be able to pull those images from the mirror themselves, for example through node-level registry credentials or a pull-through cache that needs no authentication.
 
 Workshop content images are a separate concern from the platform: workshops published with `educates publish-workshop` are self-contained OCI artifacts that can be relocated with `imgpkg copy`, as covered in the workshop content documentation.

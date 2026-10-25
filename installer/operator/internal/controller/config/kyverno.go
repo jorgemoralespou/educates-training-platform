@@ -193,11 +193,21 @@ func renderKyvernoValues(obj *configv1alpha1.EducatesClusterConfig) map[string]a
 	values := map[string]any{}
 
 	if obj.Spec.ImageRegistry != nil && obj.Spec.ImageRegistry.Prefix != "" {
-		values["global"] = map[string]any{
-			"image": map[string]any{
-				"registry": obj.Spec.ImageRegistry.Prefix,
-			},
+		registry := func() map[string]any {
+			return map[string]any{
+				"image": map[string]any{
+					"registry": obj.Spec.ImageRegistry.Prefix,
+				},
+			}
 		}
+		values["global"] = registry()
+		// The readiness-checker image of the pre-delete webhook cleanup
+		// and scale-to-zero hooks, and of the chart tests, pins registry
+		// ghcr.io, which wins over global.image.registry (the tests
+		// don't read the global value at all). Verified against chart
+		// 3.9.2.
+		values["webhooksCleanup"] = registry()
+		values["test"] = registry()
 	}
 
 	return values

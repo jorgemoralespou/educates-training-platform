@@ -92,7 +92,9 @@ The `EducatesClusterConfig` reconciler renders a values map for each vendored up
 | `ingress.domain`, `ingress.ingressClassName`, `controller.bundledContour.*` | `contour` / `contour` | `contour.replicaCount`, `contour.ingressClass.{name,create,default}`, `envoy.service.type`, the `external-dns.kubernetes.io/hostname: *.<domain>.` Service annotation, also set as `external-dns.alpha.kubernetes.io/hostname` for external-dns releases before 0.22 |
 | `ingress.certificates.bundledCertManager.*` | `cert-manager` / `cert-manager` | `crds.enabled`; the ClusterIssuer and wildcard Certificate are created directly by the operator, not through chart values |
 | `dns.bundledExternalDNS.*` | `external-dns` / `external-dns` | `provider`, `sources`, `domainFilters: [<domain>]`, `txtOwnerId`, Workload Identity / IRSA ServiceAccount annotations |
-| `policyEnforcement.*` | `kyverno` / `kyverno` | chart defaults plus `global.image.registry` when an image-registry prefix is set |
+| `policyEnforcement.*` | `kyverno` / `kyverno` | chart defaults |
+
+When `imageRegistry.prefix` is set, each chart also gets the values that move all of its images, hooks included, to their upstream repository paths under the prefix: `imageRegistry` for cert-manager, `global.imageRegistry` for Contour, `image.repository` for external-dns, and `global.image.registry`, `webhooksCleanup.image.registry` and `test.image.registry` for Kyverno.
 
 With the `StaticCertificate` certificates provider no cert-manager is installed: the reconciler checks the wildcard certificate you name and copies only its `tls.crt` and `tls.key` into the operator-owned `educates-wildcard-tls`, which it publishes in place of a cert-manager issued one.
 

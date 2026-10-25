@@ -172,6 +172,16 @@ helm template <name> <path-to-extracted-chart> [--set ...] | grep -E 'kind: (Dep
 If a name or values key changed, update the reconciler constant and its
 "verified against <version>" comment in the same change.
 
+Every image the chart can run, hooks and chart tests included, must also still
+move to its upstream repository path under `spec.imageRegistry.prefix`. Each
+chart takes the prefix through a different values key (cert-manager
+`imageRegistry`, Contour `global.imageRegistry`, external-dns `image.repository`,
+Kyverno `global.image.registry` plus `webhooksCleanup.image.registry` and
+`test.image.registry`), and a new image with its own pinned registry escapes it.
+`TestClusterServiceImagesHonourImageRegistryPrefix` checks this; when it fails,
+find the registry value of the image it names in the new chart and set it in the
+reconciler's `render<Service>Values`.
+
 ## Kyverno special case
 
 Bumping the Kyverno **chart** usually means bumping the Kyverno **binary**
@@ -203,6 +213,9 @@ make -C installer/operator test                     # runs the consistency + loa
   half-finished bump (or a leftover old tarball) fails here.
 - `Test<Service>_Embedded` — asserts each embedded chart's name/version/appVersion
   match the `embed.go` constants.
+- `TestClusterServiceImagesHonourImageRegistryPrefix` renders each chart with its
+  reconciler's values, with and without an image-registry prefix, and fails if
+  any image does not move under the prefix.
 
 The operator image `//go:embed`s these tarballs, so to test on a cluster rebuild
 the operator (`make image-operator`) and redeploy. For a real upgrade, also
