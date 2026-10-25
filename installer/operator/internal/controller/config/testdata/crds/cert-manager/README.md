@@ -6,15 +6,15 @@ Without them, the ClusterIssuer watch fails to establish at cache
 startup and the validator's Inline-mode ClusterIssuer code path is
 unreachable.
 
-**Source:** `github.com/cert-manager/cert-manager v1.20.2`,
+**Source:** `github.com/cert-manager/cert-manager v1.21.3`,
 files `deploy/crds/cert-manager.io_clusterissuers.yaml` and
 `deploy/crds/cert-manager.io_certificates.yaml` from the module cache.
 
 **Refresh:** when the operator's cert-manager Go module is bumped,
-copy the matching CRDs from the module cache into this directory:
+copy the two matching CRDs from the module cache into this directory:
 
 ```
-cp $(go env GOMODCACHE)/github.com/cert-manager/cert-manager@<version>/deploy/crds/cert-manager.io_*.yaml \
+cp $(go env GOMODCACHE)/github.com/cert-manager/cert-manager@<version>/deploy/crds/cert-manager.io_{clusterissuers,certificates}.yaml \
    installer/operator/internal/controller/config/testdata/crds/cert-manager/
 chmod +w installer/operator/internal/controller/config/testdata/crds/cert-manager/*.yaml
 ```

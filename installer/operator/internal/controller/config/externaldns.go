@@ -47,6 +47,13 @@ const (
 	externalDNSControllerDeploy = "external-dns"
 )
 
+// externalDNSImagePath is the chart's default image repository,
+// registry.k8s.io/external-dns/external-dns, without its registry
+// host. The chart has no registry override, only a full repository,
+// so the image-registry prefix is joined to this path. Verified
+// against chart 1.22.0.
+const externalDNSImagePath = "external-dns/external-dns"
+
 // errExternalDNSNotReady is the sentinel ensureExternalDNSReady
 // returns while the install is in flight. Same pattern as
 // errCertManagerNotReady / errContourNotReady.
@@ -178,6 +185,8 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Conte
 //   - serviceAccount.annotations for IRSA / Workload Identity, OR
 //     env vars referencing the user-provided Secret for static
 //     credentials.
+//   - spec.imageRegistry.prefix → image.repository, set to
+//     <prefix>/external-dns/external-dns (see externalDNSImagePath).
 func renderExternalDNSValues(obj *configv1alpha1.EducatesClusterConfig) map[string]any {
 	bedns := obj.Spec.DNS.BundledExternalDNS
 	domain := obj.Spec.Ingress.Domain
@@ -217,8 +226,8 @@ func renderExternalDNSValues(obj *configv1alpha1.EducatesClusterConfig) map[stri
 	// writes) and we leave it at the chart default of 1.
 
 	if obj.Spec.ImageRegistry != nil && obj.Spec.ImageRegistry.Prefix != "" {
-		values["global"] = map[string]any{
-			"imageRegistry": obj.Spec.ImageRegistry.Prefix,
+		values["image"] = map[string]any{
+			"repository": obj.Spec.ImageRegistry.Prefix + "/" + externalDNSImagePath,
 		}
 	}
 

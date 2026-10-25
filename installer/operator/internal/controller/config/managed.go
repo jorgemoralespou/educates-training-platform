@@ -422,13 +422,12 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 }
 
 // renderCertManagerValues builds the values map passed to the
-// cert-manager chart. Image-registry-prefix rewriting lands alongside
-// the rest of the Managed-mode CR fields in later commits; today the
-// function only sets values that are needed to make the Helm install
-// behave well under operator-driven reconciliation. (cert-manager has
-// no operational block: it spans controller + webhook + cainjector
-// Deployments, which a single shared shape can't tune — see
-// OperationalBlock in the API package.)
+// cert-manager chart: the values needed to make the Helm install
+// behave well under operator-driven reconciliation, the image-registry
+// prefix, and the ServiceAccount annotations for ACME DNS01 identity.
+// (cert-manager has no operational block: it spans controller +
+// webhook + cainjector Deployments, which a single shared shape can't
+// tune — see OperationalBlock in the API package.)
 //
 // crds.enabled=true: cert-manager v1.18+ defaults its CRDs to OFF
 // (`crds.enabled: false` in the vendored chart's values.yaml).
@@ -466,6 +465,13 @@ func (r *EducatesClusterConfigReconciler) reconcileCertManager(ctx context.Conte
 //     the install completes fast and the operator's own retry loop
 //     converges on its own cadence.
 //
+// imageRegistry: spec.imageRegistry.prefix replaces the chart's
+// imageRegistry (quay.io). The chart composes every image from
+// imageRegistry + imageNamespace (jetstack) + the image name,
+// including the ACME HTTP01 solver image it passes to the controller
+// as an argument, so each image lands at its upstream path under the
+// prefix: <prefix>/jetstack/cert-manager-controller.
+//
 // Kept as a standalone function so values-shape changes don't ripple
 // through reconcile control flow.
 func renderCertManagerValues(obj *configv1alpha1.EducatesClusterConfig) map[string]any {
@@ -477,6 +483,10 @@ func renderCertManagerValues(obj *configv1alpha1.EducatesClusterConfig) map[stri
 		"startupapicheck": map[string]any{
 			"enabled": false,
 		},
+	}
+
+	if obj != nil && obj.Spec.ImageRegistry != nil && obj.Spec.ImageRegistry.Prefix != "" {
+		values["imageRegistry"] = obj.Spec.ImageRegistry.Prefix
 	}
 
 	// ACME DNS01 with identity-based auth needs the cert-manager
