@@ -805,9 +805,9 @@ func TestPublishFiles_EntryWithoutDirectoryRefused(t *testing.T) {
 
 // The pattern syntax publish.files supports is doublestar v4.10.4's. A bump
 // of the library which changes what a pattern matches fails here before it
-// reaches workshop authors. Against doublestar v1, which publishing used
-// before, [!x] negates the class rather than naming ! and x, and dir/**
-// also matches a file named dir; everything else matches as it did.
+// reaches workshop authors. Among what the cases pin, [!x] negates the class
+// as [^x] does, rather than naming ! and x, and dir/** matches a file named
+// dir as well as everything under a directory of that name.
 func TestPublishFiles_PatternSyntax(t *testing.T) {
 	files := map[string]os.FileMode{}
 
