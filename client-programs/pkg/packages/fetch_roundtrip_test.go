@@ -2,71 +2,36 @@ package packages
 
 import (
 	"fmt"
-	"net/http/httptest"
-	"net/url"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
-	regname "github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/educates/educates-training-platform/client-programs/internal/testregistry"
 )
 
-// startRegistry runs an in-memory registry, so the round trip exercises a
-// real registry protocol without needing one running.
-func startRegistry(t *testing.T) string {
-	t.Helper()
-
-	server := httptest.NewServer(registry.New())
-
-	t.Cleanup(server.Close)
-
-	parsed, err := url.Parse(server.URL)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return parsed.Host
-}
-
-// publishForTest builds a package image from a source and pushes it, which is
-// what the publish command does, and returns the reference.
+// publishForTest publishes a package source through the publish command's
+// options, and returns the reference it was published as.
 func publishForTest(t *testing.T, host string, source string, tag string) string {
 	t.Helper()
 
-	build, err := BuildPackageImage(source, SupportedPlatforms, fixedTime())
+	// An empty Docker configuration keeps whatever credentials the machine
+	// running the tests holds out of the publish.
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
 
-	if err != nil {
-		t.Fatalf("unable to build the package image: %v", err)
+	options := PublishOptions{
+		Path:            source,
+		ImageRepository: host,
+		ImageTag:        tag,
 	}
 
-	reference, err := regname.NewTag(fmt.Sprintf("%s/argocd:%s", host, tag))
-
-	if err != nil {
-		t.Fatal(err)
+	if err := options.Publish(io.Discard); err != nil {
+		t.Fatalf("unable to publish the package image: %v", err)
 	}
 
-	for _, child := range build.Children {
-		digest, err := child.Image.Digest()
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if err := remote.Write(reference.Context().Digest(digest.String()), child.Image); err != nil {
-			t.Fatalf("unable to push a child image: %v", err)
-		}
-	}
-
-	if err := remote.WriteIndex(reference, build.Index); err != nil {
-		t.Fatalf("unable to push the index: %v", err)
-	}
-
-	return reference.Name()
+	return fmt.Sprintf("%s/argocd:%s", host, tag)
 }
 
 // A package image published by this CLI is fetched back with its modes and
@@ -83,7 +48,7 @@ func TestFetch_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 	reference := publishForTest(t, host, source, "v2.10.6")
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
@@ -154,7 +119,7 @@ func TestFetch_ResolvesRequestedPlatform(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 	reference := publishForTest(t, host, source, "v2.10.6")
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
@@ -199,7 +164,7 @@ func TestFetch_ReplacesExistingContents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 	reference := publishForTest(t, host, source, "v2.10.6")
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
@@ -240,7 +205,7 @@ func TestFetch_ReplacesExistingContents(t *testing.T) {
 // An image which is not a package image fails rather than leaving a session
 // subtly wrong.
 func TestFetch_MissingImageIsReported(t *testing.T) {
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
 

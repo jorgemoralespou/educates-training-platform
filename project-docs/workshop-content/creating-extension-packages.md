@@ -182,7 +182,8 @@ Use the ``educates package publish`` command when the files for each platform
 already exist before the build, such as a release binary downloaded for each
 architecture, or when the package has no architecture specific files at all.
 The command assembles every platform from one source directory, produces the
-same digests when run twice on the same source, and needs no Docker daemon.
+same digests when one version of it is run twice on the same source, and
+needs no Docker daemon.
 
 Use a ``Dockerfile`` built with ``docker buildx`` when the files have to be
 built for each architecture, such as a program compiled from source. Building
@@ -221,9 +222,12 @@ Digest: sha256:0b3ba8bda2efccccbf0b85f9ef65584f5d17f0410d0c4072f3f2d4b896f50479
   linux/arm64 sha256:145a722252c3840e66bb04eeb56fd0d7208ba664992b1650ff17d7af7beed1f0
 ```
 
-Two publishes of the same source produce the same digests, because file
-timestamps are fixed rather than taken from the file system. Set
-``SOURCE_DATE_EPOCH`` when a specific build timestamp is wanted instead.
+Two publishes of the same source with the same version of the ``educates``
+CLI produce the same digests, because file timestamps are fixed rather than
+taken from the file system. Set ``SOURCE_DATE_EPOCH`` when a specific build
+timestamp is wanted instead. A different version of the CLI can compress the
+image differently, and so give different digests for the same files. The
+release notes say when a version does.
 
 Use ``--platform`` to publish for one platform rather than all of them, for
 example ``--platform linux/arm64`` while developing on a machine of that
@@ -245,20 +249,24 @@ educates package publish ./argocd \
 ```
 
 Pass registry credentials with ``--registry-username`` and
-``--registry-password``, or ``--registry-token``, or leave them out where the
-environment already holds credentials for the registry. Use
-``--registry-anon`` for a registry which needs none. A registry using a
-private certificate authority is reached with ``--registry-ca-cert-path``, and
-``--registry-insecure`` allows plain HTTP, which is intended for a local
-registry rather than anything else.
+``--registry-password``, or ``--registry-token``, or leave them out to use the
+credentials ``docker login`` stored for the registry, including those from a
+credential helper named in the Docker configuration. Use ``--registry-anon``
+for a registry which needs none. A registry using a private certificate
+authority is reached with ``--registry-ca-cert-path``, which can be given more
+than once, and ``--registry-verify-certs=false`` skips certificate
+verification, for a test registry only. ``--registry-insecure`` allows plain
+HTTP, which is intended for a local registry rather than anything else. The
+image reference is always given without an ``http://`` or ``https://``
+prefix.
 
 ``--digest-file`` writes the digest of the published image index to a file, so
 a later step can refer to exactly what was published rather than to a tag
 which may move.
 
-Because a publish is reproducible, publishing the same source twice produces
-the same digest, and a pipeline which republishes an unchanged package does
-not produce a new image.
+Because a publish is reproducible, publishing the same source twice with the
+same version of the CLI produces the same digest, and a pipeline which
+republishes an unchanged package does not produce a new image.
 
 Building a package image with a Dockerfile
 ------------------------------------------

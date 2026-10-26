@@ -1,13 +1,11 @@
 package packages
 
 import (
-	"bytes"
-	"io"
 	"time"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/oci"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/pkg/errors"
 
@@ -40,6 +38,24 @@ type Build struct {
 	Children []Child
 	Index    regv1.ImageIndex
 	Ignored  []string
+
+	layers []*oci.Layer
+}
+
+// Close releases the temporary files holding the children's layers. The
+// children and the index cannot be read or pushed once the build is closed.
+func (b *Build) Close() error {
+	var first error
+
+	for _, layer := range b.layers {
+		if err := layer.Close(); err != nil && first == nil {
+			first = err
+		}
+	}
+
+	b.layers = nil
+
+	return first
 }
 
 // Metadata is the four keys every child and the index carry.
@@ -53,7 +69,8 @@ func Metadata(manifest *Manifest, timestamp time.Time) map[string]string {
 }
 
 // BuildPackageImage assembles the children and the index from a package
-// source. Nothing is contacted: the result is held in memory.
+// source. Nothing is contacted: each child's layer is held in a temporary
+// file until the build is closed.
 func BuildPackageImage(sourceDir string, platforms []Platform, timestamp time.Time) (*Build, error) {
 	manifest, manifestData, err := LoadManifest(sourceDir)
 
@@ -75,23 +92,22 @@ func BuildPackageImage(sourceDir string, platforms []Platform, timestamp time.Ti
 
 	var addenda []mutate.IndexAddendum
 
+	built := false
+
+	defer func() {
+		if !built {
+			build.Close()
+		}
+	}()
+
 	for _, platform := range platforms {
-		layerBytes, err := BuildLayer(sourceDir, platform, manifestData, timestamp)
+		layer, err := BuildLayer(sourceDir, platform, manifestData, timestamp)
 
 		if err != nil {
 			return nil, err
 		}
 
-		layer, err := tarball.LayerFromOpener(
-			func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(layerBytes)), nil
-			},
-			tarball.WithMediaType(types.OCILayer),
-		)
-
-		if err != nil {
-			return nil, errors.Wrapf(err, "unable to build the layer for %s", platform)
-		}
+		build.layers = append(build.layers, layer)
 
 		image, err := mutate.AppendLayers(mutate.MediaType(empty.Image, types.OCIManifestSchema1), layer)
 
@@ -140,6 +156,8 @@ func BuildPackageImage(sourceDir string, platforms []Platform, timestamp time.Ti
 	index = mutate.Annotations(index, metadata).(regv1.ImageIndex)
 
 	build.Index = index
+
+	built = true
 
 	return build, nil
 }

@@ -304,8 +304,9 @@ New Features
   takes a package source directory holding a ``package.yaml`` manifest beside
   the reserved ``common``, ``linux-amd64`` and ``linux-arm64`` directories, and
   publishes an image index with one child image per platform. No Docker daemon
-  is required. Two builds of the same source produce the same digests, and
-  ``SOURCE_DATE_EPOCH`` is honoured where a specific build timestamp is wanted.
+  is required. Two builds of the same source with the same version of the CLI
+  produce the same digests, and ``SOURCE_DATE_EPOCH`` is honoured where a
+  specific build timestamp is wanted.
   Use ``--dry-run`` to validate a package source and see the digests which
   would be published without contacting a registry, and ``--digest-file`` to
   record the published digest for a later step in a pipeline. A package whose
@@ -749,6 +750,62 @@ Features Changed
   when neither the cluster nor an override provides a CA. Set
   ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged node CA
   injector daemon set off.
+
+* ``educates workshop publish`` and ``educates package publish`` no longer
+  read any ``IMGPKG_*`` environment variable. Registry credentials come from
+  the ``--registry-username`` and ``--registry-password``,
+  ``--registry-token`` or ``--registry-anon`` flags, and otherwise from the
+  Docker configuration that ``docker login`` writes, including the
+  credential helpers it names. ``IMGPKG_USERNAME``, ``IMGPKG_PASSWORD``,
+  ``IMGPKG_TOKEN``, ``IMGPKG_ANON`` and the ``IMGPKG_REGISTRY_*``
+  credentials are ignored, as are ``IMGPKG_ENABLE_IAAS_AUTH`` and
+  ``IMGPKG_ACTIVE_KEYCHAINS``, which turned on credentials for Google,
+  Amazon ECR, Azure and GitHub registries. A pipeline which set one of them
+  should instead run ``docker login``, add a ``credHelpers`` entry for the
+  registry to the Docker configuration, such as ``ecr-login`` for Amazon ECR
+  or ``gcloud`` for Google Artifact Registry, or pass the ``--registry-*``
+  flags. Nothing is printed when one of these variables is set.
+
+* Workshop images published by ``educates workshop publish`` are now OCI
+  images: a single OCI image manifest, with an OCI image config and one OCI
+  layer holding the workshop files at its root, in place of the Docker media
+  types used before. In the layer, files are ``0755`` when they have any
+  execute bit set and ``0644`` otherwise, directories are ``0755``,
+  everything is owned by ``root``, and every entry carries the time given by
+  ``SOURCE_DATE_EPOCH``, or 1 January 2000 when it is not set. A directory
+  holding no files is left out. Publishing unchanged content again with the
+  same version of the CLI gives the same digest, but the first publish with
+  this version gives a different digest from a 3.x publish of the same
+  content.
+
+* ``educates workshop publish`` now leaves ``.DS_Store`` files and ``._*``
+  AppleDouble files out of the workshop image, wherever they are in the
+  workshop files. A symbolic link or a hard-linked file in the workshop files
+  fails the publish, and the error names every one found, so they can all be
+  fixed at once. Hard-linked files were previously published as separate
+  copies.
+
+* ``educates workshop publish`` now pushes the workshop image under the
+  requested tag only. The extra ``sha256-<hex>.imgpkg`` tag that was also
+  written to the image repository is no longer created.
+
+* The remote source types have been removed from ``spec.publish.files`` in
+  the workshop definition. ``educates workshop publish`` now assembles the
+  files itself and accepts only ``directory`` entries, and an entry using
+  ``git``, ``hg``, ``http``, ``image``, ``imgpkgBundle``, ``githubRelease``,
+  ``helmChart``, ``manual`` or ``inline`` fails the publish with an error
+  naming the entry. Files which were fetched from a remote source need to be
+  placed in the workshop directory, or in another local directory named by a
+  ``directory`` entry, before publishing. An entry whose ``path`` leads
+  outside of the image now also fails the publish. ``spec.workshop.files``,
+  which sessions download workshop content with, is unchanged.
+
+* In the ``includePaths``, ``excludePaths`` and ``legalPaths`` patterns of
+  ``spec.publish.files``, a class written as ``[!x]`` now matches any
+  character other than ``x``, the same as ``[^x]``, where it previously
+  matched ``!`` or ``x``. A pattern ending in ``dir/**`` now also matches a
+  file named ``dir``, as well as the files under a directory of that name.
+  Every other pattern matches the same files as before.
 
 Deprecations
 ------------

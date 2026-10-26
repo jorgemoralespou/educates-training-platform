@@ -100,7 +100,24 @@ The local-environment commands moved under grouped names:
 | educates delete-platform    | educates admin platform delete   |
 ```
 
-The workshop tooling (`educates publish-workshop`, `deploy-workshop`, `browse-workshops`, ...) is unchanged.
+The workshop tooling (`educates publish-workshop`, `deploy-workshop`,
+`browse-workshops`, ...) keeps its commands and options, but publishing a
+workshop changed in ways which can need action:
+
+* `spec.publish.files` in a workshop definition accepts only `directory`
+  entries. The remote source types, such as `git`, `http` and `image`, were
+  removed, so files fetched from a remote source need to be placed in the
+  workshop directory before publishing. In its patterns, `[!x]` now negates a
+  character class and `dir/**` also matches a file named `dir`. See
+  [publishing of workshop content](publishing-of-workshop-content).
+* The `IMGPKG_*` environment variables are no longer read. Registry
+  credentials come from the `--registry-*` options, or from the Docker
+  configuration that `docker login` writes and the credential helpers it
+  names.
+* Workshop images are published as OCI images, so the first publish gives a
+  different image digest from a v3 publish of the same content.
+  `.DS_Store` and `._*` files are left out, and a symbolic link or a
+  hard-linked file in the published files fails the publish.
 
 Removed in v4
 -------------

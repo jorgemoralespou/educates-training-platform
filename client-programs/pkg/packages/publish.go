@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	imgpkgcmd "carvel.dev/imgpkg/pkg/imgpkg/cmd"
-	"carvel.dev/imgpkg/pkg/imgpkg/registry"
+	"github.com/educates/educates-training-platform/client-programs/pkg/oci"
 	regname "github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/pkg/errors"
 )
 
@@ -40,7 +40,8 @@ type PublishOptions struct {
 	// DigestFile is a path to write the index digest to.
 	DigestFile string
 
-	RegistryFlags imgpkgcmd.RegistryFlags
+	// Registry says how the registry is reached.
+	Registry oci.RegistryOptions
 }
 
 // Publish assembles the package image and, unless this is a dry run, pushes
@@ -69,6 +70,8 @@ func (o *PublishOptions) Publish(stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	defer build.Close()
 
 	reference, err := o.reference(build.Manifest)
 
@@ -162,41 +165,19 @@ func (o *PublishOptions) reference(manifest *Manifest) (regname.Tag, error) {
 		value = fmt.Sprintf("%s/%s:%s", strings.TrimSuffix(repository, "/"), manifest.Name, tag)
 	}
 
-	reference, err := regname.NewTag(value)
-
-	if err != nil {
-		return regname.Tag{}, errors.Wrapf(err, "unable to parse the image reference %q", value)
-	}
-
-	return reference, nil
+	return o.Registry.ParseTag(value)
 }
 
 func (o *PublishOptions) push(reference regname.Tag, build *Build) error {
-	registryOpts := o.RegistryFlags.AsRegistryOpts()
-
-	simpleRegistry, err := registry.NewSimpleRegistry(registryOpts)
+	remoteOptions, err := o.Registry.RemoteOptions()
 
 	if err != nil {
-		return errors.Wrap(err, "unable to reach the image registry")
+		return err
 	}
 
-	// The children are written first so the index never refers to a manifest
-	// which is not yet present.
-	for _, child := range build.Children {
-		digest, err := child.Image.Digest()
-
-		if err != nil {
-			return errors.Wrapf(err, "unable to compute the digest for %s", child.Platform)
-		}
-
-		childReference := reference.Context().Digest(digest.String())
-
-		if err := simpleRegistry.WriteImage(childReference, child.Image, nil); err != nil {
-			return errors.Wrapf(err, "unable to publish the image for %s", child.Platform)
-		}
-	}
-
-	if err := simpleRegistry.WriteIndex(reference, build.Index); err != nil {
+	// The children are written before the index, so the index never refers
+	// to a manifest which is not yet present.
+	if err := remote.WriteIndex(reference, build.Index, remoteOptions...); err != nil {
 		return errors.Wrap(err, "unable to publish the package image")
 	}
 

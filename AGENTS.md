@@ -27,10 +27,11 @@ install path; the old v3 Carvel-based installer (kapp-controller) is gone.
   `client-programs/pkg/config/v1alpha1/schemas/`. Data home is
   `$XDG_DATA_HOME/educates/`, overridable via `EDUCATES_CLI_DATA_HOME`.
 
-**Carvel libraries still live in the CLI** (`carvel.dev/imgpkg`,
-`ytt`, `vendir`) — they power the **workshop tooling**
-(`educates {cluster,docker} workshop ...` commands for publish /
-deploy / serve). The install path no longer touches them.
+**ytt is the only Carvel library in the CLI.** It templates workshop
+definitions for the workshop commands (the `--data-value*` flags). The
+CLI builds and pushes workshop and extension package images itself, with
+go-containerregistry. Sessions still download content with the vendir
+and imgpkg binaries in the base image (`workshop-images/`).
 
 **The Educates runtime is Python/kopf/Django.** Components in
 `session-manager/`, `secrets-manager/`, `lookup-service/`,
@@ -239,8 +240,8 @@ The installer has three layers:
 
 - **client-programs/** — Go CLI (`educates`). Holds the install pipeline
   (load → translate → helm install + apply CRs + wait Ready) and the
-  workshop tooling (publish, deploy, render — these still use carvel libs
-  for OCI bundles, file sync and templating).
+  workshop tooling (publish, deploy, render), which templates workshop
+  definitions with ytt and builds and pushes images through `pkg/oci`.
 
 ### Go workspace
 
@@ -399,6 +400,19 @@ components knowing the difference.
   `EducatesClusterConfig.spec.imageRegistry.prefix` field.
 - Don't replicate `kbld`-style runtime digest resolution in the operator;
   pin in published values files instead.
+
+**Workshop and package images:**
+- `client-programs/pkg/oci` holds the one reproducible layer builder that
+  `educates workshop publish` and `educates package publish` share, and
+  the `--registry-*` options both commands bind.
+- Package image digests are part of the extension package image contract
+  (ADRs 0003 and 0007 in `developer-docs/adr/`): the same source keeps
+  giving the same digests under one Go release.
+  `client-programs/pkg/packages/build_golden_test.go` pins them for each
+  Go release. A code change that fails it moves the digest of every
+  republished package. A Go upgrade that fails it records the new
+  release's digests, and its release notes say that package and workshop
+  image digests change.
 
 **Local dev environment:**
 - Local kind cluster expects port 5001 for the local Docker registry.

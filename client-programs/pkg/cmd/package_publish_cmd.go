@@ -92,66 +92,66 @@ func (p *ProjectInfo) NewPackagePublishCmd() *cobra.Command {
 	)
 
 	c.Flags().StringSliceVar(
-		&o.RegistryFlags.CACertPaths,
+		&o.Registry.CACertPaths,
 		"registry-ca-cert-path",
 		nil,
 		"Add CA certificates for registry API",
 	)
 
 	c.Flags().BoolVar(
-		&o.RegistryFlags.VerifyCerts,
+		&o.Registry.VerifyCerts,
 		"registry-verify-certs",
 		true,
 		"Set whether to verify server's certificate chain and host name",
 	)
 
 	c.Flags().BoolVar(
-		&o.RegistryFlags.Insecure,
+		&o.Registry.Insecure,
 		"registry-insecure",
 		false,
 		"Allow the use of http when interacting with registries",
 	)
 
 	c.Flags().StringVar(
-		&o.RegistryFlags.Username,
+		&o.Registry.Username,
 		"registry-username",
 		"",
 		"Set username for registry authentication",
 	)
 
 	c.Flags().StringVar(
-		&o.RegistryFlags.Password,
+		&o.Registry.Password,
 		"registry-password",
 		"",
 		"Set password for registry authentication",
 	)
 
 	c.Flags().StringVar(
-		&o.RegistryFlags.Token,
+		&o.Registry.Token,
 		"registry-token",
 		"",
 		"Set token for registry authentication",
 	)
 
 	c.Flags().BoolVar(
-		&o.RegistryFlags.Anon,
+		&o.Registry.Anon,
 		"registry-anon",
 		false,
 		"Set anonymous registry authentication",
 	)
 
 	c.Flags().DurationVar(
-		&o.RegistryFlags.ResponseHeaderTimeout,
+		&o.Registry.ResponseHeaderTimeout,
 		"registry-response-header-timeout",
 		30*time.Second,
 		"Maximum time to allow a request to wait for a server's response headers from the registry",
 	)
 
 	c.Flags().IntVar(
-		&o.RegistryFlags.RetryCount,
+		&o.Registry.RetryCount,
 		"registry-retry-count",
 		5,
-		"Set the number of times imgpkg retries to send requests to the registry in case of an error",
+		"Set the number of tries for each request to the registry before giving up on an error",
 	)
 
 	return c
