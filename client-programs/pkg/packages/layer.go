@@ -1,17 +1,13 @@
 package packages
 
 import (
-	"archive/tar"
-	"bytes"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"github.com/educates/educates-training-platform/client-programs/pkg/oci"
 	"github.com/pkg/errors"
 )
 
@@ -58,49 +54,21 @@ func ParsePlatform(value string) (Platform, error) {
 }
 
 // defaultTimestamp is the fixed modification time used for every entry when
-// SOURCE_DATE_EPOCH is not set, so that two builds of the same source produce
-// the same digests. It must be positive: a negative epoch makes tar skip
-// entries and yields an empty layer.
-var defaultTimestamp = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+// SOURCE_DATE_EPOCH is not set.
+var defaultTimestamp = oci.DefaultTimestamp
 
-// Timestamp returns the fixed time to stamp on every entry, honouring the
-// reproducible builds convention when SOURCE_DATE_EPOCH is set.
+// Timestamp returns the fixed time to stamp on every entry and on the image,
+// honouring the reproducible builds convention when SOURCE_DATE_EPOCH is set.
 func Timestamp(environ func(string) string) (time.Time, error) {
-	value := environ("SOURCE_DATE_EPOCH")
-
-	if value == "" {
-		return defaultTimestamp, nil
-	}
-
-	seconds, err := strconv.ParseInt(value, 10, 64)
-
-	if err != nil {
-		return time.Time{}, errors.Wrapf(err, "unable to parse SOURCE_DATE_EPOCH %q", value)
-	}
-
-	if seconds <= 0 {
-		return time.Time{}, errors.Errorf("SOURCE_DATE_EPOCH must be a positive number of seconds, got %q", value)
-	}
-
-	return time.Unix(seconds, 0).UTC(), nil
-}
-
-// sourceEntry is one file destined for a child image, keyed by the path it
-// will occupy in the image.
-type sourceEntry struct {
-	imagePath  string
-	sourcePath string
-	mode       os.FileMode
-	isDir      bool
+	return oci.Timestamp(environ)
 }
 
 // collectEntries overlays the common directory with a platform directory,
-// platform winning on conflict, and reports every entry which the contract
-// forbids.
-func collectEntries(sourceDir string, platform Platform) ([]sourceEntry, error) {
-	entries := map[string]sourceEntry{}
-
-	var rejected []string
+// platform winning on conflict. Every directory walked gets an entry, empty
+// ones included, and every other item becomes a file entry for the layer
+// builder to publish or refuse.
+func collectEntries(sourceDir string, platform Platform) ([]oci.LayerEntry, error) {
+	entries := map[string]oci.LayerEntry{}
 
 	for _, dirName := range []string{CommonDirName, platform.DirName()} {
 		root := filepath.Join(sourceDir, dirName)
@@ -138,7 +106,9 @@ func collectEntries(sourceDir string, platform Platform) ([]sourceEntry, error) 
 
 			imagePath := filepath.ToSlash(relative)
 
-			if isIgnoredFile(path.Base(imagePath)) {
+			// The layer builder skips these too, but pruning them here keeps a
+			// source holding nothing else from passing as having files.
+			if oci.IsSkippedName(info.Name()) {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}
@@ -146,24 +116,10 @@ func collectEntries(sourceDir string, platform Platform) ([]sourceEntry, error) 
 				return nil
 			}
 
-			mode := info.Mode()
-
-			switch {
-			case mode.IsDir():
-				entries[imagePath] = sourceEntry{imagePath: imagePath, sourcePath: sourcePath, isDir: true}
-			case mode.IsRegular():
-				// A hard link is an ordinary file as far as the mode is
-				// concerned, so it is caught by its link count.
-				if isHardLink(info) {
-					rejected = append(rejected, filepath.ToSlash(filepath.Join(dirName, relative))+" is a hard link")
-					return nil
-				}
-
-				entries[imagePath] = sourceEntry{imagePath: imagePath, sourcePath: sourcePath, mode: mode}
-			default:
-				// Symlinks, devices, sockets and named pipes cannot survive
-				// both deliveries, so they are rejected rather than dropped.
-				rejected = append(rejected, describeRejected(dirName, relative, mode))
+			if info.IsDir() {
+				entries[imagePath] = oci.LayerEntry{Path: imagePath, Directory: true}
+			} else {
+				entries[imagePath] = oci.LayerEntry{Path: imagePath, Source: sourcePath}
 			}
 
 			return nil
@@ -174,65 +130,19 @@ func collectEntries(sourceDir string, platform Platform) ([]sourceEntry, error) 
 		}
 	}
 
-	if len(rejected) != 0 {
-		sort.Strings(rejected)
-
-		return nil, errors.Errorf("the package source contains entries which cannot be published: %s", strings.Join(rejected, ", "))
-	}
-
-	ordered := make([]sourceEntry, 0, len(entries))
+	ordered := make([]oci.LayerEntry, 0, len(entries))
 
 	for _, entry := range entries {
 		ordered = append(ordered, entry)
 	}
 
-	// A stable order keeps the layer digest reproducible.
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].imagePath < ordered[j].imagePath })
-
 	return ordered, nil
 }
 
-// isHardLink reports a regular file with more than one directory entry
-// pointing at it. Such a file would be published as an independent copy under
-// an image mount but silently dropped by a vendir fetch, so the contract
-// refuses it. Where the link count is not available the file is accepted,
-// which is the behaviour on a filesystem that does not report one.
-func isHardLink(info os.FileInfo) bool {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-
-	if !ok {
-		return false
-	}
-
-	return stat.Nlink > 1
-}
-
-func describeRejected(dirName string, relative string, mode os.FileMode) string {
-	kind := "an unsupported file type"
-
-	switch {
-	case mode&os.ModeSymlink != 0:
-		kind = "a symbolic link"
-	case mode&os.ModeDevice != 0:
-		kind = "a device"
-	case mode&os.ModeNamedPipe != 0:
-		kind = "a named pipe"
-	case mode&os.ModeSocket != 0:
-		kind = "a socket"
-	}
-
-	return filepath.ToSlash(filepath.Join(dirName, relative)) + " is " + kind
-}
-
-// isIgnoredFile reports the macOS artefacts which are always skipped. Nothing
-// else starting with a dot is skipped, so a package may ship dotfiles.
-func isIgnoredFile(name string) bool {
-	return name == ".DS_Store" || strings.HasPrefix(name, "._")
-}
-
-// BuildLayer writes the tar for one platform child. Ownership is root, modes
-// are normalised, and every entry carries the same fixed timestamp.
-func BuildLayer(sourceDir string, platform Platform, manifest []byte, timestamp time.Time) ([]byte, error) {
+// BuildLayer writes the layer for one platform child: the common directory
+// overlaid with the platform directory, then the manifest at the image root.
+// The caller closes the layer once it has been pushed.
+func BuildLayer(sourceDir string, platform Platform, manifest []byte, timestamp time.Time) (*oci.Layer, error) {
 	entries, err := collectEntries(sourceDir, platform)
 
 	if err != nil {
@@ -243,85 +153,15 @@ func BuildLayer(sourceDir string, platform Platform, manifest []byte, timestamp 
 		return nil, errors.Errorf("the package source has no files for %s, only the manifest would be published", platform)
 	}
 
-	buffer := &bytes.Buffer{}
-	writer := tar.NewWriter(buffer)
+	// The manifest is copied to the image root under both deliveries, after
+	// everything else.
+	layer, err := oci.BuildLayer(entries, timestamp, oci.AppendFile(ManifestFileName, manifest))
 
-	for _, entry := range entries {
-		header := &tar.Header{
-			Name:    entry.imagePath,
-			ModTime: timestamp,
-			Uid:     0,
-			Gid:     0,
-			Uname:   "root",
-			Gname:   "root",
-			Format:  tar.FormatPAX,
-		}
-
-		if entry.isDir {
-			header.Typeflag = tar.TypeDir
-			header.Name = entry.imagePath + "/"
-			header.Mode = 0o755
-
-			if err := writer.WriteHeader(header); err != nil {
-				return nil, errors.Wrapf(err, "unable to write the directory %s", entry.imagePath)
-			}
-
-			continue
-		}
-
-		contents, err := os.ReadFile(entry.sourcePath)
-
-		if err != nil {
-			return nil, errors.Wrapf(err, "unable to read %s", entry.sourcePath)
-		}
-
-		header.Typeflag = tar.TypeReg
-		header.Size = int64(len(contents))
-
-		// Any execute bit in the source makes the file executable for
-		// everyone; otherwise it is readable for everyone.
-		if entry.mode&0o111 != 0 {
-			header.Mode = 0o755
-		} else {
-			header.Mode = 0o644
-		}
-
-		if err := writer.WriteHeader(header); err != nil {
-			return nil, errors.Wrapf(err, "unable to write the header for %s", entry.imagePath)
-		}
-
-		if _, err := writer.Write(contents); err != nil {
-			return nil, errors.Wrapf(err, "unable to write %s", entry.imagePath)
-		}
+	if err != nil {
+		return nil, errors.Wrapf(err, "unable to build the layer for %s", platform)
 	}
 
-	// The manifest is copied to the image root under both deliveries.
-	manifestHeader := &tar.Header{
-		Name:     ManifestFileName,
-		Typeflag: tar.TypeReg,
-		Mode:     0o644,
-		Size:     int64(len(manifest)),
-		ModTime:  timestamp,
-		Uid:      0,
-		Gid:      0,
-		Uname:    "root",
-		Gname:    "root",
-		Format:   tar.FormatPAX,
-	}
-
-	if err := writer.WriteHeader(manifestHeader); err != nil {
-		return nil, errors.Wrapf(err, "unable to write the header for %s", ManifestFileName)
-	}
-
-	if _, err := writer.Write(manifest); err != nil {
-		return nil, errors.Wrapf(err, "unable to write %s", ManifestFileName)
-	}
-
-	if err := writer.Close(); err != nil {
-		return nil, errors.Wrap(err, "unable to complete the package layer")
-	}
-
-	return buffer.Bytes(), nil
+	return layer, nil
 }
 
 // IgnoredRootEntries lists what was found beside the reserved directories and
@@ -342,7 +182,7 @@ func IgnoredRootEntries(sourceDir string) ([]string, error) {
 	var ignored []string
 
 	for _, item := range items {
-		if reserved[item.Name()] || isIgnoredFile(item.Name()) {
+		if reserved[item.Name()] || oci.IsSkippedName(item.Name()) {
 			continue
 		}
 
