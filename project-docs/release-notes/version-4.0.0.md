@@ -750,6 +750,21 @@ Features Changed
   ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged node CA
   injector daemon set off.
 
+* ``educates package publish`` no longer reads any ``IMGPKG_*`` environment
+  variable. Registry credentials come from the ``--registry-username`` and
+  ``--registry-password``, ``--registry-token`` or ``--registry-anon``
+  flags, and otherwise from the Docker configuration that ``docker login``
+  writes, including the credential helpers it names. ``IMGPKG_USERNAME``,
+  ``IMGPKG_PASSWORD``, ``IMGPKG_TOKEN``, ``IMGPKG_ANON`` and the
+  ``IMGPKG_REGISTRY_*`` credentials are ignored, as are
+  ``IMGPKG_ENABLE_IAAS_AUTH`` and ``IMGPKG_ACTIVE_KEYCHAINS``, which turned
+  on credentials for Google, Amazon ECR, Azure and GitHub registries. A
+  pipeline which set one of them should instead run ``docker login``, add a
+  ``credHelpers`` entry for the registry to the Docker configuration, such
+  as ``ecr-login`` for Amazon ECR or ``gcloud`` for Google Artifact
+  Registry, or pass the ``--registry-*`` flags. Nothing is printed when one
+  of these variables is set.
+
 Deprecations
 ------------
 
