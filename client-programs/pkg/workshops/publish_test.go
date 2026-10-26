@@ -231,22 +231,10 @@ func TestPublish_WorkshopDirectory(t *testing.T) {
 		}
 	}
 
-	tag, err := regname.NewTag(reference)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	descriptor, err := remote.Head(tag)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	want := fmt.Sprintf("Processing workshop with name \"lab-example\".\n"+
 		"Publishing workshop files to %q.\n"+
 		"Pushed '%s/lab-example-files@%s'\n"+
-		"\n", reference, host, descriptor.Digest)
+		"\n", reference, host, pushedDigest(t, reference))
 
 	if output != want {
 		t.Errorf("unexpected output\n got: %q\nwant: %q", output, want)
