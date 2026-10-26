@@ -1,6 +1,11 @@
 The extension package image contract
 ====================================
 
+Superseded in part by
+[0007 - Image digests are reproducible within one Go release](0007-image-digests-are-reproducible-within-one-go-release.md):
+two publishes of one source give the same digests when the CLI that runs
+them was built with one Go release.
+
 An extension package image is an OCI image index with one child per supported
 platform, built from a source directory holding a ``package.yaml`` manifest
 beside the reserved ``common``, ``linux-amd64`` and ``linux-arm64``

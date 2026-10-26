@@ -30,3 +30,4 @@ Records
 * [0004 - CA trust reaches components only through a key-free Secret the operator owns](0004-ca-trust-reaches-components-only-through-a-key-free-secret.md)
 * [0005 - Local CA roots stay on the laptop; clusters receive per-domain intermediates](0005-local-ca-roots-stay-on-the-laptop.md)
 * [0006 - How each cluster service is provided is fixed for the life of an install](0006-cluster-service-providers-are-fixed-for-the-life-of-an-install.md)
+* [0007 - Image digests are reproducible within one Go release](0007-image-digests-are-reproducible-within-one-go-release.md)
