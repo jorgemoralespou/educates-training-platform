@@ -256,7 +256,11 @@ spec:
 
 In this case the ``$(image_repository)`` and ``$(workshop_version)`` data variables references are special to the workflow for working on and publishing workshop content using the ``educates`` CLI. However, even if not using the local image registry this format should still be used. The values can be overridden using command line options when using ``educates publish-workshop``.
 
-To customize what is included in the OCI artefact image, a ``publish.files`` section should be provided. Like with ``workshop.files`` this is a ``vendir`` configuration snippet but instead of downloading files from a remote location, it is used to construct the content to be included from the local file system. The equivalent for the default behaviour of packaging up the whole workshop directory would be:
+To customize what is included in the OCI artefact image, a ``publish.files``
+section should be provided. It is a list of entries, each naming a directory
+on the local file system to take files from, which of its files to take, and
+where to place them in the image. The equivalent for the default behaviour of
+packaging up the whole workshop directory would be:
 
 ```yaml
 spec:
@@ -282,9 +286,113 @@ spec:
       - /README.md
 ```
 
-The ``vendir`` program will be run with this configuration to make a copy of the files into a temporary area, from which the workshop image is then built. A ``.git`` directory at the top of the copied files is not included in the image.
+Each entry in ``publish.files`` can have the following properties:
 
-Because ``vendir`` is used, if desired, files could also be downloaded from remote sources to be incorporated into the workshop OCI image artefact.
+* ``directory.path`` - The directory to take files from. A relative path is
+  taken from the workshop directory, whatever directory the command is run
+  from, and an absolute path is used as it is. The directory can lie outside
+  of the workshop directory, so content shared by several workshops can be
+  kept elsewhere, and it can be named through a symbolic link. This property
+  is required.
+* ``path`` - Where to place the files in the image, relative to the root of
+  the image. A leading ``/`` also stands for the root of the image. When it
+  is not given, the files are placed at the root of the image. A path which
+  leads outside of the image, such as ``../files``, is an error.
+* ``includePaths`` - Patterns for the files to include. When it is not given,
+  every file is included.
+* ``excludePaths`` - Patterns for the files to leave out, even when they
+  match ``includePaths``.
+* ``legalPaths`` - Patterns for files to include whatever ``includePaths``
+  and ``excludePaths`` say. When it is not given, any of the files
+  ``LICENSE``, ``LICENCE``, ``License``, ``Licence``, ``COPYRIGHT``,
+  ``Copyright``, ``NOTICE`` and ``Notice``, with no extension or with a
+  ``.md``, ``.txt`` or ``.rst`` extension, found at the top of the directory
+  is included in this way. Set ``legalPaths`` to an empty list, ``[]``, to
+  include no file in this way.
+* ``newRootPath`` - A directory, relative to the top of the directory the
+  files are taken from, to use as the top of the files once ``includePaths``,
+  ``excludePaths`` and ``legalPaths`` have selected them. Only the selected
+  files under it are kept, legal files included, and they are placed in the
+  image relative to it. The directory must exist and cannot lead outside of
+  the directory the files are taken from.
+
+Any other property of an entry is ignored, including ``lazy``,
+``ignorePaths`` and ``permissions``.
+
+Patterns are matched against the path of each file relative to the top of the
+directory the files are taken from, using ``/`` to separate directories on
+every platform. A leading ``/`` stands for the top of the directory, and a
+trailing ``/`` is ignored. Patterns are matched against files only, never
+against directories, so a pattern naming a directory matches nothing by
+itself, and ``/workshop/**`` is the way to include the files under the
+``workshop`` directory. Patterns are case sensitive, and names starting with
+``.`` are matched like any other name. A pattern can use:
+
+* ``*`` - Matches any sequence of characters other than ``/``, so ``*.md``
+  matches only the Markdown files at the top of the directory.
+* ``**`` - Matches zero or more directories when it makes up a whole part of
+  the path, as in ``**/*.md`` or ``/workshop/**``. A pattern ending in
+  ``/**``, such as ``/exercises/**``, also matches a file which has the name
+  of the directory, here a file named ``exercises``. Within a part of the
+  path, as in ``**.md``, it acts as ``*``.
+* ``?`` - Matches any single character other than ``/``.
+* ``[...]`` - Matches any single character in the class, which can list
+  characters and ranges of characters, as in ``[a-z0-9_]``. A class starting
+  with ``^`` or ``!``, as in ``[^0-9]`` or ``[!0-9]``, matches any single
+  character other than ``/`` which is not in the class.
+* ``{a,b}`` - Matches any one of the comma separated alternatives, each of
+  which can itself be a pattern, as in ``/{workshop,exercises}/**``.
+  Alternatives can be nested, and an alternative can be empty, so
+  ``README{.md,}`` matches both ``README.md`` and ``README``.
+* ``\`` - Makes the character after it match only itself, as in ``\*`` or
+  ``\[``.
+
+Entries are applied in order. Each entry first removes whatever earlier
+entries placed at or under its ``path``, then adds its own files. A later
+entry can therefore replace a directory within what an earlier entry placed,
+an entry whose ``path`` is above what earlier entries placed replaces all of
+it, and of two entries with the same ``path`` the last one wins. An entry
+whose ``path`` lies under a file an earlier entry placed is an error. A
+directory which ends up holding no files is not included in the image, and an
+entry which selects no files is an error, so that a mistyped pattern does not
+publish an incomplete workshop.
+
+For example, to publish the usual workshop files together with exercises kept
+in a directory beside the workshop directory, placed under
+``exercises/shared`` in the image:
+
+```yaml
+spec:
+  publish:
+    image: $(image_repository)/lab-hugo-workshop-files:$(workshop_version)
+    files:
+    - directory:
+        path: .
+      includePaths:
+      - /workshop/**
+      - /exercises/**
+      - /README.md
+    - path: exercises/shared
+      directory:
+        path: ../shared-exercises
+```
+
+A ``.git`` directory at the root of the image is never included. Files are
+read from where they are, and the rules for the whole workshop directory
+apply to them as well: ``.DS_Store`` and ``._*`` files are left out, and
+publishing fails if the selected files include a symbolic link or a
+hard-linked file, naming every one it found. Files which are not selected are
+not checked.
+
+Only ``directory`` entries are supported. The remote source types, ``git``,
+``hg``, ``http``, ``image``, ``imgpkgBundle``, ``githubRelease``,
+``helmChart``, ``manual`` and ``inline``, were removed from ``publish.files``
+in Educates 4.0.0, and an entry using one fails the publish with an error
+naming the entry. Place files which were downloaded from a remote source in
+the workshop directory, or in another local directory named by a
+``directory`` entry, before publishing. This does not affect
+``workshop.files``, which still downloads workshop content from remote
+sources when a workshop session starts.
 
 When running ``educates publish-workshop``, if the ``--export-workshop`` option is provided along with an output file name, a modified version of the workshop definition be output which has been rewritten to use the location to which the workshop has been published. This modified version of the workshop definition can then be used to deploy the workshop from its published location.
 
