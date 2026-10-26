@@ -150,9 +150,9 @@ func TestPublishOptions_RegistryBasicAuth(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			testregistry.WithoutDockerConfig(t)
 
-			host, direct := testregistry.StartBehind(t, testregistry.RequireAuthorization(test.want, "Basic"))
+			hosts := testregistry.StartBehind(t, testregistry.RequireAuthorization(test.want, "Basic"))
 
-			digestFile, err := publishTo(t, host, test.registry)
+			digestFile, err := publishTo(t, hosts.Publish, test.registry)
 
 			if test.wantErr {
 				if err == nil {
@@ -165,7 +165,7 @@ func TestPublishOptions_RegistryBasicAuth(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			assertPublished(t, direct, digestFile)
+			assertPublished(t, hosts.Direct, digestFile)
 		})
 	}
 }
@@ -173,17 +173,17 @@ func TestPublishOptions_RegistryBasicAuth(t *testing.T) {
 // With no credentials given, those docker login left in the Docker
 // configuration are used.
 func TestPublishOptions_RegistryDockerConfig(t *testing.T) {
-	host, direct := testregistry.StartBehind(t, testregistry.RequireAuthorization(testregistry.BasicAuthorization("author", "secret"), "Basic"))
+	hosts := testregistry.StartBehind(t, testregistry.RequireAuthorization(testregistry.BasicAuthorization("author", "secret"), "Basic"))
 
-	testregistry.WithDockerConfig(t, host, "author", "secret")
+	testregistry.WithDockerConfig(t, hosts.Publish, "author", "secret")
 
-	digestFile, err := publishTo(t, host, oci.RegistryOptions{})
+	digestFile, err := publishTo(t, hosts.Publish, oci.RegistryOptions{})
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertPublished(t, direct, digestFile)
+	assertPublished(t, hosts.Direct, digestFile)
 }
 
 // Anonymous access sends no credentials, even those the Docker configuration
@@ -206,11 +206,11 @@ func TestPublishOptions_RegistryAnon(t *testing.T) {
 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			host, direct := testregistry.StartBehind(t, testregistry.RefuseCredentials)
+			hosts := testregistry.StartBehind(t, testregistry.RefuseCredentials)
 
-			testregistry.WithDockerConfig(t, host, "author", "secret")
+			testregistry.WithDockerConfig(t, hosts.Publish, "author", "secret")
 
-			digestFile, err := publishTo(t, host, test.registry)
+			digestFile, err := publishTo(t, hosts.Publish, test.registry)
 
 			if test.wantErr {
 				if err == nil {
@@ -223,7 +223,7 @@ func TestPublishOptions_RegistryAnon(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			assertPublished(t, direct, digestFile)
+			assertPublished(t, hosts.Direct, digestFile)
 		})
 	}
 }
@@ -231,7 +231,7 @@ func TestPublishOptions_RegistryAnon(t *testing.T) {
 // A registry whose certificate no system trusts is reached by trusting its
 // certificate authority, or by not verifying certificates at all.
 func TestPublishOptions_RegistryTLS(t *testing.T) {
-	host, direct, caFile := testregistry.StartTLS(t)
+	hosts := testregistry.StartTLS(t)
 
 	otherCAFile := testregistry.OtherCAFile(t)
 
@@ -242,11 +242,11 @@ func TestPublishOptions_RegistryTLS(t *testing.T) {
 	}{
 		{
 			name:     "its certificate authority trusted",
-			registry: oci.RegistryOptions{VerifyCerts: true, CACertPaths: []string{caFile}},
+			registry: oci.RegistryOptions{VerifyCerts: true, CACertPaths: []string{hosts.CAFile}},
 		},
 		{
 			name:     "its certificate authority trusted beside another",
-			registry: oci.RegistryOptions{VerifyCerts: true, CACertPaths: []string{otherCAFile, caFile}},
+			registry: oci.RegistryOptions{VerifyCerts: true, CACertPaths: []string{otherCAFile, hosts.CAFile}},
 		},
 		{
 			name:     "certificates not verified",
@@ -268,7 +268,7 @@ func TestPublishOptions_RegistryTLS(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			testregistry.WithoutDockerConfig(t)
 
-			digestFile, err := publishTo(t, host, test.registry)
+			digestFile, err := publishTo(t, hosts.Publish, test.registry)
 
 			if test.wantErr {
 				if err == nil {
@@ -281,7 +281,7 @@ func TestPublishOptions_RegistryTLS(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			assertPublished(t, direct, digestFile)
+			assertPublished(t, hosts.Direct, digestFile)
 		})
 	}
 }
@@ -360,9 +360,9 @@ func TestPublishOptions_RegistryRetryCount(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			testregistry.WithoutDockerConfig(t)
 
-			host, direct := testregistry.StartBehind(t, testregistry.FailFirst(test.failures))
+			hosts := testregistry.StartBehind(t, testregistry.FailFirst(test.failures))
 
-			digestFile, err := publishTo(t, host, oci.RegistryOptions{RetryCount: test.retryCount})
+			digestFile, err := publishTo(t, hosts.Publish, oci.RegistryOptions{RetryCount: test.retryCount})
 
 			if test.wantErr {
 				if err == nil {
@@ -375,7 +375,7 @@ func TestPublishOptions_RegistryRetryCount(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			assertPublished(t, direct, digestFile)
+			assertPublished(t, hosts.Direct, digestFile)
 		})
 	}
 }
@@ -423,9 +423,9 @@ func TestPublishOptions_RegistryToken(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			testregistry.WithoutDockerConfig(t)
 
-			host, direct := testregistry.StartBehind(t, testregistry.RequireAuthorization("Bearer issued-token", "Bearer"))
+			hosts := testregistry.StartBehind(t, testregistry.RequireAuthorization("Bearer issued-token", "Bearer"))
 
-			digestFile, err := publishTo(t, host, test.registry)
+			digestFile, err := publishTo(t, hosts.Publish, test.registry)
 
 			if test.wantErr {
 				if err == nil {
@@ -438,7 +438,7 @@ func TestPublishOptions_RegistryToken(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			assertPublished(t, direct, digestFile)
+			assertPublished(t, hosts.Direct, digestFile)
 		})
 	}
 }

@@ -35,10 +35,29 @@ func Start(t *testing.T) string {
 	return serverHost(t, server)
 }
 
-// StartBehind runs the in-process registry behind a wrapper. It returns the
-// host to publish to, and a second host serving the same storage directly,
-// from which a test reads back what was published.
-func StartBehind(t *testing.T, wrap func(http.Handler) http.Handler) (string, string) {
+// Hosts are the two hosts serving the storage of an in-process registry.
+type Hosts struct {
+	// Publish is the host to publish to, which stands in for the registry
+	// under test.
+	Publish string
+
+	// Direct serves the same storage over plain http, as it is, for a test
+	// to read back what was published.
+	Direct string
+}
+
+// TLSHosts are the hosts of an in-process registry served over TLS, and the
+// certificate it serves.
+type TLSHosts struct {
+	Hosts
+
+	// CAFile is a PEM file holding the certificate the Publish host serves.
+	CAFile string
+}
+
+// StartBehind runs the in-process registry behind a wrapper, which the
+// Publish host serves.
+func StartBehind(t *testing.T, wrap func(http.Handler) http.Handler) Hosts {
 	t.Helper()
 
 	storage := registry.New()
@@ -49,14 +68,12 @@ func StartBehind(t *testing.T, wrap func(http.Handler) http.Handler) (string, st
 	direct := httptest.NewServer(storage)
 	t.Cleanup(direct.Close)
 
-	return serverHost(t, wrapped), serverHost(t, direct)
+	return Hosts{Publish: serverHost(t, wrapped), Direct: serverHost(t, direct)}
 }
 
-// StartTLS runs the in-process registry over TLS, with a certificate no
-// system trusts. It returns the host to publish to, a host serving the same
-// storage over http to read back from, and a PEM file holding the
-// certificate.
-func StartTLS(t *testing.T) (string, string, string) {
+// StartTLS runs the in-process registry over TLS on the Publish host, with a
+// certificate no system trusts.
+func StartTLS(t *testing.T) TLSHosts {
 	t.Helper()
 
 	storage := registry.New()
@@ -71,7 +88,10 @@ func StartTLS(t *testing.T) (string, string, string) {
 
 	writeFile(t, caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: secured.Certificate().Raw}))
 
-	return serverHost(t, secured), serverHost(t, direct), caFile
+	return TLSHosts{
+		Hosts:  Hosts{Publish: serverHost(t, secured), Direct: serverHost(t, direct)},
+		CAFile: caFile,
+	}
 }
 
 // OtherCAFile writes a PEM file holding a certificate authority which signed
