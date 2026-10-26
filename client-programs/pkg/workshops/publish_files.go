@@ -91,7 +91,7 @@ func filesEntries(workshopDir string, fileArtifacts []interface{}) ([]oci.LayerE
 			return nil, err
 		}
 
-		files, err := sourceFiles(sourceDirectory)
+		files, err := sourceFiles(sourceDirectory, nil)
 
 		if err != nil {
 			return nil, errors.Wrapf(err, "unable to read the files of %s", position)
@@ -122,21 +122,7 @@ func filesEntries(workshopDir string, fileArtifacts []interface{}) ([]oci.LayerE
 		}
 	}
 
-	var entries []oci.LayerEntry
-
-	directories := map[string]bool{}
-
-	for imagePath, source := range assembled {
-		if isAtOrUnder(imagePath, ".git") {
-			continue
-		}
-
-		entries = append(entries, oci.LayerEntry{Path: imagePath, Source: source})
-
-		entries = appendParents(entries, directories, imagePath)
-	}
-
-	return entries, nil
+	return toLayerEntries(assembled), nil
 }
 
 // readFilesEntry reads a publish.files entry, refusing any which does not
@@ -343,9 +329,10 @@ func matchesAny(patterns []string, file string) bool {
 
 // sourceFiles lists everything under a directory which is not a directory,
 // by its slash-separated path relative to it, leaving out the macOS
-// artefacts a layer never holds. Symbolic links are listed as they are, for
-// the layer builder to refuse.
-func sourceFiles(directory string) ([]string, error) {
+// artefacts a layer never holds and whatever leaveOut, when given, reports
+// by that path. A directory left out is not walked through. Symbolic links
+// are listed as they are, for the layer builder to refuse.
+func sourceFiles(directory string, leaveOut func(relative string) bool) ([]string, error) {
 	var files []string
 
 	err := filepath.WalkDir(directory, func(sourcePath string, item fs.DirEntry, err error) error {
@@ -357,7 +344,15 @@ func sourceFiles(directory string) ([]string, error) {
 			return nil
 		}
 
-		if oci.IsSkippedName(item.Name()) {
+		relative, err := filepath.Rel(directory, sourcePath)
+
+		if err != nil {
+			return err
+		}
+
+		relative = filepath.ToSlash(relative)
+
+		if oci.IsSkippedName(item.Name()) || leaveOut != nil && leaveOut(relative) {
 			if item.IsDir() {
 				return filepath.SkipDir
 			}
@@ -369,13 +364,7 @@ func sourceFiles(directory string) ([]string, error) {
 			return nil
 		}
 
-		relative, err := filepath.Rel(directory, sourcePath)
-
-		if err != nil {
-			return err
-		}
-
-		files = append(files, filepath.ToSlash(relative))
+		files = append(files, relative)
 
 		return nil
 	})
@@ -383,10 +372,38 @@ func sourceFiles(directory string) ([]string, error) {
 	return files, err
 }
 
+// isImageGit reports the .git at the root of the image, and anything under
+// it, which is never published.
+func isImageGit(imagePath string) bool {
+	return isAtOrUnder(imagePath, ".git")
+}
+
 // isAtOrUnder reports whether a slash-separated path is the given directory
 // or lies under it. Everything lies under the root, given as empty.
 func isAtOrUnder(name string, directory string) bool {
 	return directory == "" || name == directory || strings.HasPrefix(name, directory+"/")
+}
+
+// toLayerEntries turns the files placed in the image, by their path in it,
+// each naming its source on disk, into the entries of the layer, with an
+// entry for each directory holding a file. A .git at the root of the image
+// is left out.
+func toLayerEntries(placed map[string]string) []oci.LayerEntry {
+	var layerEntries []oci.LayerEntry
+
+	directories := map[string]bool{}
+
+	for imagePath, source := range placed {
+		if isImageGit(imagePath) {
+			continue
+		}
+
+		layerEntries = append(layerEntries, oci.LayerEntry{Path: imagePath, Source: source})
+
+		layerEntries = appendParents(layerEntries, directories, imagePath)
+	}
+
+	return layerEntries
 }
 
 // appendParents appends an entry for each directory above a file in the

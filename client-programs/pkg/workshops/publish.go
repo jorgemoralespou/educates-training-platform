@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -262,51 +261,22 @@ func contentEntries(contentDirectory string) ([]oci.LayerEntry, error) {
 		return nil, errors.Wrap(err, "unable to read the workshop files")
 	}
 
-	var entries []oci.LayerEntry
-
-	directories := map[string]bool{}
-
-	err = filepath.WalkDir(contentDirectory, func(sourcePath string, item fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if sourcePath == contentDirectory {
-			return nil
-		}
-
-		relative, err := filepath.Rel(contentDirectory, sourcePath)
-
-		if err != nil {
-			return err
-		}
-
-		imagePath := filepath.ToSlash(relative)
-
-		if imagePath == ".git" || oci.IsSkippedName(item.Name()) {
-			if item.IsDir() {
-				return filepath.SkipDir
-			}
-
-			return nil
-		}
-
-		if item.IsDir() {
-			return nil
-		}
-
-		entries = append(entries, oci.LayerEntry{Path: imagePath, Source: sourcePath})
-
-		entries = appendParents(entries, directories, imagePath)
-
-		return nil
-	})
+	// Each file keeps its path from the content directory in the image, so
+	// the .git at the root of the image is left out of the walk rather than
+	// walked through.
+	files, err := sourceFiles(contentDirectory, isImageGit)
 
 	if err != nil {
 		return nil, errors.Wrap(err, "unable to read the workshop files")
 	}
 
-	return entries, nil
+	placed := make(map[string]string, len(files))
+
+	for _, file := range files {
+		placed[file] = filepath.Join(contentDirectory, filepath.FromSlash(file))
+	}
+
+	return toLayerEntries(placed), nil
 }
 
 /*
