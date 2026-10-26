@@ -151,7 +151,7 @@ func (p *ProjectInfo) NewPackagePublishCmd() *cobra.Command {
 		&o.Registry.RetryCount,
 		"registry-retry-count",
 		5,
-		"Set the number of times imgpkg retries to send requests to the registry in case of an error",
+		"Set the number of times to retry sending requests to the registry in case of an error",
 	)
 
 	return c
