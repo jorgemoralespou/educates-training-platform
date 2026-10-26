@@ -2,6 +2,7 @@ package packages
 
 import (
 	"fmt"
+	"io"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -10,9 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	regname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 // startRegistry runs an in-memory registry, so the round trip exercises a
@@ -33,40 +32,26 @@ func startRegistry(t *testing.T) string {
 	return parsed.Host
 }
 
-// publishForTest builds a package image from a source and pushes it, which is
-// what the publish command does, and returns the reference.
+// publishForTest publishes a package source through the publish command's
+// options, and returns the reference it was published as.
 func publishForTest(t *testing.T, host string, source string, tag string) string {
 	t.Helper()
 
-	build, err := BuildPackageImage(source, SupportedPlatforms, fixedTime())
+	// An empty Docker configuration keeps whatever credentials the machine
+	// running the tests holds out of the publish.
+	t.Setenv("DOCKER_CONFIG", t.TempDir())
 
-	if err != nil {
-		t.Fatalf("unable to build the package image: %v", err)
+	options := PublishOptions{
+		Path:            source,
+		ImageRepository: host,
+		ImageTag:        tag,
 	}
 
-	reference, err := regname.NewTag(fmt.Sprintf("%s/argocd:%s", host, tag))
-
-	if err != nil {
-		t.Fatal(err)
+	if err := options.Publish(io.Discard); err != nil {
+		t.Fatalf("unable to publish the package image: %v", err)
 	}
 
-	for _, child := range build.Children {
-		digest, err := child.Image.Digest()
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if err := remote.Write(reference.Context().Digest(digest.String()), child.Image); err != nil {
-			t.Fatalf("unable to push a child image: %v", err)
-		}
-	}
-
-	if err := remote.WriteIndex(reference, build.Index); err != nil {
-		t.Fatalf("unable to push the index: %v", err)
-	}
-
-	return reference.Name()
+	return fmt.Sprintf("%s/argocd:%s", host, tag)
 }
 
 // A package image published by this CLI is fetched back with its modes and
