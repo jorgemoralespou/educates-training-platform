@@ -7,16 +7,13 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
-	vendirsync "carvel.dev/vendir/pkg/vendir/cmd"
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
 	yttcmdui "carvel.dev/ytt/pkg/cmd/ui"
 	"carvel.dev/ytt/pkg/files"
 	"carvel.dev/ytt/pkg/yamlmeta"
-	"github.com/cppforlife/go-cli-ui/ui"
 	"github.com/educates/educates-training-platform/client-programs/pkg/oci"
 	regname "github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
@@ -134,27 +131,23 @@ func (o *FilesPublishOptions) Publish(stdout io.Writer, workshopDir string) erro
 	// The content published is the workshop directory, unless publish.files
 	// names what to assemble in its place.
 
-	contentDirectory := workshopDir
+	var entries []oci.LayerEntry
 
 	if fileArtifacts, found, _ := unstructured.NestedSlice(workshop.Object, "spec", "publish", "files"); found && len(fileArtifacts) != 0 {
-		tempDir, err := os.MkdirTemp("", "educates-workshop-files")
+		entries, err = filesEntries(workshopDir, fileArtifacts)
+	} else {
+		entries, err = contentEntries(workshopDir)
+	}
 
-		if err != nil {
-			return errors.Wrapf(err, "unable to create temporary working directory")
-		}
-
-		defer os.RemoveAll(tempDir)
-
-		if contentDirectory, err = assembleFiles(tempDir, workshopDir, fileArtifacts); err != nil {
-			return err
-		}
+	if err != nil {
+		return err
 	}
 
 	// Now publish the content as an OCI image.
 
 	fmt.Fprintf(stdout, "Publishing workshop files to %q.\n", image)
 
-	digest, err := o.push(reference, contentDirectory)
+	digest, err := o.push(reference, entries)
 
 	if err != nil {
 		return err
@@ -210,16 +203,10 @@ func (o *FilesPublishOptions) Publish(stdout io.Writer, workshopDir string) erro
 	return nil
 }
 
-// push builds the workshop image from the content directory and pushes it
-// under the reference, returning the digest it was pushed as. The image is a
-// single OCI image manifest whose one layer holds the content at its root.
-func (o *FilesPublishOptions) push(reference regname.Tag, contentDirectory string) (regv1.Hash, error) {
-	entries, err := contentEntries(contentDirectory)
-
-	if err != nil {
-		return regv1.Hash{}, err
-	}
-
+// push builds the workshop image from the layer entries and pushes it under
+// the reference, returning the digest it was pushed as. The image is a single
+// OCI image manifest whose one layer holds the content at its root.
+func (o *FilesPublishOptions) push(reference regname.Tag, entries []oci.LayerEntry) (regv1.Hash, error) {
 	timestamp, err := oci.Timestamp(os.Getenv)
 
 	if err != nil {
@@ -310,13 +297,7 @@ func contentEntries(contentDirectory string) ([]oci.LayerEntry, error) {
 
 		entries = append(entries, oci.LayerEntry{Path: imagePath, Source: sourcePath})
 
-		// A directory gets an entry only for holding a file, and once its
-		// entry is there so are those of the directories above it.
-		for parent := path.Dir(imagePath); parent != "." && !directories[parent]; parent = path.Dir(parent) {
-			directories[parent] = true
-
-			entries = append(entries, oci.LayerEntry{Path: parent, Directory: true})
-		}
+		entries = appendParents(entries, directories, imagePath)
 
 		return nil
 	})
@@ -326,88 +307,6 @@ func contentEntries(contentDirectory string) ([]oci.LayerEntry, error) {
 	}
 
 	return entries, nil
-}
-
-// assembleFiles has vendir copy what each publish.files entry names into a
-// directory under the temporary directory, and returns that directory.
-func assembleFiles(tempDir string, workshopDir string, fileArtifacts []interface{}) (string, error) {
-	confUI := ui.NewConfUI(ui.NewNoopLogger())
-
-	confUI.EnableColor()
-	confUI.EnableNonInteractive()
-
-	defer confUI.Flush()
-
-	// vendir stages what it fetches under the process working directory, so
-	// it runs from the temporary directory, and the working directory is put
-	// back however the sync ends.
-
-	workingDirectory, err := os.Getwd()
-
-	if err != nil {
-		return "", errors.Wrap(err, "cannot determine current working directory")
-	}
-
-	defer os.Chdir(workingDirectory)
-
-	for _, artifactEntry := range fileArtifacts {
-		vendirConfig := map[string]interface{}{
-			"apiVersion":  "vendir.k14s.io/v1alpha1",
-			"kind":        "Config",
-			"directories": []interface{}{},
-		}
-
-		dir := filepath.Join(tempDir, "files")
-
-		if filePath, found := artifactEntry.(map[string]interface{})["path"].(string); found {
-			dir = filepath.Join(tempDir, "files", filepath.Clean(filePath))
-		}
-
-		if directoryConfig, found := artifactEntry.(map[string]interface{})["directory"]; found {
-			if directoryPath, found := directoryConfig.(map[string]interface{})["path"].(string); found {
-				if !filepath.IsAbs(directoryPath) {
-					directoryConfig.(map[string]interface{})["path"] = filepath.Join(workshopDir, directoryPath)
-				}
-			}
-		}
-
-		artifactEntry.(map[string]interface{})["path"] = "."
-
-		directoryConfig := map[string]interface{}{
-			"path":     dir,
-			"contents": []interface{}{artifactEntry},
-		}
-
-		vendirConfig["directories"] = append(vendirConfig["directories"].([]interface{}), directoryConfig)
-
-		yamlData, err := yaml.Marshal(&vendirConfig)
-
-		if err != nil {
-			return "", errors.Wrap(err, "unable to generate vendir config")
-		}
-
-		if err := os.WriteFile(filepath.Join(tempDir, "vendir.yml"), yamlData, 0o644); err != nil {
-			return "", errors.Wrap(err, "unable to write vendir config file")
-		}
-
-		syncOptions := vendirsync.NewSyncOptions(confUI)
-
-		syncOptions.Directories = nil
-		syncOptions.Files = []string{filepath.Join(tempDir, "vendir.yml")}
-
-		syncOptions.LockFile = filepath.Join(tempDir, "lock-file")
-		syncOptions.Locked = false
-		syncOptions.Chdir = tempDir
-		syncOptions.AllowAllSymlinkDestinations = false
-
-		if err = syncOptions.Run(); err != nil {
-			fmt.Println(string(yamlData))
-
-			return "", errors.Wrap(err, "failed to prepare image files for publishing")
-		}
-	}
-
-	return filepath.Join(tempDir, "files"), nil
 }
 
 /*
