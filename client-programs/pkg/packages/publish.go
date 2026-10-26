@@ -71,6 +71,8 @@ func (o *PublishOptions) Publish(stdout io.Writer) error {
 		return err
 	}
 
+	defer build.Close()
+
 	reference, err := o.reference(build.Manifest)
 
 	if err != nil {
