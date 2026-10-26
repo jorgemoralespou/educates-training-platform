@@ -3,24 +3,34 @@ package workshops
 import (
 	"bytes"
 	"fmt"
+	"io"
+	"io/fs"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
-	imgpkgcmd "carvel.dev/imgpkg/pkg/imgpkg/cmd"
 	vendirsync "carvel.dev/vendir/pkg/vendir/cmd"
 	yttcmd "carvel.dev/ytt/pkg/cmd/template"
 	yttcmdui "carvel.dev/ytt/pkg/cmd/ui"
 	"carvel.dev/ytt/pkg/files"
 	"carvel.dev/ytt/pkg/yamlmeta"
 	"github.com/cppforlife/go-cli-ui/ui"
+	"github.com/educates/educates-training-platform/client-programs/pkg/oci"
+	regname "github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/empty"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/kubectl/pkg/scheme"
+
+	regv1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
 type FilesPublishOptions struct {
@@ -29,11 +39,11 @@ type FilesPublishOptions struct {
 	WorkshopFile    string
 	ExportWorkshop  string
 	WorkshopVersion string
-	RegistryFlags   imgpkgcmd.RegistryFlags
+	Registry        oci.RegistryOptions
 	DataValuesFlags yttcmd.DataValuesFlags
 }
 
-func (o *FilesPublishOptions) Run(args []string) error {
+func (o *FilesPublishOptions) Run(stdout io.Writer, args []string) error {
 	var err error
 
 	var workshopDir string
@@ -54,10 +64,10 @@ func (o *FilesPublishOptions) Run(args []string) error {
 		return errors.New("workshop directory does not exist or path is not a workshop directory")
 	}
 
-	return o.Publish(workshopDir)
+	return o.Publish(stdout, workshopDir)
 }
 
-func (o *FilesPublishOptions) Publish(workshopDir string) error {
+func (o *FilesPublishOptions) Publish(stdout io.Writer, workshopDir string) error {
 	// If image name hasn't been supplied read workshop definition file and
 	// try to work out image name to publish workshop as.
 
@@ -69,9 +79,6 @@ func (o *FilesPublishOptions) Publish(workshopDir string) error {
 	if err != nil {
 		return errors.Wrap(err, "cannot determine current working directory")
 	}
-
-	includePaths := []string{workshopDir}
-	excludePaths := []string{".git"}
 
 	if !filepath.IsAbs(workshopFilePath) {
 		workshopFilePath = filepath.Join(rootDirectory, workshopFilePath)
@@ -102,7 +109,7 @@ func (o *FilesPublishOptions) Publish(workshopDir string) error {
 		return errors.Wrap(err, "couldn't parse workshop definition")
 	}
 
-	fmt.Printf("Processing workshop with name %q.\n", workshop.GetName())
+	fmt.Fprintf(stdout, "Processing workshop with name %q.\n", workshop.GetName())
 
 	if workshop.GetAPIVersion() != "training.educates.dev/v1beta1" || workshop.GetKind() != "Workshop" {
 		return errors.New("invalid type for workshop definition")
@@ -118,18 +125,19 @@ func (o *FilesPublishOptions) Publish(workshopDir string) error {
 		return errors.Errorf("cannot find image name for publishing workshop %q", workshopFilePath)
 	}
 
-	// Extract vendir snippet describing subset of files to package up as the
-	// workshop image.
+	reference, err := o.Registry.ParseTag(image)
 
-	confUI := ui.NewConfUI(ui.NewNoopLogger())
+	if err != nil {
+		return err
+	}
 
-	confUI.EnableColor()
-	confUI.EnableNonInteractive()
+	// The content published is the workshop directory, unless publish.files
+	// names what to assemble in its place.
 
-	defer confUI.Flush()
+	contentDirectory := workshopDir
 
 	if fileArtifacts, found, _ := unstructured.NestedSlice(workshop.Object, "spec", "publish", "files"); found && len(fileArtifacts) != 0 {
-		tempDir, err := os.MkdirTemp("", "educates-imgpkg")
+		tempDir, err := os.MkdirTemp("", "educates-workshop-files")
 
 		if err != nil {
 			return errors.Wrapf(err, "unable to create temporary working directory")
@@ -137,103 +145,25 @@ func (o *FilesPublishOptions) Publish(workshopDir string) error {
 
 		defer os.RemoveAll(tempDir)
 
-		for _, artifactEntry := range fileArtifacts {
-			vendirConfig := map[string]interface{}{
-				"apiVersion":  "vendir.k14s.io/v1alpha1",
-				"kind":        "Config",
-				"directories": []interface{}{},
-			}
-
-			dir := filepath.Join(tempDir, "files")
-
-			if filePath, found := artifactEntry.(map[string]interface{})["path"].(string); found {
-				dir = filepath.Join(tempDir, "files", filepath.Clean(filePath))
-			}
-
-			if directoryConfig, found := artifactEntry.(map[string]interface{})["directory"]; found {
-				if directoryPath, found := directoryConfig.(map[string]interface{})["path"].(string); found {
-					if !filepath.IsAbs(directoryPath) {
-						directoryConfig.(map[string]interface{})["path"] = filepath.Join(workshopDir, directoryPath)
-					}
-				}
-			}
-
-			artifactEntry.(map[string]interface{})["path"] = "."
-
-			directoryConfig := map[string]interface{}{
-				"path":     dir,
-				"contents": []interface{}{artifactEntry},
-			}
-
-			vendirConfig["directories"] = append(vendirConfig["directories"].([]interface{}), directoryConfig)
-
-			yamlData, err := yaml.Marshal(&vendirConfig)
-
-			if err != nil {
-				return errors.Wrap(err, "unable to generate vendir config")
-			}
-
-			vendirConfigFile, err := os.Create(filepath.Join(tempDir, "vendir.yml"))
-
-			if err != nil {
-				return errors.Wrap(err, "unable to create vendir config file")
-			}
-
-			defer vendirConfigFile.Close()
-
-			_, err = vendirConfigFile.Write(yamlData)
-
-			if err != nil {
-				return errors.Wrap(err, "unable to write vendir config file")
-			}
-
-			syncOptions := vendirsync.NewSyncOptions(confUI)
-
-			syncOptions.Directories = nil
-			syncOptions.Files = []string{filepath.Join(tempDir, "vendir.yml")}
-
-			// Note that Chdir here actually changes the process working directory.
-
-			syncOptions.LockFile = filepath.Join(tempDir, "lock-file")
-			syncOptions.Locked = false
-			syncOptions.Chdir = tempDir
-			syncOptions.AllowAllSymlinkDestinations = false
-
-			if err = syncOptions.Run(); err != nil {
-				fmt.Println(string(yamlData))
-
-				return errors.Wrap(err, "failed to prepare image files for publishing")
-			}
+		if contentDirectory, err = assembleFiles(tempDir, workshopDir, fileArtifacts); err != nil {
+			return err
 		}
-
-		// Restore working directory as was changed.
-
-		os.Chdir((workingDirectory))
-
-		rootDirectory = filepath.Join(tempDir, "files")
-		includePaths = []string{rootDirectory}
 	}
 
-	// Now publish workshop directory contents as OCI image artifact.
+	// Now publish the content as an OCI image.
 
-	fmt.Printf("Publishing workshop files to %q.\n", image)
+	fmt.Fprintf(stdout, "Publishing workshop files to %q.\n", image)
 
-	pushOptions := imgpkgcmd.NewPushOptions(confUI)
-
-	pushOptions.ImageFlags.Image = image
-	pushOptions.FileFlags.Files = append(pushOptions.FileFlags.Files, includePaths...)
-	pushOptions.FileFlags.ExcludedFilePaths = append(pushOptions.FileFlags.ExcludedFilePaths, excludePaths...)
-
-	pushOptions.RegistryFlags = o.RegistryFlags
-
-	err = pushOptions.Run()
+	digest, err := o.push(reference, contentDirectory)
 
 	if err != nil {
-		return errors.Wrap(err, "unable to push image artifact for workshop")
+		return err
 	}
 
+	fmt.Fprintf(stdout, "Pushed '%s@%s'\n", reference.Context().Name(), digest)
+
 	// We add a newline to output for better readability.
-	fmt.Println()
+	fmt.Fprintln(stdout)
 
 	// Export modified workshop definition file.
 
@@ -278,6 +208,206 @@ func (o *FilesPublishOptions) Publish(workshopDir string) error {
 	}
 
 	return nil
+}
+
+// push builds the workshop image from the content directory and pushes it
+// under the reference, returning the digest it was pushed as. The image is a
+// single OCI image manifest whose one layer holds the content at its root.
+func (o *FilesPublishOptions) push(reference regname.Tag, contentDirectory string) (regv1.Hash, error) {
+	entries, err := contentEntries(contentDirectory)
+
+	if err != nil {
+		return regv1.Hash{}, err
+	}
+
+	timestamp, err := oci.Timestamp(os.Getenv)
+
+	if err != nil {
+		return regv1.Hash{}, err
+	}
+
+	layer, err := oci.BuildLayer(entries, timestamp)
+
+	if err != nil {
+		return regv1.Hash{}, errors.Wrap(err, "unable to build the workshop image")
+	}
+
+	defer layer.Close()
+
+	base := mutate.ConfigMediaType(mutate.MediaType(empty.Image, types.OCIManifestSchema1), types.OCIConfigJSON)
+
+	image, err := mutate.AppendLayers(base, layer)
+
+	if err != nil {
+		return regv1.Hash{}, errors.Wrap(err, "unable to assemble the workshop image")
+	}
+
+	remoteOptions, err := o.Registry.RemoteOptions()
+
+	if err != nil {
+		return regv1.Hash{}, err
+	}
+
+	if err := remote.Write(reference, image, remoteOptions...); err != nil {
+		return regv1.Hash{}, errors.Wrap(err, "unable to push image artifact for workshop")
+	}
+
+	digest, err := image.Digest()
+
+	if err != nil {
+		return regv1.Hash{}, errors.Wrap(err, "unable to compute the workshop image digest")
+	}
+
+	return digest, nil
+}
+
+// contentEntries lists the files under the content directory, and the
+// directories holding them, as entries for the layer. A .git at the root of
+// the content is left out, as are the macOS artefacts a layer never holds.
+// Anything which is neither a file nor a directory is passed on as a file
+// entry, for the layer builder to refuse.
+func contentEntries(contentDirectory string) ([]oci.LayerEntry, error) {
+	// The directory itself may be named through a symbolic link, which the
+	// walk would not follow.
+	contentDirectory, err := filepath.EvalSymlinks(contentDirectory)
+
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to read the workshop files")
+	}
+
+	var entries []oci.LayerEntry
+
+	directories := map[string]bool{}
+
+	err = filepath.WalkDir(contentDirectory, func(sourcePath string, item fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if sourcePath == contentDirectory {
+			return nil
+		}
+
+		relative, err := filepath.Rel(contentDirectory, sourcePath)
+
+		if err != nil {
+			return err
+		}
+
+		imagePath := filepath.ToSlash(relative)
+
+		if imagePath == ".git" || oci.IsSkippedName(item.Name()) {
+			if item.IsDir() {
+				return filepath.SkipDir
+			}
+
+			return nil
+		}
+
+		if item.IsDir() {
+			return nil
+		}
+
+		entries = append(entries, oci.LayerEntry{Path: imagePath, Source: sourcePath})
+
+		// A directory gets an entry only for holding a file, and once its
+		// entry is there so are those of the directories above it.
+		for parent := path.Dir(imagePath); parent != "." && !directories[parent]; parent = path.Dir(parent) {
+			directories[parent] = true
+
+			entries = append(entries, oci.LayerEntry{Path: parent, Directory: true})
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, errors.Wrap(err, "unable to read the workshop files")
+	}
+
+	return entries, nil
+}
+
+// assembleFiles has vendir copy what each publish.files entry names into a
+// directory under the temporary directory, and returns that directory.
+func assembleFiles(tempDir string, workshopDir string, fileArtifacts []interface{}) (string, error) {
+	confUI := ui.NewConfUI(ui.NewNoopLogger())
+
+	confUI.EnableColor()
+	confUI.EnableNonInteractive()
+
+	defer confUI.Flush()
+
+	// vendir stages what it fetches under the process working directory, so
+	// it runs from the temporary directory, and the working directory is put
+	// back however the sync ends.
+
+	workingDirectory, err := os.Getwd()
+
+	if err != nil {
+		return "", errors.Wrap(err, "cannot determine current working directory")
+	}
+
+	defer os.Chdir(workingDirectory)
+
+	for _, artifactEntry := range fileArtifacts {
+		vendirConfig := map[string]interface{}{
+			"apiVersion":  "vendir.k14s.io/v1alpha1",
+			"kind":        "Config",
+			"directories": []interface{}{},
+		}
+
+		dir := filepath.Join(tempDir, "files")
+
+		if filePath, found := artifactEntry.(map[string]interface{})["path"].(string); found {
+			dir = filepath.Join(tempDir, "files", filepath.Clean(filePath))
+		}
+
+		if directoryConfig, found := artifactEntry.(map[string]interface{})["directory"]; found {
+			if directoryPath, found := directoryConfig.(map[string]interface{})["path"].(string); found {
+				if !filepath.IsAbs(directoryPath) {
+					directoryConfig.(map[string]interface{})["path"] = filepath.Join(workshopDir, directoryPath)
+				}
+			}
+		}
+
+		artifactEntry.(map[string]interface{})["path"] = "."
+
+		directoryConfig := map[string]interface{}{
+			"path":     dir,
+			"contents": []interface{}{artifactEntry},
+		}
+
+		vendirConfig["directories"] = append(vendirConfig["directories"].([]interface{}), directoryConfig)
+
+		yamlData, err := yaml.Marshal(&vendirConfig)
+
+		if err != nil {
+			return "", errors.Wrap(err, "unable to generate vendir config")
+		}
+
+		if err := os.WriteFile(filepath.Join(tempDir, "vendir.yml"), yamlData, 0o644); err != nil {
+			return "", errors.Wrap(err, "unable to write vendir config file")
+		}
+
+		syncOptions := vendirsync.NewSyncOptions(confUI)
+
+		syncOptions.Directories = nil
+		syncOptions.Files = []string{filepath.Join(tempDir, "vendir.yml")}
+
+		syncOptions.LockFile = filepath.Join(tempDir, "lock-file")
+		syncOptions.Locked = false
+		syncOptions.Chdir = tempDir
+		syncOptions.AllowAllSymlinkDestinations = false
+
+		if err = syncOptions.Run(); err != nil {
+			fmt.Println(string(yamlData))
+
+			return "", errors.Wrap(err, "failed to prepare image files for publishing")
+		}
+	}
+
+	return filepath.Join(tempDir, "files"), nil
 }
 
 /*

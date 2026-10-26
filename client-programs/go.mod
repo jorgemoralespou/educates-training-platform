@@ -14,7 +14,7 @@ go 1.26.10
 replace cloud.google.com/go => cloud.google.com/go v0.112.2
 
 require (
-	carvel.dev/imgpkg v0.48.3
+	carvel.dev/imgpkg v0.48.3 // indirect
 	carvel.dev/vendir v0.46.3
 	carvel.dev/ytt v0.55.4
 	github.com/adrg/xdg v0.5.3
