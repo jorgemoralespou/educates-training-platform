@@ -42,7 +42,13 @@ educates deploy-workshop
 
 to deploy the workshop to the local Kubernetes cluster, when evaluating `workshop.files.image.url`, the value of `$(image_repository)` will be replaced with `registry.default.svc.cluster.local`, which is the internal hostname for the local registry when accessed from inside of the Kubernetes cluster.
 
-When publishing, the `educates` CLI uses plain HTTP for a registry which does not offer HTTPS if it reaches the registry as `localhost`, on a loopback address or on a private network address, which covers the local registry at `localhost:5001`. Any other registry served over plain HTTP needs the `--registry-insecure` option. Other tools may require you to tell them to access the local registry in an insecure way, which may be the case when accessing it as `localhost:5001` from your local system.
+When publishing, the `educates` CLI uses plain HTTP for a registry which does
+not offer HTTPS if it reaches the registry as `localhost`, on a loopback
+address or on a private network address, which covers the local registry at
+`localhost:5001`. Any other registry served over plain HTTP needs the
+`--registry-insecure` option. Other tools may require you to tell them to
+access the local registry in an insecure way, which may be the case when
+accessing it as `localhost:5001` from your local system.
 
 If working against a remote Kubernetes cluster it will not have access to the local registry so you can instead use a remote registry to host public workshops instead.
 
@@ -52,7 +58,16 @@ To publish to a remote registry you can use a command like:
 educates publish-workshop --image-repository docker.io/username
 ```
 
-To authenticate to the remote registry, either log in first using `docker login`, or supply credentials on the command line to `educates publish-workshop` with the `--registry-username` and `--registry-password` options, or with `--registry-token`. When no credentials are supplied on the command line, those `docker login` stored for the registry are used, including those from a credential helper named in the Docker configuration. Use `--registry-anon` to publish without sending any credentials. A registry using a private certificate authority is reached by passing the certificate authority with `--registry-ca-cert-path`, which can be given more than once.
+To authenticate to the remote registry, either log in first using
+`docker login`, or supply credentials on the command line to
+`educates publish-workshop` with the `--registry-username` and
+`--registry-password` options, or with `--registry-token`. When no
+credentials are supplied on the command line, those `docker login` stored for
+the registry are used, including those from a credential helper named in the
+Docker configuration. Use `--registry-anon` to publish without sending any
+credentials. A registry using a private certificate authority is reached by
+passing the certificate authority with `--registry-ca-cert-path`, which can
+be given more than once.
 
 With the workshop published to the registry, if the registry was publicly accessible and you wanted someone else to be able to deploy the workshop, you could run:
 

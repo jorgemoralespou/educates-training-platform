@@ -242,9 +242,21 @@ For more details and other options see the ``vendir`` [documentation](https://ca
 Publishing of workshop content
 ------------------------------
 
-When using an OCI image artefact to hold workshop content, it can be created with the ``educates`` CLI using the ``educates publish-workshop`` command, or indirectly using the Educates GitHub action for publishing workshops.
+When using an OCI image artefact to hold workshop content, it can be created
+with the ``educates`` CLI using the ``educates publish-workshop`` command, or
+indirectly using the Educates GitHub action for publishing workshops.
 
-The ``educates publish-workshop`` command publishes one OCI image, never an image index, whose single layer holds the workshop files at its root. By default the whole workshop directory is included, except for a ``.git`` directory at the top of it. ``.DS_Store`` files and ``._*`` AppleDouble files are left out wherever they are, and publishing fails if the files include a symbolic link or a hard-linked file, naming every one it found. In the image, a file with any execute bit set, such as a script in ``workshop/setup.d``, is executable by everyone and any other file is readable by everyone. Every file carries the same timestamp, which is the time given by the ``SOURCE_DATE_EPOCH`` environment variable when it is set, so publishing unchanged content again gives the same image digest.
+The ``educates publish-workshop`` command publishes one OCI image, never an
+image index, whose single layer holds the workshop files at its root. By
+default the whole workshop directory is included, except for a ``.git``
+directory at the top of it. ``.DS_Store`` files and ``._*`` AppleDouble files
+are left out wherever they are, and publishing fails if the files include a
+symbolic link or a hard-linked file, naming every one it found. In the image,
+a file with any execute bit set, such as a script in ``workshop/setup.d``, is
+executable by everyone and any other file is readable by everyone. Every file
+carries the same timestamp, which is the time given by the
+``SOURCE_DATE_EPOCH`` environment variable when it is set, so publishing
+unchanged content again gives the same image digest.
 
 When using the ``educates publish-workshop`` command it is possible to customize what is included in the OCI artefact image by providing a specification of what to include in the workshop definition. At the minimum this must include ``publish.image``, which defines where the image is to be published.
 
