@@ -178,13 +178,9 @@ func readFilesEntry(position string, artifactEntry interface{}) (*filesEntry, er
 // the image root, which is returned as empty. A path leaving the image root
 // is refused.
 func entryTarget(position string, target string) (string, error) {
-	cleaned := path.Clean(strings.TrimLeft(target, "/"))
+	cleaned, inside := oci.CleanRelativePath(target)
 
-	if cleaned == "." {
-		return "", nil
-	}
-
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+	if !inside {
 		return "", errors.Errorf("%s has the path %q, which is outside the image", position, target)
 	}
 
@@ -224,14 +220,14 @@ func entrySourceDirectory(position string, workshopDir string, entry *filesEntry
 // its content, which is returned as empty. It must name a directory in the
 // content.
 func entryNewRoot(position string, sourceDirectory string, newRootPath string) (string, error) {
-	cleaned := path.Clean(strings.TrimLeft(newRootPath, "/"))
+	cleaned, inside := oci.CleanRelativePath(newRootPath)
 
-	if cleaned == "." {
-		return "", nil
+	if !inside {
+		return "", errors.Errorf("%s has the newRootPath %q, which is outside the content", position, newRootPath)
 	}
 
-	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", errors.Errorf("%s has the newRootPath %q, which is outside the content", position, newRootPath)
+	if cleaned == "" {
+		return "", nil
 	}
 
 	info, err := os.Lstat(filepath.Join(sourceDirectory, filepath.FromSlash(cleaned)))

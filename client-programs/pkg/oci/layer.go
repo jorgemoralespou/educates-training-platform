@@ -251,16 +251,30 @@ func acceptEntries(entries []LayerEntry) ([]layerItem, error) {
 	return items, nil
 }
 
-// cleanLayerPath puts a path into its form in the layer, reporting the layer
-// root as empty. A path which leaves the layer is refused.
-func cleanLayerPath(name string) (string, error) {
-	cleaned := path.Clean(strings.TrimLeft(name, "/"))
+// CleanRelativePath puts a slash-separated path into its form relative to a
+// root, reporting the root itself as empty. A leading slash also stands for
+// the root. A path which leads outside the root is reported as not inside it,
+// for the caller to refuse in its own words.
+func CleanRelativePath(name string) (cleaned string, inside bool) {
+	cleaned = path.Clean(strings.TrimLeft(name, "/"))
 
 	if cleaned == "." {
-		return "", nil
+		return "", true
 	}
 
 	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", false
+	}
+
+	return cleaned, true
+}
+
+// cleanLayerPath puts a path into its form in the layer, reporting the layer
+// root as empty. A path which leaves the layer is refused.
+func cleanLayerPath(name string) (string, error) {
+	cleaned, inside := CleanRelativePath(name)
+
+	if !inside {
 		return "", errors.Errorf("the path %q is outside the layer", name)
 	}
 
