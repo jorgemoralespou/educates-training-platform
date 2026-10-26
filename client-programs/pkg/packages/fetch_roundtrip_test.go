@@ -3,34 +3,14 @@ package packages
 import (
 	"fmt"
 	"io"
-	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/google/go-containerregistry/pkg/registry"
+	"github.com/educates/educates-training-platform/client-programs/internal/testregistry"
 )
-
-// startRegistry runs an in-memory registry, so the round trip exercises a
-// real registry protocol without needing one running.
-func startRegistry(t *testing.T) string {
-	t.Helper()
-
-	server := httptest.NewServer(registry.New())
-
-	t.Cleanup(server.Close)
-
-	parsed, err := url.Parse(server.URL)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return parsed.Host
-}
 
 // publishForTest publishes a package source through the publish command's
 // options, and returns the reference it was published as.
@@ -68,7 +48,7 @@ func TestFetch_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 	reference := publishForTest(t, host, source, "v2.10.6")
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
@@ -139,7 +119,7 @@ func TestFetch_ResolvesRequestedPlatform(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 	reference := publishForTest(t, host, source, "v2.10.6")
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
@@ -184,7 +164,7 @@ func TestFetch_ReplacesExistingContents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 	reference := publishForTest(t, host, source, "v2.10.6")
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
@@ -225,7 +205,7 @@ func TestFetch_ReplacesExistingContents(t *testing.T) {
 // An image which is not a package image fails rather than leaving a session
 // subtly wrong.
 func TestFetch_MissingImageIsReported(t *testing.T) {
-	host := startRegistry(t)
+	host := testregistry.Start(t)
 
 	keychain, err := LoadKeychain(filepath.Join(t.TempDir(), "absent"))
 
