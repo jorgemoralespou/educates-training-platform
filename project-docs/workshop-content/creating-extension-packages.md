@@ -245,12 +245,16 @@ educates package publish ./argocd \
 ```
 
 Pass registry credentials with ``--registry-username`` and
-``--registry-password``, or ``--registry-token``, or leave them out where the
-environment already holds credentials for the registry. Use
-``--registry-anon`` for a registry which needs none. A registry using a
-private certificate authority is reached with ``--registry-ca-cert-path``, and
-``--registry-insecure`` allows plain HTTP, which is intended for a local
-registry rather than anything else.
+``--registry-password``, or ``--registry-token``, or leave them out to use the
+credentials ``docker login`` stored for the registry, including those from a
+credential helper named in the Docker configuration. Use ``--registry-anon``
+for a registry which needs none. A registry using a private certificate
+authority is reached with ``--registry-ca-cert-path``, which can be given more
+than once, and ``--registry-verify-certs=false`` skips certificate
+verification, for a test registry only. ``--registry-insecure`` allows plain
+HTTP, which is intended for a local registry rather than anything else. The
+image reference is always given without an ``http://`` or ``https://``
+prefix.
 
 ``--digest-file`` writes the digest of the published image index to a file, so
 a later step can refer to exactly what was published rather than to a tag
