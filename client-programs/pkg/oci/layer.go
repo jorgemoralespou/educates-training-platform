@@ -97,10 +97,11 @@ func (l *Layer) Close() error {
 	return l.file.Close()
 }
 
-// IsSkippedName reports the macOS artefacts a layer never holds: .DS_Store
-// and AppleDouble files starting with "._". Nothing else starting with a dot
-// is skipped, so a layer may hold dotfiles.
-func IsSkippedName(name string) bool {
+// IsMacOSMetadataFile reports, by its name, a metadata file macOS leaves
+// beside the files it describes, which a layer never holds: .DS_Store and
+// AppleDouble files starting with "._". Nothing else starting with a dot is
+// skipped, so a layer may hold dotfiles.
+func IsMacOSMetadataFile(name string) bool {
 	return name == ".DS_Store" || strings.HasPrefix(name, "._")
 }
 
@@ -217,7 +218,7 @@ func acceptEntries(entries []LayerEntry) ([]layerItem, error) {
 			return nil, err
 		}
 
-		if cleaned == "" || hasSkippedPart(cleaned) {
+		if cleaned == "" || hasMacOSMetadataPart(cleaned) {
 			continue
 		}
 
@@ -281,9 +282,9 @@ func cleanLayerPath(name string) (string, error) {
 	return cleaned, nil
 }
 
-func hasSkippedPart(layerPath string) bool {
+func hasMacOSMetadataPart(layerPath string) bool {
 	for _, part := range strings.Split(layerPath, "/") {
-		if IsSkippedName(part) {
+		if IsMacOSMetadataFile(part) {
 			return true
 		}
 	}

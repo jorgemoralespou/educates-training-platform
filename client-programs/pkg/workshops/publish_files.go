@@ -39,6 +39,10 @@ type filesEntry struct {
 	ExcludePaths []string  `json:"excludePaths"`
 	LegalPaths   *[]string `json:"legalPaths"`
 	NewRootPath  string    `json:"newRootPath"`
+
+	// fieldPath names the entry in the workshop definition, as
+	// spec.publish.files[0], for errors to say which entry they are about.
+	fieldPath string
 }
 
 // defaultLegalPaths keep the licence, copyright and notice files at the
@@ -49,43 +53,41 @@ var defaultLegalPaths = []string{
 	"{NOTICE,Notice}{,.md,.txt,.rst}",
 }
 
-// filesEntries resolves the publish.files entries into the entries of the
-// layer, taking each file from its source in place. Entries apply in order,
-// each first removing what earlier entries placed at or under its path. A
-// .git at the root of the result is left out.
-func filesEntries(workshopDir string, fileArtifacts []interface{}) ([]oci.LayerEntry, error) {
+// filesLayerEntries resolves the publish.files entries into the layer
+// entries, taking each file from its source in place. The publish.files
+// entries apply in order, each first removing what earlier ones placed at or
+// under its path. A .git at the root of the result is left out.
+func filesLayerEntries(workshopDir string, fileArtifacts []interface{}) ([]oci.LayerEntry, error) {
 	// The files placed so far, by their path in the image, each naming its
 	// source on disk.
 	assembled := map[string]string{}
 
 	for index, artifactEntry := range fileArtifacts {
-		position := fmt.Sprintf("spec.publish.files[%d]", index)
-
-		entry, err := readFilesEntry(position, artifactEntry)
+		entry, err := readFilesEntry(fmt.Sprintf("spec.publish.files[%d]", index), artifactEntry)
 
 		if err != nil {
 			return nil, err
 		}
 
-		target, err := entryTarget(position, entry.Path)
+		target, err := entry.target()
 
 		if err != nil {
 			return nil, err
 		}
 
-		sourceDirectory, err := entrySourceDirectory(position, workshopDir, entry)
+		sourceDirectory, err := entry.sourceDirectory(workshopDir)
 
 		if err != nil {
 			return nil, err
 		}
 
-		filter, err := newFileFilter(position, entry)
+		filter, err := entry.filter()
 
 		if err != nil {
 			return nil, err
 		}
 
-		newRoot, err := entryNewRoot(position, sourceDirectory, entry.NewRootPath)
+		newRoot, err := entry.newRoot(sourceDirectory)
 
 		if err != nil {
 			return nil, err
@@ -94,13 +96,13 @@ func filesEntries(workshopDir string, fileArtifacts []interface{}) ([]oci.LayerE
 		files, err := sourceFiles(sourceDirectory, nil)
 
 		if err != nil {
-			return nil, errors.Wrapf(err, "unable to read the files of %s", position)
+			return nil, errors.Wrapf(err, "unable to read the files of %s", entry.fieldPath)
 		}
 
 		files = underNewRoot(filter.keep(files), newRoot)
 
 		if len(files) == 0 {
-			return nil, errors.Errorf("%s has no files to publish", position)
+			return nil, errors.Errorf("%s has no files to publish", entry.fieldPath)
 		}
 
 		contentRoot := filepath.Join(sourceDirectory, filepath.FromSlash(newRoot))
@@ -113,7 +115,7 @@ func filesEntries(workshopDir string, fileArtifacts []interface{}) ([]oci.LayerE
 
 		for parent := path.Dir(target); parent != "."; parent = path.Dir(parent) {
 			if _, found := assembled[parent]; found {
-				return nil, errors.Errorf("%s has the path %q, which lies under the file %q an earlier entry placed", position, entry.Path, parent)
+				return nil, errors.Errorf("%s has the path %q, which lies under the file %q an earlier entry placed", entry.fieldPath, entry.Path, parent)
 			}
 		}
 
@@ -125,59 +127,59 @@ func filesEntries(workshopDir string, fileArtifacts []interface{}) ([]oci.LayerE
 	return toLayerEntries(assembled), nil
 }
 
-// readFilesEntry reads a publish.files entry, refusing any which does not
-// name a directory to take its files from.
-func readFilesEntry(position string, artifactEntry interface{}) (*filesEntry, error) {
+// readFilesEntry reads the publish.files entry at the field path, refusing
+// any which does not name a directory to take its files from.
+func readFilesEntry(fieldPath string, artifactEntry interface{}) (*filesEntry, error) {
 	fields, ok := artifactEntry.(map[string]interface{})
 
 	if !ok {
-		return nil, errors.Errorf("%s is not a mapping", position)
+		return nil, errors.Errorf("%s is not a mapping", fieldPath)
 	}
 
 	for _, source := range remoteSources {
 		if fields[source] != nil {
 			return nil, errors.Errorf("%s uses the %q source, but remote sources were removed from publish.files in 4.0.0: "+
-				"place the files in the workshop directory and name them with a directory entry", position, source)
+				"place the files in the workshop directory and name them with a directory entry", fieldPath, source)
 		}
 	}
 
 	data, err := json.Marshal(fields)
 
 	if err != nil {
-		return nil, errors.Wrapf(err, "unable to read %s", position)
+		return nil, errors.Wrapf(err, "unable to read %s", fieldPath)
 	}
 
-	entry := &filesEntry{}
+	entry := &filesEntry{fieldPath: fieldPath}
 
 	if err := json.Unmarshal(data, entry); err != nil {
-		return nil, errors.Wrapf(err, "unable to read %s", position)
+		return nil, errors.Wrapf(err, "unable to read %s", fieldPath)
 	}
 
 	if entry.Directory == nil || entry.Directory.Path == "" {
-		return nil, errors.Errorf("%s names no directory.path to take its files from", position)
+		return nil, errors.Errorf("%s names no directory.path to take its files from", fieldPath)
 	}
 
 	return entry, nil
 }
 
-// entryTarget cleans the path an entry places its files under, relative to
-// the image root, which is returned as empty. A path leaving the image root
-// is refused.
-func entryTarget(position string, target string) (string, error) {
-	cleaned, inside := oci.CleanRelativePath(target)
+// target cleans the path the entry places its files under, relative to the
+// image root, which is returned as empty. A path leaving the image root is
+// refused.
+func (e *filesEntry) target() (string, error) {
+	cleaned, inside := oci.CleanRelativePath(e.Path)
 
 	if !inside {
-		return "", errors.Errorf("%s has the path %q, which is outside the image", position, target)
+		return "", errors.Errorf("%s has the path %q, which is outside the image", e.fieldPath, e.Path)
 	}
 
 	return cleaned, nil
 }
 
-// entrySourceDirectory finds the directory an entry takes its files from. A
+// sourceDirectory finds the directory the entry takes its files from. A
 // relative path is taken from the workshop directory, and the directory may
 // be named through a symbolic link.
-func entrySourceDirectory(position string, workshopDir string, entry *filesEntry) (string, error) {
-	directory := filepath.Clean(entry.Directory.Path)
+func (e *filesEntry) sourceDirectory(workshopDir string) (string, error) {
+	directory := filepath.Clean(e.Directory.Path)
 
 	if !filepath.IsAbs(directory) {
 		directory = filepath.Join(workshopDir, directory)
@@ -186,30 +188,30 @@ func entrySourceDirectory(position string, workshopDir string, entry *filesEntry
 	resolved, err := filepath.EvalSymlinks(directory)
 
 	if err != nil {
-		return "", errors.Wrapf(err, "unable to find the directory.path of %s", position)
+		return "", errors.Wrapf(err, "unable to find the directory.path of %s", e.fieldPath)
 	}
 
 	info, err := os.Stat(resolved)
 
 	if err != nil {
-		return "", errors.Wrapf(err, "unable to find the directory.path of %s", position)
+		return "", errors.Wrapf(err, "unable to find the directory.path of %s", e.fieldPath)
 	}
 
 	if !info.IsDir() {
-		return "", errors.Errorf("the directory.path of %s, %s, is not a directory", position, directory)
+		return "", errors.Errorf("the directory.path of %s, %s, is not a directory", e.fieldPath, directory)
 	}
 
 	return resolved, nil
 }
 
-// entryNewRoot cleans the newRootPath of an entry, relative to the root of
-// its content, which is returned as empty. It must name a directory in the
+// newRoot cleans the newRootPath of the entry, relative to the root of its
+// content, which is returned as empty. It must name a directory in the
 // content.
-func entryNewRoot(position string, sourceDirectory string, newRootPath string) (string, error) {
-	cleaned, inside := oci.CleanRelativePath(newRootPath)
+func (e *filesEntry) newRoot(sourceDirectory string) (string, error) {
+	cleaned, inside := oci.CleanRelativePath(e.NewRootPath)
 
 	if !inside {
-		return "", errors.Errorf("%s has the newRootPath %q, which is outside the content", position, newRootPath)
+		return "", errors.Errorf("%s has the newRootPath %q, which is outside the content", e.fieldPath, e.NewRootPath)
 	}
 
 	if cleaned == "" {
@@ -219,15 +221,15 @@ func entryNewRoot(position string, sourceDirectory string, newRootPath string) (
 	info, err := os.Lstat(filepath.Join(sourceDirectory, filepath.FromSlash(cleaned)))
 
 	if os.IsNotExist(err) {
-		return "", errors.Errorf("%s has the newRootPath %q, which does not exist", position, newRootPath)
+		return "", errors.Errorf("%s has the newRootPath %q, which does not exist", e.fieldPath, e.NewRootPath)
 	}
 
 	if err != nil {
-		return "", errors.Wrapf(err, "unable to find the newRootPath of %s", position)
+		return "", errors.Wrapf(err, "unable to find the newRootPath of %s", e.fieldPath)
 	}
 
 	if !info.IsDir() {
-		return "", errors.Errorf("%s has the newRootPath %q, which is not a directory", position, newRootPath)
+		return "", errors.Errorf("%s has the newRootPath %q, which is not a directory", e.fieldPath, e.NewRootPath)
 	}
 
 	return cleaned, nil
@@ -257,41 +259,42 @@ type fileFilter struct {
 	legalPaths   []string
 }
 
-func newFileFilter(position string, entry *filesEntry) (*fileFilter, error) {
+// filter builds the file filter from the patterns the entry gives.
+func (e *filesEntry) filter() (*fileFilter, error) {
 	filter := &fileFilter{}
 
 	var err error
 
-	if filter.includePaths, err = entryPatterns(position, "includePaths", entry.IncludePaths); err != nil {
+	if filter.includePaths, err = e.patterns("includePaths", e.IncludePaths); err != nil {
 		return nil, err
 	}
 
-	if filter.excludePaths, err = entryPatterns(position, "excludePaths", entry.ExcludePaths); err != nil {
+	if filter.excludePaths, err = e.patterns("excludePaths", e.ExcludePaths); err != nil {
 		return nil, err
 	}
 
 	legalPaths := defaultLegalPaths
 
-	if entry.LegalPaths != nil {
-		legalPaths = *entry.LegalPaths
+	if e.LegalPaths != nil {
+		legalPaths = *e.LegalPaths
 	}
 
-	if filter.legalPaths, err = entryPatterns(position, "legalPaths", legalPaths); err != nil {
+	if filter.legalPaths, err = e.patterns("legalPaths", legalPaths); err != nil {
 		return nil, err
 	}
 
 	return filter, nil
 }
 
-// entryPatterns puts an entry's patterns into the form files are matched
-// against, a path from the content root without a leading or trailing slash,
-// refusing any pattern which is malformed.
-func entryPatterns(position string, field string, patterns []string) ([]string, error) {
+// patterns puts the patterns the entry gives in a field into the form files
+// are matched against, a path from the content root without a leading or
+// trailing slash, refusing any pattern which is malformed.
+func (e *filesEntry) patterns(field string, patterns []string) ([]string, error) {
 	cleaned := make([]string, 0, len(patterns))
 
 	for _, pattern := range patterns {
 		if !doublestar.ValidatePattern(pattern) {
-			return nil, errors.Errorf("%s has the %s pattern %q, which is not a valid pattern", position, field, pattern)
+			return nil, errors.Errorf("%s has the %s pattern %q, which is not a valid pattern", e.fieldPath, field, pattern)
 		}
 
 		cleaned = append(cleaned, path.Clean(strings.TrimLeft(pattern, "/")))
@@ -352,7 +355,7 @@ func sourceFiles(directory string, leaveOut func(relative string) bool) ([]strin
 
 		relative = filepath.ToSlash(relative)
 
-		if oci.IsSkippedName(item.Name()) || leaveOut != nil && leaveOut(relative) {
+		if oci.IsMacOSMetadataFile(item.Name()) || leaveOut != nil && leaveOut(relative) {
 			if item.IsDir() {
 				return filepath.SkipDir
 			}
@@ -410,12 +413,12 @@ func toLayerEntries(placed map[string]string) []oci.LayerEntry {
 // layer which has none yet. A directory gets an entry only for holding a
 // file, and once its entry is there so are those of the directories above
 // it.
-func appendParents(entries []oci.LayerEntry, directories map[string]bool, imagePath string) []oci.LayerEntry {
+func appendParents(layerEntries []oci.LayerEntry, directories map[string]bool, imagePath string) []oci.LayerEntry {
 	for parent := path.Dir(imagePath); parent != "." && !directories[parent]; parent = path.Dir(parent) {
 		directories[parent] = true
 
-		entries = append(entries, oci.LayerEntry{Path: parent, Directory: true})
+		layerEntries = append(layerEntries, oci.LayerEntry{Path: parent, Directory: true})
 	}
 
-	return entries
+	return layerEntries
 }

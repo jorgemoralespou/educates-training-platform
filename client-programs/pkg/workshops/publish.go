@@ -130,12 +130,12 @@ func (o *FilesPublishOptions) Publish(stdout io.Writer, workshopDir string) erro
 	// The content published is the workshop directory, unless publish.files
 	// names what to assemble in its place.
 
-	var entries []oci.LayerEntry
+	var layerEntries []oci.LayerEntry
 
 	if fileArtifacts, found, _ := unstructured.NestedSlice(workshop.Object, "spec", "publish", "files"); found && len(fileArtifacts) != 0 {
-		entries, err = filesEntries(workshopDir, fileArtifacts)
+		layerEntries, err = filesLayerEntries(workshopDir, fileArtifacts)
 	} else {
-		entries, err = contentEntries(workshopDir)
+		layerEntries, err = contentLayerEntries(workshopDir)
 	}
 
 	if err != nil {
@@ -146,7 +146,7 @@ func (o *FilesPublishOptions) Publish(stdout io.Writer, workshopDir string) erro
 
 	fmt.Fprintf(stdout, "Publishing workshop files to %q.\n", image)
 
-	digest, err := o.push(reference, entries)
+	digest, err := o.push(reference, layerEntries)
 
 	if err != nil {
 		return err
@@ -205,14 +205,14 @@ func (o *FilesPublishOptions) Publish(stdout io.Writer, workshopDir string) erro
 // push builds the workshop image from the layer entries and pushes it under
 // the reference, returning the digest it was pushed as. The image is a single
 // OCI image manifest whose one layer holds the content at its root.
-func (o *FilesPublishOptions) push(reference regname.Tag, entries []oci.LayerEntry) (regv1.Hash, error) {
+func (o *FilesPublishOptions) push(reference regname.Tag, layerEntries []oci.LayerEntry) (regv1.Hash, error) {
 	timestamp, err := oci.Timestamp(os.Getenv)
 
 	if err != nil {
 		return regv1.Hash{}, err
 	}
 
-	layer, err := oci.BuildLayer(entries, timestamp)
+	layer, err := oci.BuildLayer(layerEntries, timestamp)
 
 	if err != nil {
 		return regv1.Hash{}, errors.Wrap(err, "unable to build the workshop image")
@@ -247,12 +247,12 @@ func (o *FilesPublishOptions) push(reference regname.Tag, entries []oci.LayerEnt
 	return digest, nil
 }
 
-// contentEntries lists the files under the content directory, and the
-// directories holding them, as entries for the layer. A .git at the root of
-// the content is left out, as are the macOS artefacts a layer never holds.
+// contentLayerEntries lists the files under the content directory, and the
+// directories holding them, as layer entries. A .git at the root of the
+// content is left out, as are the macOS artefacts a layer never holds.
 // Anything which is neither a file nor a directory is passed on as a file
 // entry, for the layer builder to refuse.
-func contentEntries(contentDirectory string) ([]oci.LayerEntry, error) {
+func contentLayerEntries(contentDirectory string) ([]oci.LayerEntry, error) {
 	// The directory itself may be named through a symbolic link, which the
 	// walk would not follow.
 	contentDirectory, err := filepath.EvalSymlinks(contentDirectory)

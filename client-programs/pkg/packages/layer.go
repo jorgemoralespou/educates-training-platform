@@ -108,7 +108,7 @@ func collectEntries(sourceDir string, platform Platform) ([]oci.LayerEntry, erro
 
 			// The layer builder skips these too, but pruning them here keeps a
 			// source holding nothing else from passing as having files.
-			if oci.IsSkippedName(info.Name()) {
+			if oci.IsMacOSMetadataFile(info.Name()) {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}
@@ -182,7 +182,7 @@ func IgnoredRootEntries(sourceDir string) ([]string, error) {
 	var ignored []string
 
 	for _, item := range items {
-		if reserved[item.Name()] || oci.IsSkippedName(item.Name()) {
+		if reserved[item.Name()] || oci.IsMacOSMetadataFile(item.Name()) {
 			continue
 		}
 
