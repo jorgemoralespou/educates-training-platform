@@ -750,20 +750,42 @@ Features Changed
   ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged node CA
   injector daemon set off.
 
-* ``educates package publish`` no longer reads any ``IMGPKG_*`` environment
-  variable. Registry credentials come from the ``--registry-username`` and
-  ``--registry-password``, ``--registry-token`` or ``--registry-anon``
-  flags, and otherwise from the Docker configuration that ``docker login``
-  writes, including the credential helpers it names. ``IMGPKG_USERNAME``,
-  ``IMGPKG_PASSWORD``, ``IMGPKG_TOKEN``, ``IMGPKG_ANON`` and the
-  ``IMGPKG_REGISTRY_*`` credentials are ignored, as are
-  ``IMGPKG_ENABLE_IAAS_AUTH`` and ``IMGPKG_ACTIVE_KEYCHAINS``, which turned
-  on credentials for Google, Amazon ECR, Azure and GitHub registries. A
-  pipeline which set one of them should instead run ``docker login``, add a
-  ``credHelpers`` entry for the registry to the Docker configuration, such
-  as ``ecr-login`` for Amazon ECR or ``gcloud`` for Google Artifact
-  Registry, or pass the ``--registry-*`` flags. Nothing is printed when one
-  of these variables is set.
+* ``educates workshop publish`` and ``educates package publish`` no longer
+  read any ``IMGPKG_*`` environment variable. Registry credentials come from
+  the ``--registry-username`` and ``--registry-password``,
+  ``--registry-token`` or ``--registry-anon`` flags, and otherwise from the
+  Docker configuration that ``docker login`` writes, including the
+  credential helpers it names. ``IMGPKG_USERNAME``, ``IMGPKG_PASSWORD``,
+  ``IMGPKG_TOKEN``, ``IMGPKG_ANON`` and the ``IMGPKG_REGISTRY_*``
+  credentials are ignored, as are ``IMGPKG_ENABLE_IAAS_AUTH`` and
+  ``IMGPKG_ACTIVE_KEYCHAINS``, which turned on credentials for Google,
+  Amazon ECR, Azure and GitHub registries. A pipeline which set one of them
+  should instead run ``docker login``, add a ``credHelpers`` entry for the
+  registry to the Docker configuration, such as ``ecr-login`` for Amazon ECR
+  or ``gcloud`` for Google Artifact Registry, or pass the ``--registry-*``
+  flags. Nothing is printed when one of these variables is set.
+
+* Workshop images published by ``educates workshop publish`` are now OCI
+  images: a single OCI image manifest, with an OCI image config and one OCI
+  layer holding the workshop files at its root, in place of the Docker media
+  types used before. In the layer, files are ``0755`` when they have any
+  execute bit set and ``0644`` otherwise, directories are ``0755``,
+  everything is owned by ``root``, and every entry carries the time given by
+  ``SOURCE_DATE_EPOCH``, or 1 January 2000 when it is not set. A directory
+  holding no files is left out. Publishing unchanged content again gives the
+  same digest, but the first publish with this version gives a different
+  digest from a 3.x publish of the same content.
+
+* ``educates workshop publish`` now leaves ``.DS_Store`` files and ``._*``
+  AppleDouble files out of the workshop image, wherever they are in the
+  workshop files. A symbolic link or a hard-linked file in the workshop files
+  fails the publish, and the error names every one found, so they can all be
+  fixed at once. Hard-linked files were previously published as separate
+  copies.
+
+* ``educates workshop publish`` now pushes the workshop image under the
+  requested tag only. The extra ``sha256-<hex>.imgpkg`` tag that was also
+  written to the image repository is no longer created.
 
 Deprecations
 ------------
