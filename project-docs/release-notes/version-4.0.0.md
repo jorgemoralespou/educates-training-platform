@@ -304,8 +304,9 @@ New Features
   takes a package source directory holding a ``package.yaml`` manifest beside
   the reserved ``common``, ``linux-amd64`` and ``linux-arm64`` directories, and
   publishes an image index with one child image per platform. No Docker daemon
-  is required. Two builds of the same source produce the same digests, and
-  ``SOURCE_DATE_EPOCH`` is honoured where a specific build timestamp is wanted.
+  is required. Two builds of the same source with the same version of the CLI
+  produce the same digests, and ``SOURCE_DATE_EPOCH`` is honoured where a
+  specific build timestamp is wanted.
   Use ``--dry-run`` to validate a package source and see the digests which
   would be published without contacting a registry, and ``--digest-file`` to
   record the published digest for a later step in a pipeline. A package whose
@@ -772,9 +773,10 @@ Features Changed
   execute bit set and ``0644`` otherwise, directories are ``0755``,
   everything is owned by ``root``, and every entry carries the time given by
   ``SOURCE_DATE_EPOCH``, or 1 January 2000 when it is not set. A directory
-  holding no files is left out. Publishing unchanged content again gives the
-  same digest, but the first publish with this version gives a different
-  digest from a 3.x publish of the same content.
+  holding no files is left out. Publishing unchanged content again with the
+  same version of the CLI gives the same digest, but the first publish with
+  this version gives a different digest from a 3.x publish of the same
+  content.
 
 * ``educates workshop publish`` now leaves ``.DS_Store`` files and ``._*``
   AppleDouble files out of the workshop image, wherever they are in the
