@@ -11,7 +11,7 @@ export WORKSHOP_PORT
 # Work out location of the workshop content. This will be in workshop user home
 # directory if mounting local directory, or is a custom workshop image but files
 # were not moved to /opt/workshop. This will be /opt/workshop when moved to this
-# location as part of custom workshop image or download-workshop was used.
+# location as part of custom workshop image or workshop content was downloaded.
 
 WORKSHOP_DIR=""
 

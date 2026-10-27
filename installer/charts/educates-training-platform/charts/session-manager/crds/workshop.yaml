@@ -68,8 +68,6 @@ spec:
                   properties:
                     image:
                       type: string
-                    files:
-                      type: string
                 publish:
                   type: object
                   properties:

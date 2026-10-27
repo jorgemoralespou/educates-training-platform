@@ -60,17 +60,13 @@ fi
 
 export INGRESS_PORT
 
-# Download any remote workshop content hosted on a remote server. The primary
-# way of doing this is using vendir, the configuration for which is mounted into
-# the workshop container by the operator. An older obsolete way is still
-# supported with a custom script to download content. For the latter, the
-# location of where the content was downloaded from will be saved in the
-# $HOME/.local/share/workshop/workshop-files.txt file for use when doing manual
-# updates. In both cases we will not fail when we can't download the workshop
-# content. The file $HOME/.local/share/workshop/download-workshop.failed will be
-# created in the event of an error so that the dashboard can display an error.
-# Output from downloading the files is saved for debugging purposes to the file
-# $HOME/.local/share/workshop/download-workshop.log.
+# Download any remote workshop content hosted on a remote server. This is done
+# using vendir, the configuration for which is mounted into the workshop
+# container by the operator. We will not fail when we can't download the
+# workshop content. The file $HOME/.local/share/workshop/download-workshop.failed
+# will be created in the event of an error so that the dashboard can display an
+# error. Output from downloading the files is saved for debugging purposes to
+# the file $HOME/.local/share/workshop/download-workshop.log.
 
 DOWNLOAD_LOGFILE=$HOME/.local/share/workshop/download-workshop.log
 DOWNLOAD_FAILED=$HOME/.local/share/workshop/download-workshop.failed
@@ -107,14 +103,6 @@ if downloads-declared; then
     fi
 elif [ -d /opt/assets/files ]; then
     merge-workshop /opt/assets/files
-else
-    # In this case downloading workshop the old way which has been deprecated.
-
-    DOWNLOAD_URL=$(workshop-definition -r '(.spec.content.files // "")')
-
-    if [ x"$DOWNLOAD_URL" != x"" ]; then
-        (download-workshop "$DOWNLOAD_URL" || touch $DOWNLOAD_FAILED) 2>&1 | tee -a $DOWNLOAD_LOGFILE
-    fi
 fi
 
 # Check that every extension package declared as an image actually arrived.
