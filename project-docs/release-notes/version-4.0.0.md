@@ -1308,3 +1308,12 @@ Bugs Fixed
   as a missing CA secret, had been corrected, even once the resource became
   ready. It now returns to ``True`` once the spec and the secrets it
   references pass validation.
+
+* When the workshop image already had a ``workshop`` directory in the home
+  directory, workshop content downloaded using ``spec.workshop.files`` was
+  copied into the home directory rather than into ``/opt/workshop``, but only
+  the ``setup.d`` scripts under ``/opt/workshop`` were made executable after
+  the download. A script under ``$HOME/workshop/setup.d`` which lost its
+  execute permission when ``vendir`` unpacked an archive was skipped without
+  any message. Scripts under ``$HOME/workshop/setup.d`` are now made
+  executable as well.
