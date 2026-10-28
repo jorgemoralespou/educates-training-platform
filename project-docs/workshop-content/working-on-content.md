@@ -171,21 +171,19 @@ Once the workshop content has been updated you can reload the current page of th
 
 When running this command, any errors which occur in downloading the workshop content, running the setup script, or rendering the workshop instructions, will be output to the terminal so this command can be used instead of consulting the logs to look for errors. Do be aware though that since this can be the second time setup scripts have run, the behaviour may not be the same as the first time they have run. So for original details of errors you will still need to look at the log files.
 
-Note that if using the `classic` renderer and additional pages were added to the workshop instructions, or pages renamed, you will need to restart the workshop renderer process. This can be done by running:
-
-```
-restart-workshop
-```
-
-If using the `hugo` renderer you do not not need to run the `restart-workshop` and doing so will have no affect.
-
 So long as you hadn't renamed or deleted the current page you are viewing, you can trigger a reload of the current page. If you have eliminated the current page by deleting it or renaming it, click on the home icon or refresh the whole browser window.
 
-If action blocks within the workshop instructions are broken and you wanted to make a change to the workshop instructions within the live workshop session to test, edits can be made to the appropriate page under ``/opt/workshop/content``. If using the `classic` renderer you can then navigate to the modified page or reload it to verify the change. If using the `hugo` renderer, you will first need to run the command:
+If action blocks within the workshop instructions are broken and you wanted to
+make a change to the workshop instructions within the live workshop session to
+test, edits can be made to the appropriate page under
+``/opt/workshop/content``. As the workshop instructions are generated as static
+HTML files, regenerate them by running:
 
 ```
 rebuild-content
 ```
+
+You can then navigate to the modified page or reload it to verify the change.
 
 If wanting to make a change to setup scripts which create files specific to a workshop session and re-run them, make the edit to the script under ``/opt/workshop/setup.d``. To trigger running of any setup scripts, then run:
 
