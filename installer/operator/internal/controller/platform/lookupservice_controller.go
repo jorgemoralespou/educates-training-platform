@@ -163,15 +163,25 @@ func (r *LookupServiceReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// the secrets-manager subchart's `crds/` directory and only land
 	// once SecretsManager has reconciled. Without this gate, helm
 	// install fails with: `no matches for kind "SecretCopier" in
-	// version "secrets.educates.dev/v1beta1"`. Mirrors the equivalent
-	// gate on SessionManager.
-	smReady, err := r.secretsManagerReadyLS(ctx)
+	// version "secrets.educates.dev/v1beta1"`. After an operator upgrade
+	// it also waits for SecretsManager to run the chart this operator
+	// embeds, whose CRD schemas the new SecretCopier resources are written
+	// against (see secretsManagerStatus). Mirrors the equivalent gate on
+	// SessionManager.
+	smReady, smVersion, err := secretsManagerStatus(ctx, r.Client)
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("read SecretsManager: %w", err)
 	}
 	if !smReady {
 		r.markLSReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
 			"SecretsManager 'cluster' must reach Ready before lookup-service can install (SecretCopier CRD ships with secrets-manager)")
+		r.markLSPhase(obj, platformv1alpha1.ComponentPhasePending)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, obj)
+	}
+	if smVersion != vendoredcharts.SecretsManagerChartVersion {
+		r.markLSReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
+			fmt.Sprintf("SecretsManager 'cluster' runs secrets-manager chart %q, not %q; lookup-service waits for its release to converge, since lookup-service's SecretCopier resources use the CRDs it ships",
+				smVersion, vendoredcharts.SecretsManagerChartVersion))
 		r.markLSPhase(obj, platformv1alpha1.ComponentPhasePending)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateLSStatusWithTransitionLog(ctx, obj)
 	}
@@ -240,23 +250,6 @@ func (r *LookupServiceReconciler) clusterConfigReadyLS(ctx context.Context) (*co
 	return cfg, true, nil
 }
 
-// secretsManagerReadyLS fetches the SecretsManager singleton and
-// reports whether its aggregate Ready condition is True. NotFound is
-// treated as "not ready" so the gate trips uniformly whether the user
-// hasn't applied SecretsManager yet or has applied it but it's still
-// reconciling.
-func (r *LookupServiceReconciler) secretsManagerReadyLS(ctx context.Context) (bool, error) {
-	sm := &platformv1alpha1.SecretsManager{}
-	if err := r.Get(ctx, types.NamespacedName{Name: singletonName}, sm); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	cond := meta.FindStatusCondition(sm.Status.Conditions, conditionReady)
-	return cond != nil && cond.Status == metav1.ConditionTrue, nil
-}
-
 // lookupServiceHost composes the fully-qualified Ingress hostname
 // from CR prefix + cluster config domain — `<prefix>.<domain>`.
 func lookupServiceHost(obj *platformv1alpha1.LookupService, cfg *configv1alpha1.EducatesClusterConfig) string {
@@ -275,7 +268,7 @@ func (r *LookupServiceReconciler) installOrUpgradeLS(ctx context.Context, obj *p
 	if err != nil {
 		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	return hc.EnsureRelease(ctx, lookupServiceReleaseName, chrt, renderLookupServiceValues(obj, cfg))
+	return convergeRelease(ctx, r.Client, hc, lookupServiceReleaseName, chrt, renderLookupServiceValues(obj, cfg))
 }
 
 // renderLookupServiceValues maps the CR spec + cluster config status

@@ -190,24 +190,11 @@ func (r *SessionManagerReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
 	}
 
-	// Gate 2: SecretsManager.Ready. session-manager relies on
-	// secrets-manager's SecretCopier+SecretInjector controllers to
-	// propagate pull secrets and TLS into workshop namespaces; we
-	// refuse to install until it's healthy.
-	smReady, err := r.secretsManagerReady(ctx)
-	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("read SecretsManager: %w", err)
+	// Gate 2: SecretsManager.Ready, running the secrets-manager chart this
+	// operator embeds.
+	if proceed, result, err := r.gateOnSecretsManager(ctx, obj); !proceed {
+		return result, err
 	}
-	if !smReady {
-		r.markSMSecretsManagerAvailable(obj, metav1.ConditionFalse, "SecretsManagerNotReady",
-			"SecretsManager 'cluster' is not yet Ready; waiting")
-		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
-			"SecretsManager 'cluster' must reach Ready before session-manager can install")
-		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
-	}
-	r.markSMSecretsManagerAvailable(obj, metav1.ConditionTrue, "SecretsManagerReady",
-		"SecretsManager 'cluster' is Ready")
 
 	if proceed, result, err := r.prepareInstall(ctx, obj); !proceed {
 		return result, err
@@ -339,22 +326,6 @@ func (r *SessionManagerReconciler) clusterConfigReadySM(ctx context.Context) (*c
 	return cfg, true, nil
 }
 
-// secretsManagerReady fetches the SecretsManager singleton and reports
-// whether its aggregate Ready condition is True. NotFound is treated
-// as "not ready, may appear later" — same shape as the cluster config
-// gate.
-func (r *SessionManagerReconciler) secretsManagerReady(ctx context.Context) (bool, error) {
-	sm := &platformv1alpha1.SecretsManager{}
-	if err := r.Get(ctx, types.NamespacedName{Name: singletonName}, sm); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	cond := meta.FindStatusCondition(sm.Status.Conditions, conditionReady)
-	return cond != nil && cond.Status == metav1.ConditionTrue, nil
-}
-
 func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *platformv1alpha1.SessionManager, cfg *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	if err := ensurePlatformNamespace(ctx, r.Client); err != nil {
 		return helm.Result{}, err
@@ -367,7 +338,7 @@ func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *
 	if err != nil {
 		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	return hc.EnsureRelease(ctx, sessionManagerReleaseName, chrt, renderSessionManagerValues(obj, cfg, r.OperatorNamespace))
+	return convergeRelease(ctx, r.Client, hc, sessionManagerReleaseName, chrt, renderSessionManagerValues(obj, cfg, r.OperatorNamespace))
 }
 
 // renderSessionManagerValues maps SessionManagerSpec + cluster config
@@ -712,6 +683,40 @@ func applySMStylingValues(values map[string]any, obj *platformv1alpha1.SessionMa
 	if len(styling) > 0 {
 		values["websiteStyling"] = styling
 	}
+}
+
+// gateOnSecretsManager reports whether session-manager may install: the
+// SecretsManager singleton must be Ready and run the secrets-manager chart
+// this operator embeds. session-manager relies on secrets-manager's
+// SecretCopier+SecretInjector controllers to propagate pull secrets and TLS
+// into workshop namespaces, and its chart creates resources of those kinds,
+// whose CRDs are current only then (see secretsManagerStatus). When it may
+// not install, the status is already written.
+func (r *SessionManagerReconciler) gateOnSecretsManager(ctx context.Context, obj *platformv1alpha1.SessionManager) (bool, ctrl.Result, error) {
+	smReady, smVersion, err := secretsManagerStatus(ctx, r.Client)
+	if err != nil {
+		return false, ctrl.Result{}, fmt.Errorf("read SecretsManager: %w", err)
+	}
+	if !smReady {
+		r.markSMSecretsManagerAvailable(obj, metav1.ConditionFalse, "SecretsManagerNotReady",
+			"SecretsManager 'cluster' is not yet Ready; waiting")
+		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
+			"SecretsManager 'cluster' must reach Ready before session-manager can install")
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
+		return false, ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
+	}
+	if smVersion != vendoredcharts.SecretsManagerChartVersion {
+		r.markSMSecretsManagerAvailable(obj, metav1.ConditionFalse, "SecretsManagerNotUpgraded",
+			fmt.Sprintf("SecretsManager 'cluster' runs secrets-manager chart %q, not %q; waiting for its release to converge",
+				smVersion, vendoredcharts.SecretsManagerChartVersion))
+		r.markSMReady(obj, metav1.ConditionFalse, "WaitingForSecretsManager",
+			"SecretsManager 'cluster' must run the bundled secrets-manager chart before session-manager can install, since session-manager's SecretCopier and SecretInjector resources use the CRDs it ships")
+		r.markSMPhase(obj, platformv1alpha1.ComponentPhasePending)
+		return false, ctrl.Result{RequeueAfter: 30 * time.Second}, r.updateSMStatusWithTransitionLog(ctx, obj)
+	}
+	r.markSMSecretsManagerAvailable(obj, metav1.ConditionTrue, "SecretsManagerReady",
+		"SecretsManager 'cluster' is Ready")
+	return true, ctrl.Result{}, nil
 }
 
 // prepareInstall runs the steps that must succeed before the chart is

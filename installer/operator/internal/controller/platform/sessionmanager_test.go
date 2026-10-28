@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -54,9 +55,19 @@ const testOperatorNamespace = "educates-installer"
 const testCAOverrideNamespace = "test-ca-override"
 
 // makeReadySecretsManager creates the SecretsManager singleton and
-// stamps Ready=True directly via the status subresource. Used as a
-// fixture for SessionManager specs whose gate-2 depends on it.
+// stamps Ready=True directly via the status subresource, running the
+// secrets-manager chart this operator embeds. Used as a fixture for
+// SessionManager specs whose gate-2 depends on it.
 func makeReadySecretsManager() {
+	GinkgoHelper()
+	makeReadySecretsManagerAt(vendoredcharts.SecretsManagerChartVersion)
+}
+
+// makeReadySecretsManagerAt is makeReadySecretsManager with the chart
+// version the SecretsManager reports it runs, the state of a cluster whose
+// secrets-manager release has not yet converged after an operator upgrade
+// when the version is an older one.
+func makeReadySecretsManagerAt(installedVersion string) {
 	GinkgoHelper()
 	sm := &platformv1alpha1.SecretsManager{
 		ObjectMeta: metav1.ObjectMeta{Name: singletonName},
@@ -64,7 +75,8 @@ func makeReadySecretsManager() {
 	Expect(k8sClient.Create(ctx, sm)).To(Succeed())
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, sm)).To(Succeed())
 	sm.Status = platformv1alpha1.SecretsManagerStatus{
-		Phase: platformv1alpha1.ComponentPhaseReady,
+		Phase:            platformv1alpha1.ComponentPhaseReady,
+		InstalledVersion: installedVersion,
 		Conditions: []metav1.Condition{{
 			Type:               conditionReady,
 			Status:             metav1.ConditionTrue,
@@ -74,6 +86,32 @@ func makeReadySecretsManager() {
 		}},
 	}
 	Expect(k8sClient.Status().Update(ctx, sm)).To(Succeed())
+}
+
+// setSecretsManagerInstalledVersion moves the SecretsManager singleton to
+// report the given chart version, as its reconciler does once the
+// secrets-manager release converges.
+func setSecretsManagerInstalledVersion(installedVersion string) {
+	GinkgoHelper()
+	sm := &platformv1alpha1.SecretsManager{}
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, sm)).To(Succeed())
+	sm.Status.InstalledVersion = installedVersion
+	Expect(k8sClient.Status().Update(ctx, sm)).To(Succeed())
+}
+
+// updateSessionManagerSpec applies mutate to the SessionManager singleton's
+// spec, fetching it again and retrying when the update conflicts with a
+// status write the running reconciler made after the fetch.
+func updateSessionManagerSpec(mutate func(*platformv1alpha1.SessionManagerSpec)) {
+	GinkgoHelper()
+	Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		smgr := &platformv1alpha1.SessionManager{}
+		if err := k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, smgr); err != nil {
+			return err
+		}
+		mutate(&smgr.Spec)
+		return k8sClient.Update(ctx, smgr)
+	})).To(Succeed())
 }
 
 func smgrReadyStatus() metav1.ConditionStatus {
@@ -291,10 +329,9 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(k8sClient.Create(ctx, withCAOverride("override-ca"))).To(Succeed())
 		Eventually(overrideCAData, 30*time.Second, 200*time.Millisecond).ShouldNot(BeNil())
 
-		smgr := &platformv1alpha1.SessionManager{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, smgr)).To(Succeed())
-		smgr.Spec.IngressOverrides = nil
-		Expect(k8sClient.Update(ctx, smgr)).To(Succeed())
+		updateSessionManagerSpec(func(spec *platformv1alpha1.SessionManagerSpec) {
+			spec.IngressOverrides = nil
+		})
 
 		Eventually(overrideCAData, 30*time.Second, 200*time.Millisecond).Should(BeNil())
 		Eventually(smCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
@@ -335,6 +372,37 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(smgrReadyStatus()).To(Equal(metav1.ConditionFalse))
 	})
 
+	It("waits for SecretsManager to run the embedded secrets-manager chart before installing", func() {
+		// After an operator upgrade SecretsManager stays Ready from the
+		// previous release until its own release converges, and only then
+		// carries the secrets.educates.dev CRD schemas session-manager's
+		// SecretCopier and SecretInjector resources are written against.
+		makeReadyClusterConfig()
+		makeReadySecretsManagerAt("0.0.0-previous")
+
+		smgr := &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+		}
+		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
+
+		Eventually(func() string {
+			return smgrConditionReason(conditionSecretsManagerAvailable)
+		}, 30*time.Second, 200*time.Millisecond).Should(Equal("SecretsManagerNotUpgraded"))
+		Expect(smgrReadyStatus()).To(Equal(metav1.ConditionFalse))
+		hc, err := helmFac.For(platformNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = hc.Status(sessionManagerReleaseName)
+		Expect(err).To(MatchError(helm.ErrReleaseNotFound))
+
+		setSecretsManagerInstalledVersion(vendoredcharts.SecretsManagerChartVersion)
+
+		Eventually(func() error {
+			_, err := hc.Status(sessionManagerReleaseName)
+			return err
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		Expect(smgrConditionReason(conditionSecretsManagerAvailable)).To(Equal("SecretsManagerReady"))
+	})
+
 	It("installs the chart and reaches Ready when both gates pass + Deployment Available", func() {
 		makeReadyClusterConfig()
 		makeReadySecretsManager()
@@ -367,6 +435,22 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(got.Status.DeploymentRef).NotTo(BeNil())
 		Expect(got.Status.DeploymentRef.Namespace).To(Equal(platformNamespace))
 		Expect(got.Status.DeploymentRef.Name).To(Equal(sessionManagerDeploymentName))
+	})
+
+	It("upgrades the subchart's stale CRDs to the chart's schemas", func() {
+		chrt, err := vendoredcharts.SessionManager()
+		Expect(err).NotTo(HaveOccurred())
+		writeStaleCRDs(chrt)
+
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		smgr := &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec:       platformv1alpha1.SessionManagerSpec{},
+		}
+		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
+
+		expectChartCRDsApplied(chrt)
 	})
 
 	It("renders Secret-sourced themes and the imagePrePuller toggle into chart values", func() {
@@ -662,10 +746,9 @@ var _ = Describe("SessionManager reconciler", func() {
 		Eventually(nodeCAInjectorCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(overrideCAChartRef))
 
-		smgr := &platformv1alpha1.SessionManager{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, smgr)).To(Succeed())
-		smgr.Spec.IngressOverrides = nil
-		Expect(k8sClient.Update(ctx, smgr)).To(Succeed())
+		updateSessionManagerSpec(func(spec *platformv1alpha1.SessionManagerSpec) {
+			spec.IngressOverrides = nil
+		})
 
 		Eventually(nodeCAInjectorCACertificateRefValue, 30*time.Second, 200*time.Millisecond).
 			Should(Equal(ingressCAChartRef()))
@@ -878,11 +961,11 @@ var _ = Describe("SessionManager reconciler", func() {
 		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 
 		// Flip to Disabled — reconciler should drain.
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, smgr)).To(Succeed())
-		smgr.Spec.NodeCATrust = &platformv1alpha1.NodeCATrust{
-			Mode: platformv1alpha1.ComponentModeDisabled,
-		}
-		Expect(k8sClient.Update(ctx, smgr)).To(Succeed())
+		updateSessionManagerSpec(func(spec *platformv1alpha1.SessionManagerSpec) {
+			spec.NodeCATrust = &platformv1alpha1.NodeCATrust{
+				Mode: platformv1alpha1.ComponentModeDisabled,
+			}
+		})
 
 		Eventually(func() error {
 			hc, err := helmFac.For(platformNamespace)

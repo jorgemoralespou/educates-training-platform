@@ -296,9 +296,37 @@ func (r *SecretsManagerReconciler) clusterConfigReady(ctx context.Context) (*con
 	return cfg, true, nil
 }
 
-// installOrUpgrade renders chart values from CR + cluster config and
-// converges the helm release via helm.EnsureRelease (install/upgrade on
-// drift, self-heal a failed release once its inputs change, hold otherwise).
+// secretsManagerStatus fetches the SecretsManager singleton and reports
+// whether its aggregate Ready condition is True and which secrets-manager
+// chart version it runs. NotFound is treated as "not ready, may appear
+// later", the same shape as the cluster config gate.
+//
+// SessionManager and LookupService gate on both. Their charts create
+// SecretCopier and SecretInjector resources, whose secrets.educates.dev CRDs
+// ship in the secrets-manager chart and reach that chart's schemas only when
+// this reconciler converges its release. After an operator upgrade
+// SecretsManager stays Ready from the previous release until then, so Ready
+// alone would let a dependent chart's Helm upgrade run against the previous
+// release's CRD schemas, which reject or prune the fields it adds. Comparing
+// the version with the chart this operator embeds orders a released
+// upgrade; a development build whose chart version does not change is not
+// ordered.
+func secretsManagerStatus(ctx context.Context, c client.Reader) (ready bool, installedVersion string, err error) {
+	sm := &platformv1alpha1.SecretsManager{}
+	if err := c.Get(ctx, types.NamespacedName{Name: singletonName}, sm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, "", nil
+		}
+		return false, "", err
+	}
+	cond := meta.FindStatusCondition(sm.Status.Conditions, conditionReady)
+	return cond != nil && cond.Status == metav1.ConditionTrue, sm.Status.InstalledVersion, nil
+}
+
+// installOrUpgrade renders chart values from CR + cluster config, applies
+// the chart's CRDs and converges the helm release via convergeRelease
+// (install/upgrade on drift, self-heal a failed release once its inputs
+// change, hold otherwise).
 // The returned Result tells the caller whether to proceed to the Deployment
 // readiness gate.
 func (r *SecretsManagerReconciler) installOrUpgrade(ctx context.Context, obj *platformv1alpha1.SecretsManager, cfg *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
@@ -313,7 +341,7 @@ func (r *SecretsManagerReconciler) installOrUpgrade(ctx context.Context, obj *pl
 	if err != nil {
 		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	return hc.EnsureRelease(ctx, secretsManagerReleaseName, chrt, renderSecretsManagerValues(obj, cfg))
+	return convergeRelease(ctx, r.Client, hc, secretsManagerReleaseName, chrt, renderSecretsManagerValues(obj, cfg))
 }
 
 // renderSecretsManagerValues maps SecretsManager spec + the cluster

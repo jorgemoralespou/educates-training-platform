@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -311,6 +312,49 @@ var _ = Describe("SecretsManager reconciler", func() {
 		Expect(got.Status.DeploymentRef).NotTo(BeNil())
 		Expect(got.Status.DeploymentRef.Namespace).To(Equal(platformNamespace))
 		Expect(got.Status.DeploymentRef.Name).To(Equal(secretsManagerDeploymentName))
+	})
+
+	It("upgrades the subchart's stale CRDs, so a field the old schema lacked is kept", func() {
+		chrt, err := vendoredcharts.SecretsManager()
+		Expect(err).NotTo(HaveOccurred())
+		writeStaleCRDs(chrt)
+
+		makeReadyClusterConfig()
+		sm := &platformv1alpha1.SecretsManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec:       platformv1alpha1.SecretsManagerSpec{},
+		}
+		Expect(k8sClient.Create(ctx, sm)).To(Succeed())
+
+		expectChartCRDsApplied(chrt)
+
+		// The stale schema prunes a rule's targetSecret.labels; the chart's
+		// declares it. The API server takes a moment to serve a changed
+		// schema, so re-apply until the field survives the round trip.
+		copier := &unstructured.Unstructured{}
+		copier.SetAPIVersion("secrets.educates.dev/v1beta1")
+		copier.SetKind("SecretCopier")
+		copier.SetName("crd-upgrade-check")
+		Expect(unstructured.SetNestedSlice(copier.Object, []any{map[string]any{
+			"sourceSecret": map[string]any{"name": "source", "namespace": "default"},
+			"targetSecret": map[string]any{"labels": map[string]any{"copied": "true"}},
+		}}, "spec", "rules")).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, copier.DeepCopy()) })
+
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Apply(ctx, client.ApplyConfigurationFromUnstructured(copier.DeepCopy()),
+				client.FieldOwner("crd-upgrade-check"), client.ForceOwnership)).To(Succeed())
+
+			got := &unstructured.Unstructured{}
+			got.SetGroupVersionKind(copier.GroupVersionKind())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: copier.GetName()}, got)).To(Succeed())
+			rules, _, err := unstructured.NestedSlice(got.Object, "spec", "rules")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(rules).To(HaveLen(1))
+			labels, _, err := unstructured.NestedStringMap(rules[0].(map[string]any), "targetSecret", "labels")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(labels).To(Equal(map[string]string{"copied": "true"}))
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
 	})
 
 	It("uninstalls the chart on delete", func() {

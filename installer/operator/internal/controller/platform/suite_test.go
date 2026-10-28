@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,6 +68,10 @@ var _ = BeforeSuite(func() {
 	// input contract; the CRD has to be registered + installed in
 	// envtest for specs to create the gating resource.
 	err = configv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	// Specs read and stage the runtime CRDs the reconcilers apply from
+	// their subcharts.
+	err = apiextensionsv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

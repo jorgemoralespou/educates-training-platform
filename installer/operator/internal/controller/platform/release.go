@@ -17,14 +17,29 @@ limitations under the License.
 package platform
 
 import (
+	"context"
 	"fmt"
 	"time"
 
+	chart "helm.sh/helm/v4/pkg/chart/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/crds"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
 )
+
+// convergeRelease applies the CRDs chrt ships in its crds/ directory, then
+// converges the named release toward (chrt, vals) via helm.EnsureRelease. Every
+// runtime release goes through here, so its CRDs reach the chart's schema on an
+// operator upgrade. See crds.ApplyChart.
+func convergeRelease(ctx context.Context, cl client.Client, hc *helm.Client, name string, chrt *chart.Chart, vals map[string]any) (helm.Result, error) {
+	if err := crds.ApplyChart(ctx, cl, chrt); err != nil {
+		return helm.Result{}, fmt.Errorf("apply %s CRDs: %w", name, err)
+	}
+	return hc.EnsureRelease(ctx, name, chrt, vals)
+}
 
 // handlePlatformReleaseResult maps a helm.EnsureRelease outcome for a platform
 // component install to a Reconcile result, shared by the secrets-manager,

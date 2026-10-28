@@ -164,7 +164,7 @@ type extraOutcome struct {
 // live in the same namespace and helm releases are unique by release-name.
 //
 // The intent → action mapping:
-//   - Install: converge the release via helm.EnsureRelease (install, upgrade
+//   - Install: converge the release via convergeRelease (install, upgrade
 //     on drift, self-heal a failed release once its inputs change, or hold a
 //     failed release whose inputs are unchanged). Publish condition: True with
 //     reason `Installed` on success; False with reason `ReleaseFailed`
@@ -197,7 +197,7 @@ func (r *SessionManagerReconciler) reconcileExtra(
 			return extraOutcome{}, fmt.Errorf("load chart %s: %w", releaseName, err)
 		}
 		log.V(1).Info("converging extra", "release", releaseName)
-		res, err := hc.EnsureRelease(ctx, releaseName, chrt, renderValues(obj, cfg))
+		res, err := convergeRelease(ctx, r.Client, hc, releaseName, chrt, renderValues(obj, cfg))
 		if err != nil {
 			setExtraCondition(obj, conditionType, metav1.ConditionFalse, "InstallFailed", err.Error())
 			return extraOutcome{}, fmt.Errorf("ensure release %s: %w", releaseName, err)

@@ -17,7 +17,11 @@ limitations under the License.
 package config
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"path/filepath"
 	"sync"
 	"time"
@@ -36,12 +40,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/yaml"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
 	platformv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/platform/v1alpha1"
@@ -367,6 +373,44 @@ func markCertificateReady() {
 		}},
 	}
 	Expect(k8sClient.Status().Update(ctx, cert)).To(Succeed())
+}
+
+// expectChartCRDsApplied waits until every CRD the chart ships in its crds/
+// directory, each document of a file holding several included, is on the
+// cluster with the chart's schema for each of its versions. The in-memory
+// Helm client skips crds/, so only the operator's own apply puts them there.
+func expectChartCRDsApplied(chrt *chart.Chart) {
+	GinkgoHelper()
+	var want []*apiextensionsv1.CustomResourceDefinition
+	for _, obj := range chrt.CRDObjects() {
+		reader := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(obj.File.Data)))
+		for {
+			doc, err := reader.Read()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			Expect(err).NotTo(HaveOccurred(), "read %s", obj.Filename)
+			crd := &apiextensionsv1.CustomResourceDefinition{}
+			Expect(yaml.Unmarshal(doc, crd)).To(Succeed(), "parse %s", obj.Filename)
+			if crd.Name != "" {
+				want = append(want, crd)
+			}
+		}
+	}
+	Expect(want).NotTo(BeEmpty(), "chart %s ships no CRDs", chrt.Name())
+
+	for _, crd := range want {
+		Eventually(func(g Gomega) {
+			live := &apiextensionsv1.CustomResourceDefinition{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: crd.Name}, live)).To(Succeed())
+			g.Expect(live.Spec.Versions).To(HaveLen(len(crd.Spec.Versions)))
+			for i := range crd.Spec.Versions {
+				g.Expect(live.Spec.Versions[i].Name).To(Equal(crd.Spec.Versions[i].Name))
+				g.Expect(live.Spec.Versions[i].Schema).To(Equal(crd.Spec.Versions[i].Schema),
+					"schema of %s %s", crd.Name, crd.Spec.Versions[i].Name)
+			}
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+	}
 }
 
 // memoryHelmFactory builds an in-memory Helm client per namespace and
@@ -1505,6 +1549,13 @@ var _ = Describe("EducatesClusterConfig Managed-mode reconciler", func() {
 		Expect(dnsReady).NotTo(BeNil())
 		Expect(dnsReady.Status).To(Equal(metav1.ConditionTrue))
 		Expect(dnsReady.Reason).To(Equal("BundledExternalDNSReady"))
+
+		// The chart ships DNSEndpoint and DNSRecord in crds/, which Helm
+		// applies only on a release's first install; the operator applies
+		// them itself so a chart bump reaches upgraded clusters.
+		chrt, err := vendoredcharts.ExternalDNS()
+		Expect(err).NotTo(HaveOccurred())
+		expectChartCRDsApplied(chrt)
 	})
 
 	It("rejects Route53 with neither IRSA nor static credentials", func() {

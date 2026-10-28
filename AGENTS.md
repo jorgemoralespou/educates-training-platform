@@ -267,10 +267,13 @@ components knowing the difference.
   secrets-manager component. Gates on `EducatesClusterConfig.status`
   being Ready.
 - **`LookupService`** (`platform.educates.dev/v1alpha1`) —
-  lookup-service component.
+  lookup-service component. Gates on `SecretsManager` as SessionManager
+  does.
 - **`SessionManager`** (`platform.educates.dev/v1alpha1`) —
   session-manager component. Gates on `EducatesClusterConfig.status` and
-  `SecretsManager.Ready`.
+  on `SecretsManager` being Ready at the secrets-manager chart version the
+  operator embeds, so after an upgrade its chart's SecretCopier resources
+  meet current CRDs; a development build's unchanged version passes at once.
 
 ---
 
@@ -360,6 +363,12 @@ components knowing the difference.
   `helm.NewClient(restCfg, ns)` in production and `helm.NewMemoryClient(ns)`
   in tests.
 - Don't shell out to the `helm` binary; use the SDK in-process.
+- Helm applies a chart's `crds/` only when it installs a release, so the
+  operator server-side applies them itself (`crds.ApplyChart`) before every
+  converge of each chart that ships them: the runtime subcharts, through
+  `convergeRelease` in `internal/controller/platform/release.go`, and
+  external-dns, in `reconcileExternalDNS`. A new vendored chart with a
+  `crds/` directory needs the same call.
 - Always verify chart values against the upstream chart's current
   `values.yaml`. Don't rely on memory.
 

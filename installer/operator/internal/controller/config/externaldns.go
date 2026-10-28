@@ -31,6 +31,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	configv1alpha1 "github.com/educates/educates-training-platform/installer/operator/api/config/v1alpha1"
+	"github.com/educates/educates-training-platform/installer/operator/internal/crds"
 	"github.com/educates/educates-training-platform/installer/operator/internal/helm"
 	vendoredcharts "github.com/educates/educates-training-platform/installer/operator/vendored-charts"
 )
@@ -131,7 +132,12 @@ func shouldInstallExternalDNS(obj *configv1alpha1.EducatesClusterConfig) bool {
 
 // reconcileExternalDNS ensures the helm release exists, installing
 // from the vendored tarball on first sight. Mirrors
-// reconcileCertManager + reconcileContour.
+// reconcileCertManager + reconcileContour, except that the chart ships
+// its DNSEndpoint and DNSRecord CRDs in crds/, which Helm applies only on
+// a release's first install, so the operator applies them before every
+// converge to carry a chart bump's CRD changes to upgraded clusters. They
+// are cluster-wide: the apply forces ownership, so the bundled version
+// replaces any other external-dns installation's.
 func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	chrt, err := vendoredcharts.ExternalDNS()
 	if err != nil {
@@ -145,6 +151,10 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Conte
 	hc, err := r.HelmClientFor(externalDNSNamespace)
 	if err != nil {
 		return helm.Result{}, fmt.Errorf("build helm client for %q: %w", externalDNSNamespace, err)
+	}
+
+	if err := crds.ApplyChart(ctx, r.Client, chrt); err != nil {
+		return helm.Result{}, fmt.Errorf("apply external-dns CRDs: %w", err)
 	}
 
 	res, err := hc.EnsureRelease(ctx, externalDNSReleaseName, chrt, renderExternalDNSValues(owner))
