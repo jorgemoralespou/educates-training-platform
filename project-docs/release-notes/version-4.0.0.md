@@ -1009,6 +1009,22 @@ Features Changed
 Removed Features
 ----------------
 
+* The classic renderer for workshop instructions has been removed, and Hugo
+  is now the only renderer. A workshop selected the classic renderer by
+  holding a ``workshop.yaml`` or ``modules.yaml`` file in its ``workshop``
+  directory, and the renderer supported features which Hugo does not provide,
+  among them AsciiDoc pages, Liquid templating and the automatic ``ENV_``
+  data variables. The classic renderer had been described as deprecated in
+  the documentation since version 3.0.0. A workshop still in the classic
+  format, or which sets the ``LOCAL_RENDERER_TYPE`` environment variable to
+  ``classic``, no longer has its instructions rendered. Instead, the
+  instructions panel of its workshop sessions shows a page saying that the
+  classic renderer was removed and linking the conversion guide, the same
+  message is written to the setup log, and setup is marked as failed, so the
+  workshop dashboard reports that the setup scripts failed. Convert such
+  workshops to Hugo as described in [converting a classic workshop to
+  Hugo](converting-a-classic-workshop).
+
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image. Octant
   was archived by its authors, with no release since ``0.25.1`` and no fixes
