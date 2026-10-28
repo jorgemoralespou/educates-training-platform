@@ -16,7 +16,6 @@ spec:
     metadata:
       labels:
         {{- include "educates-installer.labels" . | nindent 8 }}
-        {{- include "educates-installer.selectorLabels" . | nindent 8 }}
     spec:
       serviceAccountName: educates-installer
       {{- with .Values.imagePullSecrets }}
