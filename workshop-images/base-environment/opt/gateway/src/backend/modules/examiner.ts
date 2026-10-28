@@ -11,8 +11,7 @@ const test_program_directory_patterns = [
     "/home/eduk8s/workshop/examiner/tests",
     "/opt/workshop/examiner/tests",
     "/opt/packages/*/examiner/tests",
-    "/opt/eduk8s/workshop/examiner/tests",
-    "/opt/renderer/workshop/examiner/tests"
+    "/opt/eduk8s/workshop/examiner/tests"
 ];
 
 /**
