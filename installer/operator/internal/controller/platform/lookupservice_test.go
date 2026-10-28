@@ -161,6 +161,43 @@ var _ = Describe("LookupService reconciler", func() {
 		Expect(got.Status.DeploymentRef.Name).To(Equal(lookupServiceDeploymentName))
 	})
 
+	It("waits for SecretsManager to run the embedded secrets-manager chart before installing", func() {
+		// lookup-service's SecretCopier resources are written against the
+		// secrets.educates.dev CRDs, which reach the new release's schemas
+		// only once the secrets-manager release converges after an
+		// operator upgrade.
+		makeReadyClusterConfig()
+		makeReadySecretsManagerAt("0.0.0-previous")
+
+		ls := &platformv1alpha1.LookupService{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec: platformv1alpha1.LookupServiceSpec{
+				Ingress: platformv1alpha1.LookupServiceIngress{Prefix: "lookup"},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ls)).To(Succeed())
+
+		Eventually(func(g Gomega) {
+			got := &platformv1alpha1.LookupService{}
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: singletonName}, got)).To(Succeed())
+			c := meta.FindStatusCondition(got.Status.Conditions, conditionReady)
+			g.Expect(c).NotTo(BeNil())
+			g.Expect(c.Reason).To(Equal("WaitingForSecretsManager"))
+			g.Expect(c.Message).To(ContainSubstring("0.0.0-previous"))
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+		hc, err := helmFac.For(platformNamespace)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = hc.Status(lookupServiceReleaseName)
+		Expect(err).To(MatchError(helm.ErrReleaseNotFound))
+
+		setSecretsManagerInstalledVersion(vendoredcharts.SecretsManagerChartVersion)
+
+		Eventually(func() error {
+			_, err := hc.Status(lookupServiceReleaseName)
+			return err
+		}, 30*time.Second, 200*time.Millisecond).Should(Succeed())
+	})
+
 	It("upgrades the subchart's stale CRDs to the chart's schemas", func() {
 		chrt, err := vendoredcharts.LookupService()
 		Expect(err).NotTo(HaveOccurred())
