@@ -493,6 +493,20 @@ Features Changed
   console used by default, including for workshops which enable a virtual
   cluster, so workshops which did not request it explicitly are unaffected.
 
+* The ``content.files`` property of the ``Workshop`` custom resource, which
+  was deprecated in version 2.0.0 in favour of ``workshop.files``, has been
+  removed from the custom resource definition, along with the
+  ``download-workshop`` script in the workshop base image which handled it.
+  Since version 2.7.1 the value of the property was no longer passed to the
+  workshop session, so setting it had no effect and no workshop content was
+  downloaded. Workshops should use ``workshop.files`` instead, which downloads
+  content from Git repositories, HTTP servers and OCI images using ``vendir``.
+  A ``.eduk8signore`` file in workshop content is no longer used, so use
+  ``includePaths`` and ``excludePaths`` in ``workshop.files`` to filter what
+  is included. As ``kubectl apply`` validates against the schema strictly by
+  default, a ``Workshop`` which still sets ``content.files`` is now rejected
+  when it is applied, and the property needs to be removed from it.
+
 * The ``bombardier``, ``dive``, ``kwt`` and ``kctrl`` command line tools are no
   longer included in the workshop base image. None of them were used by
   Educates itself. ``kwt`` was archived by its authors in 2023, and ``kctrl``
@@ -1308,3 +1322,12 @@ Bugs Fixed
   as a missing CA secret, had been corrected, even once the resource became
   ready. It now returns to ``True`` once the spec and the secrets it
   references pass validation.
+
+* When the workshop image already had a ``workshop`` directory in the home
+  directory, workshop content downloaded using ``spec.workshop.files`` was
+  copied into the home directory rather than into ``/opt/workshop``, but only
+  the ``setup.d`` scripts under ``/opt/workshop`` were made executable after
+  the download. A script under ``$HOME/workshop/setup.d`` which lost its
+  execute permission when ``vendir`` unpacked an archive was skipped without
+  any message. Scripts under ``$HOME/workshop/setup.d`` are now made
+  executable as well.

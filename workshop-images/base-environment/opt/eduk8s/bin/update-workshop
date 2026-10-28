@@ -7,12 +7,8 @@ if downloads-declared; then
 elif [ -d /opt/assets/files ]; then
     merge-workshop /opt/assets/files
 else
-    if [ ! -f $HOME/.local/share/workshop/workshop-files.txt ]; then
-        echo "Error: Workshop has not previously been downloaded." >&2
-        exit 1
-    fi
-
-    download-workshop --force $(cat $HOME/.local/share/workshop/workshop-files.txt)
+    echo "Error: Workshop does not declare any content to download." >&2
+    exit 1
 fi
 
 rebuild-workshop

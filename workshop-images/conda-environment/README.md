@@ -19,9 +19,16 @@ metadata:
 spec:
   title: Jupyter Workshop
   description: Workshop on using Jupyter notebooks.
-  content:
+  workshop:
     image: registry.default.svc.cluster.local/conda-environment:master
-    files: github.com/eduk8s-tests/lab-jupyter-workshop
+    files:
+    - git:
+        url: https://github.com/{organization}/{repository}
+        ref: origin/main
+      includePaths:
+      - /workshop/**
+      - /exercises/**
+      - /README.md
   session:
     budget: medium
     resources:

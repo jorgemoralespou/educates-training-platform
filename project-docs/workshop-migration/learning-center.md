@@ -103,7 +103,7 @@ spec:
     files: github.com/{organization}/{repository}
 ```
 
-This entry is now replaced with a new format, where a configuration snippet for ``vendir`` is instead supplied.
+This entry is no longer supported, and is replaced with a new format, where a configuration snippet for ``vendir`` is instead supplied.
 
 For the case of downloading workshop content hosted on GitHub you now need to use:
 
@@ -120,7 +120,7 @@ spec:
       - /README.md
 ```
 
-Note that the ``.eduk8signore`` file is only relevant to old ``workshop.content`` mechanism. In the new mechanism using ``vendir`` you should use ``includePaths`` and ``excludePaths`` in the workshop definition to filter what is included or excluded.
+Note that a ``.eduk8signore`` file is no longer used, as it only applied to the old ``content.files`` mechanism. In the new mechanism using ``vendir`` you should use ``includePaths`` and ``excludePaths`` in the workshop definition to filter what is included or excluded.
 
 For the case of downloading workshop content hosted on a HTTP server you now need to use:
 
