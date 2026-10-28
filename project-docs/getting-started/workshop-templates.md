@@ -7,21 +7,21 @@ The Educates workshop template provides a starting point for creating your works
 Customizing workshop details
 ----------------------------
 
-To create a new workshop using the Educates command line tool you would run the `educates new-workshop` command, passing it as argument a directory path to where the workshop content should be placed.
+To create a new workshop using the Educates command line tool you would run
+the ``educates workshop new`` command, passing it as argument a directory path
+to where the workshop content should be placed.
 
 ```
-educates new-workshop lab-new-workshop
+educates workshop new lab-new-workshop
 ```
 
 The last component of the supplied path will be used as the workshop name. The name of the workshop must conform to what is valid for a RFC 1035 label name as detailed in [Kubernetes object name and ID](https://kubernetes.io/docs/concepts/overview/working-with-objects/names/) requirements, but instead of a maximum length of 63 characters it is recommended the name be no longer than 25 characters. The shorter length requirement is due to Educates needing to add prefixes or suffixes as part of the implementation in different circumstances.
 
-The ``educates new-workshop`` command will default to creating files setup for using the ``hugo`` renderer. If you want to use the older ``classic`` renderer use:
-
-```
-educates new-workshop lab-new-workshop --template classic
-```
-
-The `classic` renderer is deprecated and will in time be removed so it is recommended that new workshops use the `hugo` renderer.
+The ``educates workshop new`` command creates the files for a workshop whose
+instructions are rendered by Hugo. It holds a single template, ``hugo``, which
+is the default for its ``--template`` option, so the option does not need to
+be given. Naming any other template, such as ``classic``, fails with an error
+listing the templates the command holds.
 
 In the workshop definition there are additional required fields that need to be filled out. These will be filled out with default values, but you can customize them at the time of workshop creation.
 
@@ -52,7 +52,11 @@ In the example above, the value of `{name}` would be the name of your workshop. 
 
 In the value for `files.image.url`, the reference to the data variable `$(image_repository)` will ensure that the OCI image artifact containing the workshop content files are pulled from the image registry created with the local Kubernetes environment. That is, you do not need to provide an explicit name for the image registry host as Educates will substitute the appropriate value. The data variable `$(workshop_version)` will be substituted with `latest` when working on content. Both of these will be replaced with actual values when a workshop is published.
 
-If you want to use your own custom workshop image, the location of the image can be supplied using the `--image` option when using the `educates new-workshop` command to create the initial workshop content. This would result in the generated configuration found in `resources/workshop.yaml` including the extra `spec.workshop.image` property.
+If you want to use your own custom workshop image, the location of the image
+can be supplied using the ``--image`` option when using the
+``educates workshop new`` command to create the initial workshop content. This
+would result in the generated configuration found in ``resources/workshop.yaml``
+including the extra ``spec.workshop.image`` property.
 
 ```yaml
 spec:
@@ -129,7 +133,12 @@ The tag being pushed to GitHub will trigger the following actions:
 * Creation of an OCI image artefact containing workshop content files and pushing it to the GitHub container registry.
 * Creation of a release against the GitHub repository and attach as assets Kubernetes resource files for deploying the workshop to Educates.
 
-The creation and the publishing of the OCI image artefact will be performed using the `educates publish-workshop` command. Your workshop definition must therefore be configured appropriately with a section describing how to publish the workshop image and optionally what should be included in the workshop image. In the case of workshops created using the `educates new-workshop` command, this configuration will be:
+The creation and the publishing of the OCI image artefact will be performed
+using the `educates publish-workshop` command. Your workshop definition must
+therefore be configured appropriately with a section describing how to publish
+the workshop image and optionally what should be included in the workshop
+image. In the case of workshops created using the ``educates workshop new``
+command, this configuration will be:
 
 ```yaml
 spec:
