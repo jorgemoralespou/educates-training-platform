@@ -339,20 +339,12 @@ ENABLE_WEBDAV_PROCESS=$ENABLE_WEBDAV
 
 ENABLE_CONSOLE_KUBERNETES_PROCESS=$ENABLE_CONSOLE_KUBERNETES
 
-# Workshop instructions served from the workshop container are rendered up
-# front as static HTML files by the rebuild above, so the workshop renderer
-# process is never started.
-
-ENABLE_WORKSHOP_PROCESS=false
-
 export ENABLE_EDITOR_PROCESS
 export ENABLE_GIT_PROCESS
 export ENABLE_SSHD_PROCESS
 export ENABLE_WEBDAV_PROCESS
 
 export ENABLE_CONSOLE_KUBERNETES_PROCESS
-
-export ENABLE_WORKSHOP_PROCESS
 
 env | sort
 

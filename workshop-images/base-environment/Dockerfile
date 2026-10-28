@@ -520,13 +520,6 @@ RUN cd /opt/gateway && \
     npm cache clean --force && \
     find node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
 
-RUN cd /opt/renderer && \
-    npm install && \
-    npm run compile && \
-    npm prune --production && \
-    npm cache clean --force && \
-    find node_modules -type d  \( -name test -o -name tests -o -name __tests__ \) -prune -exec rm -rf {} +
-
 FROM system-base
 
 ARG TARGETARCH

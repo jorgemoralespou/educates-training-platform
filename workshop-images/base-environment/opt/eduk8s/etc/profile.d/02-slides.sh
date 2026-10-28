@@ -2,8 +2,7 @@
 # reasons as given for main workshop content.
 #
 # TODO: This should perhaps only look under the directory specified by
-# WORKSHOP_DIR. Some of this should be moved into the gateway application now as
-# no longer need these details in the workshop renderer.
+# WORKSHOP_DIR. Some of this should be moved into the gateway application.
 
 SLIDES_DIR=""
 
