@@ -13,7 +13,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | 
 
 {{/*
 Selector labels — stable across upgrades; must not include the chart
-version.
+version. The pod template carries only educates-installer.labels, so
+every selector label must also be one of those.
 */}}
 {{- define "educates-installer.selectorLabels" -}}
 app.kubernetes.io/name: educates-installer
