@@ -1586,7 +1586,41 @@ pathways:
 Passing of environment variables
 --------------------------------
 
-The passing of environment variables, including remapping of variable names, can be achieved by setting your own custom data variables. If you are using the ``classic`` renderer and don't need to set default values, or remap the name of an environment variable, you can instead reference the name of the environment variable directly, albeit that you must prefix the name with ``ENV_`` when using it.
+The passing of environment variables, including remapping of variable names,
+can be achieved by setting your own custom data variables.
+
+If using the ``hugo`` renderer, add an entry under ``params`` in the
+``workshop/config.yaml`` file with the same name as the environment variable.
+The data variable takes its value from the environment variable when it is
+set, and from ``value`` otherwise. The ``value`` field can be left out, in
+which case the default is an empty string.
+
+```yaml
+params:
+- name: KUBECTL_VERSION
+  value: "1.33"
+```
+
+The value of the environment variable can then be displayed in the workshop
+content using the ``param`` shortcode:
+
+```text
+{{< param KUBECTL_VERSION >}}
+```
+
+To give the data variable a different name than the environment variable,
+list the environment variable under ``aliases``. When ``aliases`` is given,
+the environment variables it lists are checked in order, in place of the one
+named by ``name``, and the first one which is set provides the value.
+
+```yaml
+params:
+- name: kubectl_version
+  aliases:
+  - KUBECTL_VERSION
+```
+
+If you are using the ``classic`` renderer and don't need to set default values, or remap the name of an environment variable, you can instead reference the name of the environment variable directly, albeit that you must prefix the name with ``ENV_`` when using it.
 
 For example, if you wanted to display the value of the ``KUBECTL_VERSION`` environment variable in the workshop content, you can use ``ENV_KUBECTL_VERSION``, as in:
 
@@ -1594,9 +1628,26 @@ For example, if you wanted to display the value of the ``KUBECTL_VERSION`` envir
 {{ ENV_KUBECTL_VERSION }}
 ```
 
-Do note that only environment variables set on the workshop container from the workshop definition, or environment variables set and exported from `profile.d` scripts are available when rendering workshop instructions. Any environment variables set in `workshop/profile` are not available as that file only affects the interactive terminal.
+Workshop instructions are rendered when the workshop session starts, after
+any ``setup.d`` scripts have run, and only environment variables set at that
+point are available when rendering them. These include environment variables
+set on the workshop container through ``session.env`` or ``session.envFrom``
+in the workshop definition, among them [request
+parameters](passing-parameters-to-a-session) injected through
+``session.envFrom``. They also include environment variables which a
+``setup.d`` script sets by writing ``NAME=VALUE`` lines to the file named by
+the ``WORKSHOP_ENV`` environment variable:
 
-If using the ``hugo`` renderer there is no builtin equivalent for this feature, although you could provide your own shortcode for Hugo to use which implements it if desired.
+```shell
+#!/bin/bash
+
+echo "KUBECTL_VERSION=1.33" >> $WORKSHOP_ENV
+```
+
+See [running steps on container start](running-steps-on-container-start) for
+how to provide a ``setup.d`` script. Any environment variables set in
+``workshop/profile`` are not available, as that file only affects the
+interactive terminal.
 
 Handling of embedded URL links
 ------------------------------
