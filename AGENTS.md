@@ -267,10 +267,13 @@ components knowing the difference.
   secrets-manager component. Gates on `EducatesClusterConfig.status`
   being Ready.
 - **`LookupService`** (`platform.educates.dev/v1alpha1`) —
-  lookup-service component.
+  lookup-service component. Gates on `SecretsManager` as SessionManager
+  does.
 - **`SessionManager`** (`platform.educates.dev/v1alpha1`) —
   session-manager component. Gates on `EducatesClusterConfig.status` and
-  `SecretsManager.Ready`.
+  on `SecretsManager` being Ready at the secrets-manager chart version the
+  operator embeds, so after an upgrade its chart's SecretCopier resources
+  meet current CRDs; a development build's unchanged version passes at once.
 
 ---
 
