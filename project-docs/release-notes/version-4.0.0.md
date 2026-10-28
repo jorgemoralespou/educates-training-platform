@@ -1009,6 +1009,28 @@ Features Changed
 Removed Features
 ----------------
 
+* The classic renderer for workshop instructions has been removed, together
+  with the ``classic`` workshop template of the ``educates`` command line
+  tool. A workshop selected the classic renderer by holding a
+  ``workshop.yaml`` or ``modules.yaml`` file in its ``workshop`` directory,
+  and the renderer had been described as deprecated in the documentation
+  since version 3.0.0. Hugo, with the ``educates`` theme, is now the only
+  renderer for workshop instructions. ``educates workshop new`` holds only
+  the ``hugo`` template, which stays the default for its ``--template``
+  option, and naming ``classic`` or any other template fails with an error
+  listing the templates the command holds.
+  ``educates cluster workshop serve`` and ``educates workshop render`` fail
+  on a classic workshop with a message saying that the classic renderer was
+  removed in Educates 4.0 and giving the address of the conversion guide,
+  and ``serve`` fails before it contacts the cluster.
+  ``educates cluster workshop serve`` no longer reads the
+  ``WORKSHOP_RENDERER_THEME`` environment variable and always serves
+  workshop instructions with the ``educates`` theme.
+  ``educates workshop publish`` is unchanged, so a classic workshop can still
+  be published for an earlier version of Educates while it is being
+  converted. To convert a classic workshop, see [Converting a classic
+  workshop to Hugo](converting-a-classic-workshop).
+
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image. Octant
   was archived by its authors, with no release since ``0.25.1`` and no fixes
