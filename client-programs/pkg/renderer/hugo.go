@@ -350,17 +350,6 @@ func startHugoServer(workshopDir string, tempDir string, port int, sessionURL st
 		wsPort = 443
 	}
 
-	// Temporarily allow theme to be overridden by WORKSHOP_RENDERER_THEME
-	// environment variable so the legacy theme can still be selected. This
-	// will be removed when the classic renderer and educates-classic theme
-	// are removed.
-
-	theme := "educates"
-
-	if envTheme := os.Getenv("WORKSHOP_RENDERER_THEME"); envTheme != "" {
-		theme = envTheme
-	}
-
 	commandArgs := []string{
 		"server",
 		"--source", workshopDir,
@@ -369,7 +358,7 @@ func startHugoServer(workshopDir string, tempDir string, port int, sessionURL st
 		"--liveReloadPort", fmt.Sprintf("%d", wsPort),
 		"--config", filepath.Join(tempDir, "hugo.yaml"),
 		"--themesDir", filepath.Join(tempDir, "themes"),
-		"--theme", theme,
+		"--theme", "educates",
 		"--watch",
 	}
 

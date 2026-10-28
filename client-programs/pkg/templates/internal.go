@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strings"
 
 	"github.com/pkg/errors"
 )
@@ -59,7 +60,13 @@ func (t InternalTemplate) IsValid(templateType string) bool {
 
 func (t InternalTemplate) ApplyFiles(directory string, parameters map[string]string) error {
 	if !t.IsValid("files") {
-		return errors.Errorf("internal template %q does not exist", t)
+		var names []string
+
+		for _, name := range ListWorkshopTemplates() {
+			names = append(names, string(name))
+		}
+
+		return errors.Errorf("workshop template %q does not exist, available templates: %s", t, strings.Join(names, ", "))
 	}
 
 	templatePath := path.Join("files", string(t))
