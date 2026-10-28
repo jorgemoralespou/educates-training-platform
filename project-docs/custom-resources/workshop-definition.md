@@ -2624,7 +2624,7 @@ If you need to provide a way for a workshop user to download the file from the c
 
 ~~~text
 ```workshop:copy
-text: curl -o config.yaml {{ingress_protocol}}://{{session_name}}.{{ingress_domain}}/files/config.yaml?token={{services_password}}
+text: curl -o config.yaml {{< param ingress_protocol >}}://{{< param session_name >}}.{{< param ingress_domain >}}/files/config.yaml?token={{< param services_password >}}
 ```
 ~~~
 
@@ -2663,7 +2663,7 @@ If you need to provide a way for a workshop user to upload a single file from th
 
 ~~~text
 ```workshop:copy
-text: curl -F path=example.yaml -F file=@example.yaml '{{ingress_protocol}}://{{session_name}}.{{ingress_domain}}/upload/file?token={{services_password}}'
+text: curl -F path=example.yaml -F file=@example.yaml '{{< param ingress_protocol >}}://{{< param session_name >}}.{{< param ingress_domain >}}/upload/file?token={{< param services_password >}}'
 ```
 ~~~
 
@@ -2671,7 +2671,7 @@ Multiple files can be uploaded using the alternative ``curl`` command line of:
 
 ~~~text
 ```workshop:copy
-text: curl -F files=@example-1.yaml -F files=@example-2.yaml '{{ingress_protocol}}://{{session_name}}.{{ingress_domain}}/upload/files?token={{services_password}}'
+text: curl -F files=@example-1.yaml -F files=@example-2.yaml '{{< param ingress_protocol >}}://{{< param session_name >}}.{{< param ingress_domain >}}/upload/files?token={{< param services_password >}}'
 ```
 ~~~
 
@@ -2938,7 +2938,7 @@ The SSH private key for the workshop is still required by the remote client. Thi
 ~~~
 ```files:download-file
 path: .ssh/id_rsa
-download: {{session_name}}.{{ingress_domain}}.key
+download: {{< param session_name >}}.{{< param ingress_domain >}}.key
 ```
 ~~~
 
@@ -2978,13 +2978,14 @@ The result of this will be that a WebDAV server will be run within the workshop 
 * ``WEBDAV_USERNAME`` - Contains the username which needs to be used when authenticating over WebDAV.
 * ``WEBDAV_PASSWORD`` - Contains the password which needs to be used authenticating over WebDAV.
 
-If you need to use any of the environment variables related to the image registry as data variables in workshop content, you will need to declare this in the ``workshop/modules.yaml`` file in the ``config.vars`` section.
+If you need to use any of the environment variables related to WebDAV access
+as data variables in workshop content, you will need to declare them under
+``params`` in the ``workshop/config.yaml`` file.
 
 ```yaml
-config:
-  vars:
-  - name: WEBDAV_USERNAME
-  - name: WEBDAV_PASSWORD
+params:
+- name: WEBDAV_USERNAME
+- name: WEBDAV_PASSWORD
 ```
 
 The URL endpoint for accessing the WebDAV server is the same as the workshop session, with ``/webdav/`` path added. This can be constructed from the terminal using:
@@ -2996,7 +2997,7 @@ $INGRESS_PROTOCOL://$SESSION_NAME.$INGRESS_DOMAIN/webdav/
 In workshop content it can be constructed using:
 
 ```text
-{{ingress_protocol}}://{{session_name}}.{{ingress_domain}}/webdav/
+{{< param ingress_protocol >}}://{{< param session_name >}}.{{< param ingress_domain >}}/webdav/
 ```
 
 You should be able to use WebDAV client support provided by your operating system, of by using a standalone WebDAV client such as [CyberDuck](https://cyberduck.io/).
