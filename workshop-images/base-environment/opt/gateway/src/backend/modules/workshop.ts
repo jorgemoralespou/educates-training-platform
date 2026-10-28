@@ -26,29 +26,22 @@ export function setup_workshop(app: express.Application) {
         if (config.workshop_renderer == "static")
             return res.redirect(workshop_url)
 
-        // Finally, if workshop content renderer isn't enabled then redirect as
+        // If the workshop content renderer isn't enabled then redirect as
         // well. This should probably end up with an error when redirected.
 
         if (!config.enable_workshop)
             return res.redirect(workshop_url)
 
-        // The local renderer process only runs for the classic renderer type.
-        // For any other local renderer the content is rendered up front and
-        // served statically below, so there is no renderer to wait on and the
-        // check would always fail. Mirrors the condition used when setting up
-        // serving further down.
+        // Workshop instructions rendered locally are generated up front as
+        // static HTML files and served further down, so there is nothing to
+        // wait on. Only proxied workshop content is checked for readiness.
 
-        if (config.workshop_renderer == "local" && config.local_renderer_type != "classic")
+        if (config.workshop_renderer != "proxy")
             return res.redirect(workshop_url)
 
-        // Check whether the internal workshop content renderer is ready.
+        // Check whether the proxied workshop content is ready.
 
-        let url = 'http://127.0.0.1:' + config.workshop_port
-
-        if (config.workshop_renderer == "proxy")
-            url = workshop_url
-
-        var client = axios.create({ baseURL: url })
+        var client = axios.create({ baseURL: workshop_url })
 
         var options = {
             retries: 3,
@@ -59,10 +52,7 @@ export function setup_workshop(app: express.Application) {
 
         axios_retry(client, options)
 
-        let redirect_url = workshop_url
-
-        if (config.workshop_renderer == "proxy")
-            redirect_url = '/workshop/content/'
+        let redirect_url = '/workshop/content/'
 
         client.get('/workshop/content/')
             .then((result) => {
@@ -82,23 +72,6 @@ export function setup_workshop(app: express.Application) {
         app.get("/workshop/$", (req, res) => {
             res.redirect(workshop_url)
         })
-    }
-    else if (config.workshop_renderer == "local" && config.local_renderer_type == "classic") {
-        app.use(createProxyMiddleware("/workshop/", {
-            target: 'http://127.0.0.1:' + config.workshop_port,
-            ws: true,
-            onError: (err, req, res) => {
-                // The error handler can be called for either HTTP requests
-                // or a web socket connection. Check whether have writeHead
-                // method, indicating it is a HTTP request. Otherwise it is
-                // actually a socket object and shouldn't do anything.
-
-                console.log("Proxy", err)
-
-                if (res.writeHead)
-                    res.status(503).render("proxy-error-page")
-            }
-        }))
     }
     else if (config.workshop_renderer == "proxy") {
         app.get("/workshop/$", (req, res) => {
@@ -162,9 +135,9 @@ export function setup_workshop(app: express.Application) {
         }))
     }
     else {
-        // In the case of static workshop content the requirement is that it
-        // be at a base URL with sub path of /workshop/content/ so redirect
-        // to that. This is so there is no conflict with /workshop/static.
+        // Workshop instructions rendered locally, and static workshop
+        // content, are served at a base URL with sub path of
+        // /workshop/content/ so redirect to that.
 
         app.get("/workshop/$", (req, res) => {
             res.redirect('/workshop/content/')
