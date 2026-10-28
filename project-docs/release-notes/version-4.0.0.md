@@ -821,33 +821,6 @@ Features Changed
   file named ``dir``, as well as the files under a directory of that name.
   Every other pattern matches the same files as before.
 
-Deprecations
-------------
-
-* The ``session.applications.console.vendor`` property of the ``Workshop``
-  custom resource is deprecated. With the removal of Octant, the Kubernetes
-  dashboard is the only console which is available, so the only value the
-  property can be given is ``kubernetes``. The property is still accepted so
-  existing workshop definitions remain valid, but it will be removed in a
-  future version.
-
-* Following Kyverno's own deprecation of the ``ClusterPolicy`` resource
-  (``kyverno.io``) — deprecated in Kyverno 1.18 and scheduled for removal in
-  1.20 — workshops that supply their own Kyverno policies as ``ClusterPolicy``
-  objects via ``workshopSecurity.additionalKyvernoPolicies`` are correspondingly
-  deprecated. Such policies are still honoured for now (Educates continues to
-  scope them per workshop session, and logs a warning when it does), but support
-  will be removed on the same timeline as Kyverno's removal of ``ClusterPolicy``.
-  Migrate workshop-provided policies to ``ValidatingPolicy``.
-
-* ``profile.d`` scripts are deprecated, whether supplied with workshop content
-  or by an extension package, and will be removed in a future version. They
-  are still sourced for now. Set environment variables from a ``setup.d``
-  script instead, by writing ``NAME=VALUE`` lines to the file named by the
-  ``WORKSHOP_ENV`` environment variable. Variables written there are set in
-  the setup scripts which run afterwards and in the processes run in the
-  workshop session, including the terminal shell.
-
 * The Carvel-based installer from version 3 has been removed. Educates is no
   longer packaged or installed as a ``kapp-controller`` package: the
   ``educates-installer`` package bundle and package repository are no longer
@@ -1129,6 +1102,33 @@ Deprecations
   the floating ``latest`` or ``develop`` version — distinguishable. Release
   binaries continue to report their release version and additionally show the
   commit they were built from.
+
+Deprecations
+------------
+
+* The ``session.applications.console.vendor`` property of the ``Workshop``
+  custom resource is deprecated. With the removal of Octant, the Kubernetes
+  dashboard is the only console which is available, so the only value the
+  property can be given is ``kubernetes``. The property is still accepted so
+  existing workshop definitions remain valid, but it will be removed in a
+  future version.
+
+* Following Kyverno's own deprecation of the ``ClusterPolicy`` resource
+  (``kyverno.io``) — deprecated in Kyverno 1.18 and scheduled for removal in
+  1.20 — workshops that supply their own Kyverno policies as ``ClusterPolicy``
+  objects via ``workshopSecurity.additionalKyvernoPolicies`` are correspondingly
+  deprecated. Such policies are still honoured for now (Educates continues to
+  scope them per workshop session, and logs a warning when it does), but support
+  will be removed on the same timeline as Kyverno's removal of ``ClusterPolicy``.
+  Migrate workshop-provided policies to ``ValidatingPolicy``.
+
+* ``profile.d`` scripts are deprecated, whether supplied with workshop content
+  or by an extension package, and will be removed in a future version. They
+  are still sourced for now. Set environment variables from a ``setup.d``
+  script instead, by writing ``NAME=VALUE`` lines to the file named by the
+  ``WORKSHOP_ENV`` environment variable. Variables written there are set in
+  the setup scripts which run afterwards and in the processes run in the
+  workshop session, including the terminal shell.
 
 * The ``external-dns.alpha.kubernetes.io/hostname`` annotation which the
   operator sets on the Envoy service of the ingress controller is deprecated.
