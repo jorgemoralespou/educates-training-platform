@@ -845,22 +845,17 @@ Features Changed
   from custom resources or the Helm chart keep the chart default of
   disabled.
 
-* The browser JavaScript bundles for the workshop renderer and gateway
-  applications in the workshop base environment image are now generated using
-  esbuild instead of browserify. This eliminates security alerts arising from
-  the deprecated elliptic package which was an indirect dependency of
-  browserify, but for which no fixed version is available.
+* The browser JavaScript bundle for the workshop gateway application in the
+  workshop base environment image is now generated using esbuild instead of
+  browserify. This eliminates security alerts arising from the deprecated
+  elliptic package which was an indirect dependency of browserify, but for
+  which no fixed version is available.
 
-* The default Hugo theme used when rendering workshop instructions has been
-  replaced with a new self contained implementation which no longer depends on
-  JavaScript code generated from the classic renderer. The original theme is
-  still included under the name ``educates-classic`` and can be selected by
-  setting the ``WORKSHOP_RENDERER_THEME`` environment variable for a workshop
-  to ``educates-classic`` if any issues are encountered with the new theme. The
-  recommended way of setting this environment variable is via the ``env``
-  override for a workshop in the ``TrainingPortal`` resource definition. The
-  ``educates-classic`` theme will be removed in a future version at the same
-  time as the classic renderer is removed.
+* The ``educates`` Hugo theme used when rendering workshop instructions has
+  been replaced with a new self contained implementation which no longer
+  depends on JavaScript code generated from the classic renderer. The original
+  theme is not included, and workshop instructions are always rendered with
+  the new theme.
 
 * The ``baseurl`` short code for the Hugo renderer no longer includes a
   trailing slash when expanded, so the documented usage of
@@ -1018,6 +1013,17 @@ Removed Features
   renderer for workshop instructions, and the features of the classic
   renderer which Hugo does not provide, among them AsciiDoc pages, Liquid
   templating and the automatic ``ENV_`` data variables, are gone with it.
+  The workshop base image no longer includes the classic renderer, nor the
+  Node.js packages only it used, among them ``asciidoctor``, ``liquidjs``
+  and ``marked``. The original Hugo theme, which loaded its styles and scripts from
+  the classic renderer and was included in the 4.0 pre-releases as
+  ``educates-classic``, has been removed as well. Workshop instructions are
+  always rendered with the ``educates`` theme, and neither a workshop
+  session nor ``educates cluster workshop serve`` reads the
+  ``WORKSHOP_RENDERER_THEME`` environment variable which selected a
+  different theme, so a workshop which still sets it, to
+  ``educates-classic`` or any other value, renders with the ``educates``
+  theme.
   A workshop still in the classic format, or which sets the
   ``LOCAL_RENDERER_TYPE`` environment variable to ``classic``, no longer has
   its instructions rendered in a workshop session. Instead, the instructions
@@ -1032,9 +1038,6 @@ Removed Features
   on a classic workshop with a message saying that the classic renderer was
   removed in Educates 4.0 and giving the address of the conversion guide,
   and ``serve`` fails before it contacts the cluster.
-  ``educates cluster workshop serve`` no longer reads the
-  ``WORKSHOP_RENDERER_THEME`` environment variable and always serves
-  workshop instructions with the ``educates`` theme.
   ``educates workshop publish`` is unchanged, so a classic workshop can still
   be published for an earlier version of Educates while it is being
   converted. To convert a classic workshop, see [Converting a classic
@@ -1227,13 +1230,13 @@ Bugs Fixed
   had set ``sourceSecret`` in a ``SecretImporter`` resource it had no effect,
   and the field should be removed from your manifests.
 
-* The Node.js packages bundled with the workshop gateway, renderer and editor
-  helper in the workshop base environment image have been updated to their
-  latest upstream releases, being ``axios`` 1.20.0, ``express`` 4.22.3,
-  ``js-yaml`` 4.3.2, ``morgan`` 1.12.1, ``multer`` 2.4.0, ``joi`` 17.13.7,
-  ``liquidjs`` 10.27.2 and ``fast-uri`` 3.1.8. These updates pick up fixes for
-  vulnerabilities reported against the previously bundled versions. The
-  behavior of the workshop dashboard is unchanged.
+* The Node.js packages bundled with the workshop gateway and editor helper in
+  the workshop base environment image have been updated to their latest
+  upstream releases, being ``axios`` 1.20.0, ``express`` 4.22.3, ``js-yaml``
+  4.3.2, ``morgan`` 1.12.1, ``multer`` 2.4.0, ``joi`` 17.13.7 and
+  ``fast-uri`` 3.1.8. These updates pick up fixes for vulnerabilities
+  reported against the previously bundled versions. The behavior of the
+  workshop dashboard is unchanged.
 
 * The Python packages bundled with the session manager, secrets manager,
   lookup service, training portal and tunnel manager have been updated to
