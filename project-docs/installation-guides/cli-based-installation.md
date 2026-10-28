@@ -89,3 +89,5 @@ By default the four CRDs and the operator and `educates-secrets` namespaces are 
 ```shell
 educates admin platform delete --yes --purge
 ```
+
+Neither form removes the custom resource definitions of the runtime components, such as `Workshop`, `TrainingPortal` and `SecretCopier`, which stay in place together with every resource of their kinds.

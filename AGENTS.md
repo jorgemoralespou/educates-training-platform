@@ -360,6 +360,11 @@ components knowing the difference.
   `helm.NewClient(restCfg, ns)` in production and `helm.NewMemoryClient(ns)`
   in tests.
 - Don't shell out to the `helm` binary; use the SDK in-process.
+- Helm applies a chart's `crds/` only when it installs a release. The
+  operator server-side applies each runtime subchart's CRDs before every
+  converge (`convergeRelease` in `internal/controller/platform/release.go`),
+  as it applies its own at startup; external-dns's `crds/` still reach a
+  cluster only on first install.
 - Always verify chart values against the upstream chart's current
   `values.yaml`. Don't rely on memory.
 
