@@ -138,6 +138,17 @@ func (o *ClusterWorkshopServeOptions) Run() error {
 	var portal = o.Portal
 	var token = o.Token
 
+	// Calculate workshop root and reject a classic workshop before the
+	// cluster is contacted.
+
+	if path, err = calculateWorkshopRoot(path); err != nil {
+		return err
+	}
+
+	if err = renderer.RejectClassicWorkshop(path); err != nil {
+		return err
+	}
+
 	clusterConfig, err := cluster.NewClusterConfigIfAvailable(o.Kubeconfig, o.Context)
 
 	if err != nil {
@@ -150,11 +161,7 @@ func (o *ClusterWorkshopServeOptions) Run() error {
 		portal = "educates-cli"
 	}
 
-	// Calculate workshop root and name.
-
-	if path, err = calculateWorkshopRoot(path); err != nil {
-		return err
-	}
+	// Calculate workshop name.
 
 	var workshop *unstructured.Unstructured
 

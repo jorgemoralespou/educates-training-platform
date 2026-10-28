@@ -111,6 +111,10 @@ func (o *FilesRenderOptions) Run(args []string) error {
 }
 
 func (o *FilesRenderOptions) Render(directory string, outputFile string) error {
+	if err := renderer.RejectClassicWorkshop(directory); err != nil {
+		return err
+	}
+
 	// If image name hasn't been supplied read workshop definition file and
 	// try to work out image name to Export workshop as.
 
