@@ -367,7 +367,7 @@ func (r *SessionManagerReconciler) installOrUpgradeSM(ctx context.Context, obj *
 	if err != nil {
 		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	return hc.EnsureRelease(ctx, sessionManagerReleaseName, chrt, renderSessionManagerValues(obj, cfg, r.OperatorNamespace))
+	return convergeRelease(ctx, r.Client, hc, sessionManagerReleaseName, chrt, renderSessionManagerValues(obj, cfg, r.OperatorNamespace))
 }
 
 // renderSessionManagerValues maps SessionManagerSpec + cluster config

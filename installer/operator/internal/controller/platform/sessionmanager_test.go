@@ -369,6 +369,22 @@ var _ = Describe("SessionManager reconciler", func() {
 		Expect(got.Status.DeploymentRef.Name).To(Equal(sessionManagerDeploymentName))
 	})
 
+	It("upgrades the subchart's stale CRDs to the chart's schemas", func() {
+		chrt, err := vendoredcharts.SessionManager()
+		Expect(err).NotTo(HaveOccurred())
+		writeStaleCRDs(chrt)
+
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		smgr := &platformv1alpha1.SessionManager{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec:       platformv1alpha1.SessionManagerSpec{},
+		}
+		Expect(k8sClient.Create(ctx, smgr)).To(Succeed())
+
+		expectChartCRDsApplied(chrt)
+	})
+
 	It("renders Secret-sourced themes and the imagePrePuller toggle into chart values", func() {
 		makeReadyClusterConfig()
 		makeReadySecretsManager()

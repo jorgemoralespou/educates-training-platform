@@ -275,7 +275,7 @@ func (r *LookupServiceReconciler) installOrUpgradeLS(ctx context.Context, obj *p
 	if err != nil {
 		return helm.Result{}, fmt.Errorf("build helm client: %w", err)
 	}
-	return hc.EnsureRelease(ctx, lookupServiceReleaseName, chrt, renderLookupServiceValues(obj, cfg))
+	return convergeRelease(ctx, r.Client, hc, lookupServiceReleaseName, chrt, renderLookupServiceValues(obj, cfg))
 }
 
 // renderLookupServiceValues maps the CR spec + cluster config status

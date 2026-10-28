@@ -161,6 +161,24 @@ var _ = Describe("LookupService reconciler", func() {
 		Expect(got.Status.DeploymentRef.Name).To(Equal(lookupServiceDeploymentName))
 	})
 
+	It("upgrades the subchart's stale CRDs to the chart's schemas", func() {
+		chrt, err := vendoredcharts.LookupService()
+		Expect(err).NotTo(HaveOccurred())
+		writeStaleCRDs(chrt)
+
+		makeReadyClusterConfig()
+		makeReadySecretsManager()
+		ls := &platformv1alpha1.LookupService{
+			ObjectMeta: metav1.ObjectMeta{Name: singletonName},
+			Spec: platformv1alpha1.LookupServiceSpec{
+				Ingress: platformv1alpha1.LookupServiceIngress{Prefix: "lookup"},
+			},
+		}
+		Expect(k8sClient.Create(ctx, ls)).To(Succeed())
+
+		expectChartCRDsApplied(chrt)
+	})
+
 	It("carries the cluster's CA trust Secret, with its namespace, into chart values", func() {
 		makeReadyClusterConfig()
 		makeReadySecretsManager()
