@@ -28,15 +28,18 @@ The following changes were made in Educates 3.0.0:
   opinionated installs of Educates to IaaS providers such as AWS, GCP and
   Azure.
 
+The following change was made in Educates 4.0.0:
+
+* The classic renderer for workshop instructions (Markdown and AsciiDoc) has
+  been removed. Hugo is the only renderer for workshop instructions, and
+  workshops still using the classic renderer need to be converted as described
+  in [converting a classic workshop to Hugo](converting-a-classic-workshop).
+
 Upcoming changes
 ----------------
 
 Note that the following features are deprecated and the current plan is that
 they will be removed sometime in the 4.X series of Educates releases:
-
-* The classic renderer for workshop instructions (Markdown and AsciiDoc) will be
-  removed. All workshops should be ported over to use the Hugo (Markdown) based
-  renderer.
 
 * The use of `profile.d` files has been superseded by adding environment
   variables to the `WORKSHOP_ENV` file from `setup.d` scripts. Support for
