@@ -96,6 +96,8 @@ The `EducatesClusterConfig` reconciler renders a values map for each vendored up
 
 When `imageRegistry.prefix` is set, each chart also gets the values that move all of its images, hooks included, to their upstream repository paths under the prefix: `imageRegistry` for cert-manager, `global.imageRegistry` for Contour, `image.repository` for external-dns, and `global.image.registry`, `webhooksCleanup.image.registry` and `test.image.registry` for Kyverno.
 
+The external-dns chart carries two custom resource definitions, `DNSEndpoint` and `DNSRecord`. Helm creates a chart's custom resource definitions only when it first installs a release, so the reconciler applies these itself before every install or upgrade of `external-dns`, and an operator upgrade that bundles a newer external-dns brings their new schemas with it. Custom resource definitions are shared by the whole cluster, and the operator always replaces these with the version it bundles, so any other external-dns installation on the same cluster runs against that version too. cert-manager, Contour and Kyverno ship their custom resource definitions as part of their releases, which upgrade them along with everything else.
+
 With the `StaticCertificate` certificates provider no cert-manager is installed: the reconciler checks the wildcard certificate you name and copies only its `tls.crt` and `tls.key` into the operator-owned `educates-wildcard-tls`, which it publishes in place of a cert-manager issued one.
 
 In Inline mode this stage installs nothing: the reconciler only validates that the referenced Secrets, IngressClass, and engines exist, checks the wildcard certificate as it checks a `StaticCertificate`, and derives `educates-ingress-ca` from the CA Secret when one is named.

@@ -166,11 +166,17 @@ helm template <name> <path-to-extracted-chart> [--set ...] | grep -E 'kind: (Dep
 |---|---|---|
 | cert-manager | `certmanager.go` | `cert-manager`, `cert-manager-cainjector`, `cert-manager-webhook` Deployments ready; `cert-manager.io` API discovery responds; CRDs present (deferred watch) |
 | contour | `contour.go` | `contour-contour` Deployment + `contour-envoy` DaemonSet (names from the chart fullname helper); no admission webhook; `envoy.useHostPort` / `envoy.service.type` values still honoured |
-| external-dns | `externaldns.go` | the external-dns Deployment is ready; provider value keys (Route53 / CloudDNS) unchanged |
+| external-dns | `externaldns.go` | the external-dns Deployment is ready; provider value keys (Route53 / CloudDNS) unchanged; the chart's `crds/` still holds its CRDs, which `crds.ApplyChart` applies before the release |
 | kyverno | `kyverno.go` | the four controller Deployments (`kyverno-{admission,background,cleanup,reports}-controller`) ready; `validatingpolicies.policies.kyverno.io` CRD still installed; RBAC role names unchanged |
 
 If a name or values key changed, update the reconciler constant and its
 "verified against <version>" comment in the same change.
+
+Helm applies a chart's `crds/` only when it installs a release. cert-manager,
+Contour and Kyverno ship their CRDs as templates, so a bump upgrades them. If
+a new version moves CRDs into `crds/` (`tar tzf <chart>.tgz | grep /crds/`),
+call `crds.ApplyChart` in its reconciler before `EnsureRelease`, as
+`reconcileExternalDNS` does.
 
 Every image the chart can run, hooks and chart tests included, must also still
 move to its upstream repository path under `spec.imageRegistry.prefix`. Each
