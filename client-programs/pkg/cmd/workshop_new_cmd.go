@@ -30,9 +30,6 @@ var (
   # Create a new workshop with custom base image
   educates workshop new my-workshop --image ghcr.io/myorg/workshop-base:latest
 
-  # Create a new workshop using the classic template
-  educates workshop new my-workshop --template classic
-
   # Create a new workshop with kubernetes access enabled in the workshop
   educates workshop new my-workshop --with-kubernetes-access
 
@@ -69,7 +66,7 @@ func (p *ProjectInfo) NewWorkshopNewCmd() *cobra.Command {
 		"template",
 		"t",
 		"hugo",
-		"name of the workshop template to use (hugo, classic)",
+		"name of the workshop template to use (hugo)",
 	)
 	c.Flags().StringVarP(
 		&o.Name,
