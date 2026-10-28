@@ -6,7 +6,7 @@ In Educates 4.0, Hugo is the only renderer for workshop instructions. The
 classic renderer, which a workshop selected by shipping a
 ``workshop/workshop.yaml`` or ``workshop/modules.yaml`` file, was removed. A
 session of a workshop still in the classic format shows a page saying so in
-place of its instructions, and the ``educates workshop serve`` and
+place of its instructions, and the ``educates cluster workshop serve`` and
 ``educates workshop render`` commands fail on it with the same message.
 
 This page goes through each feature of the classic renderer and gives its
