@@ -481,54 +481,6 @@ Features Changed
   the details of one secret, such as the subject and issuer of its
   certificates or why it is ``invalid``.
 
-* Octant is no longer available as the web console for a workshop session and
-  the Octant binaries are no longer included in the workshop base image. Octant
-  was archived by its authors, with no release since ``0.25.1`` and no fixes
-  available for the vulnerabilities reported against the versions which were
-  bundled. Workshops which set ``session.applications.console.vendor`` to
-  ``octant`` will now be given the Kubernetes dashboard instead, with a warning
-  logged against the workshop session. The
-  ``session.applications.console.octant`` property has been removed from the
-  ``Workshop`` custom resource definition. Note that Octant was never the
-  console used by default, including for workshops which enable a virtual
-  cluster, so workshops which did not request it explicitly are unaffected.
-
-* The ``content.files`` property of the ``Workshop`` custom resource, which
-  was deprecated in version 2.0.0 in favour of ``workshop.files``, has been
-  removed from the custom resource definition, along with the
-  ``download-workshop`` script in the workshop base image which handled it.
-  Since version 2.7.1 the value of the property was no longer passed to the
-  workshop session, so setting it had no effect and no workshop content was
-  downloaded. Workshops should use ``workshop.files`` instead, which downloads
-  content from Git repositories, HTTP servers and OCI images using ``vendir``.
-  A ``.eduk8signore`` file in workshop content is no longer used, so use
-  ``includePaths`` and ``excludePaths`` in ``workshop.files`` to filter what
-  is included. As ``kubectl apply`` validates against the schema strictly by
-  default, a ``Workshop`` which still sets ``content.files`` is now rejected
-  when it is applied, and the property needs to be removed from it.
-
-* The ``bombardier``, ``dive``, ``kwt`` and ``kctrl`` command line tools are no
-  longer included in the workshop base image. None of them were used by
-  Educates itself. ``kwt`` was archived by its authors in 2023, and ``kctrl``
-  is the ``kapp-controller`` command line tool, which is not needed now that
-  Educates is installed by its own operator rather than through Carvel
-  packaging. Each of the four was already pinned at the most recent release its
-  authors have published, and each still carried vulnerabilities with no fixed
-  version available, so there was nothing to upgrade to. Workshops which run
-  any of these commands from workshop instructions or setup scripts need to
-  install them in a custom workshop image, or use an alternative tool.
-
-* The bundled versions of [reveal.js](https://revealjs.com/) used for workshop
-  slides have changed. Version ``6.0.1`` is now bundled alongside ``4.6.1``
-  and ``5.2.1``, and version ``3.9.2`` is no longer included. Workshops which
-  select the reveal.js version through the
-  ``session.applications.slides.reveal.js`` property of the ``Workshop``
-  custom resource using a ``3.X`` selector need to move to ``4.X``, ``5.X``
-  or ``6.X``, and should review their slide decks against the upstream
-  reveal.js upgrade guidance since the markup and plugin APIs changed after
-  the 3.x series. If the requested version cannot be matched against a
-  bundled version the slides are not served for the workshop session.
-
 * The bundled ``external-dns`` cluster service has been updated to version
   0.22.0. This version only recognizes annotations carrying the
   ``external-dns.kubernetes.io/`` prefix and no longer reads the older
@@ -765,21 +717,6 @@ Features Changed
   ``nodeCATrust.mode`` to ``Disabled`` to keep the privileged node CA
   injector daemon set off.
 
-* ``educates workshop publish`` and ``educates package publish`` no longer
-  read any ``IMGPKG_*`` environment variable. Registry credentials come from
-  the ``--registry-username`` and ``--registry-password``,
-  ``--registry-token`` or ``--registry-anon`` flags, and otherwise from the
-  Docker configuration that ``docker login`` writes, including the
-  credential helpers it names. ``IMGPKG_USERNAME``, ``IMGPKG_PASSWORD``,
-  ``IMGPKG_TOKEN``, ``IMGPKG_ANON`` and the ``IMGPKG_REGISTRY_*``
-  credentials are ignored, as are ``IMGPKG_ENABLE_IAAS_AUTH`` and
-  ``IMGPKG_ACTIVE_KEYCHAINS``, which turned on credentials for Google,
-  Amazon ECR, Azure and GitHub registries. A pipeline which set one of them
-  should instead run ``docker login``, add a ``credHelpers`` entry for the
-  registry to the Docker configuration, such as ``ecr-login`` for Amazon ECR
-  or ``gcloud`` for Google Artifact Registry, or pass the ``--registry-*``
-  flags. Nothing is printed when one of these variables is set.
-
 * Workshop images published by ``educates workshop publish`` are now OCI
   images: a single OCI image manifest, with an OCI image config and one OCI
   layer holding the workshop files at its root, in place of the Docker media
@@ -803,60 +740,12 @@ Features Changed
   requested tag only. The extra ``sha256-<hex>.imgpkg`` tag that was also
   written to the image repository is no longer created.
 
-* The remote source types have been removed from ``spec.publish.files`` in
-  the workshop definition. ``educates workshop publish`` now assembles the
-  files itself and accepts only ``directory`` entries, and an entry using
-  ``git``, ``hg``, ``http``, ``image``, ``imgpkgBundle``, ``githubRelease``,
-  ``helmChart``, ``manual`` or ``inline`` fails the publish with an error
-  naming the entry. Files which were fetched from a remote source need to be
-  placed in the workshop directory, or in another local directory named by a
-  ``directory`` entry, before publishing. An entry whose ``path`` leads
-  outside of the image now also fails the publish. ``spec.workshop.files``,
-  which sessions download workshop content with, is unchanged.
-
 * In the ``includePaths``, ``excludePaths`` and ``legalPaths`` patterns of
   ``spec.publish.files``, a class written as ``[!x]`` now matches any
   character other than ``x``, the same as ``[^x]``, where it previously
   matched ``!`` or ``x``. A pattern ending in ``dir/**`` now also matches a
   file named ``dir``, as well as the files under a directory of that name.
   Every other pattern matches the same files as before.
-
-Deprecations
-------------
-
-* The ``session.applications.console.vendor`` property of the ``Workshop``
-  custom resource is deprecated. With the removal of Octant, the Kubernetes
-  dashboard is the only console which is available, so the only value the
-  property can be given is ``kubernetes``. The property is still accepted so
-  existing workshop definitions remain valid, but it will be removed in a
-  future version.
-
-* Following Kyverno's own deprecation of the ``ClusterPolicy`` resource
-  (``kyverno.io``) — deprecated in Kyverno 1.18 and scheduled for removal in
-  1.20 — workshops that supply their own Kyverno policies as ``ClusterPolicy``
-  objects via ``workshopSecurity.additionalKyvernoPolicies`` are correspondingly
-  deprecated. Such policies are still honoured for now (Educates continues to
-  scope them per workshop session, and logs a warning when it does), but support
-  will be removed on the same timeline as Kyverno's removal of ``ClusterPolicy``.
-  Migrate workshop-provided policies to ``ValidatingPolicy``.
-
-* ``profile.d`` scripts are deprecated, whether supplied with workshop content
-  or by an extension package, and will be removed in a future version. They
-  are still sourced for now. Set environment variables from a ``setup.d``
-  script instead, by writing ``NAME=VALUE`` lines to the file named by the
-  ``WORKSHOP_ENV`` environment variable. Variables written there are set in
-  the setup scripts which run afterwards and in the processes run in the
-  workshop session, including the terminal shell.
-
-* The Carvel-based installer from version 3 has been removed. Educates is no
-  longer packaged or installed as a ``kapp-controller`` package: the
-  ``educates-installer`` package bundle and package repository are no longer
-  published, and the CLI no longer requires or interacts with
-  ``kapp-controller`` for installation. There is no in-place upgrade from
-  version 3 — delete the existing version 3 installation and install version
-  4 following the new installation guides. A migration guide mapping version
-  3 configuration settings onto their version 4 equivalents is included in
-  the documentation.
 
 * The local CLI configuration file is now ``config.yaml`` in the CLI data
   home, using the new ``EducatesLocalConfig`` format, replacing the version 3
@@ -956,11 +845,6 @@ Deprecations
   from custom resources or the Helm chart keep the chart default of
   disabled.
 
-* The CLI binaries are no longer published as the ``educates-client-programs``
-  imgpkg bundle. Download the binaries from the GitHub release for the
-  version, or use the ``educates-cli`` container image when embedding the CLI
-  in a container image.
-
 * The browser JavaScript bundles for the workshop renderer and gateway
   applications in the workshop base environment image are now generated using
   esbuild instead of browserify. This eliminates security alerts arising from
@@ -1035,14 +919,6 @@ Deprecations
   carry critical vulnerabilities in their bundled dependencies, so rebuilding
   is the only way to resolve them. The tool versions and their behavior are
   unchanged.
-
-* The ``kubectl-convert`` plugin is no longer included in the workshop base
-  environment image. It existed to migrate manifests away from long removed
-  Kubernetes API versions, nothing in Educates itself uses it, and each of
-  the four bundled copies carried vulnerabilities which only a Kubernetes
-  patch release can resolve. Workshops which run ``kubectl-convert`` from
-  workshop instructions or setup scripts need to install it in a custom
-  workshop image, or perform the conversion outside the workshop session.
 
 * The Zot Registry used by the OCI image cache for workshop environments has
   been updated from version 1.4.3 to 2.1.18, resolving a large number of
@@ -1129,6 +1005,133 @@ Deprecations
   the floating ``latest`` or ``develop`` version — distinguishable. Release
   binaries continue to report their release version and additionally show the
   commit they were built from.
+
+Removed Features
+----------------
+
+* Octant is no longer available as the web console for a workshop session and
+  the Octant binaries are no longer included in the workshop base image. Octant
+  was archived by its authors, with no release since ``0.25.1`` and no fixes
+  available for the vulnerabilities reported against the versions which were
+  bundled. Workshops which set ``session.applications.console.vendor`` to
+  ``octant`` will now be given the Kubernetes dashboard instead, with a warning
+  logged against the workshop session. The
+  ``session.applications.console.octant`` property has been removed from the
+  ``Workshop`` custom resource definition. Note that Octant was never the
+  console used by default, including for workshops which enable a virtual
+  cluster, so workshops which did not request it explicitly are unaffected.
+
+* The ``content.files`` property of the ``Workshop`` custom resource, which
+  was deprecated in version 2.0.0 in favour of ``workshop.files``, has been
+  removed from the custom resource definition, along with the
+  ``download-workshop`` script in the workshop base image which handled it.
+  Since version 2.7.1 the value of the property was no longer passed to the
+  workshop session, so setting it had no effect and no workshop content was
+  downloaded. Workshops should use ``workshop.files`` instead, which downloads
+  content from Git repositories, HTTP servers and OCI images using ``vendir``.
+  A ``.eduk8signore`` file in workshop content is no longer used, so use
+  ``includePaths`` and ``excludePaths`` in ``workshop.files`` to filter what
+  is included. As ``kubectl apply`` validates against the schema strictly by
+  default, a ``Workshop`` which still sets ``content.files`` is now rejected
+  when it is applied, and the property needs to be removed from it.
+
+* The ``bombardier``, ``dive``, ``kwt`` and ``kctrl`` command line tools are no
+  longer included in the workshop base image. None of them were used by
+  Educates itself. ``kwt`` was archived by its authors in 2023, and ``kctrl``
+  is the ``kapp-controller`` command line tool, which is not needed now that
+  Educates is installed by its own operator rather than through Carvel
+  packaging. Each of the four was already pinned at the most recent release its
+  authors have published, and each still carried vulnerabilities with no fixed
+  version available, so there was nothing to upgrade to. Workshops which run
+  any of these commands from workshop instructions or setup scripts need to
+  install them in a custom workshop image, or use an alternative tool.
+
+* The bundled versions of [reveal.js](https://revealjs.com/) used for workshop
+  slides have changed. Version ``6.0.1`` is now bundled alongside ``4.6.1``
+  and ``5.2.1``, and version ``3.9.2`` is no longer included. Workshops which
+  select the reveal.js version through the
+  ``session.applications.slides.reveal.js`` property of the ``Workshop``
+  custom resource using a ``3.X`` selector need to move to ``4.X``, ``5.X``
+  or ``6.X``, and should review their slide decks against the upstream
+  reveal.js upgrade guidance since the markup and plugin APIs changed after
+  the 3.x series. If the requested version cannot be matched against a
+  bundled version the slides are not served for the workshop session.
+
+* ``educates workshop publish`` and ``educates package publish`` no longer
+  read any ``IMGPKG_*`` environment variable. Registry credentials come from
+  the ``--registry-username`` and ``--registry-password``,
+  ``--registry-token`` or ``--registry-anon`` flags, and otherwise from the
+  Docker configuration that ``docker login`` writes, including the
+  credential helpers it names. ``IMGPKG_USERNAME``, ``IMGPKG_PASSWORD``,
+  ``IMGPKG_TOKEN``, ``IMGPKG_ANON`` and the ``IMGPKG_REGISTRY_*``
+  credentials are ignored, as are ``IMGPKG_ENABLE_IAAS_AUTH`` and
+  ``IMGPKG_ACTIVE_KEYCHAINS``, which turned on credentials for Google,
+  Amazon ECR, Azure and GitHub registries. A pipeline which set one of them
+  should instead run ``docker login``, add a ``credHelpers`` entry for the
+  registry to the Docker configuration, such as ``ecr-login`` for Amazon ECR
+  or ``gcloud`` for Google Artifact Registry, or pass the ``--registry-*``
+  flags. Nothing is printed when one of these variables is set.
+
+* The remote source types have been removed from ``spec.publish.files`` in
+  the workshop definition. ``educates workshop publish`` now assembles the
+  files itself and accepts only ``directory`` entries, and an entry using
+  ``git``, ``hg``, ``http``, ``image``, ``imgpkgBundle``, ``githubRelease``,
+  ``helmChart``, ``manual`` or ``inline`` fails the publish with an error
+  naming the entry. Files which were fetched from a remote source need to be
+  placed in the workshop directory, or in another local directory named by a
+  ``directory`` entry, before publishing. An entry whose ``path`` leads
+  outside of the image now also fails the publish. ``spec.workshop.files``,
+  which sessions download workshop content with, is unchanged.
+
+* The Carvel-based installer from version 3 has been removed. Educates is no
+  longer packaged or installed as a ``kapp-controller`` package: the
+  ``educates-installer`` package bundle and package repository are no longer
+  published, and the CLI no longer requires or interacts with
+  ``kapp-controller`` for installation. There is no in-place upgrade from
+  version 3 — delete the existing version 3 installation and install version
+  4 following the new installation guides. A migration guide mapping version
+  3 configuration settings onto their version 4 equivalents is included in
+  the documentation.
+
+* The CLI binaries are no longer published as the ``educates-client-programs``
+  imgpkg bundle. Download the binaries from the GitHub release for the
+  version, or use the ``educates-cli`` container image when embedding the CLI
+  in a container image.
+
+* The ``kubectl-convert`` plugin is no longer included in the workshop base
+  environment image. It existed to migrate manifests away from long removed
+  Kubernetes API versions, nothing in Educates itself uses it, and each of
+  the four bundled copies carried vulnerabilities which only a Kubernetes
+  patch release can resolve. Workshops which run ``kubectl-convert`` from
+  workshop instructions or setup scripts need to install it in a custom
+  workshop image, or perform the conversion outside the workshop session.
+
+Deprecations
+------------
+
+* The ``session.applications.console.vendor`` property of the ``Workshop``
+  custom resource is deprecated. With the removal of Octant, the Kubernetes
+  dashboard is the only console which is available, so the only value the
+  property can be given is ``kubernetes``. The property is still accepted so
+  existing workshop definitions remain valid, but it will be removed in a
+  future version.
+
+* Following Kyverno's own deprecation of the ``ClusterPolicy`` resource
+  (``kyverno.io``) — deprecated in Kyverno 1.18 and scheduled for removal in
+  1.20 — workshops that supply their own Kyverno policies as ``ClusterPolicy``
+  objects via ``workshopSecurity.additionalKyvernoPolicies`` are correspondingly
+  deprecated. Such policies are still honoured for now (Educates continues to
+  scope them per workshop session, and logs a warning when it does), but support
+  will be removed on the same timeline as Kyverno's removal of ``ClusterPolicy``.
+  Migrate workshop-provided policies to ``ValidatingPolicy``.
+
+* ``profile.d`` scripts are deprecated, whether supplied with workshop content
+  or by an extension package, and will be removed in a future version. They
+  are still sourced for now. Set environment variables from a ``setup.d``
+  script instead, by writing ``NAME=VALUE`` lines to the file named by the
+  ``WORKSHOP_ENV`` environment variable. Variables written there are set in
+  the setup scripts which run afterwards and in the processes run in the
+  workshop session, including the terminal shell.
 
 * The ``external-dns.alpha.kubernetes.io/hostname`` annotation which the
   operator sets on the Envoy service of the ingress controller is deprecated.
