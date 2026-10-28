@@ -49,39 +49,40 @@ tree before bumping (see "Finding current versions").
 For the two zip-subset libraries, only the files listed above are kept; the
 rest of the release archive is discarded.
 
-## Keep aligned with the renderer and gateway apps
+## Keep aligned with the gateway app
 
-These same libraries are also npm dependencies of the two bundled apps in the
-base environment — `workshop-images/base-environment/opt/renderer` and
-`.../opt/gateway` — which compile them into their own JavaScript via esbuild.
-The vendored theme copy and the npm-bundled copy must stay on the **same
-version**, or the dashboard's static assets drift from what the apps ship.
+Four of these libraries are also npm dependencies of the workshop gateway in
+the base environment, `workshop-images/base-environment/opt/gateway`, which
+compiles them into its own JavaScript via esbuild. The vendored theme copy and
+the npm-bundled copy must stay on the **same version**, or the dashboard's
+static assets drift from what the gateway ships.
 
-Whenever you change a vendored library version here, update the matching npm
-dependency in each app's `package.json` that declares it, and vice versa:
+Whenever you change one of these vendored library versions, update the matching
+npm dependency in `gateway/package.json`, and vice versa:
 
-| Theme library | npm package | `renderer/package.json` | `gateway/package.json` |
-|---|---|---|---|
-| `bootstrap` | `bootstrap` | yes | yes |
-| `font-awesome` | `@fortawesome/fontawesome-free` | yes | yes |
-| `jquery` | `jquery` | yes | yes |
-| `js-yaml` | `js-yaml` | yes | yes |
-| `underscore` | `underscore` | yes | — |
-| `jsonform` | `jsonform` | yes | — |
+| Theme library | npm package in `gateway/package.json` |
+|---|---|
+| `bootstrap` | `bootstrap` |
+| `font-awesome` | `@fortawesome/fontawesome-free` |
+| `jquery` | `jquery` |
+| `js-yaml` | `js-yaml` |
+
+`underscore` and `jsonform` have no npm counterpart: update the vendored file
+only.
 
 The `package.json` versions are caret ranges (e.g. `"bootstrap": "^5.3.2"`).
 Set the range to the version you vendored (`^<VER>`), then refresh the lockfile
 and rebuild so the bundle matches:
 
 ```bash
-cd workshop-images/base-environment/opt/<app>   # renderer and/or gateway
+cd workshop-images/base-environment/opt/gateway
 npm install        # updates package-lock.json to the new version
 ```
 
-The app bundle is produced by `scripts/compile.sh` (`tsc` + `esbuild`); it runs
-during the base-environment image build, so a `make image-base-environment` (or
-running `compile.sh` in the app dir) is what proves the new version compiles and
-bundles cleanly.
+The gateway bundle is produced by `scripts/compile.sh` (`tsc` + `esbuild`); it
+runs during the base-environment image build, so a `make image-base-environment`
+(or running `npm run compile` in the gateway directory) is what proves the new
+version compiles and bundles cleanly.
 
 ## Finding current versions
 
@@ -168,9 +169,10 @@ Clean up: `rm -rf "$TMP"`.
 2. The downloaded file is the minified asset, not HTML (a 404 page). `file` or a
    quick `head` should show JS/CSS/font content, not `<!DOCTYPE html>`.
 3. `git diff --stat` shows the expected files under `$LIB/<library>/` **and**,
-   when the version changed, the matching `package.json` (+ `package-lock.json`)
-   in `renderer`/`gateway` — see "Keep aligned with the renderer and gateway
-   apps". A theme-only change with no package.json update is usually a drift bug.
+   when the version of a library the gateway declares changed, the gateway's
+   `package.json` and `package-lock.json` (see "Keep aligned with the gateway
+   app"). For those libraries, a theme-only change with no `package.json`
+   update is usually a drift bug.
 4. Full check (optional, heavy): rebuild the base environment image so the theme
    bundles the new assets:
    ```bash
@@ -198,6 +200,6 @@ Clean up: `rm -rf "$TMP"`.
 - [ ] Version banner in each file matches the intended version
 - [ ] No error-page HTML written into an asset (`curl -f` used)
 - [ ] Font Awesome / Bootstrap: upstream file set unchanged, or table + stale files updated
-- [ ] Matching npm dependency aligned to the same version in `renderer/package.json` and `gateway/package.json` (where present), with `npm install` run to update each lockfile
+- [ ] Matching npm dependency aligned to the same version in `gateway/package.json` (bootstrap, font-awesome, jquery, js-yaml), with `npm install` run to update its lockfile
 - [ ] `git diff --stat` limited to the intended library directories plus the aligned `package.json`/`package-lock.json` files
 - [ ] Major-version bumps: changelog reviewed for breaking changes and flagged
