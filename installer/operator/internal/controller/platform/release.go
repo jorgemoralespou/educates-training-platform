@@ -31,14 +31,15 @@ import (
 )
 
 // convergeRelease applies the CRDs chrt ships in its crds/ directory, then
-// converges the named release toward (chrt, vals) via helm.EnsureRelease. Every
-// runtime release goes through here, so its CRDs reach the chart's schema on an
-// operator upgrade. See crds.ApplyChart.
+// converges the named release toward (chrt, vals) via helm.EnsureRelease, with
+// Helm's own install of those CRDs skipped so the operator is their only
+// writer. Every runtime release goes through here, so its CRDs reach the
+// chart's schema on an operator upgrade. See crds.ApplyChart.
 func convergeRelease(ctx context.Context, cl client.Client, hc *helm.Client, name string, chrt *chart.Chart, vals map[string]any) (helm.Result, error) {
 	if err := crds.ApplyChart(ctx, cl, chrt); err != nil {
 		return helm.Result{}, fmt.Errorf("apply %s CRDs: %w", name, err)
 	}
-	return hc.EnsureRelease(ctx, name, chrt, vals)
+	return hc.EnsureRelease(ctx, name, chrt, vals, helm.SkipCRDs())
 }
 
 // handlePlatformReleaseResult maps a helm.EnsureRelease outcome for a platform

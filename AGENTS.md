@@ -367,8 +367,13 @@ components knowing the difference.
   operator server-side applies them itself (`crds.ApplyChart`) before every
   converge of each chart that ships them: the runtime subcharts, through
   `convergeRelease` in `internal/controller/platform/release.go`, and
-  external-dns, in `reconcileExternalDNS`. A new vendored chart with a
-  `crds/` directory needs the same call.
+  external-dns, in `reconcileExternalDNS`. Both install the release with
+  `helm.SkipCRDs()`: Helm's own first-install apply of `crds/` doesn't
+  force conflicts, so it fails on any field the operator owns that the API
+  server normalises on storage, such as a printer column's `priority: 0`.
+  A new vendored chart with a `crds/` directory needs the same
+  pair, and only the production Helm client exercises it: the memory
+  client skips `crds/` for every chart.
 - Always verify chart values against the upstream chart's current
   `values.yaml`. Don't rely on memory.
 

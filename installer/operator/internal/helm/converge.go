@@ -85,8 +85,9 @@ type Result struct {
 //     holding (not churning) a failed release whose inputs are unchanged.
 //
 // Readiness of the installed workloads remains the caller's concern — this
-// only governs the Helm release lifecycle.
-func (c *Client) EnsureRelease(ctx context.Context, name string, chrt *chart.Chart, vals map[string]any) (Result, error) {
+// only governs the Helm release lifecycle. opts apply to every install it
+// runs, the reinstall that repairs a failed first install included.
+func (c *Client) EnsureRelease(ctx context.Context, name string, chrt *chart.Chart, vals map[string]any, opts ...InstallOption) (Result, error) {
 	desiredFP := fingerprint(chartVersion(chrt), vals)
 
 	live, err := c.Status(name)
@@ -97,7 +98,7 @@ func (c *Client) EnsureRelease(ctx context.Context, name string, chrt *chart.Cha
 
 	switch classify(live, notFound, desiredFP) {
 	case decInstall:
-		r, err := c.Install(ctx, name, chrt, vals)
+		r, err := c.Install(ctx, name, chrt, vals, opts...)
 		return Result{Action: ActionInstalled, Release: r}, err
 
 	case decUpgrade:
@@ -122,7 +123,7 @@ func (c *Client) EnsureRelease(ctx context.Context, name string, chrt *chart.Cha
 			if err := c.Uninstall(name); err != nil {
 				return Result{}, err
 			}
-			r, err := c.Install(ctx, name, chrt, vals)
+			r, err := c.Install(ctx, name, chrt, vals, opts...)
 			return Result{Action: ActionRepairedReinstall, Release: r}, err
 		}
 

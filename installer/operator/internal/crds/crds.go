@@ -83,6 +83,11 @@ func Apply(ctx context.Context, cl client.Client) error {
 // converge of the release keeps the CRDs at the schema of the chart the
 // operator embeds.
 //
+// Callers install the release with helm.SkipCRDs, leaving the operator the
+// only writer of these CRDs. Helm would otherwise apply them again on a first
+// install, without forcing conflicts, and fail on any field this apply owns
+// whose value the API server normalises on storage.
+//
 // It is idempotent: applying unchanged CRDs is a no-op on the server. Nothing
 // here deletes a CRD, so uninstalling the release leaves its CRDs, and every
 // resource of their kinds, in place.

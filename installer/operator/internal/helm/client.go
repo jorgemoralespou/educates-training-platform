@@ -82,8 +82,26 @@ type Client struct {
 	// external-dns) would otherwise be uninstallable through the
 	// memory client. Production NewClient uses the real Kubernetes
 	// KubeClient, which parses YAML correctly, so this stays false
-	// there.
+	// there; a caller that applies a chart's CRDs itself skips them
+	// per install with SkipCRDs.
 	skipCRDs bool
+}
+
+// InstallOption adjusts one Install, or every install an EnsureRelease
+// call runs.
+type InstallOption func(*installOptions)
+
+type installOptions struct {
+	skipCRDs bool
+}
+
+// SkipCRDs keeps Helm from installing the chart's crds/ directory, for a
+// caller that applies those CRDs itself (see crds.ApplyChart). Helm creates
+// them with a server-side apply that does not force conflicts, so once the
+// caller owns their fields, any value the API server normalises on storage,
+// such as a printer column's priority: 0, conflicts and fails the install.
+func SkipCRDs() InstallOption {
+	return func(o *installOptions) { o.skipCRDs = true }
 }
 
 // NewClient builds a Client backed by the cluster reachable via cfg.
@@ -119,14 +137,19 @@ func NewClient(cfg *rest.Config, namespace string) (*Client, error) {
 // the resulting release record. The reconciler is responsible for
 // idempotency — Install will fail if the release already exists; call
 // Status first to disambiguate "first install" from "upgrade".
-func (c *Client) Install(ctx context.Context, releaseName string, chrt *chart.Chart, vals map[string]any) (*release.Release, error) {
+func (c *Client) Install(ctx context.Context, releaseName string, chrt *chart.Chart, vals map[string]any, opts ...InstallOption) (*release.Release, error) {
+	o := installOptions{skipCRDs: c.skipCRDs}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	act := action.NewInstall(c.cfg)
 	act.ReleaseName = releaseName
 	act.Namespace = c.namespace
 	act.CreateNamespace = false              // operator manages cluster-service namespaces explicitly elsewhere
 	act.WaitStrategy = kube.HookOnlyStrategy // readiness is enforced by the reconciler, not Helm
 	act.Timeout = actionTimeout
-	act.SkipCRDs = c.skipCRDs
+	act.SkipCRDs = o.skipCRDs
 
 	rel, err := act.RunWithContext(ctx, chrt, vals)
 	if err != nil {
