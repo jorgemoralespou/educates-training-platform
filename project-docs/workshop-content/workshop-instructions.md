@@ -21,9 +21,12 @@ classic workshop to Hugo](converting-a-classic-workshop).
 Annotation of executable commands
 ---------------------------------
 
-In conjunction with standard Markdown, additional annotations can be applied to code blocks. The annotations are used to indicate that a user can click on the code block and have it copied to the terminal and executed.
+In conjunction with standard Markdown, additional annotations can be applied
+to code blocks. The annotations are used to indicate that a user can click on
+the code block and have it copied to the terminal and executed.
 
-To annotate a code block so that it will be copied to the terminal and executed, use:
+To annotate a code block so that it will be copied to the terminal and
+executed, use:
 
 ~~~text
 ```execute
@@ -90,7 +93,9 @@ echo "Text to copy and edit."
 ```
 ~~~
 
-For ``copy`` only, if you prefer to mark an inline code section within a paragraph of text as copyable when clicked, you can append the ``copy`` shortcode, ``{{<copy>}}``, immediately after the inline code block.
+For ``copy`` only, if you prefer to mark an inline code section within a
+paragraph of text as copyable when clicked, you can append the ``copy``
+shortcode, ``{{<copy>}}``, immediately after the inline code block.
 
 ```
 Text to ``copy``{{<copy>}}.
@@ -1560,13 +1565,18 @@ interactive terminal.
 Handling of embedded URL links
 ------------------------------
 
-URLs can be included in workshop content. This can be the literal URL, or the Markdown syntax for including and labelling a URL. What happens when a user clicks on a URL, will depend on the specific URL.
+URLs can be included in workshop content. This can be the literal URL, or the
+Markdown syntax for including and labelling a URL. What happens when a user
+clicks on a URL, will depend on the specific URL.
 
 In the case of the URL being an external web site, when the URL is clicked, the URL will be opened in a new browser tab or window.
 
 When the URL is a relative page referring to another page which is a part of the workshop content, the page will replace the current workshop page.
 
-You can define a URL where components of the URL are provided by data variables. Data variables useful in this content are ``session_name`` and ``ingress_domain`` as they can be used to create a URL to an application deployed from a workshop. This can be done using:
+You can define a URL where components of the URL are provided by data
+variables. Data variables useful in this content are ``session_name`` and
+``ingress_domain`` as they can be used to create a URL to an application
+deployed from a workshop. This can be done using:
 
 ```text
 https://myapp-{{< param session_name >}}.{{< param ingress_domain >}}
@@ -1610,7 +1620,8 @@ The shortcode for selecting based on the pathway is for example implemented as:
 Adding admonitions with shortcodes
 ----------------------------------
 
-A range of custom admonitions is supported. Currently, three types of admonitions exist:
+A range of custom admonitions is supported. Currently, three types of
+admonitions exist:
 
 - **note** - rendered as blue text box
 - **warning** - rendered as yellow text box

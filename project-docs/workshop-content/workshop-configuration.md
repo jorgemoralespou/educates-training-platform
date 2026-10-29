@@ -117,7 +117,14 @@ Hugo renderer configuration
 Specifying the navigation path through the workshop instructions explicitly,
 in a separate configuration file, is optional.
 
-By default all pages will be included within the navigation path of the workshop instructions. The order in which pages are included will be calculated based on the pathname of the pages within the ``workshop/content`` directory. If you would prefer instead to use Hugo's default page ordering mechanism, you can add page weight fields in the metadata of each page to dictate ordering. In that case the ordering will be based on page weight followed by page title. To specify the title for a page, you can add a title field in the metadata of each page.
+By default all pages will be included within the navigation path of the
+workshop instructions. The order in which pages are included will be
+calculated based on the pathname of the pages within the ``workshop/content``
+directory. If you would prefer instead to use Hugo's default page ordering
+mechanism, you can add page weight fields in the metadata of each page to
+dictate ordering. In that case the ordering will be based on page weight
+followed by page title. To specify the title for a page, you can add a title
+field in the metadata of each page.
 
 If you would prefer to specify the order of pages via a YAML file, only have certain pages included, or have the option of multiple pathways which can be selected, a ``workshop/config.yaml`` file can be provided which defines this information.
 
@@ -145,7 +152,10 @@ modules:
   title: Workshop Summary
 ```
 
-The ``modules`` section is optional even when specifying the navigation pathway. When a module which is part of a pathway is being rendered, without an entry in ``modules`` it will use any page title defined in the metadata of the page itself.
+The ``modules`` section is optional even when specifying the navigation
+pathway. When a module which is part of a pathway is being rendered, without
+an entry in ``modules`` it will use any page title defined in the metadata of
+the page itself.
 
 If you want multiple possible pathways, you can list the steps for each in separate sections under ``pathways.paths``. The ``pathways.default`` value should specify the default pathway. You can override the workshop title in the ``title`` field of a specific pathway.
 
