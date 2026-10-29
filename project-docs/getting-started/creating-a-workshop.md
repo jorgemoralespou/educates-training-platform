@@ -50,7 +50,7 @@ Deploying new workshop
 To deploy a new workshop, from within the workshop directory, in this case the `lab-new-workshop` directory, first run:
 
 ```
-educates publish-workshop
+educates workshop publish
 ```
 
 This will build an OCI image artifact containing the workshop content files and push it to the local image registry created with the local Kubernetes cluster.
@@ -125,7 +125,7 @@ After having made any changes to the workshop content you want to test the chang
 Make a change to the instructions in the file `workshop/content/00-workshop-overview.md`. Then run:
 
 ```
-educates publish-workshop
+educates workshop publish
 ```
 
 If you are currently in a workshop session, end that session. Now create a new workshop session from the training portal. You should see the changes you have made.
@@ -142,14 +142,23 @@ You can also activate a live reload mode for workshop instructions. To
 activate this run:
 
 ```
-educates serve-workshop --patch-workshop
+educates cluster workshop serve --patch-workshop
 ```
 
-This command will patch the workshop definition which exists in the cluster, triggering the deployment of a new workshop environment, where workshop sessions will be configured to connect back and load workshop instructions from a web server run by the `educates serve-workshop` command.
+This command will patch the workshop definition which exists in the cluster,
+triggering the deployment of a new workshop environment, where workshop
+sessions will be configured to connect back and load workshop instructions
+from a web server run by the ``educates cluster workshop serve`` command.
 
 To access the workshop, as before create a new workshop session from the training portal. When you now modify the local copy of any pages making up the workshop instructions, the view of the instructions will be automatically regenerated and the browser page refreshed to show the latest version, without needing to republish the workshop content.
 
-Once you have tested the local changes and are happy with them, you can interrupt and exit the `educates serve-workshop` process using `<CTRL-C>`. This will cause the workshop definition in the cluster to be restored and the published version of the workshop once more used. Then republish the workshop using `educates publish-workshop` and the updated content will then be used for subsequent workshop sessions created from the training portal.
+Once you have tested the local changes and are happy with them, you can
+interrupt and exit the ``educates cluster workshop serve`` process using
+``<CTRL-C>``. This will cause the workshop definition in the cluster to be
+restored and the published version of the workshop once more used. Then
+republish the workshop using ``educates workshop publish`` and the updated
+content will then be used for subsequent workshop sessions created from the
+training portal.
 
 Note that the patched workshop configuration created when using the `--patch-workshop` option will only source workshop instructions from the local machine. If you have other workshop files such as setup scripts or code files to be used in exercises, it will still be necessary to go through the process of republishing the workshop content and creating a new workshop session so the changes are picked up. 
 
