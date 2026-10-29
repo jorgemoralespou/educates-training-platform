@@ -53,7 +53,7 @@ Three groups, with different installers:
 
 * **`educates-installer`** — the operator chart: operator Deployment, the four CRDs, RBAC. The only chart *you* (or your GitOps tool) install. The CLI embeds a copy and installs the same chart.
 * **Vendored upstream charts** — cert-manager, Contour, Kyverno, external-dns, embedded in the operator image as integrity-checked tarballs. Installed by the `EducatesClusterConfig` reconciler in Managed mode; never installed in Inline mode.
-* **`educates-training-platform`** — the runtime umbrella chart with `secrets-manager`, `lookup-service`, and `session-manager` subcharts (plus the optional `node-ca-injector` and `remote-access` extras). The operator installs the components from vendored copies of these subcharts, one Helm release per component resource. The umbrella is also installable standalone, without the operator, for users who want to manage runtime values directly with Helm.
+* **`educates-training-platform`** — the runtime umbrella chart with `secrets-manager`, `lookup-service`, and `session-manager` subcharts (plus the optional `node-ca-injector` and `remote-access` extras). The operator installs the components from vendored copies of these subcharts, one Helm release per component resource. The umbrella is also installable standalone, without the operator, for users who want to manage runtime values directly with Helm. Its custom resource definitions then need applying by hand before every install and upgrade, as [Helm based installation](helm-based-installation) describes.
 
 How values flow through the pipeline
 ------------------------------------

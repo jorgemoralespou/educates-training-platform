@@ -91,6 +91,32 @@ helm uninstall educates-installer --namespace educates-installer
 
 Delete `EducatesClusterConfig` last: its finalizer removes the operator-managed cluster services (Kyverno among them), and the platform components need those services present while draining. Uninstalling the chart first would remove the operator that processes the finalizers, wedging deletion.
 
+Installing the runtime chart without the operator
+-------------------------------------------------
+
+The `educates-training-platform` chart installs the runtime components, `secrets-manager`, `lookup-service` and `session-manager`, straight from Helm with no operator. You then provide the cluster services yourself and set the chart's values directly, as `helm show values` lists them.
+
+The chart's subcharts carry the custom resource definitions of the runtime components, the `secrets.educates.dev`, `lookup.educates.dev` and `training.educates.dev` kinds, in their `crds/` directories. Helm applies a chart's custom resource definitions only when it installs a release, never when it upgrades or uninstalls one. Apply them yourself before every install and upgrade, and tell Helm to leave them alone:
+
+```shell
+helm show crds oci://ghcr.io/educates/charts/educates-training-platform --version X.Y.Z \
+  | kubectl apply --server-side --force-conflicts -f -
+
+helm install educates-runtime oci://ghcr.io/educates/charts/educates-training-platform \
+  --version X.Y.Z \
+  --namespace educates --create-namespace \
+  --skip-crds \
+  --values values.yaml
+```
+
+To upgrade, apply the custom resource definitions of the new version the same way, then run `helm upgrade` with that version. Skipping that step leaves the custom resource definitions at the schema of the release that first installed them, and the API server then drops every field a newer release adds from the resources you write.
+
+`--force-conflicts` lets `kubectl` take over the fields that Helm, or an earlier apply under another field manager, set. `--skip-crds` matters with Helm 4, which creates a chart's custom resource definitions with a server-side apply that does not force conflicts: once they exist under another field manager, a `helm install` without `--skip-crds` can fail with `conflict occurred while applying object`.
+
+`helm uninstall` leaves the custom resource definitions in place, together with every resource of their kinds. Delete them, with `helm show crds ... | kubectl delete -f -`, only when you want those resources gone as well.
+
+With Flux, set `spec.install.crds` and `spec.upgrade.crds` to `CreateReplace` on the `HelmRelease`. Its default for both, `Create`, never updates a custom resource definition that already exists.
+
 Air-gapped and mirrored registries
 ----------------------------------
 
