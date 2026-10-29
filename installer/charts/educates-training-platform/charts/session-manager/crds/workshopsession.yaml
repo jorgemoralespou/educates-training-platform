@@ -152,26 +152,21 @@ spec:
       additionalPrinterColumns:
       - name: URL
         type: string
-        priority: 0
         description: The URL to access the workshop.
         jsonPath: .status.educates.url
       - name: Username
         type: string
-        priority: 0
         description: The username to access the workshop.
         jsonPath: .spec.session.username
       - name: Password
         type: string
-        priority: 0
         description: The password to access the workshop.
         jsonPath: .spec.session.password
       - name: Status
         type: string
-        priority: 0
         description: The status of the workshop session.
         jsonPath: .status.educates.phase
       - name: Message
         type: string
-        priority: 0
         description: Status message.
         jsonPath: .status.educates.message

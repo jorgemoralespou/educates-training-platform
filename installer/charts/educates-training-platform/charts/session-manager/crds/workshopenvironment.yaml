@@ -195,21 +195,17 @@ spec:
       additionalPrinterColumns:
       - name: Workshop
         type: string
-        priority: 0
         description: The name of the workshop definition.
         jsonPath: .spec.workshop.name
       - name: URL
         type: string
-        priority: 0
         description: URL for further information on the workshop.
         jsonPath: .status.educates.workshop.spec.url
       - name: Status
         type: string
-        priority: 0
         description: Status of workshop environment deployment.
         jsonPath: .status.educates.phase
       - name: Message
         type: string
-        priority: 0
         description: Status message.
         jsonPath: .status.educates.message

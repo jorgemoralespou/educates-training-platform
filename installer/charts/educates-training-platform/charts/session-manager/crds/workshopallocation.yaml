@@ -57,21 +57,17 @@ spec:
       additionalPrinterColumns:
       - name: Environment
         type: string
-        priority: 0
         description: The name of the workshop environment.
         jsonPath: .spec.environment.name
       - name: Session
         type: string
-        priority: 0
         description: The name of the workshop session.
         jsonPath: .spec.session.name
       - name: Status
         type: string
-        priority: 0
         description: Status of workshop allocation.
         jsonPath: .status.educates.phase
       - name: Message
         type: string
-        priority: 0
         description: Status message.
         jsonPath: .status.educates.message
