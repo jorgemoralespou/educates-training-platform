@@ -135,8 +135,9 @@ func shouldInstallExternalDNS(obj *configv1alpha1.EducatesClusterConfig) bool {
 // reconcileCertManager + reconcileContour, except that the chart ships
 // its DNSEndpoint and DNSRecord CRDs in crds/, which Helm applies only on
 // a release's first install, so the operator applies them before every
-// converge to carry a chart bump's CRD changes to upgraded clusters. They
-// are cluster-wide: the apply forces ownership, so the bundled version
+// converge to carry a chart bump's CRD changes to upgraded clusters, and
+// installs the release with Helm's own install of them skipped. They are
+// cluster-wide: the apply forces ownership, so the bundled version
 // replaces any other external-dns installation's.
 func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Context, owner *configv1alpha1.EducatesClusterConfig) (helm.Result, error) {
 	chrt, err := vendoredcharts.ExternalDNS()
@@ -157,7 +158,7 @@ func (r *EducatesClusterConfigReconciler) reconcileExternalDNS(ctx context.Conte
 		return helm.Result{}, fmt.Errorf("apply external-dns CRDs: %w", err)
 	}
 
-	res, err := hc.EnsureRelease(ctx, externalDNSReleaseName, chrt, renderExternalDNSValues(owner))
+	res, err := hc.EnsureRelease(ctx, externalDNSReleaseName, chrt, renderExternalDNSValues(owner), helm.SkipCRDs())
 	if err != nil {
 		return helm.Result{}, err
 	}

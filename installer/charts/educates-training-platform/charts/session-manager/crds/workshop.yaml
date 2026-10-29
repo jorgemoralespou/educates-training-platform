@@ -1168,6 +1168,5 @@ spec:
       additionalPrinterColumns:
       - name: URL
         type: string
-        priority: 0
         description: URL for further information on the workshop.
         jsonPath: .spec.url
