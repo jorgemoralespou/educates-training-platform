@@ -134,7 +134,7 @@ The tag being pushed to GitHub will trigger the following actions:
 * Creation of a release against the GitHub repository and attach as assets Kubernetes resource files for deploying the workshop to Educates.
 
 The creation and the publishing of the OCI image artefact will be performed
-using the `educates publish-workshop` command. Your workshop definition must
+using the ``educates publish-workshop`` command. Your workshop definition must
 therefore be configured appropriately with a section describing how to publish
 the workshop image and optionally what should be included in the workshop
 image. In the case of workshops created using the ``educates workshop new``
