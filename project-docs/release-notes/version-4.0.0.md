@@ -1008,40 +1008,43 @@ Removed Features
   with the ``classic`` workshop template of the ``educates`` command line
   tool. A workshop selected the classic renderer by holding a
   ``workshop.yaml`` or ``modules.yaml`` file in its ``workshop`` directory,
-  and the renderer had been described as deprecated in the documentation
-  since version 3.0.0. Hugo, with the ``educates`` theme, is now the only
-  renderer for workshop instructions, and the features of the classic
-  renderer which Hugo does not provide, among them AsciiDoc pages, Liquid
-  templating and the automatic ``ENV_`` data variables, are gone with it.
+  and the renderer had been described as deprecated in the documentation since
+  version 3.0.0. Hugo, with the ``educates`` theme, is now the only renderer
+  for workshop instructions, and the features of the classic renderer which
+  Hugo does not provide, among them AsciiDoc pages, Liquid templating and the
+  automatic ``ENV_`` data variables, are gone with it.
+
   The workshop base image no longer includes the classic renderer, nor the
-  Node.js packages only it used, among them ``asciidoctor``, ``liquidjs``
-  and ``marked``. The original Hugo theme, which loaded its styles and scripts from
-  the classic renderer and was included in the 4.0 pre-releases as
+  Node.js packages only it used, among them ``asciidoctor``, ``liquidjs`` and
+  ``marked``. The original Hugo theme, which loaded its styles and scripts
+  from the classic renderer and was included in the 4.0 pre-releases as
   ``educates-classic``, has been removed as well. Workshop instructions are
-  always rendered with the ``educates`` theme, and neither a workshop
-  session nor ``educates cluster workshop serve`` reads the
-  ``WORKSHOP_RENDERER_THEME`` environment variable which selected a
-  different theme, so a workshop which still sets it, to
-  ``educates-classic`` or any other value, renders with the ``educates``
-  theme.
+  always rendered with the ``educates`` theme, and neither a workshop session
+  nor ``educates cluster workshop serve`` reads the
+  ``WORKSHOP_RENDERER_THEME`` environment variable which selected a different
+  theme, so a workshop which still sets it, to ``educates-classic`` or any
+  other value, renders with the ``educates`` theme.
+
   A workshop still in the classic format, or which sets the
   ``LOCAL_RENDERER_TYPE`` environment variable to ``classic``, no longer has
   its instructions rendered in a workshop session. Instead, the instructions
   panel shows a page saying that the classic renderer was removed and giving
   the address of the conversion guide, the same message is written to the
   setup log, and setup is marked as failed, so the workshop dashboard reports
-  that the setup scripts failed. ``educates workshop new`` holds only
-  the ``hugo`` template, which stays the default for its ``--template``
-  option, and naming ``classic`` or any other template fails with an error
-  listing the templates the command holds.
-  ``educates cluster workshop serve`` and ``educates workshop render`` fail
-  on a classic workshop with a message saying that the classic renderer was
-  removed in Educates 4.0 and giving the address of the conversion guide,
-  and ``serve`` fails before it contacts the cluster.
+  that the setup scripts failed.
+
+  ``educates workshop new`` holds only the ``hugo`` template, which stays the
+  default for its ``--template`` option, and naming ``classic`` or any other
+  template fails with an error listing the templates the command holds.
+  ``educates cluster workshop serve`` and ``educates workshop render`` fail on
+  a classic workshop with a message saying that the classic renderer was
+  removed in Educates 4.0 and giving the address of the conversion guide, and
+  ``serve`` fails before it contacts the cluster.
   ``educates workshop publish`` is unchanged, so a classic workshop can still
-  be published for an earlier version of Educates while it is being
-  converted. To convert a classic workshop, see [Converting a classic
-  workshop to Hugo](converting-a-classic-workshop).
+  be published for an earlier version of Educates while it is being converted.
+
+  To convert a classic workshop, see [Converting a classic workshop to
+  Hugo](converting-a-classic-workshop).
 
 * Octant is no longer available as the web console for a workshop session and
   the Octant binaries are no longer included in the workshop base image. Octant
