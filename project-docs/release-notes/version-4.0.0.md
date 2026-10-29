@@ -1023,7 +1023,11 @@ Removed Features
   nor ``educates cluster workshop serve`` reads the
   ``WORKSHOP_RENDERER_THEME`` environment variable which selected a different
   theme, so a workshop which still sets it, to ``educates-classic`` or any
-  other value, renders with the ``educates`` theme.
+  other value, renders with the ``educates`` theme. The ``restart-workshop``
+  command, which restarted the classic renderer in a workshop session and had
+  no effect for a Hugo workshop, has been removed, and the ``WORKSHOP_PORT``
+  environment variable, which gave the port the classic renderer listened on,
+  is no longer set in workshop sessions.
 
   A workshop still in the classic format, or which sets the
   ``LOCAL_RENDERER_TYPE`` environment variable to ``classic``, no longer has
