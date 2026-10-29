@@ -60,9 +60,8 @@ fi
 # workshop directory holds a workshop.yaml or modules.yaml file, or when it
 # asks for the classic renderer by setting LOCAL_RENDERER_TYPE to classic. The
 # page in /opt/eduk8s/etc/classic-renderer-removed, which replaces the
-# instructions of such a workshop, carries the same message as below.
-
-CLASSIC_RENDERER_MESSAGE="This workshop's instructions use the classic renderer, which was removed in Educates 4.0. Convert them to the Hugo renderer as described at https://docs.educates.dev/en/latest/workshop-migration/classic-renderer.html."
+# instructions of such a workshop, carries the same message as the one written
+# to the setup log below.
 
 CLASSIC_WORKSHOP=false
 
@@ -138,7 +137,7 @@ trap "rm -rf $TEMPDIR" EXIT
 
 if [ x"$CLASSIC_WORKSHOP" == x"true" ]; then
     { set +x; } 2>/dev/null
-    echo "$CLASSIC_RENDERER_MESSAGE" 1>&2
+    echo "This workshop's instructions use the classic renderer, which was removed in Educates 4.0. Convert them to the Hugo renderer as described at https://docs.educates.dev/en/latest/workshop-migration/classic-renderer.html." 1>&2
     set -x
 
     cp -R /opt/eduk8s/etc/classic-renderer-removed/. $TEMPDIR/
