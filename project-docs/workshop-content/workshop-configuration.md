@@ -143,19 +143,20 @@ pathways:
       - 01-workshop-instructions
       - 99-workshop-summary
 
-modules:
-- name: 00-workshop-overview
-  title: Workshop Overview
-- name: 01-workshop-instructions
-  title: Workshop Instructions
-- name: 99-workshop-summary
-  title: Workshop Summary
+  modules:
+    00-workshop-overview:
+      title: Workshop Overview
+    01-workshop-instructions:
+      title: Workshop Instructions
+    99-workshop-summary:
+      title: Workshop Summary
 ```
 
-The ``modules`` section is optional even when specifying the navigation
-pathway. When a module which is part of a pathway is being rendered, without
-an entry in ``modules`` it will use any page title defined in the metadata of
-the page itself.
+The ``pathways.modules`` section is optional, even when specifying the
+navigation pathway. Its entries are keyed by the name of a page, and the
+``title`` of an entry replaces the title from the front matter of the page in
+the page heading and in the table of contents. A page of the pathway without
+an entry in ``pathways.modules`` uses the title in its own front matter.
 
 If you want multiple possible pathways, you can list the steps for each in separate sections under ``pathways.paths``. The ``pathways.default`` value should specify the default pathway. You can override the workshop title in the ``title`` field of a specific pathway.
 
