@@ -34,11 +34,12 @@ Instead of having an executable command in the workshop content use:
 
 ~~~text
 ```execute
-kubectl get all -n {{session_namespace}}
+kubectl get all -n {{< param session_namespace >}}
 ```
 ~~~
 
-with the value of the session namespace filled out when the page is renderer, you could use:
+with the value of the session namespace filled out when the page is rendered,
+you could use:
 
 ~~~text
 ```execute
