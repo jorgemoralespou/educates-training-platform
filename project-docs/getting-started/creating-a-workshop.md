@@ -4,12 +4,18 @@ Creating a Workshop
 
 To assist you if you want to create workshops with your own content, the Educates command line tool bundles a template which can be used to create a new workshop.
 
+The ``educates`` command line tool also gives the commands used most often
+while creating and deploying a workshop a shorter alias at its top level, such
+as ``educates new-workshop`` for ``educates workshop new``. This page names
+each command in full and gives its alias where the command first appears.
+Running ``educates --help`` lists all the aliases.
+
 Generating the workshop
 -----------------------
 
-To generate a new workshop run the ``educates workshop new`` command,
-passing it as argument a directory path to where the workshop content should
-be placed.
+To generate a new workshop run the ``educates workshop new`` command, or its
+alias ``educates new-workshop``, passing it as argument a directory path to
+where the workshop content should be placed.
 
 ```
 educates workshop new lab-new-workshop
@@ -47,7 +53,9 @@ workshop to Hugo](converting-a-classic-workshop).
 Deploying new workshop
 ----------------------
 
-To deploy a new workshop, from within the workshop directory, in this case the `lab-new-workshop` directory, first run:
+To deploy a new workshop, from within the workshop directory, in this case the
+``lab-new-workshop`` directory, first run the following command, or its alias
+``educates publish-workshop``:
 
 ```
 educates workshop publish
@@ -57,24 +65,29 @@ This will build an OCI image artifact containing the workshop content files and 
 
 Note that by default the whole workshop directory will be packaged up and included in the OCI image artefact. What is included can be customized by supplying in the workshop definition a specification for what should be included.
 
-Having published the workshop you can then create the workshop environment in the Kubernetes cluster by running:
+Having published the workshop you can then create the workshop environment in
+the Kubernetes cluster by running the following command, or its alias
+``educates deploy-workshop``:
 
 ```
-educates deploy-workshop
+educates cluster workshop deploy
 ```
 
 The deployed workshop will pull the workshop content files published to the image registry for each workshop session.
 
-To access the training portal from your web browser and select the workshop, run:
+To access the training portal from your web browser and select the workshop,
+run the following command, or its alias ``educates browse-workshops``:
 
 ```
-educates browse-workshops
+educates cluster portal open
 ```
 
-If necessary, you can view the password for accessing the training portal instance by running:
+If necessary, you can view the password for accessing the training portal
+instance by running the following command, or its alias
+``educates view-credentials``:
 
 ```
-educates view-credentials
+educates cluster portal password
 ```
 
 Workshop content layout
@@ -139,7 +152,8 @@ update-workshop
 This will pull a new copy of the workshop content files into the workshop session. You can then either refresh your browser window, or to update just the view of the current workshop instructions, hold down the `<SHIFT>` key while clicking on the reload icon in the top banner of the workshop session dashboard.
 
 You can also activate a live reload mode for workshop instructions. To
-activate this run:
+activate this run the following command, or its alias
+``educates serve-workshop``:
 
 ```
 educates cluster workshop serve --patch-workshop
@@ -165,10 +179,13 @@ Note that the patched workshop configuration created when using the `--patch-wor
 Modifying workshop definition
 -----------------------------
 
-If you need to modify the workshop definition found in the `resources/workshop.yaml` file and want to test those changes, you need to update the workshop definition in the Kubernetes cluster. To do this run:
+If you need to modify the workshop definition found in the
+``resources/workshop.yaml`` file and want to test those changes, you need to
+update the workshop definition in the Kubernetes cluster. To do this run the
+following command, or its alias ``educates update-workshop``:
 
 ```
-educates update-workshop
+educates cluster workshop update
 ```
 
 When this is done, if the changes would affect the workshop environment or what is setup for each workshop session, the old workshop environment will be shutdown and a new workshop environment started.
@@ -178,8 +195,10 @@ Once the update to the workshop definition has been triggered, if you are curren
 Deleting the deployment
 -----------------------
 
-If you have stopped working on the workshop and wish to delete it from the Kubernetes cluster to preserve resources, you can run:
+If you have stopped working on the workshop and wish to delete it from the
+Kubernetes cluster to preserve resources, you can run the following command,
+or its alias ``educates delete-workshop``:
 
 ```
-educates delete-workshop
+educates cluster workshop delete
 ```
