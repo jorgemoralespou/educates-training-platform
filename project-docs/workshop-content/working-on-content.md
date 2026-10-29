@@ -75,7 +75,11 @@ With the workshop published to the registry, if the registry was publicly access
 educates publish-workshop --image-repository docker.io/username --workshop-version 1.0 --export-workshop published-workshop.yaml
 ```
 
-When this is done a modified version of the workshop defintion will be written to the file `publish-workshop.yaml` with any references to `$(image_repository)` being replaced with the remote registry address. Supplying `--workshop-version` allows you to specify a specific version for the publish workshop rather than `latest`.
+When this is done a modified version of the workshop definition will be
+written to the file ``published-workshop.yaml`` with any references to
+``$(image_repository)`` being replaced with the remote registry address.
+Supplying ``--workshop-version`` allows you to specify a specific version for
+the published workshop rather than ``latest``.
 
 If you need to generate the modified workshop definition separate to publishing it, you can run:
 
