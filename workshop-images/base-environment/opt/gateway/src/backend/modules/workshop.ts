@@ -52,7 +52,7 @@ export function setup_workshop(app: express.Application) {
 
         axios_retry(client, options)
 
-        let redirect_url = '/workshop/content/'
+        const redirect_url = '/workshop/content/'
 
         client.get('/workshop/content/')
             .then((result) => {
