@@ -1181,6 +1181,16 @@ Deprecations
 Bugs Fixed
 ----------
 
+* The documentation for ``workshop/config.yaml``, and the commented example
+  in the ``workshop/config.yaml`` file created by the ``hugo`` workshop
+  template, showed the titles of the pages of a pathway as a top-level
+  ``modules`` list. Hugo reads them from ``pathways.modules``, as a map keyed
+  by the name of each page, so titles given as shown were ignored. Both now
+  show the ``pathways.modules`` form. A workshop with a top-level ``modules``
+  section keeps rendering with the titles from the front matter of its pages,
+  and rewriting the section under ``pathways`` as now shown makes its titles
+  apply.
+
 * The local secrets cache directory and the files in it were created
   readable by every account on the machine, so other local users could read
   cached private keys and registry credentials. The CLI now creates the
