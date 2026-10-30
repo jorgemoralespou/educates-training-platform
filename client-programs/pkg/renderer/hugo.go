@@ -104,6 +104,135 @@ type WorkshopConfig struct {
 	Params   []WorkshopParamsConfig `yaml:"params,omitempty"`
 }
 
+// WorkshopParams returns the Hugo parameters a workshop session takes from
+// the Workshop definition and from the workshop configuration, config.yaml in
+// workshopDir, as the workshop-variables.yaml template of the workshop base
+// image sets them: the top-level params and those of the selected pathway,
+// the name of that pathway, and the workshop title and description, replaced
+// by those of the pathway when it gives them. Values only a running session
+// has are left out.
+func WorkshopParams(workshopDir string, workshop *unstructured.Unstructured) (map[string]string, error) {
+	workshopConfig, _, err := readWorkshopConfig(workshopDir)
+
+	if err != nil {
+		return nil, err
+	}
+
+	environ := sessionEnvironment(workshop)
+
+	pathwayName := workshopConfig.selectedPathway(environ["PATHWAY_NAME"])
+
+	pathway := workshopConfig.Pathways.Paths[pathwayName]
+
+	params := map[string]string{}
+
+	for _, items := range [][]WorkshopParamsConfig{workshopConfig.Params, pathway.Params} {
+		for _, item := range items {
+			// A param listing aliases takes its value from the first of them
+			// that is set, in place of the variable named like the param.
+
+			sources := []string{item.Name}
+
+			if item.Aliases != nil {
+				sources = item.Aliases
+			}
+
+			params[item.Name] = item.Value
+
+			for _, source := range sources {
+				if value, found := environ[source]; found {
+					params[item.Name] = value
+					break
+				}
+			}
+		}
+	}
+
+	workshopTitle, found, _ := unstructured.NestedString(workshop.Object, "spec", "title")
+	workshopDescription, _, _ := unstructured.NestedString(workshop.Object, "spec", "description")
+
+	if !found {
+		workshopTitle = "Workshop"
+	}
+
+	if pathway.Title != "" {
+		workshopTitle = pathway.Title
+	}
+
+	if pathway.Description != "" {
+		workshopDescription = pathway.Description
+	}
+
+	params["pathway_name"] = pathwayName
+	params["workshop_title"] = workshopTitle
+	params["workshop_description"] = workshopDescription
+
+	return params, nil
+}
+
+// readWorkshopConfig reads the workshop configuration, config.yaml in
+// workshopDir, and reports whether there is one. A file which can't be read
+// is taken not to exist.
+func readWorkshopConfig(workshopDir string) (WorkshopConfig, bool, error) {
+	workshopConfig := WorkshopConfig{}
+
+	workshopConfigData, err := os.ReadFile(filepath.Join(workshopDir, "config.yaml"))
+
+	if err != nil {
+		return workshopConfig, false, nil
+	}
+
+	if err = yaml.Unmarshal(workshopConfigData, &workshopConfig); err != nil {
+		return workshopConfig, false, errors.Wrapf(err, "unable to unpack workshop config")
+	}
+
+	return workshopConfig, true, nil
+}
+
+// selectedPathway returns the name of the pathway a workshop session selects
+// given the name it is asked for: that name, or when empty and there are
+// pathways, the name of the default pathway.
+func (c *WorkshopConfig) selectedPathway(pathwayName string) string {
+	if pathwayName == "" && len(c.Pathways.Paths) != 0 {
+		return c.Pathways.Default
+	}
+
+	return pathwayName
+}
+
+// sessionEnvironment returns the environment variables spec.session.env of
+// the Workshop definition gives a workshop session. An entry taking its value
+// from valueFrom, or whose value references a variable as $(name), is left
+// out, since only a running session can work out its value. It still
+// replaces an earlier entry of the same name, as it would in a session.
+func sessionEnvironment(workshop *unstructured.Unstructured) map[string]string {
+	environ := map[string]string{}
+
+	env, _, _ := unstructured.NestedSlice(workshop.Object, "spec", "session", "env")
+
+	for _, entry := range env {
+		variable, ok := entry.(map[string]interface{})
+
+		if !ok {
+			continue
+		}
+
+		name, _, _ := unstructured.NestedString(variable, "name")
+		value, _, _ := unstructured.NestedString(variable, "value")
+
+		_, hasValueFrom := variable["valueFrom"]
+
+		if hasValueFrom || strings.Contains(value, "$(") {
+			delete(environ, name)
+			continue
+		}
+
+		environ[name] = value
+	}
+
+	return environ
+}
+
 var workshopSessionResource = schema.GroupVersionResource{Group: "training.educates.dev", Version: "v1beta1", Resource: "workshopsessions"}
 
 func fetchWorkshopSessionAndValidate(kubeconfig string, kubeContext string, workshop string, portal string, session string) (string, string, error) {
@@ -200,33 +329,19 @@ func GenerateHugoConfiguration(workshopDir string, target string, params map[str
 
 	// Read user workshop config with details of any pathways.
 
-	workshopConfigPath := filepath.Join(workshopDir, "config.yaml")
+	workshopConfig, workshopConfigExists, err := readWorkshopConfig(workshopDir)
 
-	workshopConfigData, err := os.ReadFile(workshopConfigPath)
+	if err != nil {
+		return err
+	}
 
 	activeModules := map[string]*WorkshopModuleConfig{}
 
-	if err == nil {
-		// Assume file doesn't exist if had an error and skip it.
-
-		workshopConfig := WorkshopConfig{}
-
-		err = yaml.Unmarshal(workshopConfigData, &workshopConfig)
-
-		if err != nil {
-			return errors.Wrapf(err, "unable to unpack workshop config")
-		}
-
+	if workshopConfigExists {
 		// Use the pathway name calculated from the workshop session and if
 		// not defined fallback to the using default pathway name if specified.
 
-		pathwayName := params["pathway_name"]
-
-		if pathwayName == "" {
-			if len(workshopConfig.Pathways.Paths) != 0 {
-				pathwayName = workshopConfig.Pathways.Default
-			}
-		}
+		pathwayName := workshopConfig.selectedPathway(params["pathway_name"])
 
 		params["__first_page__"] = ""
 

@@ -1195,6 +1195,20 @@ Bugs Fixed
   and rewriting the section under ``pathways`` as now shown makes its titles
   apply.
 
+* The ``educates workshop render`` command ignored the ``params`` and the
+  pathway settings in ``workshop/config.yaml``, so the data variables they
+  define rendered as empty strings, and the title and description of the
+  selected pathway did not replace those of the workshop definition. The
+  command now applies them as a workshop session does. It selects the pathway
+  named by the ``PATHWAY_NAME`` environment variable in ``session.env`` of the
+  workshop definition, or else ``pathways.default``, and sets the
+  ``pathway_name`` data variable to it. The top-level ``params`` and those of
+  the selected pathway take their ``value``, overridden by an entry of
+  ``session.env`` matching their name or ``aliases``. An entry of
+  ``session.env`` set through ``valueFrom``, or whose value references another
+  variable as ``$(name)``, is ignored, as are the data variables only a
+  running workshop session provides, such as ``session_namespace``.
+
 * The local secrets cache directory and the files in it were created
   readable by every account on the machine, so other local users could read
   cached private keys and registry credentials. The CLI now creates the
