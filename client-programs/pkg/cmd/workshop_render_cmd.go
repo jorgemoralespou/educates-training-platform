@@ -187,7 +187,7 @@ func (o *FilesRenderOptions) Render(directory string, outputFile string) error {
 
 	params["assets_path"] = "/static"
 
-	err = renderer.GenerateHugoConfiguration(workshopDir, tempDir, params, "")
+	err = renderer.GenerateHugoConfiguration(workshopDir, tempDir, params, "", "")
 
 	if err != nil {
 		return errors.Wrap(err, "unable to generate Hugo configuration")

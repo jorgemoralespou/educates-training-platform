@@ -1,11 +1,14 @@
 package renderer
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"gopkg.in/yaml.v2"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -273,5 +276,182 @@ params:
 				t.Errorf("WorkshopParams() error = %v, want %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestGenerateHugoConfigurationThemeMounts(t *testing.T) {
+	tests := []struct {
+		name       string
+		themeDir   string
+		wantModule bool
+		wantMounts []map[string]string
+	}{
+		{
+			name:       "a portal theme directory",
+			themeDir:   "/tmp/portal-theme",
+			wantModule: true,
+			wantMounts: []map[string]string{
+				{"source": "static", "target": "static"},
+				{"source": "/tmp/portal-theme", "target": "static/static/theme"},
+				{"source": "/tmp/portal-theme", "target": "assets/theme"},
+			},
+		},
+		{
+			name:     "no portal theme directory",
+			themeDir: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := t.TempDir()
+
+			err := GenerateHugoConfiguration(workshopDirectory(t, ""), target, map[string]string{}, "https://lab.example", tt.themeDir)
+
+			if err != nil {
+				t.Fatalf("GenerateHugoConfiguration() error = %v", err)
+			}
+
+			data, err := os.ReadFile(filepath.Join(target, "hugo.yaml"))
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var config struct {
+				Module *struct {
+					Mounts []map[string]string `yaml:"mounts"`
+				} `yaml:"module"`
+			}
+
+			if err := yaml.Unmarshal(data, &config); err != nil {
+				t.Fatal(err)
+			}
+
+			if (config.Module != nil) != tt.wantModule {
+				t.Fatalf("hugo.yaml has module section = %v, want %v", config.Module != nil, tt.wantModule)
+			}
+
+			if config.Module != nil && !reflect.DeepEqual(config.Module.Mounts, tt.wantMounts) {
+				t.Errorf("hugo.yaml module.mounts = %v, want %v", config.Module.Mounts, tt.wantMounts)
+			}
+		})
+	}
+}
+
+func TestFetchPortalTheme(t *testing.T) {
+	session := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/static/theme/workshop-instructions.css":
+			w.Write([]byte("body { color: red; }"))
+		case "/static/theme/workshop-instructions.html":
+			w.Write([]byte(`<meta name="portal-theme">`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer session.Close()
+
+	dir := t.TempDir()
+
+	// A file fetched for an earlier session is replaced, even when this
+	// session's portal theme doesn't have it.
+
+	if err := os.WriteFile(filepath.Join(dir, "workshop-instructions.js"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fetchPortalTheme(session.URL, dir); err != nil {
+		t.Fatalf("fetchPortalTheme() error = %v", err)
+	}
+
+	want := map[string]string{
+		"workshop-instructions.css":  "body { color: red; }",
+		"workshop-instructions.js":   "",
+		"workshop-instructions.html": `<meta name="portal-theme">`,
+	}
+
+	for name, wantContent := range want {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+
+		if err != nil {
+			t.Errorf("reading %s: %v", name, err)
+			continue
+		}
+
+		if string(data) != wantContent {
+			t.Errorf("%s = %q, want %q", name, data, wantContent)
+		}
+	}
+}
+
+func TestFetchPortalThemeTreatsRedirectAsMissing(t *testing.T) {
+	// The gateway sends a request for a theme file it doesn't have on to its
+	// login redirect, which ends at a page answered with a 200.
+
+	session := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/static/theme/workshop-instructions.css":
+			w.Write([]byte("body { color: red; }"))
+		case "/oauth_handshake":
+			w.Write([]byte("<html>login page</html>"))
+		default:
+			http.Redirect(w, r, "/oauth_handshake", http.StatusFound)
+		}
+	}))
+	defer session.Close()
+
+	dir := t.TempDir()
+
+	if err := fetchPortalTheme(session.URL, dir); err != nil {
+		t.Fatalf("fetchPortalTheme() error = %v", err)
+	}
+
+	for _, name := range []string{"workshop-instructions.js", "workshop-instructions.html"} {
+		data, err := os.ReadFile(filepath.Join(dir, name))
+
+		if err != nil {
+			t.Errorf("reading %s: %v", name, err)
+			continue
+		}
+
+		if len(data) != 0 {
+			t.Errorf("%s = %q, want empty", name, data)
+		}
+	}
+}
+
+func TestFetchPortalThemeFailsOnServerError(t *testing.T) {
+	session := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/static/theme/workshop-instructions.css" {
+			w.Write([]byte("body { color: red; }"))
+			return
+		}
+
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer session.Close()
+
+	dir := t.TempDir()
+
+	// A file fetched for an earlier session doesn't remain when fetching
+	// fails before reaching it.
+
+	if err := os.WriteFile(filepath.Join(dir, "workshop-instructions.html"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fetchPortalTheme(session.URL, dir); err == nil {
+		t.Error("fetchPortalTheme() error = nil, want an error")
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "workshop-instructions.html"))
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(data) != 0 {
+		t.Errorf("workshop-instructions.html = %q, want empty", data)
 	}
 }
