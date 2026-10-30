@@ -84,6 +84,7 @@ type FilesRenderOptions struct {
 	WorkshopVersion string
 	DataValuesFlags yttcmd.DataValuesFlags
 	OutputFile      string
+	Pathway         string
 }
 
 func (o *FilesRenderOptions) Run(args []string) error {
@@ -178,7 +179,7 @@ func (o *FilesRenderOptions) Render(directory string, outputFile string) error {
 
 	// Generate (or regenerate) the Hugo configuration.
 
-	params, err := renderer.WorkshopParams(workshopDir, workshop)
+	params, err := renderer.WorkshopParams(workshopDir, workshop, o.Pathway)
 
 	if err != nil {
 		return errors.Wrap(err, "unable to determine workshop parameters")
@@ -217,6 +218,9 @@ var workshopRenderExample = `
 
   # Render a workshop from a path into a ZIP file:
   educates workshop render ./my-workshop --output-file workshop.zip
+
+  # Render the python pathway of a workshop into a ZIP file:
+  educates workshop render ./my-workshop --pathway python --output-file python.zip
 `
 
 func (p *ProjectInfo) NewWorkshopRenderCmd() *cobra.Command {
@@ -256,6 +260,13 @@ func (p *ProjectInfo) NewWorkshopRenderCmd() *cobra.Command {
 		"o",
 		"",
 		"location of the ZIP output file",
+	)
+
+	c.Flags().StringVar(
+		&o.Pathway,
+		"pathway",
+		"",
+		"name of the pathway to render, in place of PATHWAY_NAME or the default pathway",
 	)
 
 	c.Flags().StringArrayVar(

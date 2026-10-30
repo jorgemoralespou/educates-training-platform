@@ -162,6 +162,19 @@ If you want multiple possible pathways, you can list the steps for each in separ
 
 To select which pathway is used when the workshop is started, you can set the ``PATHWAY_NAME`` environment variable in the workshop definition to the name of the pathway.
 
+The ``educates workshop render`` command renders the instructions as static
+HTML for the same pathway a workshop session would use. To render another
+pathway without editing the workshop definition, pass its name with the
+``--pathway`` option:
+
+```shell
+educates workshop render . --pathway python --output-file python.zip
+```
+
+A name which ``pathways.paths`` does not define, or any name when
+``config.yaml`` defines no pathways, fails with an error listing the pathways
+that are defined.
+
 At the bottom of each page but the last, a "Continue" button takes the user to
 the next page. On the last page, a "Finish Workshop" button is shown when the
 ``RESTART_URL`` environment variable gives the session somewhere to return the

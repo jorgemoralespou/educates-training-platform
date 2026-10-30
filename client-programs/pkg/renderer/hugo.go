@@ -17,6 +17,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,8 +111,11 @@ type WorkshopConfig struct {
 // image sets them: the top-level params and those of the selected pathway,
 // the name of that pathway, and the workshop title and description, replaced
 // by those of the pathway when it gives them. Values only a running session
-// has are left out.
-func WorkshopParams(workshopDir string, workshop *unstructured.Unstructured) (map[string]string, error) {
+// has are left out. A non-empty requestedPathway selects that pathway as a
+// session started with PATHWAY_NAME set to it would, in place of PATHWAY_NAME
+// from the Workshop definition and the default pathway. It must name a pathway
+// the workshop configuration defines.
+func WorkshopParams(workshopDir string, workshop *unstructured.Unstructured, requestedPathway string) (map[string]string, error) {
 	workshopConfig, _, err := readWorkshopConfig(workshopDir)
 
 	if err != nil {
@@ -119,6 +123,14 @@ func WorkshopParams(workshopDir string, workshop *unstructured.Unstructured) (ma
 	}
 
 	environ := sessionEnvironment(workshop)
+
+	if requestedPathway != "" {
+		if _, found := workshopConfig.Pathways.Paths[requestedPathway]; !found {
+			return nil, undefinedPathwayError(workshopConfig, requestedPathway)
+		}
+
+		environ["PATHWAY_NAME"] = requestedPathway
+	}
 
 	pathwayName := workshopConfig.selectedPathway(environ["PATHWAY_NAME"])
 
@@ -187,6 +199,24 @@ func readWorkshopConfig(workshopDir string) (WorkshopConfig, bool, error) {
 	}
 
 	return workshopConfig, true, nil
+}
+
+// undefinedPathwayError reports that the workshop configuration defines no
+// pathway named pathwayName, listing the pathways it does define.
+func undefinedPathwayError(workshopConfig WorkshopConfig, pathwayName string) error {
+	if len(workshopConfig.Pathways.Paths) == 0 {
+		return errors.Errorf("pathway %q is not defined in config.yaml, which defines no pathways", pathwayName)
+	}
+
+	names := make([]string, 0, len(workshopConfig.Pathways.Paths))
+
+	for name := range workshopConfig.Pathways.Paths {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return errors.Errorf("pathway %q is not defined in config.yaml, which defines the pathways: %s", pathwayName, strings.Join(names, ", "))
 }
 
 // selectedPathway returns the name of the pathway a workshop session selects

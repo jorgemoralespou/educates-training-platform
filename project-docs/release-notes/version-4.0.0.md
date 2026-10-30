@@ -413,6 +413,20 @@ New Features
   their rules automatically merge into the built-in ``admin`` and ``view``
   cluster roles.
 
+* The ``educates workshop render`` command accepts a ``--pathway`` option
+  naming the pathway in ``workshop/config.yaml`` to render, in place of the
+  one named by the ``PATHWAY_NAME`` environment variable in ``session.env`` of
+  the workshop definition, or else ``pathways.default``. The rendered
+  instructions use that pathway as a workshop session started with
+  ``PATHWAY_NAME`` set to it would: its ``steps`` order the pages, its
+  ``params`` apply on top of the top-level ones, its ``title`` and
+  ``description`` replace those of the workshop definition, and the
+  ``pathway_name`` data variable is set to its name. This lets an author
+  render each pathway of a workshop without editing the workshop definition.
+  A name which ``pathways.paths`` does not define, or any name when
+  ``workshop/config.yaml`` defines no pathways, fails with an error listing
+  the pathways that are defined.
+
 Features Changed
 ----------------
 

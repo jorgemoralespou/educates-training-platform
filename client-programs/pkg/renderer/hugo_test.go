@@ -84,6 +84,7 @@ func TestWorkshopParams(t *testing.T) {
 		config  string
 		noTitle bool
 		env     []interface{}
+		pathway string
 		want    map[string]string
 	}{
 		{
@@ -193,6 +194,22 @@ params:
 				"workshop_description": "Definition description",
 			},
 		},
+		{
+			name:   "a pathway asked for by name replaces PATHWAY_NAME and the default",
+			config: pathwaysConfig,
+			env: []interface{}{
+				map[string]interface{}{"name": "PATHWAY_NAME", "value": "alt"},
+			},
+			pathway: "other",
+			want: map[string]string{
+				"TOP_PARAM":            "from-top-level",
+				"SHARED_PARAM":         "from-top-level",
+				"OTHER_PARAM":          "from-other",
+				"pathway_name":         "other",
+				"workshop_title":       "Other Pathway Title",
+				"workshop_description": "Definition description",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -206,7 +223,7 @@ params:
 			dir := workshopDirectory(t, tt.config)
 			workshop := workshopDefinition(title, "Definition description", tt.env)
 
-			got, err := WorkshopParams(dir, workshop)
+			got, err := WorkshopParams(dir, workshop, tt.pathway)
 
 			if err != nil {
 				t.Fatalf("WorkshopParams() error = %v", err)
@@ -214,6 +231,46 @@ params:
 
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("WorkshopParams() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWorkshopParamsRejectsUndefinedPathway(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name:    "a pathway pathways.paths doesn't define",
+			config:  pathwaysConfig,
+			wantErr: `pathway "missing" is not defined in config.yaml, which defines the pathways: alt, other`,
+		},
+		{
+			name: "a config.yaml without pathways",
+			config: `
+params:
+- name: TOP_PARAM
+  value: from-top-level
+`,
+			wantErr: `pathway "missing" is not defined in config.yaml, which defines no pathways`,
+		},
+		{
+			name:    "no config.yaml",
+			wantErr: `pathway "missing" is not defined in config.yaml, which defines no pathways`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := workshopDirectory(t, tt.config)
+			workshop := workshopDefinition("Definition Title", "Definition description", nil)
+
+			_, err := WorkshopParams(dir, workshop, "missing")
+
+			if err == nil || err.Error() != tt.wantErr {
+				t.Errorf("WorkshopParams() error = %v, want %q", err, tt.wantErr)
 			}
 		})
 	}
