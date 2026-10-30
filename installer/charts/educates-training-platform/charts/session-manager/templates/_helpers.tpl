@@ -500,7 +500,9 @@ resolution.
 {{/*
 Map the structured `websiteStyling.inline` values to the flat secret-key shape
 the runtime expects in the `default-website-theme` Secret. Returns a YAML map
-of stringData entries (or empty if no inline assets are populated).
+of stringData entries holding every theme file, each empty when not set: the
+workshop dashboard, workshop instructions and training portal always link
+their `.css` and `.js` files, which would otherwise return 404.
 
   workshopDashboard.{html,script,style}    -> workshop-dashboard.{html,js,css}
   workshopInstructions.{html,script,style} -> workshop-instructions.{html,js,css}
@@ -520,13 +522,13 @@ of stringData entries (or empty if no inline assets are populated).
   {{- $key := index . 0 -}}
   {{- $prefix := index . 1 -}}
   {{- $block := default dict (index $inline $key) -}}
-  {{- if $block.html }}{{- $_ := set $entries (printf "%s.html" $prefix) $block.html -}}{{- end -}}
-  {{- if $block.script }}{{- $_ := set $entries (printf "%s.js" $prefix) $block.script -}}{{- end -}}
-  {{- if $block.style }}{{- $_ := set $entries (printf "%s.css" $prefix) $block.style -}}{{- end -}}
+  {{- $_ := set $entries (printf "%s.html" $prefix) (default "" $block.html) -}}
+  {{- $_ := set $entries (printf "%s.js" $prefix) (default "" $block.script) -}}
+  {{- $_ := set $entries (printf "%s.css" $prefix) (default "" $block.style) -}}
 {{- end -}}
 {{- $started := default dict $inline.workshopStarted -}}
-{{- if $started.html }}{{- $_ := set $entries "workshop-started.html" $started.html -}}{{- end -}}
+{{- $_ := set $entries "workshop-started.html" (default "" $started.html) -}}
 {{- $finished := default dict $inline.workshopFinished -}}
-{{- if $finished.html }}{{- $_ := set $entries "workshop-finished.html" $finished.html -}}{{- end -}}
+{{- $_ := set $entries "workshop-finished.html" (default "" $finished.html) -}}
 {{- toYaml $entries -}}
 {{- end -}}

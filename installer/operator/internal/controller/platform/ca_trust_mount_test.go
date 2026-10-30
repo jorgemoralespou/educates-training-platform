@@ -18,6 +18,7 @@ package platform
 
 import (
 	"context"
+	"iter"
 	"reflect"
 	"strings"
 	"testing"
@@ -49,9 +50,9 @@ type renderedWorkload struct {
 	} `json:"spec"`
 }
 
-// renderWorkloads installs chrt with vals into a memory-backed Helm
-// client and returns the Deployments and DaemonSets in the manifest.
-func renderWorkloads(t *testing.T, loadChart func() (*chart.Chart, error), vals map[string]any) []renderedWorkload {
+// renderManifests installs the chart loadChart returns with vals into a
+// memory-backed Helm client and yields the documents of its manifest.
+func renderManifests(t *testing.T, loadChart func() (*chart.Chart, error), vals map[string]any) iter.Seq[string] {
 	t.Helper()
 
 	chrt, err := loadChart()
@@ -66,12 +67,19 @@ func renderWorkloads(t *testing.T, loadChart func() (*chart.Chart, error), vals 
 	if err != nil {
 		t.Fatalf("install %s: %v", chrt.Metadata.Name, err)
 	}
+	return strings.SplitSeq(rel.Manifest, "\n---")
+}
+
+// renderWorkloads returns the Deployments and DaemonSets among the
+// documents renderManifests yields.
+func renderWorkloads(t *testing.T, loadChart func() (*chart.Chart, error), vals map[string]any) []renderedWorkload {
+	t.Helper()
 
 	var workloads []renderedWorkload
-	for doc := range strings.SplitSeq(rel.Manifest, "\n---") {
+	for doc := range renderManifests(t, loadChart, vals) {
 		var w renderedWorkload
 		if err := yaml.Unmarshal([]byte(doc), &w); err != nil {
-			t.Fatalf("parse rendered %s manifest: %v", chrt.Metadata.Name, err)
+			t.Fatalf("parse rendered manifest: %v", err)
 		}
 		if w.Kind == "Deployment" || w.Kind == "DaemonSet" {
 			workloads = append(workloads, w)
