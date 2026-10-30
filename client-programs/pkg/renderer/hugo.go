@@ -354,7 +354,78 @@ func fetchSessionVariables(sessionURL string, password string) (map[string]strin
 	return params, nil
 }
 
-func GenerateHugoConfiguration(workshopDir string, target string, params map[string]string, sessionURL string) error {
+// portalThemeFiles are the portal theme files the educates Hugo theme uses in
+// workshop instructions.
+var portalThemeFiles = []string{
+	"workshop-instructions.css",
+	"workshop-instructions.js",
+	"workshop-instructions.html",
+}
+
+// fetchPortalTheme downloads the portal theme files from the workshop session
+// at sessionURL into dir. The gateway serves them without authentication. A
+// file the session doesn't have is written empty, and every file is emptied
+// before fetching starts, so that no file from an earlier session remains.
+func fetchPortalTheme(sessionURL string, dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return errors.Wrapf(err, "unable to create portal theme directory")
+	}
+
+	for _, name := range portalThemeFiles {
+		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o644); err != nil {
+			return errors.Wrapf(err, "unable to write portal theme file %s", name)
+		}
+	}
+
+	// The gateway answers a theme file it doesn't have with a redirect to
+	// its login page, so redirects are not followed.
+
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	for _, name := range portalThemeFiles {
+		res, err := client.Get(fmt.Sprintf("%s/static/theme/%s", sessionURL, name))
+
+		if err != nil {
+			return errors.Wrapf(err, "cannot query portal theme file %s", name)
+		}
+
+		var data []byte
+
+		switch {
+		case res.StatusCode == http.StatusOK:
+			data, err = io.ReadAll(res.Body)
+
+			if err != nil {
+				err = errors.Wrapf(err, "failed to read portal theme file %s", name)
+			}
+		case res.StatusCode == http.StatusNotFound, res.StatusCode >= 300 && res.StatusCode < 400:
+		default:
+			err = errors.Errorf("unexpected status %d querying portal theme file %s", res.StatusCode, name)
+		}
+
+		res.Body.Close()
+
+		if err != nil {
+			return err
+		}
+
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			return errors.Wrapf(err, "unable to write portal theme file %s", name)
+		}
+	}
+
+	return nil
+}
+
+// GenerateHugoConfiguration writes the Hugo configuration for workshopDir to
+// hugo.yaml in target. When themeDir is not empty it holds the portal theme
+// files, which are mounted into the site as they are in a workshop session.
+func GenerateHugoConfiguration(workshopDir string, target string, params map[string]string, sessionURL string, themeDir string) error {
 	var err error
 
 	// Read user workshop config with details of any pathways.
@@ -421,14 +492,38 @@ func GenerateHugoConfiguration(workshopDir string, target string, params map[str
 		IsHTML    bool   `yaml:"isHTML"`
 	}
 
+	type MountConfig struct {
+		Source string `yaml:"source"`
+		Target string `yaml:"target"`
+	}
+
+	type ModuleConfig struct {
+		Mounts []MountConfig `yaml:"mounts"`
+	}
+
 	type HugoConfig struct {
-		BaseURL       string                          `yaml:"baseURL"`
-		Params        map[string]interface{}           `yaml:"params"`
-		OutputFormats map[string]OutputFormatConfig    `yaml:"outputFormats"`
-		Outputs       map[string][]string              `yaml:"outputs"`
+		BaseURL       string                        `yaml:"baseURL"`
+		Params        map[string]interface{}        `yaml:"params"`
+		OutputFormats map[string]OutputFormatConfig `yaml:"outputFormats"`
+		Outputs       map[string][]string           `yaml:"outputs"`
+		Module        *ModuleConfig                 `yaml:"module,omitempty"`
 	}
 
 	config := HugoConfig{Params: make(map[string]interface{})}
+
+	// Mount the portal theme the same way as hugo-configuration.yaml does in
+	// the workshop image. Declaring a static mount replaces Hugo's default
+	// one, so the workshop's own static directory is mounted again.
+
+	if themeDir != "" {
+		config.Module = &ModuleConfig{
+			Mounts: []MountConfig{
+				{Source: "static", Target: "static"},
+				{Source: themeDir, Target: "static/static/theme"},
+				{Source: themeDir, Target: "assets/theme"},
+			},
+		}
+	}
 
 	config.BaseURL = fmt.Sprintf("%s/workshop/content/", sessionURL)
 
@@ -656,9 +751,18 @@ func RunHugoServer(workshopRoot string, kubeconfig string, context string, works
 				return
 			}
 
+			// Fetch the portal theme files of the workshop session. The
+			// instructions render without them, so a failure only warns.
+
+			themeDir := filepath.Join(tempDir, "theme")
+
+			if err := fetchPortalTheme(sessionURL, themeDir); err != nil {
+				fmt.Println("Unable to fetch portal theme:", err)
+			}
+
 			// Generate (or regenerate) the Hugo configuration.
 
-			err = GenerateHugoConfiguration(workshopDir, tempDir, params, sessionURL)
+			err = GenerateHugoConfiguration(workshopDir, tempDir, params, sessionURL, themeDir)
 
 			if err != nil {
 				fmt.Println("Unable to generate Hugo configuration:", err)
