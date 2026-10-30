@@ -178,13 +178,11 @@ func (o *FilesRenderOptions) Render(directory string, outputFile string) error {
 
 	// Generate (or regenerate) the Hugo configuration.
 
-	params := map[string]string{}
+	params, err := renderer.WorkshopParams(workshopDir, workshop)
 
-	workshopTitle, _, _ := unstructured.NestedString(workshop.Object, "spec", "title")
-	workshopDescription, _, _ := unstructured.NestedString(workshop.Object, "spec", "description")
-
-	params["workshop_title"] = workshopTitle
-	params["workshop_description"] = workshopDescription
+	if err != nil {
+		return errors.Wrap(err, "unable to determine workshop parameters")
+	}
 
 	params["assets_path"] = "/static"
 
