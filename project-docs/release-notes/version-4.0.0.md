@@ -1199,6 +1199,17 @@ Deprecations
 Bugs Fixed
 ----------
 
+* When workshop instructions were previewed with ``educates cluster workshop
+  serve``, the ``workshop-instructions.css``, ``workshop-instructions.js`` and
+  ``workshop-instructions.html`` files of the custom theme configured for the
+  training portal were not applied. The instructions requested the CSS and
+  JavaScript files from the local Hugo server, which did not have them, so
+  the browser reported 404 errors for both. The command now downloads the
+  theme files from the workshop session it previews and mounts them into the
+  Hugo site as a workshop session does, so the preview applies the same
+  styles, scripts and additional page head content. The ``educates workshop
+  render`` command is unchanged and does not include the theme files.
+
 * The documentation for ``workshop/config.yaml``, and the commented example
   in the ``workshop/config.yaml`` file created by the ``hugo`` workshop
   template, showed the titles of the pages of a pathway as a top-level
