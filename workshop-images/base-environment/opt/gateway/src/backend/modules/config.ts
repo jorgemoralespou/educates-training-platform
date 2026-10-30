@@ -50,10 +50,8 @@ const SLIDES_URL = process.env.SLIDES_URL
 const CONSOLE_PORT = process.env.CONSOLE_PORT
 const EDITOR_PORT = process.env.EDITOR_PORT
 const WEBDAV_PORT = process.env.WEBDAV_PORT
-const WORKSHOP_PORT = process.env.WORKSHOP_PORT
 
 const WORKSHOP_RENDERER = process.env.WORKSHOP_RENDERER
-const LOCAL_RENDERER_TYPE = process.env.LOCAL_RENDERER_TYPE
 
 const WORKSHOP_DIR = process.env.WORKSHOP_DIR || "/opt/workshop"
 const SLIDES_DIR = process.env.SLIDES_DIR
@@ -151,10 +149,8 @@ export let config = {
     console_port: CONSOLE_PORT,
     editor_port: EDITOR_PORT,
     webdav_port: WEBDAV_PORT,
-    workshop_port: WORKSHOP_PORT,
 
     workshop_renderer: WORKSHOP_RENDERER,
-    local_renderer_type: LOCAL_RENDERER_TYPE,
 
     workshop_url: "",
     workshop_proxy: {},

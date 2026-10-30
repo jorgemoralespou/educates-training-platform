@@ -95,6 +95,7 @@ Educates
   :caption: Workshop Migration:
 
   workshop-migration/learning-center
+  workshop-migration/classic-renderer
 
 .. toctree::
   :maxdepth: 2

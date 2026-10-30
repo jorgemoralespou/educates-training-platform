@@ -2,16 +2,31 @@
 Workshop Instructions
 =====================
 
-Individual module files making up the workshop instructions can use either [Markdown](https://github.github.com/gfm/) or [AsciiDoc](http://asciidoc.org/) markup formats when using the ``classic`` renderer. The extension used on the file should be ``.md`` or ``.adoc``, corresponding to which formatting markup style you want to use. In the case of the ``hugo`` renderer, only Markdown files can be used. As with when Hugo is used separately, pages can be represented by a single file with ``.md`` extension, or a page bundle, which is a directory with name corresponding to the page, with an ``index.md`` file contained within the directory.
+Workshop instructions are rendered with [Hugo](https://gohugo.io/), and the
+pages making up the instructions are written in
+[Markdown](https://github.github.com/gfm/). As with when Hugo is used
+separately, pages can be represented by a single file with ``.md`` extension,
+or a page bundle, which is a directory with name corresponding to the page,
+with an ``index.md`` file contained within the directory.
 
-If using images in pages, with the ``classic`` renderer the images can be placed in the same location as the Markdown or AsciiDoc files. When using the ``hugo`` renderer, if using single files with ``.md`` extension, the image files need to be placed in the ``workshop/static`` directory. If using a page bundle with the ``hugo`` renderer, image files can also be placed in the page bundle directory if the image is only required for that page.
+If using images in pages, and using single files with ``.md`` extension, the
+image files need to be placed in the ``workshop/static`` directory. If using a
+page bundle, image files can also be placed in the page bundle directory if the
+image is only required for that page.
+
+A workshop whose instructions were written for the classic renderer, which was
+removed in Educates 4.0, needs to be converted as described in [converting a
+classic workshop to Hugo](converting-a-classic-workshop).
 
 Annotation of executable commands
 ---------------------------------
 
-In conjunction with the standard Markdown and AsciiDoc, additional annotations can be applied to code blocks. The annotations are used to indicate that a user can click on the code block and have it copied to the terminal and executed.
+In conjunction with standard Markdown, additional annotations can be applied
+to code blocks. The annotations are used to indicate that a user can click on
+the code block and have it copied to the terminal and executed.
 
-If using Markdown, to annotate a code block so that it will be copied to the terminal and executed, use:
+To annotate a code block so that it will be copied to the terminal and
+executed, use:
 
 ~~~text
 ```execute
@@ -22,15 +37,6 @@ echo "Execute command."
 When you click on the code block the command will be executed in the first terminal of the workshop dashboard.
 
 The terminal session the command is directed to will remain selected such that any subsequent text manually entered will be directed to that terminal without needing to select the terminal first.
-
-If using AsciiDoc, you would instead use the ``role`` annotation in an existing code block:
-
-```text
-[source,bash,role=execute]
-----
-echo "Execute command."
-----
-```
 
 When the workshop dashboard is configured to display multiple terminals, you can qualify which terminal the command should be executed in by adding a suffix to the ``execute`` annotation. For the first terminal use ``execute-1``, for the second terminal ``execute-2``, and for the third terminal ``execute-3``.
 
@@ -87,27 +93,13 @@ echo "Text to copy and edit."
 ```
 ~~~
 
-For AsciiDoc, similar to ``execute``, you can add the ``role`` of ``copy`` or ``copy-and-edit``:
-
-~~~text
-[source,bash,role=copy]
-----
-echo "Text to copy."
-----
-
-[source,bash,role=copy-and-edit]
-----
-echo "Text to copy and edit."
-----
-~~~
-
-For ``copy`` only, if you prefer to mark an inline code section within a paragraph of text as copyable when clicked, you can append the special data variable reference ``{{<copy>}}`` immediately after the inline code block.
+For ``copy`` only, if you prefer to mark an inline code section within a
+paragraph of text as copyable when clicked, you can append the ``copy``
+shortcode, ``{{<copy>}}``, immediately after the inline code block.
 
 ```
 Text to ``copy``{{<copy>}}.
 ```
-
-The ``{{<copy>}}`` format is using a shortcode when using the ``hugo`` renderer. If using the ``classic`` renderer, use ``{{copy}}`` instead.
 
 Extensible clickable actions
 ----------------------------
@@ -239,15 +231,6 @@ text: echo "Text to copy and edit."
 A benefit of using these over the original mechanism is that by using the appropriate YAML syntax, you can control whether a multi line string value is concatenated into one line, or whether line breaks are preserved, along with whether initial or terminating new lines are included. In the original mechanism the string was always trimmed before use.
 
 By using the different forms above when appropriate, the code block when displayed can be annotated with a different message indicating what will happen.
-
-The method for using AsciiDoc is similar, using the ``role`` for the name of the annotation and YAML as the content:
-
-~~~text
-[source,bash,role=terminal:execute]
-----
-command: echo "Execute command."
-----
-~~~
 
 (clickable-actions-for-the-dashboard)=
 Clickable actions for the dashboard
@@ -922,7 +905,7 @@ The name of the locally saved file will be the basename part of the path, that i
 ~~~
 ```files:download-file
 path: .kube/config
-download: kubeconfig-{{session_name}}
+download: kubeconfig-{{< param session_name >}}
 ```
 ~~~
 
@@ -931,7 +914,7 @@ At the same time as being able to download the file you want to make it viewable
 ~~~
 ```files:download-file
 path: .kube/config
-download: kubeconfig-{{session_name}}
+download: kubeconfig-{{< param session_name >}}
 preview: true
 ```
 ~~~
@@ -953,8 +936,8 @@ If instead of downloading the file from the workshop session container, you want
 
 ~~~
 ```files:download-file
-url: {{ingress_protocol}}::/cluster-{{session_name}}.{{ingress_domain}}/config.yaml
-download: {{session_name}}-config.yaml
+url: {{< param ingress_protocol >}}://cluster-{{< param session_name >}}.{{< param ingress_domain >}}/config.yaml
+download: {{< param session_name >}}-config.yaml
 preview: true
 ```
 ~~~
@@ -1071,9 +1054,9 @@ If instead of the test being run in the context of the workshop container using 
 ```examiner:execute-test
 name: test-that-pod-does-not-exist
 title: Verify that pod named "one" does not exist
-url: {{ingress_protocol}}::/examiner-{{session_name}}.{{ingress_domain}}/test-that-pod-does-not-exist
+url: {{< param ingress_protocol >}}://examiner-{{< param session_name >}}.{{< param ingress_domain >}}/test-that-pod-does-not-exist
 args:
-- {{session_name}}
+- {{< param session_name >}}
 ```
 ~~~
 
@@ -1405,19 +1388,9 @@ Note that the description will always be displayed as pre-formatted text style w
 Escaping of code block content
 ------------------------------
 
-When using the ``classic`` renderer, the [Liquid](https://www.npmjs.com/package/liquidjs) template engine is applied to workshop content. If it is necessary to escape content in code blocks which conflicts with the syntactic elements of the Liquid template engine, to escape such elements you will need to suspend processing by the template engine for that section of workshop content to ensure it is rendered correctly. This can be done using a Liquid ``{% raw %}...{% endraw %}`` block.
-
-~~~
-{% raw %}
-```execute
-echo "Execute command."
-```
-{% endraw %}
-~~~
-
-This will have the side effect of preventing interpolation of data variables, so restrict it to only the scope you need it.
-
-When using the ``hugo`` renderer, if the syntax for Hugo short codes conflicts with what you need to display in a code block, you need to add C style comments inside of the shortcode delimeters.
+If the syntax for Hugo shortcodes conflicts with what you need to display in a
+code block, you need to add C style comments inside of the shortcode
+delimiters.
 
 ~~~
 ```
@@ -1470,27 +1443,15 @@ The workshop environment provides the following built-in data variables for use 
 
 Note that ``session_name`` was only added in Educates version 2.6.0. In prior versions ``session_namespace`` was used as a general identifier for the name of the session when in practice it identified the name of the namespace the workshop instance had access to when it was able to make use of the same Kubernetes cluster the workshop instance was deployed to. Since Educates supports configurations where there is no access to a Kubernetes cluster, or a distinct Kubernetes cluster was used with full admin access, the naming made no sense so ``session_name`` was added. As such, if needing an identifier for the name of the session, use ``session_name``. Only use ``session_namespace`` when needing to refer to the actual namespace in a Kubernetes cluster which the session may be associated with. Although the values of each are currently the same, in the future ``session_namespace`` will at some point start to be set to an empty string when there is no associated Kubernetes namespace.
 
-To use a data variable within the page content, when using the ``classic`` renderer surround it by matching pairs of brackets:
-
-```text
-{{ session_name }}
-```
-
-This can be done inside of code blocks, including clickable actions, as well as in URLs:
-
-~~~
-```dashboard:open-url
-url: http://myapp-{{ session_name }}.{{ ingress_domain }}
-```
-~~~
-
-If using the ``hugo`` renderer, you should use the Hugo ``params`` shortcode to include the data variable.
+To use a data variable within the page content, use the Hugo ``param``
+shortcode to include the data variable.
 
 ```text
 {{< param session_name >}}
 ```
 
-This similarly can be used in clickable actions.
+This can be done inside of code blocks, including clickable actions, as well
+as in URLs:
 
 ~~~
 ```dashboard:open-url
@@ -1498,69 +1459,27 @@ url: http://myapp-{{< param session_name >}}.{{< param ingress_domain >}}
 ```
 ~~~
 
-Note that an older version of the ``classic`` rendering engine required that data variables be surrounded on each side with the character ``%``. This is still supported for backwards compatibility when using the ``classic`` renderer, but you should now use matched pairs of brackets instead. Support for percentage delimiters may be removed in a future version.
-
 Adding custom data variables
 ----------------------------
 
-You can introduce your own data variables by listing them in the workshop configuration files.
-
-For the ``classic`` renderer this can be done in the ``workshop/modules.yaml`` file.
-
-A data variable is defined as having a default value, but where the value will be overridden if an environment variable of the same name is defined.
-
-The field under which the data variables should be specified is ``config.vars``:
+You can introduce your own data variables by listing them under ``params`` in
+the ``workshop/config.yaml`` file. A data variable is defined as having a
+default value, set by ``value``, but where the value will be overridden if an
+environment variable of the same name is defined.
 
 ```yaml
-config:
-    vars:
-    - name: NAME
-      value: undefined
+params:
+- name: NAME
+  value: undefined
 ```
 
-Where you want to use a name for a data variable which is different to the environment variable name, you can add a list of ``aliases``:
+Where you want to use a name for a data variable which is different to the
+environment variable name, you can add a list of ``aliases``. When ``aliases``
+is given, the environment variables it lists are checked in order, in place of
+the one named by ``name``, and the first one which is set provides the value.
+If none of them is set, the default value is used.
 
 ```yaml
-config:
-    vars:
-    - name: NAME
-      value: undefined
-      aliases:
-      - ALIAS
-```
-
-The environment variables with names given in the list of aliases will be checked first, then the environment variable with the same name as the data variable. If no environment variables with those names are set, then the default value will be used.
-
-The default value for a data variable can be overridden for a specific workshop by setting it in the corresponding workshop file. For example, ``workshop/workshop-python.yaml`` might contain:
-
-```yaml
-vars:
-    NAME: python
-```
-
-If you need more control over setting the values of data variables, you can provide the file ``workshop/config.js``. The form of this file should be:
-
-```javascript
-function initialize(workshop) {
-    workshop.load_workshop();
-
-    if (process.env['WORKSHOP_FILE'] == 'workshop-python.yaml') {
-        workshop.data_variable('NAME', 'python');
-    }
-}
-
-exports.default = initialize;
-
-module.exports = exports.default;
-```
-
-This Javascript code will be loaded and the ``initialize()`` function called to load the workshop configuration. You can then use the ``workshop.data_variable()`` function to set up any data variables
-
-Because it is Javascript, you can write any code you need to query process environment variables and set data variables based on those. This might include creating composite values constructed from multiple environment variables. You could even download data variables from a remote host.
-
-For the ``hugo`` renderer, extra custom data variables can be specified in the ``workshop/config.yaml`` file. These can go at global scope within the configuration file:
-
-```
 params:
 - name: NAME
   value: undefined
@@ -1568,7 +1487,9 @@ params:
   - ALIAS
 ```
 
-and can also be nested under the configuration for a specific pathway.
+Data variables can also be nested under the configuration for a specific
+pathway, in which case they are only defined when that pathway is selected,
+and override any data variable of the same name at global scope.
 
 ```
 pathways:
@@ -1586,34 +1507,76 @@ pathways:
 Passing of environment variables
 --------------------------------
 
-The passing of environment variables, including remapping of variable names, can be achieved by setting your own custom data variables. If you are using the ``classic`` renderer and don't need to set default values, or remap the name of an environment variable, you can instead reference the name of the environment variable directly, albeit that you must prefix the name with ``ENV_`` when using it.
+The passing of environment variables, including remapping of variable names,
+can be achieved by setting your own custom data variables.
 
-For example, if you wanted to display the value of the ``KUBECTL_VERSION`` environment variable in the workshop content, you can use ``ENV_KUBECTL_VERSION``, as in:
+Add an entry under ``params`` in the ``workshop/config.yaml`` file with the
+same name as the environment variable.
+The data variable takes its value from the environment variable when it is
+set, and from ``value`` otherwise. The ``value`` field can be left out, in
+which case the default is an empty string.
 
+```yaml
+params:
+- name: KUBECTL_VERSION
+  value: "1.33"
 ```
-{{ ENV_KUBECTL_VERSION }}
+
+The value of the environment variable can then be displayed in the workshop
+content using the ``param`` shortcode:
+
+```text
+{{< param KUBECTL_VERSION >}}
 ```
 
-Do note that only environment variables set on the workshop container from the workshop definition, or environment variables set and exported from `profile.d` scripts are available when rendering workshop instructions. Any environment variables set in `workshop/profile` are not available as that file only affects the interactive terminal.
+To give the data variable a different name than the environment variable,
+list the environment variable under ``aliases``. When ``aliases`` is given,
+the environment variables it lists are checked in order, in place of the one
+named by ``name``, and the first one which is set provides the value.
 
-If using the ``hugo`` renderer there is no builtin equivalent for this feature, although you could provide your own shortcode for Hugo to use which implements it if desired.
+```yaml
+params:
+- name: kubectl_version
+  aliases:
+  - KUBECTL_VERSION
+```
+
+Workshop instructions are rendered when the workshop session starts, after
+any ``setup.d`` scripts have run, and only environment variables set at that
+point are available when rendering them. These include environment variables
+set on the workshop container through ``session.env`` or ``session.envFrom``
+in the workshop definition, among them [request
+parameters](passing-parameters-to-a-session) injected through
+``session.envFrom``. They also include environment variables which a
+``setup.d`` script sets by writing ``NAME=VALUE`` lines to the file named by
+the ``WORKSHOP_ENV`` environment variable:
+
+```shell
+#!/bin/bash
+
+echo "KUBECTL_VERSION=1.33" >> $WORKSHOP_ENV
+```
+
+See [running steps on container start](running-steps-on-container-start) for
+how to provide a ``setup.d`` script. Any environment variables set in
+``workshop/profile`` are not available, as that file only affects the
+interactive terminal.
 
 Handling of embedded URL links
 ------------------------------
 
-URLs can be included in workshop content. This can be the literal URL, or the Markdown or AsciiDoc syntax for including and labelling a URL. What happens when a user clicks on a URL, will depend on the specific URL.
+URLs can be included in workshop content. This can be the literal URL, or the
+Markdown syntax for including and labelling a URL. What happens when a user
+clicks on a URL, will depend on the specific URL.
 
 In the case of the URL being an external web site, when the URL is clicked, the URL will be opened in a new browser tab or window.
 
 When the URL is a relative page referring to another page which is a part of the workshop content, the page will replace the current workshop page.
 
-You can define a URL where components of the URL are provided by data variables. Data variables useful in this content are ``session_name`` and ``ingress_domain`` as they can be used to create a URL to an application deployed from a workshop. If using the ``classic`` renderer this can be done using:
-
-```text
-https://myapp-{{ session_name }}.{{ ingress_domain }}
-```
-
-If using the ``hugo`` renderer this can be done using:
+You can define a URL where components of the URL are provided by data
+variables. Data variables useful in this content are ``session_name`` and
+``ingress_domain`` as they can be used to create a URL to an application
+deployed from a workshop. This can be done using:
 
 ```text
 https://myapp-{{< param session_name >}}.{{< param ingress_domain >}}
@@ -1630,18 +1593,8 @@ This is necessary as it will be the Educates installation which will dictate whe
 Conditional rendering of content
 --------------------------------
 
-When using the ``classic`` renderer, because rendering of pages is in part handled using the [Liquid](https://www.npmjs.com/package/liquidjs) template engine, you can also use any constructs the template engine supports for conditional content.
-
-```text
-{% if LANGUAGE == 'java' %}
-....
-{% endif %}
-{% if LANGUAGE == 'python' %}
-....
-{% endif %}
-```
-
-When using the ``hugo`` renderer, because Hugo doesn't support a standard way of handling conditionals, it is necessary to use custom shortcodes.
+Because Hugo doesn't support a standard way of handling conditionals in page
+content, it is necessary to use shortcodes.
 
 To facilitate including conditional content based on the workshop instructions pathway being used, Educates provides a shortcode to select based on the pathway name.
 
@@ -1667,7 +1620,8 @@ The shortcode for selecting based on the pathway is for example implemented as:
 Adding admonitions with shortcodes
 ----------------------------------
 
-Since Educates v2.6.0, a range of custom admonitions is supported when using the ``hugo`` renderer. Currently, three types of admonitions exist:
+A range of custom admonitions is supported. Currently, three types of
+admonitions exist:
 
 - **note** - rendered as blue text box
 - **warning** - rendered as yellow text box
@@ -1698,13 +1652,18 @@ More information on shortcodes can be found in the [Hugo documentation](https://
 Embedding custom HTML content
 -----------------------------
 
-Custom HTML can be embedded in the workshop content using the appropriate mechanism provided by the content rendering engine being used.
+HTML written directly in a Markdown page is left out of the rendered page, so
+custom HTML is embedded in the workshop content using shortcodes. Hugo provides
+as standard various shortcodes for embedding different custom HTML snippets,
+such as embedding videos or images. If you have a custom requirement of your
+own, you will need to provide your own shortcode by placing it in the
+``workshop/layouts/shortcodes`` directory and referencing that in your
+instructions.
 
-If using the ``classic`` renderer and Markdown, HTML can be embedded directly with no requirement for it to be marked as HTML.
+For example, a shortcode in ``workshop/layouts/shortcodes/people-table.html``
+could hold:
 
 ```
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin justo.
-
 <div>
 <table style="width:100%">
   <tr>
@@ -1724,59 +1683,51 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin justo.
   </tr>
 </table>
 </div>
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin justo.
 ```
 
-If using the ``classic`` renderer and AsciiDoc, HTML can be embedded by using a passthrough block.
+and be used in a page as:
 
 ```
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin justo.
 
-++++
-<div>
-<table style="width:100%">
-  <tr>
-    <th>Firstname</th>
-    <th>Lastname</th>
-    <th>Age</th>
-  </tr>
-  <tr>
-    <td>Jill</td>
-    <td>Smith</td>
-    <td>50</td>
-  </tr>
-  <tr>
-    <td>Eve</td>
-    <td>Jackson</td>
-    <td>94</td>
-  </tr>
-</table>
-</div>
-++++
+{{< people-table >}}
 
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin justo.
 ```
 
-If using the ``hugo`` renderer, it provides as standard various shortcodes for embedding different custom HTML snippets, such as embedding videos or images. If you have a custom requirement of your own, you will need to provide your own shortcode by placing it in the ``workshop/layouts/shortcodes`` directory and referencing that in your instructions.
+It is recommended that the HTML consist of only a single HTML element. If you
+have more than one, include them all in a ``div`` element. The latter is
+necessary if any of the HTML elements are marked as hidden and the embedded
+HTML will be a part of a collapsible section. If you don't ensure the hidden
+HTML element is placed under the single top level ``div`` element, the hidden
+HTML element will end up being made visible when the collapsible section is
+expanded.
 
-In all cases it is recommended that the HTML consist of only a single HTML element. If you have more than one, include them all in a ``div`` element. The latter is necessary if any of the HTML elements are marked as hidden and the embedded HTML will be a part of a collapsible section. If you don't ensure the hidden HTML element is placed under the single top level ``div`` element, the hidden HTML element will end up being made visible when the collapsible section is expanded.
+In addition to visual HTML elements, you can also include elements for
+embedded scripts or style sheets.
 
-In addition to visual HTML elements, you can also include elements for embedded scripts or style sheets.
-
-If using the ``classic`` render and have HTML markup which needs to be added to multiple pages, extract it out into a separate file and use the include file mechanism of the Liquid template engine. You can also use the partial render mechanism of Liquid as a macro mechanism for expanding HTML content with supplied values.
+A shortcode can be used from any number of pages, so HTML markup which needs
+to be added to multiple pages only needs to be written once. A shortcode can
+also take arguments, which it can use to expand the HTML content with supplied
+values. See the [Hugo
+documentation](https://gohugo.io/content-management/shortcodes/) for more
+information on shortcodes.
 
 (embedding-images-and-static-assets)=
 Embedding images and static assets
 ----------------------------------
 
-If using images in pages, with the ``classic`` renderer the images can be placed in the same location as the Markdown or AsciiDoc files. When using the ``hugo`` renderer, if using single files with ``.md`` extension, the image files need to be placed in the ``workshop/static`` directory. If using a page bundle with the ``hugo`` renderer, image files can also be placed in the page bundle directory if the image is only required for that page.
+If using images in pages, and using single files with ``.md`` extension, the
+image files need to be placed in the ``workshop/static`` directory. If using a
+page bundle, image files can also be placed in the page bundle directory if the
+image is only required for that page.
 
-If using the ``classic`` renderer, only the filename of the image need be used to refer to the image as images will appear at the same relative location as the generated HTML page.
+If a page bundle is used, only the filename of the image need be used.
 
-If using the ``hugo`` renderer and a page bundle is used, only the filename of the image need be used.
-
-If using the ``hugo`` renderer and images are placed in the ``workshop/static`` directory, you should use the ``baseurl`` short code to access the URL path for where workshop instructions are hosted. Any image files (or other assets) in the ``workshop/static`` directory will exist relative to that URL path.
+If images are placed in the ``workshop/static`` directory, you should use the
+``baseurl`` shortcode to access the URL path for where workshop instructions
+are hosted. Any image files (or other assets) in the ``workshop/static``
+directory will exist relative to that URL path.
 
 For example, if the file ``educates.png`` were placed at the location ``workshop/static/educates.png``, the markdown should use:
 
@@ -1798,7 +1749,10 @@ Triggering actions from Javascript
 
 Clickable actions can be embedded in workshop instructions and reduce the manual steps that workhop users need to perform. If further automation is required, a subset of the underlying tasks which can be triggered through clickable actions can be executed from Javascript code embedded within the workshop instructions page. This can be used for tasks such as ensuring that a dashboard tab is made visible immediately a page in the workshop instructions is viewed.
 
-If using the ``classic`` renderer and Markdown, the Javascript can be embedded directly within the Markdown document.
+You will need to provide your own shortcode for embedding custom Javascript
+into a page by placing it in the ``workshop/layouts/shortcodes`` directory and
+referencing that in your instructions. For example, a shortcode in
+``workshop/layouts/shortcodes/expose-editor.html`` could hold:
 
 ```
 <script>
@@ -1808,19 +1762,11 @@ window.addEventListener("load", function() {
 </script>
 ```
 
-If using the ``classic`` renderer and AsciiDoc, HTML can be embedded by using a passthrough block.
+and be used in a page as:
 
 ```
-++++
-<script>
-window.addEventListener("load", function() {
-    educates.expose_dashboard("Editor");
-});
-</script>
-++++
+{{< expose-editor >}}
 ```
-
-If using the ``hugo`` renderer you will need to provide your own shortcode for embedding custom Javascript into a page by placing it in the ``workshop/layouts/shortcodes`` directory and referencing that in your instructions.
 
 All accessible functions are defined within the scope of the `educates` object. The available API is described by:
 

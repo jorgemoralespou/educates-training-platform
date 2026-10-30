@@ -2,8 +2,7 @@
 # cluster, disabling the web console if we are not running in a Kubernetes
 # cluster or a kubeconfig has not been mounted into the container.
 #
-# TODO: Some of this should be moved into the gateway application now as no
-# longer need these details in the workshop renderer.
+# TODO: Some of this should be moved into the gateway application.
 
 ENABLE_CONSOLE_KUBERNETES=false
 

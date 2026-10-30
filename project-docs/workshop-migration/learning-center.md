@@ -320,9 +320,15 @@ Note that one of the reasons that editor extensions are no longer installed by d
 Workshop instructions renderer
 ------------------------------
 
-In Learning Center workshop instructions could be provided as either Markdown or AsciiDoc. These were rendered using a custom HTML renderer implemented as part of the platform. In Educates this is referred to as the "classic" renderer for workshop instructions.
+In Learning Center workshop instructions could be provided as either Markdown
+or AsciiDoc. These were rendered using a custom HTML renderer implemented as
+part of the platform, which Educates called the classic renderer.
 
-Although the classic renderer is still supported at this time, Educates has added support for using the Hugo static site generator for rendering workshop instructions. It is expected that in time the older classic renderer will be retired and all workshop instructions will need to use the Hugo based renderer for workshop instructions. You should therefore investigate converting the format of workshop instructions. See the separate documentation on migrating from the classic renderer to the Hugo based renderer.
+Educates renders workshop instructions with the Hugo static site generator,
+and the classic renderer was removed in Educates 4.0. The instructions of a
+Learning Center workshop therefore need to be converted to the format Hugo
+uses, as described in [converting a classic workshop to
+Hugo](converting-a-classic-workshop).
 
 Portal default workshop settings
 --------------------------------

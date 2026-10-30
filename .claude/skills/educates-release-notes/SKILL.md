@@ -69,8 +69,9 @@ Map changes to sections by scanning commits and file diffs:
 |---|---|
 | **New Features** | New files, new commands, new config options; commit keywords: "add", "new", "feature", "support for" |
 | **Features Changed** | Modified existing files, version bumps, config changes; keywords: "update", "change", "modify", "improve", "refactor" |
-| **Bugs Fixed** | Error handling, corrections; keywords: "fix", "bug", "error", "issue", "correct" |
+| **Removed Features** | A feature, property, binary or bundled version that is gone in this release, as opposed to deprecated (still works) or changed (works differently); keywords: "remove", "drop", "no longer included". The entry's point must be the removal: when a removal is incidental to a change, such as versions dropped by an upgrade, the entry stays in Features Changed. Say what to use instead. |
 | **Deprecations** | Things still supported but on the way out; keywords: "deprecate", "deprecated". Note the removal timeline (and any upstream timeline it tracks). |
+| **Bugs Fixed** | Error handling, corrections; keywords: "fix", "bug", "error", "issue", "correct" |
 | **Known Issues** | Manual entry — from issue tracker or known limitations |
 
 A user-facing change is only "done" when it has a release-notes entry — this is a
@@ -80,6 +81,7 @@ many entries. Treat your job as filling gaps and tidying, not writing from scrat
 Common patterns:
 - `go.mod`/`go.sum` changes → dependency updates (Features Changed)
 - `Dockerfile` changes → base image or tool version updates (Features Changed)
+- A tool dropped from a `Dockerfile`, or a property dropped from a CRD → Removed Features
 - New files in `project-docs/` → documentation (New Features or Features Changed)
 - kubectl version blocks in `workshop-images/base-environment/Dockerfile` → Kubernetes version support change
 
@@ -101,16 +103,22 @@ Features Changed
 
 * Description of changed feature.
 
-Bugs Fixed
-----------
+Removed Features
+----------------
 
-* Description of bug fix.
+* Description of a feature, property, binary or bundled version that is no
+  longer available, and what to use instead.
 
 Deprecations
 ------------
 
 * Description of a feature that still works but is slated for removal, with the
   removal timeline (if any).
+
+Bugs Fixed
+----------
+
+* Description of bug fix.
 
 Known Issues
 ------------

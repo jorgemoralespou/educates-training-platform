@@ -15,14 +15,14 @@
 #         value: undefined
 #         aliases:
 #         - ALIAS
-
-# modules:
-# - name: 00-workshop-overview
-#   title: Workshop Overview
-# - name: 01-workshop-instructions
-#   title: Workshop Instructions
-# - name: 99-workshop-summary
-#   title: Workshop Summary
+#
+#   modules:
+#     00-workshop-overview:
+#       title: Workshop Overview
+#     01-workshop-instructions:
+#       title: Workshop Instructions
+#     99-workshop-summary:
+#       title: Workshop Summary
 
 # params:
 # - name: NAME

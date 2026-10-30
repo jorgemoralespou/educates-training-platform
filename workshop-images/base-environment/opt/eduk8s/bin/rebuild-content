@@ -49,19 +49,29 @@ if [ x"$ENABLE_WORKSHOP" != x"true" -o x"$WORKSHOP_DIR" == x"" ]; then
     exit 0
 fi
 
-# Bail out if not using the Hugo renderer for instructions.
+# Bail out if the instructions are not rendered from the workshop directory.
 
 if [ x"$WORKSHOP_RENDERER" != x"local" ]; then
     exit 0
 fi
 
+# Check whether the instructions are in the format of the classic renderer,
+# which is no longer available. A workshop is treated as classic when its
+# workshop directory holds a workshop.yaml or modules.yaml file, or when it
+# asks for the classic renderer by setting LOCAL_RENDERER_TYPE to classic. The
+# page in /opt/eduk8s/etc/classic-renderer-removed, which replaces the
+# instructions of such a workshop, carries the same message as the one written
+# to the setup log below.
+
+CLASSIC_WORKSHOP=false
+
 if [ -f $WORKSHOP_DIR/workshop.yaml -o -f $WORKSHOP_DIR/modules.yaml ]; then
-    exit 0
+    CLASSIC_WORKSHOP=true
 fi
 
-# Setup default Hugo theme for renderer.
-
-WORKSHOP_RENDERER_THEME=${WORKSHOP_RENDERER_THEME:-educates}
+if [ x"$LOCAL_RENDERER_TYPE" == x"classic" ]; then
+    CLASSIC_WORKSHOP=true
+fi
 
 # Copy the files for any custom theme into a directory which is mounted into
 # the Hugo site. The theme is mounted from a secret, where each file is a
@@ -79,7 +89,9 @@ for file in /opt/eduk8s/theme/*; do
     fi
 done
 
-# Generate Hugo configuration.
+# Generate Hugo configuration. The pathways of a classic workshop's own
+# configuration are left out, as they name pages of the workshop which the
+# page replacing its instructions does not have.
 
 YTT_ARGS=()
 
@@ -87,15 +99,11 @@ YTT_ARGS+=(--data-value theme_dir=$THEME_DIR)
 
 YTT_ARGS+=(-f $HOME/.local/share/workshop/workshop-variables.json --file-mark workshop-variables.json:type=data)
 
-if [ -f $WORKSHOP_DIR/config.yaml ]; then
+if [ x"$CLASSIC_WORKSHOP" != x"true" -a -f $WORKSHOP_DIR/config.yaml ]; then
     YTT_ARGS+=(-f $WORKSHOP_DIR/config.yaml --file-mark config.yaml:path=workshop-configuration.yaml --file-mark config.yaml:type=data)
 fi
 
 ytt -f /opt/eduk8s/etc/templates/hugo-configuration.yaml "${YTT_ARGS[@]}" >$HOME/.local/share/workshop/hugo-configuration.yaml
-
-# Run Hugo to generate static HTML files. We run it twice, once to generate
-# with empty set of documents so that we still get something even if real run
-# fails for some reason, then the real run.
 
 HUGO_ARGS=()
 
@@ -106,8 +114,11 @@ HUGO_ARGS+=(--minify)
 
 HUGO_ARGS+=(--config $HOME/.local/share/workshop/hugo-configuration.yaml)
 
+# The instructions are always rendered with the educates theme, the only theme
+# in the themes directory.
+
 HUGO_ARGS+=(--themesDir /opt/eduk8s/etc/themes)
-HUGO_ARGS+=(--theme $WORKSHOP_RENDERER_THEME)
+HUGO_ARGS+=(--theme educates)
 
 HUGO_ARGS+=(--baseURL $INGRESS_PROTOCOL://$SESSION_NAMESPACE.$INGRESS_DOMAIN$INGRESS_PORT_SUFFIX/workshop/content/)
 
@@ -116,6 +127,29 @@ TEMPDIR=/tmp/dummy-workshop.$$
 mkdir $TEMPDIR
 
 trap "rm -rf $TEMPDIR" EXIT
+
+# For a classic workshop, write the removal message to the output, which is
+# captured in the setup log, and render the page carrying the same message
+# where the instructions would otherwise be served. Hugo is not run on the
+# workshop's own content. The shipped site is copied to a writable directory
+# first, as Hugo writes into the directory it renders from. Exiting with an
+# error marks the workshop setup as failed.
+
+if [ x"$CLASSIC_WORKSHOP" == x"true" ]; then
+    { set +x; } 2>/dev/null
+    echo "This workshop's instructions use the classic renderer, which was removed in Educates 4.0. Convert them to the Hugo renderer as described at https://docs.educates.dev/en/latest/workshop-migration/classic-renderer.html." 1>&2
+    set -x
+
+    cp -R /opt/eduk8s/etc/classic-renderer-removed/. $TEMPDIR/
+
+    hugo "${HUGO_ARGS[@]}" --source $TEMPDIR --destination $WORKSHOP_DIR/public
+
+    exit 1
+fi
+
+# Run Hugo to generate static HTML files. We run it twice, once to generate
+# with empty set of documents so that we still get something even if real run
+# fails for some reason, then the real run.
 
 hugo "${HUGO_ARGS[@]}" --source $TEMPDIR --destination $WORKSHOP_DIR/public || true
 
