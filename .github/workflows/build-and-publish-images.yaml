@@ -477,9 +477,7 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          rm -rf client-programs/pkg/renderer/files
-          mkdir client-programs/pkg/renderer/files
-          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
+          make stage-renderer-files
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -525,9 +523,7 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          rm -rf client-programs/pkg/renderer/files
-          mkdir client-programs/pkg/renderer/files
-          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
+          make stage-renderer-files
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -573,9 +569,7 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          rm -rf client-programs/pkg/renderer/files
-          mkdir client-programs/pkg/renderer/files
-          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
+          make stage-renderer-files
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -622,9 +616,7 @@ jobs:
       - name: Build educates client program
         shell: bash
         run: |
-          rm -rf client-programs/pkg/renderer/files
-          mkdir client-programs/pkg/renderer/files
-          cp -rp workshop-images/base-environment/opt/eduk8s/etc/themes client-programs/pkg/renderer/files/
+          make stage-renderer-files
           cd client-programs
           REPOSITORY_TAG=${{env.REPOSITORY_TAG}}
           IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
@@ -648,7 +640,6 @@ jobs:
 
     needs:
       - variables
-      - publish-workshop-base-image
 
     env:
       REPOSITORY_OWNER: ${{needs.variables.outputs.repository_owner}}
@@ -671,6 +662,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: ./hack/stamp-release-version.sh "${{env.REPOSITORY_TAG}}" ghcr.io "${{env.REPOSITORY_OWNER}}" --charts-only
+
+      # The renderer themes are gitignored, so they are staged into the
+      # build context, which the image build reads from the checkout.
+      - name: Stage renderer theme files
+        shell: bash
+        run: make stage-renderer-files
 
       - name: Calculate platforms
         shell: bash
@@ -721,8 +718,6 @@ jobs:
           context: client-programs
           platforms: ${{env.TARGET_PLATFORMS}}
           build-args: |
-            REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
-            TAG=${{env.REPOSITORY_SHA_TAG}}
             PROJECT_VERSION=${{env.REPOSITORY_TAG}}
             IMAGE_REPOSITORY=ghcr.io/${{env.REPOSITORY_OWNER}}
             GIT_COMMIT=${{env.GIT_COMMIT}}
