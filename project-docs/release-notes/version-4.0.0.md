@@ -1234,6 +1234,14 @@ Bugs Fixed
   variable as ``$(name)``, is ignored, as are the data variables only a
   running workshop session provides, such as ``session_namespace``.
 
+* The ``educates`` binary in the ``educates-cli`` container image embedded the
+  Hugo theme for workshop instructions at the wrong location, so the
+  ``educates workshop render`` and ``educates cluster workshop serve`` commands
+  run with that binary could not find the ``educates`` theme. This affected a
+  binary copied from the image into another container image. The binary in the
+  image now embeds the theme at the same location as the binaries attached to
+  the GitHub release, which were not affected.
+
 * The local secrets cache directory and the files in it were created
   readable by every account on the machine, so other local users could read
   cached private keys and registry credentials. The CLI now creates the

@@ -1,9 +1,3 @@
-ARG REPOSITORY=localhost:5001
-ARG TAG=latest
-
-# Add this stage before the builder stage
-FROM --platform=$BUILDPLATFORM ${REPOSITORY}/educates-base-environment:${TAG} AS themes-source
-
 # Multi-stage build for client-programs. Pinned to BUILDPLATFORM so Go
 # cross-compiles for non-native target architectures instead of running
 # the toolchain under QEMU emulation.
@@ -21,13 +15,12 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Prepare renderer files (matching Makefile logic)
-RUN rm -rf pkg/renderer/files && \
-    mkdir -p pkg/renderer/files && \
+# The renderer embeds the Hugo themes from pkg/renderer/files/themes, which
+# is gitignored and must be staged into the build context beforehand with
+# `make stage-renderer-files` from the repository root.
+RUN test -f pkg/renderer/files/themes/educates/hugo.toml || \
+    { echo "renderer themes not staged: run 'make stage-renderer-files' first" >&2; exit 1; } && \
     mkdir -p bin
-
-# Copy themes from base environment
-COPY --from=themes-source /opt/eduk8s/etc/themes pkg/renderer/files/
 
 # Build for multiple architectures
 ARG TARGETOS

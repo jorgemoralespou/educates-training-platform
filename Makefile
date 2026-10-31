@@ -102,8 +102,7 @@ IMAGE_DIR.cli = client-programs
 # compiled-in defaults as the binary build below.
 WORKSHOP_BUILD_ARGS = --build-arg IMAGE_REPOSITORY=$(IMAGE_REPOSITORY) --build-arg PACKAGE_VERSION=$(PACKAGE_VERSION)
 $(foreach i,$(WORKSHOP_IMAGES) desktop-environment,$(eval IMAGE_BUILD_ARGS.$(i) = $(WORKSHOP_BUILD_ARGS)))
-IMAGE_BUILD_ARGS.cli = --build-arg REPOSITORY=$(IMAGE_REPOSITORY) --build-arg TAG=$(PACKAGE_VERSION) \
-  --build-arg PROJECT_VERSION=$(CLI_VERSION) --build-arg IMAGE_REPOSITORY=$(CLI_IMAGE_REPOSITORY) \
+IMAGE_BUILD_ARGS.cli = --build-arg PROJECT_VERSION=$(CLI_VERSION) --build-arg IMAGE_REPOSITORY=$(CLI_IMAGE_REPOSITORY) \
   --build-arg GIT_COMMIT=$(GIT_COMMIT) --build-arg GIT_COMMIT_DATE=$(GIT_COMMIT_DATE)
 
 # =============================================================================
@@ -147,9 +146,9 @@ $(addprefix image-,$(WORKSHOP_IMAGES)) image-desktop-environment: image-base-env
 # them (and generated CRDs/deepcopy) before baking the image.
 image-operator: refresh-operator-embeds
 
-# The CLI image embeds the operator chart + schemas via its build
-# context and copies themes from the base-environment image.
-image-cli: refresh-cli-embeds image-base-environment
+# The CLI image embeds the operator chart, schemas and renderer themes
+# from its build context, so they are staged into it first.
+image-cli: refresh-cli-embeds stage-renderer-files
 
 # =============================================================================
 # Embedded-artifact freshness
