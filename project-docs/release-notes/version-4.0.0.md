@@ -1199,6 +1199,19 @@ Deprecations
 Bugs Fixed
 ----------
 
+* When no reserved workshop session was available and the training portal
+  created a new one for a user, it reported the ``Session/Started`` analytics
+  event twice. For a workshop session requested through the training portal
+  web interface, the event was reported when the user requested it and again
+  when it was deployed. For one requested via the REST API, the event was
+  reported when it was deployed, before the user had activated it, and again
+  on activation. Its ``WorkshopSession`` resource was also given the
+  ``Allocated`` phase when deployed, where a reserved workshop session
+  requested via the REST API has the ``Allocating`` phase until activated.
+  The event is now reported once, after ``Session/Created`` for a workshop
+  session requested through the web interface, and on activation for one
+  requested via the REST API, which has the ``Allocating`` phase until then.
+
 * When workshop instructions were previewed with ``educates cluster workshop
   serve``, the ``workshop-instructions.css``, ``workshop-instructions.js`` and
   ``workshop-instructions.html`` files of the custom theme configured for the
