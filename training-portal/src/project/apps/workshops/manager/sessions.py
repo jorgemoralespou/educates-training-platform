@@ -402,12 +402,18 @@ def create_workshop_session(session, secret):
 
     report_analytics_event(session, "Session/Created")
 
+    # A session created for a user who requested it via the REST API waits
+    # for the user to activate it, as a reserved session allocated that way
+    # does. Activation marks it allocated and reports it started, so neither
+    # is done here.
+
     if session.owner:
-        update_session_status(session.name, "Allocated", session.owner)
-        report_analytics_event(session, "Session/Started")
         if session.token:
+            update_session_status(session.name, "Allocating", session.owner)
             session.mark_as_waiting()
         else:
+            update_session_status(session.name, "Allocated", session.owner)
+            report_analytics_event(session, "Session/Started")
             session.mark_as_running()
 
             def _schedule_resource_creation():
@@ -873,7 +879,9 @@ def create_session_for_user(
     analytics_url=None,
 ):
     """Create a new workshop session in case there was no existing reserved
-    workshop sessions for the specified workshop environment.
+    workshop sessions for the specified workshop environment. The session is
+    reported as started once deployed, or when activated if it was requested
+    via the REST API, so only a pending REST API request is reported here.
 
     """
 
@@ -901,9 +909,7 @@ def create_session_for_user(
 
         session.mark_as_pending(user, token, timeout)
 
-        if not token:
-            report_analytics_event(session, "Session/Started")
-        else:
+        if token:
             report_analytics_event(session, "Session/Pending")
 
         return session
@@ -928,9 +934,7 @@ def create_session_for_user(
 
         session.mark_as_pending(user, token, timeout)
 
-        if not token:
-            report_analytics_event(session, "Session/Started")
-        else:
+        if token:
             report_analytics_event(session, "Session/Pending")
 
         return session
@@ -973,9 +977,7 @@ def create_session_for_user(
 
     session.mark_as_pending(user, token, timeout)
 
-    if not token:
-        report_analytics_event(session, "Session/Started")
-    else:
+    if token:
         report_analytics_event(session, "Session/Pending")
 
     return session
